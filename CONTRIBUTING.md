@@ -27,11 +27,12 @@ We follow a minimalist approach to code documentation. Avoid adding conversation
 
 For public-facing functions and complex logic, use **Structured Block Commenting** combined with **Explicit Type Documentation**. This ensures that the intent of the logic is clear for future contributors.
 
-### Vector Search Logic
+### Analysis Pipeline & Performance
 
-ArchGuard relies on cosine similarity to find relevant ADRs. If you are modifying the search or ranking logic, ensure it adheres to the formal definition:
-
-$$\text{similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathbf{B}\|}$$
+- **Vector Search**: ArchGuard relies on cosine similarity to find relevant ADRs. Ensure search logic adheres to the formal definition: $\text{similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathbf{B}\|}$.
+- **Parallelism**: The analysis engine uses a worker pool to process files concurrently. The default concurrency is 5, adjustable via `max_concurrency` in the config.
+- **Smart Truncation**: To fit within LLM context limits, the engine truncates large files by rolling back to the nearest preceding newline character to avoid breaking code mid-line.
+- **Caching**: Analysis results are cached in `.archguard/cache` using a SHA-256 hash of the model name, ADR content, file content, and prompts. This is critical for maintaining performance in local environments.
 
 ---
 
@@ -40,3 +41,11 @@ $$\text{similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathb
 We maintain a robust testing suite that includes unit tests for internal logic and E2E tests for the CLI. Run `go test ./...` to execute the full suite. Our E2E tests utilize a mock provider to verify logic without incurring API costs or requiring a running Ollama instance.
 
 When you are ready to submit your changes, please use **Conventional Commits** for your messages. For example, use `feat: add support for local vector caching` or `fix: handle malformed JSON from LLM`. Pull requests will be reviewed for idiomatic Go patterns and architectural alignment.
+
+### CI and Exit Codes
+
+When contributing to the CLI, ensure that behavioral changes respect standard exit codes:
+
+- **0**: Success (no violations found).
+- **1**: Failure (architectural violations detected or environment error).
+- **--ci flag**: Changes that result in truncated context should only trigger warnings in CI mode to maintain pipeline stability.
