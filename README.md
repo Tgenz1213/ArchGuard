@@ -2,6 +2,9 @@
 
 ArchGuard is a CLI tool designed to prevent "architectural drift" by verifying code changes against established Architectural Decision Records (ADRs). It is a semantic compliance engine that uses LLMs (via Ollama) to reason about whether your code changes violate the rules of specific ADRs.
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/tgenz1213/archguard)](https://goreportcard.com/report/github.com/tgenz1213/archguard)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## 🔍 See it in Action
 
 ArchGuard sits between your code and your commit. When it detects code that violates your Architectural Decision Records (ADRs), it alerts you before the drift merges.
@@ -78,6 +81,15 @@ Index your ADRs and check for drift:
 
 ---
 
+## 🔒 Privacy & Data Flow
+
+ArchGuard is designed with a "Local First" mentality.
+
+- **Local Analysis**: When using the `ollama` provider, no code or documentation leaves your machine. All embeddings and analysis are performed locally.
+- **Cloud Analysis**: When using `openai`, only the relevant code snippets and ADR text required for the specific audit are sent to OpenAI's API.
+
+---
+
 ## 🛠️ Configuration
 
 ### archguard.yaml Reference
@@ -108,6 +120,7 @@ analysis:
     - "**/*.test.go"
     - "vendor/**"
     - "go.sum"
+  max_concurrency: 5 # Number of files analyzed in parallel
 ```
 
 ### ADR Format
@@ -136,7 +149,9 @@ Do not print passwords or secrets to console logs.
 
 - `title` (Required): Human friendly title.
 - `status` (Required): Must match a value in `analysis.accepted_statuses`.
-- `scope` (Optional): Glob pattern (e.g., `src/**/*.ts`, `**/*_test.go`). If omitted, it applies to all files.
+- `scope` (Optional): Glob pattern (e.g., `src/**/*.ts`). Supports standard Go globbing and recursive `**` patterns.
+
+---
 
 ## 📖 Usage Guide
 
@@ -146,58 +161,46 @@ Do not print passwords or secrets to console logs.
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
   - `<path>`: Scans a specific file or directory.
-  - `--staged`: Scan only staged (index) changes. (Recommended for pre-commit hooks)
+  - `--staged`: Scan only staged (index) changes.
   - `--all`: Scan all tracked files.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode.
+
+### Automation & Exit Codes
+
+- **Success (0)**: No architectural violations found.
+- **Violation (1)**: Architectural drift detected.
+- **Error (1)**: Configuration, environment, or indexing issues.
 
 ### Suppression
 
 Intentionally ignore a violation for a specific file using a comment:
 
 ```go
-// archguard-ignore: 001-no-secrets
-func printSecret() {
-    fmt.Println(secret)
-}
+// archguard-ignore: 0001
 ```
 
-- The ignore token must match the **ADR file name** (or ID prefix) exactly.
+- The ignore token must match the **ADR ID** (the numeric prefix of the filename).
 
 ### Continuous Integration (CI)
 
 Use the `--ci` flag in your pipeline.
 
-```bash
-./archguard check --ci --staged
-```
-
 **Warn-Open Policy:**
 Large files may be truncated to fit the LLM context. In `--ci` mode, truncated files result in a **Warning** rather than a failure, ensuring your pipeline doesn't break due to inconclusive analysis on massive files.
 
-## ❓ Troubleshooting
+---
 
-**"connection refused" or LLM errors:**
-Ensure Ollama is running in the background:
+## 🔬 Technical Details
 
-```bash
-ollama serve
-```
-
-**"No relevant ADRs found" despite obvious violations:**
-
-1.  Check your `similarity_threshold` in `archguard.yaml`. If it's too high (e.g., 0.95), lower it to 0.75.
-2.  Ensure you ran `./archguard index` after creating the ADR.
+- **Semantic Search**: Uses cosine similarity to find relevant ADRs based on the code being analyzed.
+- **Smart Truncation**: Files exceeding the token limit are rolled back to the nearest newline character to preserve code integrity during analysis.
+- **Caching**: Analysis results are persisted in `.archguard/cache` based on a hash of the model, ADR content, and file content to reduce API costs and execution time.
+- **Parallel Execution**: Coordinates analysis across files using a worker pool (defaulting to 5 concurrent workers).
 
 ## 🤝 Contributing
 
-Contributions are welcome!
-
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for architectural overviews and technical standards.
 
 ## 📄 License
 
