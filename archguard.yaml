@@ -1,0 +1,24 @@
+version: "1"
+
+llm:
+  provider: "ollama" # Default provider for Reasoning
+  model: "llama3.2"
+  base_url: "http://localhost:11434"
+  max_tokens: 8000
+  temperature: 0.0
+
+vector_store:
+  provider: "ollama" # Default provider for Embeddings
+  model: "nomic-embed-text"
+  embedding_dim: 768
+  similarity_threshold: 0.75
+
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+  exclude_patterns:
+    - "**/*_test.go"
+    - "vendor/**"
+    - "go.sum"
+    - "README.md"
+    - "bin/**"

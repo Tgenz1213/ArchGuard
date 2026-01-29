@@ -1,0 +1,27 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test binaries
+*.test
+
+# Temp files
+*.tmp
+tmp/
+*.log
+*.out
+.archguard/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Go
+vendor/
+coverage.out
