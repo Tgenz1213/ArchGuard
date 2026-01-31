@@ -284,15 +284,6 @@ func (e *Engine) fetchContext(path string) (string, string, error) {
 	return diff, "diff", nil
 }
 
-func (e *Engine) countTokens(text string) int {
-	tkm, err := e.getTokenizer()
-	if err != nil {
-		return len(text) / 4
-	}
-	tokenIds := tkm.Encode(text, nil, nil)
-	return len(tokenIds)
-}
-
 func (e *Engine) getTokenizer() (*tiktoken.Tiktoken, error) {
 	model := e.Config.LLM.Model
 	if model == "" {
