@@ -82,7 +82,11 @@ Do not print passwords or secrets to console.log.`
 	if err := os.WriteFile(adrPath, []byte(adrContent), 0644); err != nil {
 		t.Fatalf("Failed to create mock ADR: %v", err)
 	}
-	defer os.Remove(adrPath)
+	defer func() {
+		if err := os.Remove(fixturePath); err != nil {
+			t.Errorf("Failed to remove fixture: %v", err)
+		}
+	}()
 
 	t.Log("Indexing ADRs for E2E test...")
 	indexCmd := exec.Command(binaryPath, "index")
