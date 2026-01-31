@@ -193,7 +193,9 @@ func (e *Engine) Run(ctx context.Context) error {
 						continue
 					}
 					if e.Cache != nil {
-						e.Cache.Put(cacheKey, res)
+						if err := e.Cache.Put(cacheKey, res); err != nil {
+							e.Log("Failed to cache analysis result: %v", err)
+						}
 					}
 				}
 

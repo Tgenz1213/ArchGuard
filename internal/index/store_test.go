@@ -12,7 +12,11 @@ func TestStore_Save_Atomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Errorf("Failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
 
 	indexPath := filepath.Join(tmpDir, "index.json")
 	store := NewStore()

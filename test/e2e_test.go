@@ -41,11 +41,23 @@ func TestE2E_ScanJS(t *testing.T) {
 	}
 
 	binaryPath := filepath.Join(rootDir, binaryName)
-	defer os.Remove(binaryPath)
+	defer func() {
+		if err := os.Remove(binaryPath); err != nil {
+			t.Errorf("Failed to remove binary: %v", err)
+		}
+	}()
 
 	fixturePath := filepath.Join(rootDir, fixtureFilename)
-	os.Remove(fixturePath)
-	defer os.Remove(fixturePath)
+	if err := os.Remove(fixturePath); err != nil {
+		if !os.IsNotExist(err) {
+			t.Fatalf("Failed to remove fixture: %v", err)
+		}
+	}
+	defer func() {
+		if err := os.Remove(fixturePath); err != nil {
+			t.Errorf("Failed to remove fixture: %v", err)
+		}
+	}()
 
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
