@@ -68,7 +68,11 @@ func (p *OpenAIProvider) post(ctx context.Context, url string, body interface{},
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Error closing response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("openai error: %s", resp.Status)
@@ -95,7 +99,11 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Error closing response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("openai embedding api error: %s", resp.Status)

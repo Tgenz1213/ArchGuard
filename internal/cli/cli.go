@@ -233,7 +233,12 @@ func ensureGitignore() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
 	if len(content) > 0 && content[len(content)-1] != '\n' {
 		if _, err := f.WriteString("\n"); err != nil {
@@ -279,7 +284,10 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 
-	checkFlags.Parse(args)
+	if err := checkFlags.Parse(args); err != nil {
+		return fmt.Errorf("error parsing flags: %v", err)
+	}
+
 	files := checkFlags.Args()
 
 	store := index.NewStore()

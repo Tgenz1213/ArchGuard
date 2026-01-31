@@ -193,7 +193,9 @@ func (e *Engine) Run(ctx context.Context) error {
 						continue
 					}
 					if e.Cache != nil {
-						e.Cache.Put(cacheKey, res)
+						if err := e.Cache.Put(cacheKey, res); err != nil {
+							e.Log("Failed to cache analysis result: %v", err)
+						}
 					}
 				}
 
@@ -280,15 +282,6 @@ func (e *Engine) fetchContext(path string) (string, string, error) {
 		return truncatedContent, "truncated", nil
 	}
 	return diff, "diff", nil
-}
-
-func (e *Engine) countTokens(text string) int {
-	tkm, err := e.getTokenizer()
-	if err != nil {
-		return len(text) / 4
-	}
-	tokenIds := tkm.Encode(text, nil, nil)
-	return len(tokenIds)
 }
 
 func (e *Engine) getTokenizer() (*tiktoken.Tiktoken, error) {
