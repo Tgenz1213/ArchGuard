@@ -53,30 +53,26 @@ cd archguard
 go install ./cmd/archguard
 ```
 
-### 4. Configure
+### 4. Initialize & Run
 
-Create a minimal `archguard.yaml` in your project root:
-
-```yaml
-version: "1"
-llm:
-  provider: "ollama"
-  model: "llama3.2"
-vector_store:
-  provider: "ollama"
-  model: "nomic-embed-text"
-analysis:
-  adr_path: "./docs/arch" # Folder containing your ADR markdown files
-  accepted_statuses: ["Accepted"]
-```
-
-### 5. Run
-
-Index your ADRs and check for drift:
+Set up ArchGuard in your project:
 
 ```bash
-./archguard index
-./archguard check --staged
+archguard init
+```
+
+This interactive command will:
+
+- Create `archguard.yaml` with defaults
+- Set up the ADR directory (default: `./docs/arch`)
+- Optionally add an ADR template to get started
+- Create `.archguard/` for caching
+
+Then index your ADRs and check for drift:
+
+```bash
+archguard index
+archguard check --staged
 ```
 
 ---
@@ -117,7 +113,7 @@ analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
   exclude_patterns:
-    - "**/*.test.go"
+    - "**/*_test.go"
     - "vendor/**"
     - "go.sum"
   max_concurrency: 5 # Number of files analyzed in parallel
@@ -157,6 +153,7 @@ Do not print passwords or secrets to console logs.
 
 ### CLI Commands
 
+- `archguard init`: Interactive setup for local development. Creates config, ADR directory, and scaffolding.
 - `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.**
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
