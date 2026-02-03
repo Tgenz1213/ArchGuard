@@ -77,6 +77,9 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if r.URL.Path != "/v1beta/models/text-embedding-004:embedContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
+		if r.URL.Query().Get("key") != "test-api-key" {
+			t.Errorf("Unexpected API key: %s", r.URL.Query().Get("key"))
+		}
 
 		resp := struct {
 			Embedding struct {
