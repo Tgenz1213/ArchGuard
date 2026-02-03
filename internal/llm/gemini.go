@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -111,12 +112,22 @@ func (p *GeminiProvider) post(ctx context.Context, url string, body interface{},
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// Read the response body first so we can include it in the error if needed
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("gemini api error (%s): failed to read response body: %w", resp.Status, readErr)
+		}
+
+		// Try to decode structured error response
 		var errRes struct {
 			Error struct {
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		json.NewDecoder(resp.Body).Decode(&errRes)
+		if decodeErr := json.Unmarshal(body, &errRes); decodeErr != nil || errRes.Error.Message == "" {
+			// If decode fails or message is empty, return error with raw body
+			return fmt.Errorf("gemini api error (%s): %s", resp.Status, string(body))
+		}
 		return fmt.Errorf("gemini api error (%s): %s", resp.Status, errRes.Error.Message)
 	}
 
