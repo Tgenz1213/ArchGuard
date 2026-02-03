@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -113,5 +114,93 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if res[i] != expected[i] {
 			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res[i])
 		}
+	}
+}
+
+func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
+	}))
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:  "test-api-key",
+		model:   "gemini-1.5-flash",
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "Invalid API key") {
+		t.Errorf("Expected error to contain 'Invalid API key', got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "400 Bad Request") {
+		t.Errorf("Expected error to contain status code, got: %s", errMsg)
+	}
+}
+
+func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`This is not valid JSON`))
+	}))
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:  "test-api-key",
+		model:   "gemini-1.5-flash",
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "This is not valid JSON") {
+		t.Errorf("Expected error to contain raw body, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "500 Internal Server Error") {
+		t.Errorf("Expected error to contain status code, got: %s", errMsg)
+	}
+}
+
+func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error": {"message": ""}}`))
+	}))
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:  "test-api-key",
+		model:   "gemini-1.5-flash",
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+
+	errMsg := err.Error()
+	// Should include the raw body when message is empty
+	if !strings.Contains(errMsg, `{"error": {"message": ""}}`) {
+		t.Errorf("Expected error to contain raw body when message is empty, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "403 Forbidden") {
+		t.Errorf("Expected error to contain status code, got: %s", errMsg)
 	}
 }
