@@ -40,7 +40,12 @@ func (s *Store) CalculateHash(dirPath, modelName string) (string, error) {
 			return err
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
-			hasher.Write([]byte(info.Name()))
+			relPath, relErr := filepath.Rel(dirPath, path)
+			if relErr != nil {
+				// Fallback to the base name if relative path cannot be determined
+				relPath = info.Name()
+			}
+			hasher.Write([]byte(relPath))
 			content, err := os.ReadFile(path)
 			if err == nil {
 				hasher.Write(content)
