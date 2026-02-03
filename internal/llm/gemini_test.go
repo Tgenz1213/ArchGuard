@@ -81,7 +81,9 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -145,7 +147,9 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -213,7 +217,9 @@ func TestGeminiProvider_URLEncoding(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -234,7 +240,10 @@ func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
+		_, errw := w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
+		if errw != nil {
+			t.Fatalf("Failed to write response: %v", errw)
+		}
 	}))
 	defer server.Close()
 
@@ -263,7 +272,10 @@ func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`This is not valid JSON`))
+		_, errw := w.Write([]byte(`This is not valid JSON`))
+		if errw != nil {
+			t.Fatalf("Failed to write response: %v", errw)
+		}
 	}))
 	defer server.Close()
 
@@ -292,7 +304,10 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error": {"message": ""}}`))
+		_, errw := w.Write([]byte(`{"error": {"message": ""}}`))
+		if errw != nil {
+			t.Fatalf("Failed to write response: %v", errw)
+		}
 	}))
 	defer server.Close()
 
