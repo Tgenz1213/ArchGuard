@@ -381,7 +381,12 @@ func loadDotEnv() {
 			value = value[1 : len(value)-1]
 		}
 		if os.Getenv(key) == "" {
-			os.Setenv(key, value)
+			if err := os.Setenv(key, value); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to set environment variable %q from .env: %v\n", key, err)
+			}
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "error reading .env file: %v\n", err)
 	}
 }
