@@ -40,6 +40,7 @@ func (s *Store) CalculateHash(dirPath, modelName string) (string, error) {
 			return err
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+			hasher.Write([]byte(info.Name()))
 			content, err := os.ReadFile(path)
 			if err == nil {
 				hasher.Write(content)
@@ -65,8 +66,17 @@ func (s *Store) Load(path, modelName string, dim int, currentHash string) error 
 	}
 
 	if s.ModelName != modelName || s.Dim != dim || s.Hash != currentHash {
-		return fmt.Errorf("index metadata mismatch (Model: %s/%s, Dim: %d/%d, Hash: %s/%s)",
-			s.ModelName, modelName, s.Dim, dim, s.Hash, currentHash)
+		var reasons []string
+		if s.ModelName != modelName {
+			reasons = append(reasons, fmt.Sprintf("Model mismatch (Saved: %q, Config: %q)", s.ModelName, modelName))
+		}
+		if s.Dim != dim {
+			reasons = append(reasons, fmt.Sprintf("Dimension mismatch (Saved: %d, Config: %d)", s.Dim, dim))
+		}
+		if s.Hash != currentHash {
+			reasons = append(reasons, fmt.Sprintf("Hash mismatch\n    Saved:   %s\n    Current: %s", s.Hash, currentHash))
+		}
+		return fmt.Errorf("index metadata mismatch:\n  %s", strings.Join(reasons, "\n  "))
 	}
 
 	return nil
@@ -161,7 +171,9 @@ func (s *Store) BuildIndex(ctx context.Context, dirPath string, modelName string
 	s.ADRs = validADRs
 	s.ModelName = modelName
 	if len(validADRs) > 0 {
-		s.Dim = len(validADRs[0].Embedding)
+		actualDim := len(validADRs[0].Embedding)
+		s.Dim = actualDim
+		fmt.Printf("Index built with %d dimensions.\n", actualDim)
 	}
 
 	hash, err := s.CalculateHash(dirPath, modelName)

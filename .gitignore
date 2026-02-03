@@ -25,3 +25,5 @@ Thumbs.db
 # Go
 vendor/
 coverage.out
+
+.env

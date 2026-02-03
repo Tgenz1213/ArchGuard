@@ -22,6 +22,7 @@ const configFilename = "archguard.yaml"
 // Execute parses the command-line arguments, normalizes paths relative to the git root,
 // and routes execution to the appropriate command handler.
 func Execute(providerFactory func(*config.Config) llm.Provider) error {
+	loadDotEnv()
 	fmt.Println("ArchGuard - Architectural Drift Detector")
 
 	repoRoot, err := git.GetRepoRoot()
@@ -83,6 +84,12 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 			provider = llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
 		case "ollama":
 			provider = llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature)
+		case "gemini":
+			apiKey := os.Getenv("ARCHGUARD_API_KEY")
+			if apiKey == "" {
+				fmt.Println("Warning: ARCHGUARD_API_KEY is not set. Gemini provider requires an API key.")
+			}
+			provider = llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
 		default:
 			return fmt.Errorf("unknown provider: %s", cfg.LLM.Provider)
 		}
@@ -347,4 +354,34 @@ func printUsage() {
 	fmt.Println("  init     Initialize ArchGuard in the current repository (local setup)")
 	fmt.Println("  check    Check for architectural violations")
 	fmt.Println("  index    Rebuild the ADR index")
+}
+
+func loadDotEnv() {
+	f, err := os.Open(".env")
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		// Remove quotes if present
+		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+			(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+			value = value[1 : len(value)-1]
+		}
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
 }
