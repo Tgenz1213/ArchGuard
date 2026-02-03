@@ -124,7 +124,11 @@ func (p *GeminiProvider) post(ctx context.Context, url string, body interface{},
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("Error closing response body: %v\n", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		// Read the response body first so we can include it in the error if needed
