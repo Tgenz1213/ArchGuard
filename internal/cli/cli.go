@@ -51,7 +51,9 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 		}
 	}
 
-	loadDotEnv()
+	if err := loadDotEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
+	}
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -357,12 +359,17 @@ func printUsage() {
 	fmt.Println("  index    Rebuild the ADR index")
 }
 
-func loadDotEnv() {
+func loadDotEnv() error {
 	f, err := os.Open(".env")
 	if err != nil {
-		return
+		return err
 	}
-	defer f.Close()
+	defer func() {
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -388,6 +395,8 @@ func loadDotEnv() {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "error reading .env file: %v\n", err)
+		return err
 	}
+
+	return nil
 }
