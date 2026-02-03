@@ -33,13 +33,13 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			} `json:"generationConfig"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			t.Errorf("Failed to decode request body: %v", err)
+			t.Fatalf("Failed to decode request body: %v", err)
 		}
 		if len(reqBody.Contents) == 0 {
-			t.Error("Request body missing contents")
+			t.Fatal("Request body missing contents")
 		}
 		if len(reqBody.Contents[0].Parts) == 0 {
-			t.Error("Request body missing parts")
+			t.Fatal("Request body missing parts")
 		}
 		expectedPrompt := "system prompt\n\nuser prompt"
 		if reqBody.Contents[0].Parts[0].Text != expectedPrompt {
@@ -124,10 +124,10 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			} `json:"content"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-			t.Errorf("Failed to decode request body: %v", err)
+			t.Fatalf("Failed to decode request body: %v", err)
 		}
 		if len(reqBody.Content.Parts) == 0 {
-			t.Error("Request body missing parts")
+			t.Fatal("Request body missing parts")
 		}
 		if reqBody.Content.Parts[0].Text != "test text" {
 			t.Errorf("Expected text 'test text', got %q", reqBody.Content.Parts[0].Text)
