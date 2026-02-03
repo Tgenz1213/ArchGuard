@@ -117,6 +117,64 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
+func TestGeminiProvider_URLEncoding(t *testing.T) {
+	// Test that API keys with special characters are properly URL-encoded
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check that the API key is properly received (decoded by the server)
+		key := r.URL.Query().Get("key")
+		if key != "test+key&with=special%chars" {
+			t.Errorf("API key not properly encoded/decoded. Expected 'test+key&with=special%%chars', got: %s", key)
+		}
+
+		resp := struct {
+			Candidates []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				} `json:"content"`
+			} `json:"candidates"`
+		}{
+			Candidates: []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				} `json:"content"`
+			}{
+				{
+					Content: struct {
+						Parts []struct {
+							Text string `json:"text"`
+						} `json:"parts"`
+					}{
+						Parts: []struct {
+							Text string `json:"text"`
+						}{
+							{Text: "{}"},
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:  "test+key&with=special%chars",
+		model:   "gemini-1.5-flash",
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	_, err := p.Chat(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("Chat failed with special characters in API key: %v", err)
+	}
+}
+
 func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

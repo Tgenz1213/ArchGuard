@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 type GeminiProvider struct {
@@ -28,7 +29,14 @@ func NewGeminiProvider(apiKey, model, embedModel string) *GeminiProvider {
 }
 
 func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	u, err := url.Parse(fmt.Sprintf("%s/v1beta/models/%s:generateContent", p.baseURL, p.model))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("key", p.apiKey)
+	u.RawQuery = q.Encode()
+	reqURL := u.String()
 
 	// Combine system and user prompts for Gemini
 	fullPrompt := fmt.Sprintf("%s\n\n%s", system, user)
@@ -56,7 +64,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 		} `json:"candidates"`
 	}
 
-	err := p.post(ctx, url, payload, &res)
+	err = p.post(ctx, reqURL, payload, &res)
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +77,14 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 }
 
 func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	url := fmt.Sprintf("%s/v1beta/models/%s:embedContent?key=%s", p.baseURL, p.embedModel, p.apiKey)
+	u, err := url.Parse(fmt.Sprintf("%s/v1beta/models/%s:embedContent", p.baseURL, p.embedModel))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("key", p.apiKey)
+	u.RawQuery = q.Encode()
+	reqURL := u.String()
 
 	payload := map[string]interface{}{
 		"content": map[string]interface{}{
@@ -85,7 +100,7 @@ func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 		} `json:"embedding"`
 	}
 
-	err := p.post(ctx, url, payload, &res)
+	err = p.post(ctx, reqURL, payload, &res)
 	if err != nil {
 		return nil, err
 	}
