@@ -51,6 +51,10 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 		}
 	}
 
+	if err := loadDotEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
+	}
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return fmt.Errorf("no command provided")
@@ -83,6 +87,12 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 			provider = llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
 		case "ollama":
 			provider = llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature)
+		case "gemini":
+			apiKey := os.Getenv("ARCHGUARD_API_KEY")
+			if apiKey == "" {
+				fmt.Println("Warning: ARCHGUARD_API_KEY is not set. Gemini provider requires an API key.")
+			}
+			provider = llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
 		default:
 			return fmt.Errorf("unknown provider: %s", cfg.LLM.Provider)
 		}
@@ -347,4 +357,46 @@ func printUsage() {
 	fmt.Println("  init     Initialize ArchGuard in the current repository (local setup)")
 	fmt.Println("  check    Check for architectural violations")
 	fmt.Println("  index    Rebuild the ADR index")
+}
+
+func loadDotEnv() error {
+	f, err := os.Open(".env")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeErr := f.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		// Remove quotes if present
+		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
+			(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+			value = value[1 : len(value)-1]
+		}
+		if os.Getenv(key) == "" {
+			if err := os.Setenv(key, value); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to set environment variable %q from .env: %v\n", key, err)
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
 }
