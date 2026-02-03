@@ -22,7 +22,6 @@ const configFilename = "archguard.yaml"
 // Execute parses the command-line arguments, normalizes paths relative to the git root,
 // and routes execution to the appropriate command handler.
 func Execute(providerFactory func(*config.Config) llm.Provider) error {
-	loadDotEnv()
 	fmt.Println("ArchGuard - Architectural Drift Detector")
 
 	repoRoot, err := git.GetRepoRoot()
@@ -51,6 +50,8 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 			return fmt.Errorf("error changing to git root: %v", err)
 		}
 	}
+
+	loadDotEnv()
 
 	if len(os.Args) < 2 {
 		printUsage()
