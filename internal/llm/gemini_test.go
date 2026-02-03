@@ -11,11 +11,42 @@ import (
 
 func TestGeminiProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST method, got %s", r.Method)
+		}
 		if r.URL.Path != "/v1beta/models/gemini-1.5-flash:generateContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 		if r.URL.Query().Get("key") != "test-api-key" {
 			t.Errorf("Unexpected API key: %s", r.URL.Query().Get("key"))
+		}
+
+		// Validate request body
+		var reqBody struct {
+			Contents []struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+			GenerationConfig struct {
+				ResponseMimeType string `json:"response_mime_type"`
+			} `json:"generationConfig"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if len(reqBody.Contents) == 0 {
+			t.Error("Request body missing contents")
+		}
+		if len(reqBody.Contents[0].Parts) == 0 {
+			t.Error("Request body missing parts")
+		}
+		expectedPrompt := "system prompt\n\nuser prompt"
+		if reqBody.Contents[0].Parts[0].Text != expectedPrompt {
+			t.Errorf("Expected prompt %q, got %q", expectedPrompt, reqBody.Contents[0].Parts[0].Text)
+		}
+		if reqBody.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected response_mime_type 'application/json', got %q", reqBody.GenerationConfig.ResponseMimeType)
 		}
 
 		resp := struct {
@@ -74,11 +105,32 @@ func TestGeminiProvider_Chat(t *testing.T) {
 
 func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST method, got %s", r.Method)
+		}
 		if r.URL.Path != "/v1beta/models/text-embedding-004:embedContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 		if r.URL.Query().Get("key") != "test-api-key" {
 			t.Errorf("Unexpected API key: %s", r.URL.Query().Get("key"))
+		}
+
+		// Validate request body
+		var reqBody struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if len(reqBody.Content.Parts) == 0 {
+			t.Error("Request body missing parts")
+		}
+		if reqBody.Content.Parts[0].Text != "test text" {
+			t.Errorf("Expected text 'test text', got %q", reqBody.Content.Parts[0].Text)
 		}
 
 		resp := struct {
