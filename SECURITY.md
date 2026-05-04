@@ -2,9 +2,11 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+The versions below refer to ArchGuard project release tags. Security fixes are provided only for the latest patch release in a supported minor series; older patch releases should be upgraded to the newest available `0.1.x` release. When a minor series is no longer listed here, it is considered end-of-life and will not receive security updates.
+
+| ArchGuard release series | Supported | Support policy |
+| ------------------------ | --------- | -------------- |
+| 0.1.x                    | :white_check_mark: | Supported until this series is removed from this table; only the latest `0.1.x` patch release receives security fixes. |
 
 ## Reporting a Vulnerability
 
