@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 )
 
 type GeminiProvider struct {
@@ -29,14 +28,7 @@ func NewGeminiProvider(apiKey, model, embedModel string) *GeminiProvider {
 }
 
 func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/v1beta/models/%s:generateContent", p.baseURL, p.model))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("key", p.apiKey)
-	u.RawQuery = q.Encode()
-	reqURL := u.String()
+	reqURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", p.baseURL, p.model)
 
 	// Combine system and user prompts for Gemini
 	fullPrompt := fmt.Sprintf("%s\n\n%s", system, user)
@@ -64,7 +56,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 		} `json:"candidates"`
 	}
 
-	err = p.post(ctx, reqURL, payload, &res)
+	err := p.post(ctx, reqURL, payload, &res)
 	if err != nil {
 		return "", err
 	}
@@ -77,14 +69,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 }
 
 func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/v1beta/models/%s:embedContent", p.baseURL, p.embedModel))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("key", p.apiKey)
-	u.RawQuery = q.Encode()
-	reqURL := u.String()
+	reqURL := fmt.Sprintf("%s/v1beta/models/%s:embedContent", p.baseURL, p.embedModel)
 
 	payload := map[string]interface{}{
 		"content": map[string]interface{}{
@@ -100,7 +85,7 @@ func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 		} `json:"embedding"`
 	}
 
-	err = p.post(ctx, reqURL, payload, &res)
+	err := p.post(ctx, reqURL, payload, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +104,7 @@ func (p *GeminiProvider) post(ctx context.Context, url string, body interface{},
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", p.apiKey)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
