@@ -17,8 +17,8 @@ func TestGeminiProvider_Chat(t *testing.T) {
 		if r.URL.Path != "/v1beta/models/gemini-1.5-flash:generateContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("key") != "test-api-key" {
-			t.Errorf("Unexpected API key: %s", r.URL.Query().Get("key"))
+		if r.Header.Get("x-goog-api-key") != "test-api-key" {
+			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
 		// Validate request body
@@ -113,8 +113,8 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if r.URL.Path != "/v1beta/models/text-embedding-004:embedContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("key") != "test-api-key" {
-			t.Errorf("Unexpected API key: %s", r.URL.Query().Get("key"))
+		if r.Header.Get("x-goog-api-key") != "test-api-key" {
+			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
 		// Validate request body
@@ -176,13 +176,13 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_URLEncoding(t *testing.T) {
-	// Test that API keys with special characters are properly URL-encoded
+func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
+	// Test that API keys with special characters are properly sent in header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check that the API key is properly received (decoded by the server)
-		key := r.URL.Query().Get("key")
+		// Check that the API key is properly received in header
+		key := r.Header.Get("x-goog-api-key")
 		if key != "test+key&with=special%chars" {
-			t.Errorf("API key not properly encoded/decoded. Expected 'test+key&with=special%%chars', got: %s", key)
+			t.Errorf("API key header mismatch. Expected 'test+key&with=special%%chars', got: %s", key)
 		}
 
 		resp := struct {
