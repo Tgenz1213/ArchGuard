@@ -41,21 +41,13 @@ func TestE2E_ScanJS(t *testing.T) {
 	}
 
 	binaryPath := filepath.Join(rootDir, binaryName)
-	defer func() {
-		if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove binary: %v", err)
-		}
-	}()
+	t.Cleanup(func() { os.Remove(binaryPath) })
 
 	fixturePath := filepath.Join(rootDir, fixtureFilename)
+	t.Cleanup(func() { os.Remove(fixturePath) })
 	if err := os.Remove(fixturePath); err != nil && !os.IsNotExist(err) {
 		t.Fatalf("Initial cleanup failed: %v", err)
 	}
-	defer func() {
-		if err := os.Remove(fixturePath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove fixture: %v", err)
-		}
-	}()
 
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
@@ -74,17 +66,13 @@ Logging sensitive data is a security risk.
 ## Decision
 Do not print passwords or secrets to console.log.`
 
+	t.Cleanup(func() { os.Remove(adrPath) })
 	if err := os.MkdirAll(filepath.Dir(adrPath), 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
 	if err := os.WriteFile(adrPath, []byte(adrContent), 0644); err != nil {
 		t.Fatalf("Failed to create mock ADR: %v", err)
 	}
-	defer func() {
-		if err := os.Remove(adrPath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove mock ADR: %v", err)
-		}
-	}()
 
 	t.Log("Indexing ADRs for E2E test...")
 	indexCmd := exec.Command(binaryPath, "index")
