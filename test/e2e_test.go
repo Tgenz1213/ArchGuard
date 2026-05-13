@@ -129,7 +129,7 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
 
 		cmd := exec.Command(binaryPath, args...)
 		cmd.Dir = dir
-		cmd.Env = os.Environ()
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
 		output, err := cmd.CombinedOutput()
 		outputStr := string(output)
