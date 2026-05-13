@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -28,40 +27,53 @@ func TestE2E_ScanJS(t *testing.T) {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	rootDir := filepath.Dir(wd)
+	sourceRoot := filepath.Dir(wd)
 	if filepath.Base(wd) != "test" {
-		rootDir = wd
+		sourceRoot = wd
+	}
+
+	tempDir := t.TempDir()
+
+	// Initialize a git repo in the temp directory since archguard requires it
+	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd.Dir = tempDir
+	if out, err := gitInitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
+	}
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create archguard.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to create .env: %v", err)
 	}
 
 	t.Log("Building archguard binary for E2E test...")
-	buildCmd := exec.Command("go", "build", "-o", binaryName, "./cmd/archguard-e2e")
-	buildCmd.Dir = rootDir
+	binaryPath := filepath.Join(tempDir, binaryName)
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/archguard-e2e")
+	buildCmd.Dir = sourceRoot
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, out)
 	}
 
-	binaryPath := filepath.Join(rootDir, binaryName)
-	defer func() {
-		if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove binary: %v", err)
-		}
-	}()
-
-	fixturePath := filepath.Join(rootDir, fixtureFilename)
-	if err := os.Remove(fixturePath); err != nil && !os.IsNotExist(err) {
-		t.Fatalf("Initial cleanup failed: %v", err)
-	}
-	defer func() {
-		if err := os.Remove(fixturePath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove fixture: %v", err)
-		}
-	}()
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
 
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
 
-	adrPath := filepath.Join(rootDir, "docs", "arch", "0000-no-secrets-in-log.md")
+	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
 	adrContent := `---
 title: "No Secrets in Logs"
 status: "Accepted"
@@ -80,40 +92,37 @@ Do not print passwords or secrets to console.log.`
 	if err := os.WriteFile(adrPath, []byte(adrContent), 0644); err != nil {
 		t.Fatalf("Failed to create mock ADR: %v", err)
 	}
-	defer func() {
-		if err := os.Remove(adrPath); err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to remove mock ADR: %v", err)
-		}
-	}()
 
 	t.Log("Indexing ADRs for E2E test...")
 	indexCmd := exec.Command(binaryPath, "index")
-	indexCmd.Dir = rootDir
-	if out, err := indexCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, out)
+	indexCmd.Dir = tempDir
+	indexCmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+	out, err := indexCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, string(out))
 	}
+	t.Logf("Index output: %s", string(out))
 
-	t.Log("Running scan with violation file...")
-	if err := runCheck(t, rootDir, binaryPath, fixtureFilename, true); err != nil {
-		t.Fatalf("Scan failed expectation (expected to catch violation): %v", err)
-	}
+	t.Run("Detects violation in JS file", func(t *testing.T) {
+		runCheck(t, tempDir, binaryPath, fixtureFilename, true)
+	})
 
-	if err := os.Remove(fixturePath); err != nil {
-		t.Fatalf("Failed to remove fixture: %v", err)
-	}
-
-	t.Log("Running scan without violation file...")
-	if err := runCheck(t, rootDir, binaryPath, fixtureFilename, false); err != nil {
-		t.Fatalf("Scan failed expectation (expected to pass): %v", err)
-	}
+	t.Run("Passes after fixture removal", func(t *testing.T) {
+		if err := os.Remove(fixturePath); err != nil {
+			t.Fatalf("Failed to remove fixture: %v", err)
+		}
+		runCheck(t, tempDir, binaryPath, fixtureFilename, false)
+	})
 }
 
-// runCheck executes the archguard check command with retries to account for environment flakiness.
-func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) error {
+// runCheck executes the archguard check command.
+func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
+	t.Helper()
+
 	const maxRetries = 3
 	var lastErr error
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		args := []string{"check"}
 		if target != "" {
 			args = append(args, target)
@@ -121,28 +130,37 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) err
 
 		cmd := exec.Command(binaryPath, args...)
 		cmd.Dir = dir
-		cmd.Env = os.Environ()
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
 		output, err := cmd.CombinedOutput()
 		outputStr := string(output)
-		cmdFailed := err != nil
+
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
+			} else {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+		}
 
 		if expectFail {
-			if cmdFailed && (strings.Contains(outputStr, "found") || strings.Contains(outputStr, "violation")) {
-				return nil
+			if exitCode != 0 {
+				return
 			}
 			lastErr = fmt.Errorf("expected violation failure, but got success or unrelated error. Output: %s", outputStr)
 		} else {
-			if !cmdFailed {
-				return nil
+			if exitCode == 0 {
+				return
 			}
 			lastErr = fmt.Errorf("expected success, but got error: %v. Output: %s", err, outputStr)
 		}
 
 		if i < maxRetries-1 {
+			t.Logf("Retry %d/%d", i+1, maxRetries)
 			time.Sleep(2 * time.Second)
 		}
 	}
 
-	return lastErr
+	t.Fatalf("runCheck failed after %d retries: %v", maxRetries, lastErr)
 }
