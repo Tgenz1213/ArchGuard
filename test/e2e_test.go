@@ -81,23 +81,22 @@ Do not print passwords or secrets to console.log.`
 		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, out)
 	}
 
-	t.Log("Running scan with violation file...")
-	if err := runCheck(t, rootDir, binaryPath, fixtureFilename, true); err != nil {
-		t.Fatalf("Scan failed expectation (expected to catch violation): %v", err)
-	}
+	t.Run("Detects violation in JS file", func(t *testing.T) {
+		runCheck(t, rootDir, binaryPath, fixtureFilename, true)
+	})
 
-	if err := os.Remove(fixturePath); err != nil {
-		t.Fatalf("Failed to remove fixture: %v", err)
-	}
-
-	t.Log("Running scan without violation file...")
-	if err := runCheck(t, rootDir, binaryPath, fixtureFilename, false); err != nil {
-		t.Fatalf("Scan failed expectation (expected to pass): %v", err)
-	}
+	t.Run("Passes after fixture removal", func(t *testing.T) {
+		if err := os.Remove(fixturePath); err != nil {
+			t.Fatalf("Failed to remove fixture: %v", err)
+		}
+		runCheck(t, rootDir, binaryPath, fixtureFilename, false)
+	})
 }
 
-// runCheck executes the archguard check command with retries to account for environment flakiness.
-func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) error {
+// runCheck executes the archguard check command.
+func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
+	t.Helper()
+
 	const maxRetries = 3
 	var lastErr error
 
@@ -115,22 +114,31 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) err
 		outputStr := string(output)
 		cmdFailed := err != nil
 
+		success := false
 		if expectFail {
 			if cmdFailed && (strings.Contains(outputStr, "found") || strings.Contains(outputStr, "violation")) {
-				return nil
+				success = true
+			} else {
+				lastErr = fmt.Errorf("expected violation failure, but got success or unrelated error. Output: %s", outputStr)
+
 			}
-			lastErr = fmt.Errorf("expected violation failure, but got success or unrelated error. Output: %s", outputStr)
 		} else {
 			if !cmdFailed {
-				return nil
+				success = true
+			} else {
+				lastErr = fmt.Errorf("expected success, but got error: %v. Output: %s", err, outputStr)
 			}
-			lastErr = fmt.Errorf("expected success, but got error: %v. Output: %s", err, outputStr)
+		}
+
+		if success {
+			return
 		}
 
 		if i < maxRetries-1 {
+			t.Logf("Retry %d/%d", i+1, maxRetries)
 			time.Sleep(2 * time.Second)
 		}
 	}
 
-	return lastErr
+	t.Fatalf("runCheck failed after %d retries: %v", maxRetries, lastErr)
 }
