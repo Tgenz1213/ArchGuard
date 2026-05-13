@@ -27,32 +27,53 @@ func TestE2E_ScanJS(t *testing.T) {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	rootDir := filepath.Dir(wd)
+	sourceRoot := filepath.Dir(wd)
 	if filepath.Base(wd) != "test" {
-		rootDir = wd
+		sourceRoot = wd
+	}
+
+	tempDir := t.TempDir()
+
+	// Initialize a git repo in the temp directory since archguard requires it
+	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd.Dir = tempDir
+	if out, err := gitInitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
+	}
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create archguard.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to create .env: %v", err)
 	}
 
 	t.Log("Building archguard binary for E2E test...")
-	buildCmd := exec.Command("go", "build", "-o", binaryName, "./cmd/archguard-e2e")
-	buildCmd.Dir = rootDir
+	binaryPath := filepath.Join(tempDir, binaryName)
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/archguard-e2e")
+	buildCmd.Dir = sourceRoot
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, out)
 	}
 
-	binaryPath := filepath.Join(rootDir, binaryName)
-	t.Cleanup(func() { os.Remove(binaryPath) })
-
-	fixturePath := filepath.Join(rootDir, fixtureFilename)
-	t.Cleanup(func() { os.Remove(fixturePath) })
-	if err := os.Remove(fixturePath); err != nil && !os.IsNotExist(err) {
-		t.Fatalf("Initial cleanup failed: %v", err)
-	}
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
 
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
 
-	adrPath := filepath.Join(rootDir, "docs", "arch", "0000-no-secrets-in-log.md")
+	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
 	adrContent := `---
 title: "No Secrets in Logs"
 status: "Accepted"
@@ -65,7 +86,6 @@ Logging sensitive data is a security risk.
 ## Decision
 Do not print passwords or secrets to console.log.`
 
-	t.Cleanup(func() { os.Remove(adrPath) })
 	if err := os.MkdirAll(filepath.Dir(adrPath), 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
@@ -75,20 +95,22 @@ Do not print passwords or secrets to console.log.`
 
 	t.Log("Indexing ADRs for E2E test...")
 	indexCmd := exec.Command(binaryPath, "index")
-	indexCmd.Dir = rootDir
-	if out, err := indexCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, out)
+	indexCmd.Dir = tempDir
+	out, err := indexCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, string(out))
 	}
+	t.Logf("Index output: %s", string(out))
 
 	t.Run("Detects violation in JS file", func(t *testing.T) {
-		runCheck(t, rootDir, binaryPath, fixtureFilename, true)
+		runCheck(t, tempDir, binaryPath, fixtureFilename, true)
 	})
 
 	t.Run("Passes after fixture removal", func(t *testing.T) {
 		if err := os.Remove(fixturePath); err != nil {
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
-		runCheck(t, rootDir, binaryPath, fixtureFilename, false)
+		runCheck(t, tempDir, binaryPath, fixtureFilename, false)
 	})
 }
 
