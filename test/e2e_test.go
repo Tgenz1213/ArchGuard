@@ -121,7 +121,7 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
 	const maxRetries = 3
 	var lastErr error
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		args := []string{"check"}
 		if target != "" {
 			args = append(args, target)
@@ -133,14 +133,13 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
 
 		output, err := cmd.CombinedOutput()
 		outputStr := string(output)
+
 		exitCode := 0
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				exitCode = exitError.ExitCode()
 			} else {
-				// This is a system error (e.g., binary not found), not a controlled failure
-				lastErr = fmt.Errorf("system error executing command: %v", err)
-				continue
+				t.Fatalf("Binary failed to execute: %v", err)
 			}
 		}
 
