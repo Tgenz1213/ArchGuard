@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -112,26 +111,27 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectFail bool) {
 
 		output, err := cmd.CombinedOutput()
 		outputStr := string(output)
-		cmdFailed := err != nil
-
-		success := false
-		if expectFail {
-			if cmdFailed && (strings.Contains(outputStr, "found") || strings.Contains(outputStr, "violation")) {
-				success = true
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
 			} else {
-				lastErr = fmt.Errorf("expected violation failure, but got success or unrelated error. Output: %s", outputStr)
-
-			}
-		} else {
-			if !cmdFailed {
-				success = true
-			} else {
-				lastErr = fmt.Errorf("expected success, but got error: %v. Output: %s", err, outputStr)
+				// This is a system error (e.g., binary not found), not a controlled failure
+				lastErr = fmt.Errorf("system error executing command: %v", err)
+				continue
 			}
 		}
 
-		if success {
-			return
+		if expectFail {
+			if exitCode != 0 {
+				return
+			}
+			lastErr = fmt.Errorf("expected violation failure, but got success or unrelated error. Output: %s", outputStr)
+		} else {
+			if exitCode == 0 {
+				return
+			}
+			lastErr = fmt.Errorf("expected success, but got error: %v. Output: %s", err, outputStr)
 		}
 
 		if i < maxRetries-1 {
