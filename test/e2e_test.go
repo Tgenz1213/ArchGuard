@@ -96,6 +96,7 @@ Do not print passwords or secrets to console.log.`
 	t.Log("Indexing ADRs for E2E test...")
 	indexCmd := exec.Command(binaryPath, "index")
 	indexCmd.Dir = tempDir
+	indexCmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 	out, err := indexCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to index for E2E test: %v\nOutput: %s", err, string(out))
