@@ -45,10 +45,10 @@ func codeContextContainsTrigger(prompt, trigger string) bool {
 	}
 	start += len("<code_context>")
 
-	endOffset := strings.Index(prompt[start:], "</code_context>")
-	if endOffset == -1 {
+	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
+	if endRelativeOffset == -1 {
 		return false
 	}
 
-	return strings.Contains(prompt[start:start+endOffset], trigger)
+	return strings.Contains(prompt[start:start+endRelativeOffset], trigger)
 }
