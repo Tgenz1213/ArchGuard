@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -303,7 +304,8 @@ scope: "[Optional: glob pattern, e.g., **/*.go]"
 // runCheck executes the architectural drift analysis against a set of files
 // based on the provided flags and ADR index.
 func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args []string) (ExitCode, error) {
-	checkFlags := flag.NewFlagSet("check", flag.ExitOnError)
+	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
+	checkFlags.SetOutput(io.Discard)
 	staged := checkFlags.Bool("staged", false, "Scan staged files only")
 	all := checkFlags.Bool("all", false, "Scan all tracked files")
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
