@@ -16,17 +16,28 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
+type ExitCode int
+
+const (
+	ExitSuccess       ExitCode = 0
+	ExitError         ExitCode = 1
+	ExitUsage         ExitCode = 2
+	ExitConfig        ExitCode = 3
+	ExitDriftDetected ExitCode = 4
+	ExitIndexError    ExitCode = 5
+)
+
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
 
 // Execute parses the command-line arguments, normalizes paths relative to the git root,
 // and routes execution to the appropriate command handler.
-func Execute(providerFactory func(*config.Config) llm.Provider) error {
+func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error) {
 	fmt.Println("ArchGuard - Architectural Drift Detector")
 
 	repoRoot, err := git.GetRepoRoot()
 	if err != nil {
-		return fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
+		return ExitError, fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
 	}
 
 	cwd, _ := os.Getwd()
@@ -47,7 +58,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 		}
 
 		if err := os.Chdir(repoRoot); err != nil {
-			return fmt.Errorf("error changing to git root: %v", err)
+			return ExitError, fmt.Errorf("error changing to git root: %v", err)
 		}
 	}
 
@@ -57,16 +68,19 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 
 	if len(os.Args) < 2 {
 		printUsage()
-		return fmt.Errorf("no command provided")
+		return ExitUsage, fmt.Errorf("no command provided")
 	}
 
 	if os.Args[1] == "init" {
-		return runInit()
+		if err := runInit(); err != nil {
+			return ExitError, err
+		}
+		return ExitSuccess, nil
 	}
 
 	cfg, err := config.LoadConfig(configFilename)
 	if err != nil {
-		return fmt.Errorf("error loading config: %v", err)
+		return ExitConfig, fmt.Errorf("error loading config: %v", err)
 	}
 
 	indexFile := ".archguard/index.json"
@@ -94,7 +108,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 			}
 			provider = llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
 		default:
-			return fmt.Errorf("unknown provider: %s", cfg.LLM.Provider)
+			return ExitConfig, fmt.Errorf("unknown provider: %s", cfg.LLM.Provider)
 		}
 	}
 
@@ -105,7 +119,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) error {
 		return runIndex(cfg, provider, indexFile)
 	default:
 		printUsage()
-		return fmt.Errorf("unknown command: %s", os.Args[1])
+		return ExitUsage, fmt.Errorf("unknown command: %s", os.Args[1])
 	}
 }
 
@@ -287,7 +301,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go]"
 
 // runCheck executes the architectural drift analysis against a set of files
 // based on the provided flags and ADR index.
-func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args []string) error {
+func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ExitOnError)
 	staged := checkFlags.Bool("staged", false, "Scan staged files only")
 	all := checkFlags.Bool("all", false, "Scan all tracked files")
@@ -295,7 +309,7 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 
 	if err := checkFlags.Parse(args); err != nil {
-		return fmt.Errorf("error parsing flags: %v", err)
+		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
 	files := checkFlags.Args()
@@ -303,11 +317,11 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 	store := index.NewStore()
 	currentHash, err := store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
 	if err != nil {
-		return fmt.Errorf("failed to calculate ADR hash: %v", err)
+		return ExitError, fmt.Errorf("failed to calculate ADR hash: %v", err)
 	}
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
-		return fmt.Errorf("index mismatch or load failed (run 'archguard index' to rebuild): %v", err)
+		return ExitIndexError, fmt.Errorf("index mismatch or load failed (run 'archguard index' to rebuild): %v", err)
 	}
 
 	var contentProvider analysis.ContentProvider
@@ -332,23 +346,23 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 
 	engine := analysis.NewEngine(cfg, store, provider, contentProvider, *debug, *ci)
 	if err := engine.Run(context.Background()); err != nil {
-		return fmt.Errorf("analysis failed: %v", err)
+		return ExitDriftDetected, fmt.Errorf("analysis failed: %v", err)
 	}
 	fmt.Println("No architectural violations found.")
-	return nil
+	return ExitSuccess, nil
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(cfg *config.Config, provider llm.Provider, indexFile string) error {
+func runIndex(cfg *config.Config, provider llm.Provider, indexFile string) (ExitCode, error) {
 	store := index.NewStore()
 	if err := store.BuildIndex(context.Background(), cfg.Analysis.ADRPath, cfg.VectorStore.Model, provider, cfg.Analysis.AcceptedStatuses); err != nil {
-		return fmt.Errorf("indexing failed: %v", err)
+		return ExitIndexError, fmt.Errorf("indexing failed: %v", err)
 	}
 	if err := store.Save(indexFile); err != nil {
-		return fmt.Errorf("failed to save index: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to save index: %v", err)
 	}
 	fmt.Println("ADR Index updated successfully.")
-	return nil
+	return ExitSuccess, nil
 }
 
 func printUsage() {
