@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -360,10 +361,17 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 
 	engine := analysis.NewEngine(cfg, store, provider, contentProvider, *debug, *ci)
 	if err := engine.Run(context.Background()); err != nil {
-		return ExitDriftDetected, fmt.Errorf("analysis failed: %v", err)
+		return exitCodeForAnalysisError(err), fmt.Errorf("analysis failed: %v", err)
 	}
 	fmt.Println("No architectural violations found.")
 	return ExitSuccess, nil
+}
+
+func exitCodeForAnalysisError(err error) ExitCode {
+	if errors.Is(err, analysis.ErrDriftDetected) {
+		return ExitDriftDetected
+	}
+	return ExitError
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
