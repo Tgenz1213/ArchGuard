@@ -118,14 +118,10 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		}
 	}
 
-	switch command {
-	case "check":
+	if command == "check" {
 		return runCheck(cfg, provider, indexFile, os.Args[2:])
-	case "index":
-		return runIndex(cfg, provider, indexFile)
 	}
-
-	return ExitError, fmt.Errorf("unreachable command: %s", command)
+	return runIndex(cfg, provider, indexFile)
 }
 
 // runInit initializes a new ArchGuard project by prompting the user for configuration
