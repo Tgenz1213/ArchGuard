@@ -150,14 +150,13 @@ analysis:
 		if err != nil {
 			t.Fatalf("Failed to write bad config: %v", err)
 		}
+		defer func() {
+			if err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
+				t.Fatalf("Failed to restore config: %v", err)
+			}
+		}()
 
 		runIndexCmd(t, tempDir, binaryPath, int(cli.ExitIndexError))
-
-		// Restore valid config
-		err = os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644)
-		if err != nil {
-			t.Fatalf("Failed to restore config: %v", err)
-		}
 	})
 
 	t.Run("Fails to check with corrupt index", func(t *testing.T) {
