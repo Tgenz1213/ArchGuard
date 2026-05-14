@@ -9,6 +9,13 @@ import (
 )
 
 func TestExitCodeForAnalysisError(t *testing.T) {
+	t.Run("returns drift exit code for direct drift detection errors", func(t *testing.T) {
+		err := &analysis.DriftDetectedError{Count: 2}
+		if got := exitCodeForAnalysisError(err); got != ExitDriftDetected {
+			t.Fatalf("expected %d, got %d", ExitDriftDetected, got)
+		}
+	})
+
 	t.Run("returns drift exit code for drift detection errors", func(t *testing.T) {
 		err := fmt.Errorf("wrapped: %w", &analysis.DriftDetectedError{Count: 2})
 		if got := exitCodeForAnalysisError(err); got != ExitDriftDetected {

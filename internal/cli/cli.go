@@ -368,7 +368,8 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 }
 
 func exitCodeForAnalysisError(err error) ExitCode {
-	if errors.Is(err, analysis.ErrDriftDetected) {
+	var driftErr *analysis.DriftDetectedError
+	if errors.As(err, &driftErr) {
 		return ExitDriftDetected
 	}
 	return ExitError
