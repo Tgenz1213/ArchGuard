@@ -22,7 +22,7 @@ func main() {
 		}
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			if strings.Contains(user, testutil.MockViolationTrigger) {
+			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
 				return `{"violation": true, "reasoning": "Mock violation: trigger found", "quoted_code": "` + testutil.MockViolationTrigger + `"}`, nil
 			}
 			return `{"violation": false, "reasoning": "Mock: no violation", "quoted_code": ""}`, nil
@@ -36,4 +36,19 @@ func main() {
 		os.Exit(int(exitCode))
 	}
 	os.Exit(int(cli.ExitSuccess))
+}
+
+func codeContextContainsTrigger(prompt, trigger string) bool {
+	start := strings.Index(prompt, "<code_context>")
+	if start == -1 {
+		return false
+	}
+	start += len("<code_context>")
+
+	endOffset := strings.Index(prompt[start:], "</code_context>")
+	if endOffset == -1 {
+		return false
+	}
+
+	return strings.Contains(prompt[start:start+endOffset], trigger)
 }
