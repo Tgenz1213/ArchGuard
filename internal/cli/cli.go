@@ -71,11 +71,17 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		return ExitUsage, fmt.Errorf("no command provided")
 	}
 
-	if os.Args[1] == "init" {
+	command := os.Args[1]
+	switch command {
+	case "init":
 		if err := runInit(); err != nil {
 			return ExitError, err
 		}
 		return ExitSuccess, nil
+	case "check", "index":
+	default:
+		printUsage()
+		return ExitUsage, fmt.Errorf("unknown command: %s", command)
 	}
 
 	cfg, err := config.LoadConfig(configFilename)
@@ -112,15 +118,14 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		}
 	}
 
-	switch os.Args[1] {
+	switch command {
 	case "check":
 		return runCheck(cfg, provider, indexFile, os.Args[2:])
 	case "index":
 		return runIndex(cfg, provider, indexFile)
-	default:
-		printUsage()
-		return ExitUsage, fmt.Errorf("unknown command: %s", os.Args[1])
 	}
+
+	return ExitError, fmt.Errorf("unreachable command: %s", command)
 }
 
 // runInit initializes a new ArchGuard project by prompting the user for configuration
