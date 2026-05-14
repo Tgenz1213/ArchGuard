@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
@@ -85,6 +86,9 @@ func TestDriftDetection(t *testing.T) {
 	}
 	if err.Error() != "found 1 architectural violations" {
 		t.Fatalf("Expected 'found 1 architectural violations', got '%v'", err)
+	}
+	if !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Fatalf("Expected error to match ErrDriftDetected, got '%v'", err)
 	}
 }
 

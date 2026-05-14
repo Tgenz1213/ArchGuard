@@ -8,8 +8,9 @@ import (
 )
 
 func main() {
-	if err := cli.Execute(nil); err != nil {
+	if exitCode, err := cli.Execute(nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(int(exitCode))
 	}
+	os.Exit(int(cli.ExitSuccess))
 }

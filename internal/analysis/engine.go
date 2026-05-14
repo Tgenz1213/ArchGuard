@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,22 @@ type Engine struct {
 	Debug    bool
 	CI       bool // CI-safe mode (Warn-Open behavior)
 	Cache    *cache.Cache
+}
+
+// ErrDriftDetected identifies analysis results that contain architectural violations.
+var ErrDriftDetected = errors.New("architectural drift detected")
+
+// DriftDetectedError reports the number of architectural violations found.
+type DriftDetectedError struct {
+	Count int
+}
+
+func (e *DriftDetectedError) Error() string {
+	return fmt.Sprintf("found %d architectural violations", e.Count)
+}
+
+func (e *DriftDetectedError) Is(target error) bool {
+	return target == ErrDriftDetected
 }
 
 // NewEngine initializes a new analysis engine with a local cache.
@@ -220,7 +237,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	wg.Wait()
 
 	if violations > 0 {
-		return fmt.Errorf("found %d architectural violations", violations)
+		return &DriftDetectedError{Count: violations}
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
 func main() {
@@ -21,8 +22,8 @@ func main() {
 		}
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			if strings.Contains(user, "password") {
-				return `{"violation": true, "reasoning": "Mock violation: password found", "quoted_code": "password"}`, nil
+			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
+				return `{"violation": true, "reasoning": "Mock violation: trigger found", "quoted_code": "` + testutil.MockViolationTrigger + `"}`, nil
 			}
 			return `{"violation": false, "reasoning": "Mock: no violation", "quoted_code": ""}`, nil
 		}
@@ -30,8 +31,24 @@ func main() {
 		return mock
 	}
 
-	if err := cli.Execute(mockFactory); err != nil {
+	if exitCode, err := cli.Execute(mockFactory); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(int(exitCode))
 	}
+	os.Exit(int(cli.ExitSuccess))
+}
+
+func codeContextContainsTrigger(prompt, trigger string) bool {
+	start := strings.Index(prompt, "<code_context>")
+	if start == -1 {
+		return false
+	}
+	start += len("<code_context>")
+
+	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
+	if endRelativeOffset == -1 {
+		return false
+	}
+
+	return strings.Contains(prompt[start:start+endRelativeOffset], trigger)
 }
