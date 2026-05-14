@@ -323,6 +323,13 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 		return ExitError, fmt.Errorf("failed to calculate ADR hash: %v", err)
 	}
 
+	if _, err := os.Stat(indexFile); err != nil {
+		if os.IsNotExist(err) {
+			return ExitIndexError, fmt.Errorf("index not found (run 'archguard index' to build it): %v", err)
+		}
+		return ExitError, fmt.Errorf("failed to access index file: %v", err)
+	}
+
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 		return ExitIndexError, fmt.Errorf("index mismatch or load failed (run 'archguard index' to rebuild): %v", err)
 	}
