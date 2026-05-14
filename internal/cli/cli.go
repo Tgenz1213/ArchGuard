@@ -2,10 +2,10 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,13 +305,17 @@ scope: "[Optional: glob pattern, e.g., **/*.go]"
 // based on the provided flags and ADR index.
 func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
-	checkFlags.SetOutput(io.Discard)
+	var flagParseOutput bytes.Buffer
+	checkFlags.SetOutput(&flagParseOutput)
 	staged := checkFlags.Bool("staged", false, "Scan staged files only")
 	all := checkFlags.Bool("all", false, "Scan all tracked files")
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 
 	if err := checkFlags.Parse(args); err != nil {
+		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
+			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
+		}
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 

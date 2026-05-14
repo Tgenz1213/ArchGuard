@@ -133,6 +133,25 @@ Do not print passwords or secrets to console.log.`
 		}
 	})
 
+	t.Run("Check command invalid flag returns usage exit code", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "check", "--not-a-real-flag")
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		_, err := cmd.CombinedOutput()
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
+			} else {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+		}
+		if exitCode != int(cli.ExitUsage) {
+			t.Fatalf("expected usage exit code %d, got %d", cli.ExitUsage, exitCode)
+		}
+	})
+
 	t.Run("Index command fails on invalid ADR path", func(t *testing.T) {
 		// Change config to point to a non-existent path
 		badConfigContent := `
