@@ -187,10 +187,10 @@ analysis:
 			t.Fatalf("Failed to corrupt index: %v", err)
 		}
 
-		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitIndexError))
+		// Re-run index to fix it for subsequent tests, even if runCheck aborts this subtest.
+		defer runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-		// Re-run index to fix it for subsequent tests
-		runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitIndexError))
 	})
 
 	t.Run("Detects violation in JS file", func(t *testing.T) {
