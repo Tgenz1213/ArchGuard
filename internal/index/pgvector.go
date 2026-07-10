@@ -32,7 +32,7 @@ func NewPgStore(connStr string, projectName string) (*PgStore, error) {
 		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
 	}
 	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	tempConn.Close(ctx)
+	_ = tempConn.Close(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vector extension: %w", err)
 	}

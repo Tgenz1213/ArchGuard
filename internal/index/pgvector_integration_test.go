@@ -63,7 +63,11 @@ func TestPgStore_Integration(t *testing.T) {
 	// 4. Create Mock ADRs
 	tmpDir, err := os.MkdirTemp("", "archguard_integration")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
 
 	adrContent := `---
 title: "Integration Test ADR"
