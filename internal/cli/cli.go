@@ -332,18 +332,19 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
-	var adrProvider index.Provider
+	var providers []index.Provider
+	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+
 	if cfg.Analysis.Confluence.Enabled {
-		adrProvider = index.NewConfluenceProvider(
+		providers = append(providers, index.NewConfluenceProvider(
 			cfg.Analysis.Confluence.Domain,
 			cfg.Analysis.Confluence.SpaceID,
 			cfg.Analysis.Confluence.Username,
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
-		)
-	} else {
-		adrProvider = index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
+		))
 	}
+	adrProvider := index.NewCompositeProvider(providers...)
 
 	validADRs, err := adrProvider.GetADRs(context.Background())
 	if err != nil {
@@ -411,18 +412,19 @@ func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, in
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
-	var adrProvider index.Provider
+	var providers []index.Provider
+	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+
 	if cfg.Analysis.Confluence.Enabled {
-		adrProvider = index.NewConfluenceProvider(
+		providers = append(providers, index.NewConfluenceProvider(
 			cfg.Analysis.Confluence.Domain,
 			cfg.Analysis.Confluence.SpaceID,
 			cfg.Analysis.Confluence.Username,
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
-		)
-	} else {
-		adrProvider = index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
+		))
 	}
+	adrProvider := index.NewCompositeProvider(providers...)
 
 	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, provider, adrProvider); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)

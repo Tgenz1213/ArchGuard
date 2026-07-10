@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"golang.org/x/net/html"
 )
 
 // ConfluenceProvider fetches ADRs from an Atlassian Confluence Space.
@@ -55,11 +57,12 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	var allADRs []ADR
 
 	// Use Confluence v2 API to get pages in a space
-	baseURL := p.domain
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "https://" + baseURL
+	baseURL, err := url.Parse(p.domain)
+	if err != nil {
+		return nil, fmt.Errorf("invalid confluence domain: %w", err)
 	}
-	u := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", baseURL, p.spaceID)
+
+	u := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", p.domain, p.spaceID)
 
 	for u != "" {
 		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
@@ -89,9 +92,9 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 		_ = resp.Body.Close()
 
 		for _, result := range searchResp.Results {
-			// Extract ID and convert HTML to text
+			// Extract raw text for metadata parsing (frontmatter)
+			rawText := extractRawText(result.Body.Storage.Value)
 			relPath := result.Links.WebUI
-			rawText := strings.TrimSpace(extractTextFromHTML(result.Body.Storage.Value))
 
 			// Try to parse it as an ADR (looking for YAML frontmatter)
 			adr, err := ParseADRContent([]byte(rawText), result.ID, relPath)
@@ -99,6 +102,10 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 				fmt.Printf("Warning: skipping Confluence page %s: %v\n", relPath, err)
 				continue
 			}
+
+			// Generate rich Markdown for the LLM to use
+			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
+			adr.Content = markdown
 
 			// Filter by status
 			accept := false
@@ -114,34 +121,57 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 		}
 
 		if searchResp.Links.Next != "" {
-			// _links.next usually contains the relative path like "/wiki/rest/api/content/search?..."
-			// Need to ensure it's absolute
-			nextPath := searchResp.Links.Next
-			if strings.HasPrefix(nextPath, "/wiki") {
-				u = fmt.Sprintf("%s%s", baseURL, nextPath)
-			} else {
-				u = searchResp.Links.Next // Fallback if absolute
+			nextURL, err := url.Parse(searchResp.Links.Next)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse pagination URL: %w", err)
 			}
+			resolvedURL := baseURL.ResolveReference(nextURL)
+			u = resolvedURL.String()
 		} else {
-			u = "" // Break pagination loop
+			u = "" // no more pages
 		}
 	}
 
 	return allADRs, nil
 }
 
-// extractTextFromHTML strips HTML tags from a string using x/net/html.
-func extractTextFromHTML(htmlContent string) string {
+// extractRawText strips HTML tags from a string using x/net/html
+// to produce a clean, raw string for frontmatter parsing.
+func extractRawText(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return htmlContent // fallback
+	}
+
+	var sb strings.Builder
+	var f func(*html.Node)
+	f = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			if n.Data == "br" || n.Data == "p" || n.Data == "div" {
+				sb.WriteString("\n")
+			}
+		}
+		if n.Type == html.TextNode {
+			sb.WriteString(n.Data)
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+		if n.Type == html.ElementNode && (n.Data == "p" || n.Data == "div") {
+			sb.WriteString("\n")
+		}
+	}
+	f(doc)
+
+	return strings.TrimSpace(sb.String())
+}
+
+// convertHTMLToMarkdown uses html-to-markdown to generate rich structural formatting.
+func convertHTMLToMarkdown(htmlContent string) string {
 	converter := md.NewConverter("", true, nil)
 	markdown, err := converter.ConvertString(htmlContent)
 	if err != nil {
-		// Fallback to returning original content if conversion fails
 		return htmlContent
 	}
-
-	// html-to-markdown escapes --- as \-\-\- if it's not inside a code block.
-	// This breaks our frontmatter parser. We must unescape it.
-	markdown = strings.ReplaceAll(markdown, "\\-\\-\\-", "---")
-
 	return markdown
 }
