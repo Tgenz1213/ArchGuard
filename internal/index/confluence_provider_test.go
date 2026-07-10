@@ -67,7 +67,7 @@ We will use Python.</p>`
 		response.Results = append(response.Results, validPage, rejectedPage, invalidPage)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer ts.Close()
 
@@ -130,7 +130,7 @@ Content 2</p>`
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer ts.Close()
 
