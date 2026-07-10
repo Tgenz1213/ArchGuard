@@ -11,27 +11,43 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
-// Store manages the persistence and retrieval of ADR embeddings and metadata.
-type Store struct {
+// VectorStore defines the interface for interacting with the index storage.
+type VectorStore interface {
+	CalculateHash(dirPath, modelName string) (string, error)
+	Load(path, modelName string, dim int, currentHash string) error
+	Save(path string) error
+	BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error
+	Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult
+}
+
+// LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
+type LocalStore struct {
 	ADRs      []ADR  `json:"adrs"`
 	Hash      string `json:"hash"`
 	ModelName string `json:"model_name"`
 	Dim       int    `json:"dim"`
 }
 
-// NewStore initializes a new Store instance.
-func NewStore() *Store {
-	return &Store{
+// NewLocalStore initializes a new LocalStore instance.
+func NewLocalStore() *LocalStore {
+	return &LocalStore{
 		ADRs: []ADR{},
 	}
 }
 
+// NewVectorStore creates the appropriate VectorStore based on the configuration.
+func NewVectorStore(cfg *config.Config) (VectorStore, error) {
+	// For now, just return NewLocalStore() since PgStore isn't implemented yet.
+	return NewLocalStore(), nil
+}
+
 // CalculateHash generates a hash of all ADR file contents and the model name
 // to detect if the index needs a rebuild.
-func (s *Store) CalculateHash(dirPath, modelName string) (string, error) {
+func (s *LocalStore) CalculateHash(dirPath, modelName string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(modelName))
 
@@ -57,7 +73,7 @@ func (s *Store) CalculateHash(dirPath, modelName string) (string, error) {
 }
 
 // Load reads the index from disk and validates metadata against the current configuration.
-func (s *Store) Load(path, modelName string, dim int, currentHash string) error {
+func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -88,7 +104,7 @@ func (s *Store) Load(path, modelName string, dim int, currentHash string) error 
 }
 
 // Save persists the current state of the store to a JSON file.
-func (s *Store) Save(path string) error {
+func (s *LocalStore) Save(path string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -108,7 +124,7 @@ func (s *Store) Save(path string) error {
 }
 
 // BuildIndex crawls the specified directory, parses ADRs, and generates embeddings in parallel.
-func (s *Store) BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error {
+func (s *LocalStore) BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error {
 	var validADRs []ADR
 
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
