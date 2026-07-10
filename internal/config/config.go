@@ -29,6 +29,7 @@ type VectorStore struct {
 	Model               string  `yaml:"model"`
 	EmbeddingDim        int     `yaml:"embedding_dim"`
 	SimilarityThreshold float64 `yaml:"similarity_threshold"`
+	ConnectionString    string  `yaml:"connection_string"`
 }
 
 type Analysis struct {
