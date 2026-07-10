@@ -1,0 +1,39 @@
+name: 'ArchGuard - Architectural Drift Detector'
+description: 'Semantic compliance engine that verifies code changes against ADRs.'
+branding:
+  icon: 'shield'
+  color: 'blue'
+inputs:
+  provider:
+    description: 'The LLM provider configured in archguard.yaml (e.g., ollama, openai, gemini)'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+    
+    - name: Install ArchGuard
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: go install ./cmd/archguard
+    
+    - name: Install Ollama
+      if: ${{ inputs.provider == 'ollama' }}
+      shell: bash
+      run: curl -fsSL https://ollama.com/install.sh | sh
+    
+    - name: Start Ollama and Pull Models
+      if: ${{ inputs.provider == 'ollama' }}
+      shell: bash
+      run: |
+        ollama serve &
+        sleep 5
+        ollama pull llama3.2
+        ollama pull nomic-embed-text
+    
+    - name: Run ArchGuard Check
+      shell: bash
+      run: archguard check --ci
