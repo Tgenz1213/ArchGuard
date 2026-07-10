@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 // Provider defines how ArchGuard fetches ADR documents.
@@ -23,21 +24,32 @@ func NewCompositeProvider(providers ...Provider) *CompositeProvider {
 	}
 }
 
-// GetADRs fetches ADRs from all configured providers and aggregates them into a single slice.
+// GetADRs fetches ADRs from all configured providers concurrently and aggregates them into a single slice.
 func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	var allADRs []ADR
 	var errs []error
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	for _, p := range c.providers {
-		adrs, err := p.GetADRs(ctx)
-		if err != nil {
-			// Do not crash the entire run if one remote provider drops connection.
-			fmt.Printf("Warning: failed to fetch ADRs from a provider: %v\n", err)
-			errs = append(errs, err)
-			continue
-		}
-		allADRs = append(allADRs, adrs...)
+		wg.Add(1)
+		go func(p Provider) {
+			defer wg.Done()
+			adrs, err := p.GetADRs(ctx)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err != nil {
+				// Do not crash the entire run if one remote provider drops connection.
+				fmt.Printf("Warning: failed to fetch ADRs from a provider: %v\n", err)
+				errs = append(errs, err)
+				return
+			}
+			allADRs = append(allADRs, adrs...)
+		}(p)
 	}
+	wg.Wait()
 
 	// If every single provider failed, then we should return an error.
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {

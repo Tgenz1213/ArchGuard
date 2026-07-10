@@ -53,7 +53,7 @@ func TestPgStore_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Initialize PgStore
-	store, err := index.NewPgStore(connStr, "integration_test_project")
+	store, err := index.NewPgStore(connStr, "integration_test_project", 5)
 	require.NoError(t, err)
 
 	// 3. Load Store
@@ -85,13 +85,13 @@ Test Content`
 		},
 	}
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
-	err = store.BuildIndex(ctx, "test-model", provider, localProvider)
+	err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
 
 	// Insert into a second project to test isolation
-	storeOther, err := index.NewPgStore(connStr, "other_project")
+	storeOther, err := index.NewPgStore(connStr, "other_project", 5)
 	require.NoError(t, err)
-	err = storeOther.BuildIndex(ctx, "test-model", provider, localProvider)
+	err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
 
 	// 6. Search
