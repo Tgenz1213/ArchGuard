@@ -18,7 +18,7 @@ import (
 // Engine coordinates the analysis of source files against ADRs using LLM providers.
 type Engine struct {
 	Config   *config.Config
-	Store    *index.Store
+	Store    index.VectorStore
 	Provider llm.Provider
 	Content  ContentProvider
 	Debug    bool
@@ -43,7 +43,7 @@ func (e *DriftDetectedError) Is(target error) bool {
 }
 
 // NewEngine initializes a new analysis engine with a local cache.
-func NewEngine(cfg *config.Config, store *index.Store, provider llm.Provider, content ContentProvider, debug bool, ci bool) *Engine {
+func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provider, content ContentProvider, debug bool, ci bool) *Engine {
 	c, _ := cache.NewCache(".")
 
 	return &Engine{

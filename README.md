@@ -108,6 +108,7 @@ vector_store:
   model: "nomic-embed-text"
   embedding_dim: 768
   similarity_threshold: 0.75 # Minimum 0-1 score to trigger an LLM check
+  connection_string: "" # Optional: e.g., "postgresql://postgres:password@localhost:5432/postgres" to use a remote pgvector DB instead of local files
 
 analysis:
   adr_path: "./docs/arch"
@@ -146,6 +147,18 @@ Do not print passwords or secrets to console logs.
 - `title` (Required): Human friendly title.
 - `status` (Required): Must match a value in `analysis.accepted_statuses`.
 - `scope` (Optional): Glob pattern (e.g., `src/**/*.ts`). Supports standard Go globbing and recursive `**` patterns.
+
+### Remote Vector Databases (pgvector)
+By default, ArchGuard stores your ADR embeddings in a local `.archguard/index.json` file. For large teams or CI environments, you can centralize this index using PostgreSQL and the `pgvector` extension.
+
+Simply provide a connection string in your `archguard.yaml` or set the `ARCHGUARD_DB_URL` environment variable:
+
+```bash
+export ARCHGUARD_DB_URL="postgresql://user:pass@host:5432/db"
+archguard index
+```
+
+This will automatically create the `archguard_adrs` table and safely scope all ADRs by your repository's Project Name, preventing conflicts across different codebases sharing the same database.
 
 ---
 

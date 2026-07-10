@@ -13,7 +13,7 @@ type SearchResult struct {
 
 // Search performs a vector similarity search across the store, returning up to topK results
 // that meet or exceed the specified threshold.
-func (s *Store) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
+func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
 	var results []SearchResult
 
 	for i := range s.ADRs {

@@ -91,6 +91,10 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		return ExitConfig, fmt.Errorf("error loading config: %v", err)
 	}
 
+	if cfg.ProjectName == "" {
+		cfg.ProjectName = filepath.Base(repoRoot)
+	}
+
 	indexFile := ".archguard/index.json"
 	if cfg.IndexFile != "" {
 		indexFile = cfg.IndexFile
@@ -123,7 +127,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 	if command == "check" {
 		return runCheck(cfg, provider, indexFile, os.Args[2:])
 	}
-	return runIndex(cfg, provider, indexFile)
+	return runIndex(context.Background(), cfg, provider, indexFile)
 }
 
 // runInit initializes a new ArchGuard project by prompting the user for configuration
@@ -323,21 +327,27 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 
 	files := checkFlags.Args()
 
-	store := index.NewStore()
-	currentHash, err := store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
+	store, err := index.NewVectorStore(cfg)
 	if err != nil {
-		return ExitError, fmt.Errorf("failed to calculate ADR hash: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
-	if _, err := os.Stat(indexFile); err != nil {
-		if os.IsNotExist(err) {
-			return ExitIndexError, fmt.Errorf("index not found (run 'archguard index' to build it): %v", err)
-		}
-		return ExitError, fmt.Errorf("failed to access index file: %v", err)
+	currentHash, err := store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
+	if err != nil {
+		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
-		return ExitIndexError, fmt.Errorf("index mismatch or load failed (run 'archguard index' to rebuild): %v", err)
+		fmt.Printf("Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
+		if _, err := runIndex(context.Background(), cfg, provider, indexFile); err != nil {
+			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
+		}
+
+		// Reload the index after a successful rebuild to ensure the latest state is in memory.
+		currentHash, _ = store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
+		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
+			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
+		}
 	}
 
 	var contentProvider analysis.ContentProvider
@@ -377,13 +387,18 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(cfg *config.Config, provider llm.Provider, indexFile string) (ExitCode, error) {
-	store := index.NewStore()
-	if err := store.BuildIndex(context.Background(), cfg.Analysis.ADRPath, cfg.VectorStore.Model, provider, cfg.Analysis.AcceptedStatuses); err != nil {
-		return ExitIndexError, fmt.Errorf("indexing failed: %v", err)
+func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, indexFile string) (ExitCode, error) {
+	store, err := index.NewVectorStore(cfg)
+	if err != nil {
+		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
+
+	if err := store.BuildIndex(ctx, cfg.Analysis.ADRPath, cfg.VectorStore.Model, provider, cfg.Analysis.AcceptedStatuses); err != nil {
+		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
+	}
+
 	if err := store.Save(indexFile); err != nil {
-		return ExitIndexError, fmt.Errorf("failed to save index: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
 	fmt.Println("ADR Index updated successfully.")
 	return ExitSuccess, nil
