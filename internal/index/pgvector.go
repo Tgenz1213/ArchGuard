@@ -3,9 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+
 	"sync"
 
 	"github.com/jackc/pgx/v5"
@@ -59,7 +57,7 @@ func NewPgStore(connStr string, projectName string) (*PgStore, error) {
 }
 
 // CalculateHash is a no-op for PgStore because the database maintains state incrementally (or is completely truncated on Build).
-func (s *PgStore) CalculateHash(dirPath, modelName string) (string, error) {
+func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	return "remote", nil
 }
 
@@ -90,29 +88,8 @@ func (s *PgStore) Save(path string) error {
 }
 
 // BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
-func (s *PgStore) BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error {
-	var validADRs []ADR
-
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
-			adr, err := ParseADR(path, dirPath)
-			if err != nil {
-				fmt.Printf("Warning: skipping %s: %v\n", path, err)
-				return nil
-			}
-
-			for _, status := range acceptedStatuses {
-				if strings.EqualFold(strings.TrimSpace(adr.Status), strings.TrimSpace(status)) {
-					validADRs = append(validADRs, *adr)
-					break
-				}
-			}
-		}
-		return nil
-	})
+func (s *PgStore) BuildIndex(ctx context.Context, modelName string, provider llm.Provider, adrProvider Provider) error {
+	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return err
 	}

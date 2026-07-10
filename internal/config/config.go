@@ -33,11 +33,20 @@ type VectorStore struct {
 	ConnectionString    string  `yaml:"connection_string"`
 }
 
+type Confluence struct {
+	Enabled  bool   `yaml:"enabled"`
+	Domain   string `yaml:"domain"` // e.g., "mycompany.atlassian.net"
+	SpaceID  string `yaml:"space_id"`
+	Username string `yaml:"username"`
+	Token    string `yaml:"token"` // API token
+}
+
 type Analysis struct {
-	ADRPath          string   `yaml:"adr_path"`
-	AcceptedStatuses []string `yaml:"accepted_statuses"`
-	ExcludePatterns  []string `yaml:"exclude_patterns"`
-	MaxConcurrency   int      `yaml:"max_concurrency"`
+	ADRPath          string     `yaml:"adr_path"`
+	AcceptedStatuses []string   `yaml:"accepted_statuses"`
+	ExcludePatterns  []string   `yaml:"exclude_patterns"`
+	MaxConcurrency   int        `yaml:"max_concurrency"`
+	Confluence       Confluence `yaml:"confluence"`
 }
 
 func LoadConfig(path string) (*Config, error) {
