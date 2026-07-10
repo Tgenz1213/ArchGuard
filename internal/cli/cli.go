@@ -395,6 +395,8 @@ func printUsage() {
 	fmt.Println("  init     Initialize ArchGuard in the current repository (local setup)")
 	fmt.Println("  check    Check for architectural violations")
 	fmt.Println("  index    Rebuild the ADR index")
+	fmt.Println("\nGlobal Flags:")
+	fmt.Println("  -v, --version  Print version information")
 }
 
 func loadDotEnv() error {
