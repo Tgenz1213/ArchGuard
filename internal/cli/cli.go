@@ -339,6 +339,7 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
+		// Reload the index after a successful rebuild to ensure the latest state is in memory.
 		currentHash, _ = store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
 		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)

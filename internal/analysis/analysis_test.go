@@ -50,7 +50,7 @@ func TestDriftDetection(t *testing.T) {
 	}
 
 	// 2. Setup Store with one ADR
-	store := index.NewStore()
+	store := index.NewLocalStore()
 	store.ADRs = []index.ADR{
 		{
 			ID:        "0001",
@@ -105,7 +105,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 	}
 
 	// 2. Setup Store with one ADR
-	store := index.NewStore()
+	store := index.NewLocalStore()
 	store.ADRs = []index.ADR{
 		{
 			ID:        "0001",
