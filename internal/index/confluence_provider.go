@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"golang.org/x/net/html"
@@ -64,16 +65,22 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 
 	u := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", p.domain, p.spaceID)
 
+	// Use a dedicated HTTP client with a strict timeout for remote calls
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
 	for u != "" {
 		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
+		// Authenticate with Atlassian Cloud
 		req.SetBasicAuth(p.username, p.token)
-		req.Header.Set("Accept", "application/json")
+		req.Header.Add("Accept", "application/json")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("confluence request failed: %w", err)
 		}
@@ -97,7 +104,9 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 			relPath := result.Links.WebUI
 
 			// Try to parse it as an ADR (looking for YAML frontmatter)
-			adr, err := ParseADRContent([]byte(rawText), result.ID, relPath)
+			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
+			adrID := fmt.Sprintf("confluence-%s", result.ID)
+			adr, err := ParseADRContent([]byte(rawText), adrID, relPath)
 			if err != nil {
 				fmt.Printf("Warning: skipping Confluence page %s: %v\n", relPath, err)
 				continue

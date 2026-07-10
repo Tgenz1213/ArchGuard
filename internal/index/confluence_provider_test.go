@@ -80,11 +80,7 @@ We will use Python.</p>`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(adrs) != 1 {
-		t.Fatalf("expected 1 ADR, got %d", len(adrs))
-	}
-
-	if adrs[0].ID != "1" || adrs[0].Title != "Use Go" {
+	if len(adrs) != 1 || adrs[0].ID != "confluence-1" || adrs[0].Title != "Use Go" {
 		t.Errorf("unexpected ADR contents: %+v", adrs[0])
 	}
 }

@@ -30,7 +30,9 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	for _, p := range c.providers {
 		adrs, err := p.GetADRs(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch ADRs from a provider: %w", err)
+			// Do not crash the entire run if one remote provider drops connection.
+			fmt.Printf("Warning: failed to fetch ADRs from a provider: %v\n", err)
+			continue
 		}
 		allADRs = append(allADRs, adrs...)
 	}
