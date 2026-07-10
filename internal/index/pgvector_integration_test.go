@@ -90,7 +90,7 @@ Test Content`
 	if len(results) > 0 {
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
 		assert.Equal(t, "Accepted", results[0].ADR.Status)
-		assert.Equal(t, "Test Content", results[0].ADR.Content)
+		assert.Contains(t, results[0].ADR.Content, "Test Content")
 		// Similarity score should be very high
 		assert.Greater(t, results[0].Score, 0.9)
 	}

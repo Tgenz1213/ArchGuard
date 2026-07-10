@@ -24,6 +24,18 @@ type PgStore struct {
 // NewPgStore initializes a new PgStore connected to the given database URL.
 func NewPgStore(connStr string) (*PgStore, error) {
 	ctx := context.Background()
+
+	// Ensure the vector extension exists BEFORE setting up the pool
+	tempConn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
+	}
+	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+	tempConn.Close(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
 	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
@@ -49,14 +61,9 @@ func (s *PgStore) CalculateHash(dirPath, modelName string) (string, error) {
 	return "remote", nil
 }
 
-// Load verifies the database connection and ensures the pgvector extension and tables exist.
+// Load verifies the database connection and ensures the tables exist.
 func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
 	ctx := context.Background()
-
-	_, err := s.pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	if err != nil {
-		return fmt.Errorf("failed to create vector extension: %w", err)
-	}
 
 	query := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
@@ -69,7 +76,7 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 		)
 	`, dim)
 	
-	_, err = s.pool.Exec(ctx, query)
+	_, err := s.pool.Exec(ctx, query)
 	return err
 }
 
