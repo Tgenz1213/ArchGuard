@@ -91,7 +91,7 @@ Test Content`
 
 	// 6. Search
 	// Query embedding [0.1, 0.1] should match perfectly.
-	// Since we inserted the same ADR into two different projects, 
+	// Since we inserted the same ADR into two different projects,
 	// if scoping works, we should only get 1 result back from the first store, not 2.
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
 	assert.Len(t, results, 1)

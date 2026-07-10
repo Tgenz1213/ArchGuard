@@ -79,7 +79,7 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 			UNIQUE (project_name, rel_path)
 		)
 	`, dim)
-	
+
 	_, err := s.pool.Exec(ctx, query)
 	return err
 }
@@ -155,7 +155,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, dirPath string, modelName stri
 		if res.err != nil {
 			return fmt.Errorf("failed to embed ADR %s: %w", validADRs[res.index].RelPath, res.err)
 		}
-		
+
 		vec := pgvector.NewVector(res.embedding)
 		_, err := s.pool.Exec(ctx, `
 			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
@@ -203,7 +203,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 			fmt.Printf("PgStore Row scan failed: %v\n", err)
 			continue
 		}
-		
+
 		results = append(results, SearchResult{
 			ADR:   &adr,
 			Score: score,
