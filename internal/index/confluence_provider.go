@@ -101,7 +101,13 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 		for _, result := range searchResp.Results {
 			// Extract raw text for metadata parsing (frontmatter)
 			rawText := extractRawText(result.Body.Storage.Value)
-			relPath := result.Links.WebUI
+			// Resolve the WebUI link to an absolute URL for clickable logging
+			var relPath string
+			if parsedWebUI, err := url.Parse(result.Links.WebUI); err == nil {
+				relPath = baseURL.ResolveReference(parsedWebUI).String()
+			} else {
+				relPath = fmt.Sprintf("%s%s", p.domain, result.Links.WebUI)
+			}
 
 			// Try to parse it as an ADR (looking for YAML frontmatter)
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
