@@ -19,10 +19,11 @@ import (
 type PgStore struct {
 	pool             *pgxpool.Pool
 	connectionString string
+	projectName      string
 }
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
-func NewPgStore(connStr string) (*PgStore, error) {
+func NewPgStore(connStr string, projectName string) (*PgStore, error) {
 	ctx := context.Background()
 
 	// Ensure the vector extension exists BEFORE setting up the pool
@@ -53,6 +54,7 @@ func NewPgStore(connStr string) (*PgStore, error) {
 	return &PgStore{
 		pool:             pool,
 		connectionString: connStr,
+		projectName:      projectName,
 	}, nil
 }
 
@@ -68,11 +70,13 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 	query := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
 			id SERIAL PRIMARY KEY,
-			rel_path TEXT UNIQUE,
+			project_name TEXT NOT NULL DEFAULT 'default',
+			rel_path TEXT,
 			title TEXT,
 			status TEXT,
 			content TEXT,
-			embedding vector(%d)
+			embedding vector(%d),
+			UNIQUE (project_name, rel_path)
 		)
 	`, dim)
 	
@@ -115,9 +119,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, dirPath string, modelName stri
 
 	fmt.Printf("Found %d valid ADRs. Inserting into pgvector...\n", len(validADRs))
 
-	// Truncate the table to remove old ADRs since we don't have incremental diffing yet.
-	if _, err := s.pool.Exec(ctx, "TRUNCATE TABLE archguard_adrs"); err != nil {
-		return fmt.Errorf("failed to truncate table: %w", err)
+	// Delete only the ADRs for this specific project
+	if _, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1", s.projectName); err != nil {
+		return fmt.Errorf("failed to clear old ADRs for project %s: %w", s.projectName, err)
 	}
 
 	type result struct {
@@ -154,9 +158,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, dirPath string, modelName stri
 		
 		vec := pgvector.NewVector(res.embedding)
 		_, err := s.pool.Exec(ctx, `
-			INSERT INTO archguard_adrs (rel_path, title, status, content, embedding)
-			VALUES ($1, $2, $3, $4, $5)`,
-			validADRs[res.index].RelPath, validADRs[res.index].Title, validADRs[res.index].Status, validADRs[res.index].Content, vec,
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			s.projectName, validADRs[res.index].RelPath, validADRs[res.index].Title, validADRs[res.index].Status, validADRs[res.index].Content, vec,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert ADR %s: %w", validADRs[res.index].RelPath, err)
@@ -180,11 +184,11 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 	query := `
 		SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
 		FROM archguard_adrs
-		WHERE embedding <=> $1 <= $2
+		WHERE project_name = $2 AND embedding <=> $1 <= $3
 		ORDER BY embedding <=> $1
-		LIMIT $3
+		LIMIT $4
 	`
-	rows, err := s.pool.Query(ctx, query, vec, distanceThreshold, topK)
+	rows, err := s.pool.Query(ctx, query, vec, s.projectName, distanceThreshold, topK)
 	if err != nil {
 		fmt.Printf("PgStore Search query failed: %v\n", err)
 		return nil

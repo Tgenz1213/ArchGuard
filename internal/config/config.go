@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Version     string      `yaml:"version"`
+	ProjectName string      `yaml:"project_name"`
 	LLM         LLMConfig   `yaml:"llm"`
 	VectorStore VectorStore `yaml:"vector_store"`
 	Analysis    Analysis    `yaml:"analysis"`
@@ -48,6 +49,10 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if envDBURL := os.Getenv("ARCHGUARD_DB_URL"); envDBURL != "" {
+		cfg.VectorStore.ConnectionString = envDBURL
 	}
 
 	return &cfg, nil

@@ -41,7 +41,9 @@ func NewLocalStore() *LocalStore {
 
 // NewVectorStore creates the appropriate VectorStore based on the configuration.
 func NewVectorStore(cfg *config.Config) (VectorStore, error) {
-	// For now, just return NewLocalStore() since PgStore isn't implemented yet.
+	if cfg.VectorStore.ConnectionString != "" {
+		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName)
+	}
 	return NewLocalStore(), nil
 }
 

@@ -91,6 +91,10 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		return ExitConfig, fmt.Errorf("error loading config: %v", err)
 	}
 
+	if cfg.ProjectName == "" {
+		cfg.ProjectName = filepath.Base(repoRoot)
+	}
+
 	indexFile := ".archguard/index.json"
 	if cfg.IndexFile != "" {
 		indexFile = cfg.IndexFile

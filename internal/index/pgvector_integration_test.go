@@ -53,7 +53,7 @@ func TestPgStore_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Initialize PgStore
-	store, err := index.NewPgStore(connStr)
+	store, err := index.NewPgStore(connStr, "integration_test_project")
 	require.NoError(t, err)
 
 	// 3. Load Store
@@ -83,8 +83,16 @@ Test Content`
 	err = store.BuildIndex(ctx, tmpDir, "test-model", provider, []string{"Accepted"})
 	require.NoError(t, err)
 
+	// Insert into a second project to test isolation
+	storeOther, err := index.NewPgStore(connStr, "other_project")
+	require.NoError(t, err)
+	err = storeOther.BuildIndex(ctx, tmpDir, "test-model", provider, []string{"Accepted"})
+	require.NoError(t, err)
+
 	// 6. Search
-	// Query embedding [0.1, 0.1] should match perfectly
+	// Query embedding [0.1, 0.1] should match perfectly.
+	// Since we inserted the same ADR into two different projects, 
+	// if scoping works, we should only get 1 result back from the first store, not 2.
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
 	assert.Len(t, results, 1)
 	if len(results) > 0 {
