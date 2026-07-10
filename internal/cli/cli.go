@@ -225,6 +225,7 @@ vector_store:
   model: "nomic-embed-text"
   embedding_dim: 768
   similarity_threshold: 0.75
+  connection_string: ""
 
 analysis:
   adr_path: "%s"
