@@ -88,37 +88,52 @@ ArchGuard is designed with a "Local First" mentality.
 
 ## 🛠️ Configuration
 
-### archguard.yaml Reference
-
-The configuration file controls which models are used and how files are scanned.
+ArchGuard is configured via `archguard.yaml` in the root of your repository.
 
 ```yaml
 version: "1"
 
 llm:
-  provider: "ollama"
+  provider: "ollama" # or "openai", "gemini"
   model: "llama3.2"
   base_url: "http://localhost:11434"
   max_tokens: 8000
   temperature: 0.0
-  system_prompt: "You are a custom AI auditor..." # Optional: Override the default system prompt
 
 vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
   embedding_dim: 768
-  similarity_threshold: 0.75 # Minimum 0-1 score to trigger an LLM check
-  connection_string: "" # Optional: e.g., "postgresql://postgres:password@localhost:5432/postgres" to use a remote pgvector DB instead of local files
+  similarity_threshold: 0.75
+  connection_string: "" # e.g. postgres://user:pass@localhost:5432/archguard
 
 analysis:
   adr_path: "./docs/arch"
-  accepted_statuses: ["Accepted", "Active"]
+  accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
     - "vendor/**"
     - "go.sum"
+    - "README.md"
+  
+  # Optional Confluence Integration
+  confluence:
+    enabled: false
+    domain: "yourcompany.atlassian.net"
+    space_id: "ARCH"
+    username: "user@yourcompany.com"
+    token: "ATATT3x..."
   max_concurrency: 5 # Number of files analyzed in parallel
 ```
+
+### Supported Statuses
+You can filter ADRs by their status (e.g. `["Accepted"]`). If you want ArchGuard to evaluate against *all* ADRs regardless of status, use `["*"]`.
+
+### Confluence Integration
+ArchGuard can natively pull your ADRs from Atlassian Confluence using the Confluence REST API v2. To use it:
+1. Enable `confluence` in your `archguard.yaml`.
+2. Provide your Confluence `domain` (e.g. `yourcompany.atlassian.net`), the `space_id` where the ADRs live, your `username`, and an API `token`.
+3. ArchGuard will crawl the specified space and evaluate your codebase against all pages matching your `accepted_statuses`.
 
 ### ADR Format
 

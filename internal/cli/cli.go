@@ -332,7 +332,26 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
-	currentHash, err := store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
+	var providers []index.Provider
+	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+
+	if cfg.Analysis.Confluence.Enabled {
+		providers = append(providers, index.NewConfluenceProvider(
+			cfg.Analysis.Confluence.Domain,
+			cfg.Analysis.Confluence.SpaceID,
+			cfg.Analysis.Confluence.Username,
+			cfg.Analysis.Confluence.Token,
+			cfg.Analysis.AcceptedStatuses,
+		))
+	}
+	adrProvider := index.NewCompositeProvider(providers...)
+
+	validADRs, err := adrProvider.GetADRs(context.Background())
+	if err != nil {
+		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
+	}
+
+	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
@@ -344,7 +363,7 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 		}
 
 		// Reload the index after a successful rebuild to ensure the latest state is in memory.
-		currentHash, _ = store.CalculateHash(cfg.Analysis.ADRPath, cfg.VectorStore.Model)
+		currentHash, _ = store.CalculateHash(validADRs, cfg.VectorStore.Model)
 		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
 		}
@@ -393,7 +412,21 @@ func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, in
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
-	if err := store.BuildIndex(ctx, cfg.Analysis.ADRPath, cfg.VectorStore.Model, provider, cfg.Analysis.AcceptedStatuses); err != nil {
+	var providers []index.Provider
+	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+
+	if cfg.Analysis.Confluence.Enabled {
+		providers = append(providers, index.NewConfluenceProvider(
+			cfg.Analysis.Confluence.Domain,
+			cfg.Analysis.Confluence.SpaceID,
+			cfg.Analysis.Confluence.Username,
+			cfg.Analysis.Confluence.Token,
+			cfg.Analysis.AcceptedStatuses,
+		))
+	}
+	adrProvider := index.NewCompositeProvider(providers...)
+
+	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, provider, adrProvider); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 

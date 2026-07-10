@@ -17,10 +17,10 @@ import (
 
 // VectorStore defines the interface for interacting with the index storage.
 type VectorStore interface {
-	CalculateHash(dirPath, modelName string) (string, error)
+	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
-	BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error
+	BuildIndex(ctx context.Context, modelName string, provider llm.Provider, adrProvider Provider) error
 	Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult
 }
 
@@ -49,29 +49,15 @@ func NewVectorStore(cfg *config.Config) (VectorStore, error) {
 
 // CalculateHash generates a hash of all ADR file contents and the model name
 // to detect if the index needs a rebuild.
-func (s *LocalStore) CalculateHash(dirPath, modelName string) (string, error) {
+func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(modelName))
 
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
-			relPath, relErr := filepath.Rel(dirPath, path)
-			if relErr != nil {
-				// Fallback to the base name if relative path cannot be determined
-				relPath = info.Name()
-			}
-			hasher.Write([]byte(relPath))
-			content, err := os.ReadFile(path)
-			if err == nil {
-				hasher.Write(content)
-			}
-		}
-		return nil
-	})
-	return hex.EncodeToString(hasher.Sum(nil)), err
+	for _, adr := range adrs {
+		hasher.Write([]byte(adr.RelPath))
+		hasher.Write([]byte(adr.Content))
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // Load reads the index from disk and validates metadata against the current configuration.
@@ -126,29 +112,8 @@ func (s *LocalStore) Save(path string) error {
 }
 
 // BuildIndex crawls the specified directory, parses ADRs, and generates embeddings in parallel.
-func (s *LocalStore) BuildIndex(ctx context.Context, dirPath string, modelName string, provider llm.Provider, acceptedStatuses []string) error {
-	var validADRs []ADR
-
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
-			adr, err := ParseADR(path, dirPath)
-			if err != nil {
-				fmt.Printf("Warning: skipping %s: %v\n", path, err)
-				return nil
-			}
-
-			for _, status := range acceptedStatuses {
-				if strings.EqualFold(strings.TrimSpace(adr.Status), strings.TrimSpace(status)) {
-					validADRs = append(validADRs, *adr)
-					break
-				}
-			}
-		}
-		return nil
-	})
+func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, provider llm.Provider, adrProvider Provider) error {
+	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return err
 	}
@@ -199,7 +164,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, dirPath string, modelName s
 		fmt.Printf("Index built with %d dimensions.\n", actualDim)
 	}
 
-	hash, err := s.CalculateHash(dirPath, modelName)
+	hash, err := s.CalculateHash(validADRs, modelName)
 	if err != nil {
 		return fmt.Errorf("failed to calculate hash: %w", err)
 	}

@@ -84,13 +84,14 @@ Test Content`
 			return []float32{0.1, 0.1}, nil
 		},
 	}
-	err = store.BuildIndex(ctx, tmpDir, "test-model", provider, []string{"Accepted"})
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	err = store.BuildIndex(ctx, "test-model", provider, localProvider)
 	require.NoError(t, err)
 
 	// Insert into a second project to test isolation
 	storeOther, err := index.NewPgStore(connStr, "other_project")
 	require.NoError(t, err)
-	err = storeOther.BuildIndex(ctx, tmpDir, "test-model", provider, []string{"Accepted"})
+	err = storeOther.BuildIndex(ctx, "test-model", provider, localProvider)
 	require.NoError(t, err)
 
 	// 6. Search
