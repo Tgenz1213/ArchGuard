@@ -181,7 +181,32 @@ Intentionally ignore a violation for a specific file using a comment:
 
 ### Continuous Integration (CI)
 
-Use the `--ci` flag in your pipeline.
+You can run ArchGuard in your CI pipeline to prevent architectural drift from being merged into your main branch.
+
+#### GitHub Actions
+
+ArchGuard is available on the GitHub Marketplace. You can use our official composite action in your `.github/workflows/` files:
+
+```yaml
+name: ArchGuard Check
+on: [push, pull_request]
+
+jobs:
+  archguard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run ArchGuard
+        uses: Tgenz1213/ArchGuard@main
+        with:
+          provider: 'ollama'
+```
+
+This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on your codebase. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
+
+#### Other CI Providers
+
+If you are not using GitHub Actions, you can run ArchGuard manually by using the `--ci` flag in your pipeline.
 
 **Warn-Open Policy:**
 Large files may be truncated to fit the LLM context. In `--ci` mode, truncated files result in a **Warning** rather than a failure, ensuring your pipeline doesn't break due to inconclusive analysis on massive files.
