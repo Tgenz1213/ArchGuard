@@ -16,7 +16,7 @@ The codebase is organized into several internal packages to maintain a strict se
 
 - **cmd/archguard**: This is the entry point. It manages CLI flags and environment variables like `ARCHGUARD_API_KEY`. Keep this layer thin.
 - **internal/analysis**: This is the core engine. It coordinates the analysis pipeline, manages the worker pool, and handles file truncation for LLM context windows.
-- **internal/index**: This package manages the vector store and ADR parsing. It is responsible for calculating hashes to determine if the index needs a rebuild.
+- **internal/index**: This package manages the vector store and ADR parsing. It is responsible for calculating hashes, executing Delta Indexing (to skip redundant API calls), managing concurrent provider fetching, and maintaining PostgreSQL upsert logic and HNSW index structures.
 - **internal/llm**: This contains the provider interfaces. If you want to add a new provider (like Anthropic), this is where you would implement the `Provider` interface.
 
 ---
@@ -30,7 +30,8 @@ For public-facing functions and complex logic, use **Structured Block Commenting
 ### Analysis Pipeline & Performance
 
 - **Vector Search**: ArchGuard relies on cosine similarity to find relevant ADRs. Ensure search logic adheres to the formal definition: $\text{similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathbf{B}\|}$.
-- **Parallelism**: The analysis engine uses a worker pool to process files concurrently. The default concurrency is 5, adjustable via `max_concurrency` in the config.
+- **Index Optimization**: Vector indexing operations should utilize Delta Indexing to bypass LLM calls for unchanged assets. Remote stores (like Postgres) must handle structural drift correctly (e.g., executing conditional `REINDEX` maintenance and safe `ON CONFLICT` block upserts).
+- **Parallelism**: The analysis engine uses a worker pool to process files concurrently. The default concurrency is 5, adjustable via `max_concurrency` in the config. Vector store embedding logic uses a separate pool (`embedding_concurrency`).
 - **Smart Truncation**: To fit within LLM context limits, the engine truncates large files by rolling back to the nearest preceding newline character to avoid breaking code mid-line.
 - **Caching**: Analysis results are cached in `.archguard/cache` using a SHA-256 hash of the model name, ADR content, file content, and prompts. This is critical for maintaining performance in local environments.
 
