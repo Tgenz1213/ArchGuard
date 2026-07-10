@@ -106,6 +106,7 @@ vector_store:
   embedding_dim: 768
   similarity_threshold: 0.75
   connection_string: "" # e.g. postgres://user:pass@localhost:5432/archguard
+  embedding_concurrency: 5
 
 analysis:
   adr_path: "./docs/arch"
@@ -173,7 +174,7 @@ export ARCHGUARD_DB_URL="postgresql://user:pass@host:5432/db"
 archguard index
 ```
 
-This will automatically create the `archguard_adrs` table and safely scope all ADRs by your repository's Project Name, preventing conflicts across different codebases sharing the same database.
+This will automatically create the `archguard_adrs` table and safely scope all ADRs by your repository's Project Name, preventing conflicts across different codebases sharing the same database. ArchGuard automatically manages an HNSW vector graph on this table and uses `ON CONFLICT DO UPDATE` queries to safely maintain the database state without locking table scans.
 
 ---
 
@@ -182,7 +183,8 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 ### CLI Commands
 
 - `archguard init`: Interactive setup for local development. Creates config, ADR directory, and scaffolding.
-- `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.**
+- `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.** 
+  - *Note:* ArchGuard uses **Delta Indexing**, meaning it intelligently skips API calls for ADRs that haven't changed. Feel free to run it frequently!
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
   - `<path>`: Scans a specific file or directory.
@@ -244,6 +246,7 @@ Large files may be truncated to fit the LLM context. In `--ci` mode, truncated f
 ## 🔬 Technical Details
 
 - **Semantic Search**: Uses cosine similarity to find relevant ADRs based on the code being analyzed.
+- **Index Optimizations**: Employs Delta Indexing to bypass redundant LLM API calls on unchanged files, concurrent provider routines to mask network latency, and conditional HNSW graph maintenance routines in Postgres.
 - **Smart Truncation**: Files exceeding the token limit are rolled back to the nearest newline character to preserve code integrity during analysis.
 - **Caching**: Analysis results are persisted in `.archguard/cache` based on a hash of the model, ADR content, and file content to reduce API costs and execution time.
 - **Parallel Execution**: Coordinates analysis across files using a worker pool (defaulting to 5 concurrent workers).
