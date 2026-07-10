@@ -20,31 +20,33 @@ type VectorStore interface {
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
-	BuildIndex(ctx context.Context, modelName string, provider llm.Provider, adrProvider Provider) error
+	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error
 	Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult
 }
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
 type LocalStore struct {
-	ADRs      []ADR  `json:"adrs"`
-	Hash      string `json:"hash"`
-	ModelName string `json:"model_name"`
-	Dim       int    `json:"dim"`
+	ADRs        []ADR  `json:"adrs"`
+	Hash        string `json:"hash"`
+	ModelName   string `json:"model_name"`
+	Dim         int    `json:"dim"`
+	concurrency int    `json:"-"`
 }
 
 // NewLocalStore initializes a new LocalStore instance.
-func NewLocalStore() *LocalStore {
+func NewLocalStore(concurrency int) *LocalStore {
 	return &LocalStore{
-		ADRs: []ADR{},
+		ADRs:        []ADR{},
+		concurrency: concurrency,
 	}
 }
 
 // NewVectorStore creates the appropriate VectorStore based on the configuration.
 func NewVectorStore(cfg *config.Config) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
-		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName)
+		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency)
 	}
-	return NewLocalStore(), nil
+	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
 }
 
 // CalculateHash generates a hash of all ADR file contents and the model name
@@ -112,56 +114,83 @@ func (s *LocalStore) Save(path string) error {
 }
 
 // BuildIndex crawls the specified directory, parses ADRs, and generates embeddings in parallel.
-func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, provider llm.Provider, adrProvider Provider) error {
+// Uses Delta Indexing to skip re-computing embeddings for unchanged ADRs.
+func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Found %d valid ADRs. Generating embeddings...\n", len(validADRs))
-
-	type result struct {
-		index     int
-		embedding []float32
-		err       error
-	}
-	results := make(chan result, len(validADRs))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 5)
-
-	for i := range validADRs {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[i].Title, validADRs[i].Status, validADRs[i].Content)
-			emb, err := provider.CreateEmbedding(ctx, textToEmbed)
-			results <- result{index: i, embedding: emb, err: err}
-		}(i)
+	existingMap := make(map[string]ADR)
+	for _, a := range s.ADRs {
+		existingMap[a.RelPath] = a
 	}
 
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	for res := range results {
-		if res.err != nil {
-			return fmt.Errorf("failed to embed ADR %s: %w", validADRs[res.index].RelPath, res.err)
+	var adrsToEmbed []int
+	for i, valid := range validADRs {
+		existing, ok := existingMap[valid.RelPath]
+		if ok && existing.Content == valid.Content && existing.Title == valid.Title && existing.Status == valid.Status {
+			validADRs[i].Embedding = existing.Embedding
+		} else {
+			adrsToEmbed = append(adrsToEmbed, i)
 		}
-		validADRs[res.index].Embedding = res.embedding
-		fmt.Printf(".")
 	}
-	fmt.Println()
+
+	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+
+	if len(adrsToEmbed) > 0 {
+		type result struct {
+			index     int
+			embedding []float32
+			err       error
+		}
+		results := make(chan result, len(adrsToEmbed))
+		var wg sync.WaitGroup
+
+		concurrency := s.concurrency
+		if concurrency <= 0 {
+			concurrency = 5
+		}
+		sem := make(chan struct{}, concurrency)
+
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		for _, idx := range adrsToEmbed {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[i].Title, validADRs[i].Status, validADRs[i].Content)
+				emb, err := provider.CreateEmbedding(ctx, textToEmbed)
+				results <- result{index: i, embedding: emb, err: err}
+			}(idx)
+		}
+
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		for res := range results {
+			if res.err != nil {
+				cancel() // immediately cancel remaining API requests
+				return fmt.Errorf("failed to embed ADR %s: %w", validADRs[res.index].RelPath, res.err)
+			}
+			validADRs[res.index].Embedding = res.embedding
+			fmt.Printf(".")
+		}
+		fmt.Println()
+	}
 
 	s.ADRs = validADRs
 	s.ModelName = modelName
-	if len(validADRs) > 0 {
-		actualDim := len(validADRs[0].Embedding)
-		s.Dim = actualDim
-		fmt.Printf("Index built with %d dimensions.\n", actualDim)
+	if dim > 0 {
+		s.Dim = dim
+	} else if len(validADRs) > 0 && len(validADRs[0].Embedding) > 0 {
+		s.Dim = len(validADRs[0].Embedding)
 	}
 
 	hash, err := s.CalculateHash(validADRs, modelName)

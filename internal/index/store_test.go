@@ -18,7 +18,7 @@ func TestStore_Save_Atomic(t *testing.T) {
 		}
 	}()
 
-	store := NewLocalStore()
+	store := NewLocalStore(5)
 	store.ModelName = "mock-model"
 	store.Dim = 128
 	store.Hash = "test-hash"
@@ -46,7 +46,7 @@ func TestStore_Save_Atomic(t *testing.T) {
 		t.Fatalf("index.json.tmp was not cleaned up")
 	}
 
-	loadedStore := NewLocalStore()
+	loadedStore := NewLocalStore(5)
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("Failed to read index.json: %v", err)

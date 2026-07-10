@@ -26,11 +26,12 @@ type LLMConfig struct {
 }
 
 type VectorStore struct {
-	Provider            string  `yaml:"provider"`
-	Model               string  `yaml:"model"`
-	EmbeddingDim        int     `yaml:"embedding_dim"`
-	SimilarityThreshold float64 `yaml:"similarity_threshold"`
-	ConnectionString    string  `yaml:"connection_string"`
+	Provider             string  `yaml:"provider"`
+	Model                string  `yaml:"model"`
+	EmbeddingDim         int     `yaml:"embedding_dim"`
+	SimilarityThreshold  float64 `yaml:"similarity_threshold"`
+	ConnectionString     string  `yaml:"connection_string"`
+	EmbeddingConcurrency int     `yaml:"embedding_concurrency"`
 }
 
 type Confluence struct {
@@ -62,6 +63,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	if envDBURL := os.Getenv("ARCHGUARD_DB_URL"); envDBURL != "" {
 		cfg.VectorStore.ConnectionString = envDBURL
+	}
+
+	if cfg.VectorStore.EmbeddingConcurrency <= 0 {
+		cfg.VectorStore.EmbeddingConcurrency = 5
 	}
 
 	return &cfg, nil

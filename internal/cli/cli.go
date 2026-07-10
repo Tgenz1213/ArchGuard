@@ -230,6 +230,7 @@ vector_store:
   embedding_dim: 768
   similarity_threshold: 0.75
   connection_string: ""
+  embedding_concurrency: 5
 
 analysis:
   adr_path: "%s"
@@ -426,7 +427,7 @@ func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, in
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
 
-	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, provider, adrProvider); err != nil {
+	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, provider, adrProvider); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 
