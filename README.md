@@ -23,7 +23,7 @@ Analyzing internal/db/conn.js...
 
 ### 1. Prerequisites
 
-- **Go 1.25+**: [Download Go](https://go.dev/dl/)
+- **Go 1.26+**: [Download Go](https://go.dev/dl/)
 - **Ollama**: [Download Ollama](https://ollama.com/)
 
 ### 2. Setup Models
