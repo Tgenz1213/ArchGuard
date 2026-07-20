@@ -41,10 +41,10 @@ func TestLoadDotEnv(t *testing.T) {
 			t.Fatalf("failed to write .env: %v", err)
 		}
 
-		os.Unsetenv("FOO_TEST_VAR")
-		os.Unsetenv("BAR_TEST_VAR")
-		defer os.Unsetenv("FOO_TEST_VAR")
-		defer os.Unsetenv("BAR_TEST_VAR")
+		_ = os.Unsetenv("FOO_TEST_VAR")
+		_ = os.Unsetenv("BAR_TEST_VAR")
+		defer func() { _ = os.Unsetenv("FOO_TEST_VAR") }()
+		defer func() { _ = os.Unsetenv("BAR_TEST_VAR") }()
 
 		if err := loadDotEnv(); err != nil {
 			t.Fatalf("loadDotEnv failed: %v", err)
