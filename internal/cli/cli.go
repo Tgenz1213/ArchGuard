@@ -65,7 +65,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		}
 	}
 
-	if err := loadDotEnv(); err != nil {
+	if err := godotenv.Load(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
 	}
 
@@ -447,8 +447,4 @@ func printUsage() {
 	fmt.Println("  index    Rebuild the ADR index")
 	fmt.Println("\nGlobal Flags:")
 	fmt.Println("  -v, --version  Print version information")
-}
-
-func loadDotEnv() error {
-	return godotenv.Load()
 }
