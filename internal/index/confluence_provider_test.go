@@ -144,6 +144,30 @@ Content 2</p>`
 	}
 }
 
+func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
+	// Real Confluence storage format renders each line of a page as its own
+	// block element, unlike the other fixtures in this file (which embed
+	// literal newlines inside a single <p> and would pass even with a naive
+	// HTML-to-text conversion that doesn't reconstruct block boundaries).
+	html := `<p>---</p><p>title: Use Go</p><p>status: Accepted</p><p>scope: "**/*.go"</p><p>---</p><p>We will use Go for all services.</p>`
+
+	raw := extractRawText(html)
+
+	adr, err := ParseADRContent([]byte(raw), "confluence-test", "test/path")
+	if err != nil {
+		t.Fatalf("ParseADRContent failed on extracted text (got: %q): %v", raw, err)
+	}
+	if adr.Title != "Use Go" {
+		t.Errorf("expected title 'Use Go', got %q", adr.Title)
+	}
+	if adr.Status != "Accepted" {
+		t.Errorf("expected status 'Accepted', got %q", adr.Status)
+	}
+	if !strings.Contains(adr.Content, "We will use Go for all services.") {
+		t.Errorf("expected content to contain body text, got %q", adr.Content)
+	}
+}
+
 func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

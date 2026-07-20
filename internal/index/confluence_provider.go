@@ -11,7 +11,7 @@ import (
 	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
-	"golang.org/x/net/html"
+	"github.com/PuerkitoBio/goquery"
 )
 
 // ConfluenceProvider fetches ADRs from an Atlassian Confluence Space.
@@ -150,35 +150,22 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	return allADRs, nil
 }
 
-// extractRawText strips HTML tags from a string using x/net/html
-// to produce a clean, raw string for frontmatter parsing.
+// extractRawText strips HTML tags from a string using goquery to produce a
+// clean, raw string for frontmatter parsing. Confluence's storage format
+// renders each line of a page as its own block element (e.g. one <p> per
+// line), so a newline is inserted after every br/p/div element before text
+// extraction -- otherwise goquery's Text() would concatenate all lines
+// together with no separator, and the YAML frontmatter block would no
+// longer parse.
 func extractRawText(htmlContent string) string {
-	doc, err := html.Parse(strings.NewReader(htmlContent))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {
 		return htmlContent // fallback
 	}
 
-	var sb strings.Builder
-	var f func(*html.Node)
-	f = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			if n.Data == "br" || n.Data == "p" || n.Data == "div" {
-				sb.WriteString("\n")
-			}
-		}
-		if n.Type == html.TextNode {
-			sb.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
-		if n.Type == html.ElementNode && (n.Data == "p" || n.Data == "div") {
-			sb.WriteString("\n")
-		}
-	}
-	f(doc)
+	doc.Find("br, p, div").AfterHtml("\n")
 
-	return strings.TrimSpace(sb.String())
+	return strings.TrimSpace(doc.Text())
 }
 
 // convertHTMLToMarkdown uses html-to-markdown to generate rich structural formatting.
