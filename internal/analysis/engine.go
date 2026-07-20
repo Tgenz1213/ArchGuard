@@ -12,6 +12,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"golang.org/x/sync/errgroup"
 )
 
 // Engine coordinates the analysis of source files against ADRs using LLM providers.
@@ -78,30 +79,25 @@ func (e *Engine) Run(ctx context.Context) error {
 	var (
 		violations int
 		mu         sync.Mutex
-		wg         sync.WaitGroup
 	)
 
-	// Worker pool semaphore (concurrency limit provided by config or default 5)
 	concurrency := e.Config.Analysis.MaxConcurrency
 	if concurrency <= 0 {
 		concurrency = 5
 	}
-	sem := make(chan struct{}, concurrency)
+
+	var g errgroup.Group
+	g.SetLimit(concurrency)
 
 	for _, file := range files {
 		if e.shouldExclude(file) {
 			continue
 		}
 
-		wg.Add(1)
-		go func(file string) {
-			defer wg.Done()
-
+		file := file
+		g.Go(func() error {
 			// buffer output to ensure atomic printing per file
 			var sb strings.Builder
-
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
 			if e.Debug {
 				fmt.Fprintf(&sb, "Analyzing %s...\n", file)
@@ -113,7 +109,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				mu.Lock()
 				fmt.Print(sb.String())
 				mu.Unlock()
-				return
+				return nil
 			}
 
 			if e.Debug {
@@ -125,7 +121,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				mu.Lock()
 				fmt.Print(sb.String())
 				mu.Unlock()
-				return
+				return nil
 			}
 
 			diffForEmbedding, err := e.Content.GetDiff(file)
@@ -143,7 +139,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				mu.Lock()
 				fmt.Print(sb.String())
 				mu.Unlock()
-				return
+				return nil
 			}
 
 			hits := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3)
@@ -154,7 +150,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				mu.Lock()
 				fmt.Print(sb.String())
 				mu.Unlock()
-				return
+				return nil
 			}
 
 			localViolations := 0
@@ -230,10 +226,11 @@ func (e *Engine) Run(ctx context.Context) error {
 			fmt.Print(sb.String())
 			violations += localViolations
 			mu.Unlock()
-		}(file)
+			return nil
+		})
 	}
 
-	wg.Wait()
+	_ = g.Wait()
 
 	if violations > 0 {
 		return &DriftDetectedError{Count: violations}

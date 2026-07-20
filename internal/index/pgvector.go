@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"sync"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"golang.org/x/sync/errgroup"
 )
 
 // PgStore implements the VectorStore interface using PostgreSQL and pgvector.
@@ -130,61 +129,44 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	if len(adrsToEmbed) > 0 {
-		type result struct {
-			index     int
-			embedding []float32
-			err       error
-		}
-		results := make(chan result, len(adrsToEmbed))
-		var wg sync.WaitGroup
-
 		concurrency := s.concurrency
 		if concurrency <= 0 {
 			concurrency = 5
 		}
-		sem := make(chan struct{}, concurrency)
 
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		g, gCtx := errgroup.WithContext(ctx)
+		g.SetLimit(concurrency)
 
 		for _, idx := range adrsToEmbed {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
+			idx := idx
+			g.Go(func() error {
+				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
+				emb, err := provider.CreateEmbedding(gCtx, textToEmbed)
+				if err != nil {
+					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
+				}
+				validADRs[idx].Embedding = emb
 
-				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[i].Title, validADRs[i].Status, validADRs[i].Content)
-				emb, err := provider.CreateEmbedding(ctx, textToEmbed)
-				results <- result{index: i, embedding: emb, err: err}
-			}(idx)
+				vec := pgvector.NewVector(emb)
+				_, err = s.pool.Exec(gCtx, `
+					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+					VALUES ($1, $2, $3, $4, $5, $6)
+					ON CONFLICT (project_name, rel_path) DO UPDATE SET
+						title = EXCLUDED.title,
+						status = EXCLUDED.status,
+						content = EXCLUDED.content,
+						embedding = EXCLUDED.embedding
+				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec)
+				if err != nil {
+					return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[idx].RelPath, err)
+				}
+				fmt.Printf(".")
+				return nil
+			})
 		}
 
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		for res := range results {
-			if res.err != nil {
-				cancel() // immediately cancel remaining API requests
-				return fmt.Errorf("failed to embed ADR %s: %w", validADRs[res.index].RelPath, res.err)
-			}
-
-			vec := pgvector.NewVector(res.embedding)
-			_, err := s.pool.Exec(ctx, `
-				INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-				VALUES ($1, $2, $3, $4, $5, $6)
-				ON CONFLICT (project_name, rel_path) DO UPDATE SET
-					title = EXCLUDED.title,
-					status = EXCLUDED.status,
-					content = EXCLUDED.content,
-					embedding = EXCLUDED.embedding
-			`, s.projectName, validADRs[res.index].RelPath, validADRs[res.index].Title, validADRs[res.index].Status, validADRs[res.index].Content, vec)
-			if err != nil {
-				return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[res.index].RelPath, err)
-			}
-			fmt.Printf(".")
+		if err := g.Wait(); err != nil {
+			return err
 		}
 		fmt.Println()
 	}

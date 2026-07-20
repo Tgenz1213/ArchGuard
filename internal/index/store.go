@@ -9,10 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"golang.org/x/sync/errgroup"
 )
 
 // VectorStore defines the interface for interacting with the index storage.
@@ -139,48 +139,30 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	if len(adrsToEmbed) > 0 {
-		type result struct {
-			index     int
-			embedding []float32
-			err       error
-		}
-		results := make(chan result, len(adrsToEmbed))
-		var wg sync.WaitGroup
-
 		concurrency := s.concurrency
 		if concurrency <= 0 {
 			concurrency = 5
 		}
-		sem := make(chan struct{}, concurrency)
 
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		g, gCtx := errgroup.WithContext(ctx)
+		g.SetLimit(concurrency)
 
 		for _, idx := range adrsToEmbed {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[i].Title, validADRs[i].Status, validADRs[i].Content)
-				emb, err := provider.CreateEmbedding(ctx, textToEmbed)
-				results <- result{index: i, embedding: emb, err: err}
-			}(idx)
+			idx := idx
+			g.Go(func() error {
+				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
+				emb, err := provider.CreateEmbedding(gCtx, textToEmbed)
+				if err != nil {
+					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
+				}
+				validADRs[idx].Embedding = emb
+				fmt.Printf(".")
+				return nil
+			})
 		}
 
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		for res := range results {
-			if res.err != nil {
-				cancel() // immediately cancel remaining API requests
-				return fmt.Errorf("failed to embed ADR %s: %w", validADRs[res.index].RelPath, res.err)
-			}
-			validADRs[res.index].Embedding = res.embedding
-			fmt.Printf(".")
+		if err := g.Wait(); err != nil {
+			return err
 		}
 		fmt.Println()
 	}
