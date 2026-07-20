@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -58,5 +59,21 @@ func TestAnalyzeDrift_MaxRetriesExceeded(t *testing.T) {
 
 	if attempts != 4 {
 		t.Errorf("Expected 4 attempts, got %d", attempts)
+	}
+}
+
+func TestAnalyzeDrift_ContextCancelled(t *testing.T) {
+	provider := &MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return "", fmt.Errorf("simulated error")
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := AnalyzeDrift(ctx, provider, "adr", "code", "file.go", "system")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
