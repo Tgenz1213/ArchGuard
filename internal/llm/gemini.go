@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"google.golang.org/genai"
 )
 
 type GeminiProvider struct {
@@ -27,114 +29,139 @@ func NewGeminiProvider(apiKey, model, embedModel string) *GeminiProvider {
 	}
 }
 
+// errorCapturingTransport wraps an http.RoundTripper and remembers the
+// status line and raw body of the most recent non-2xx response it saw. The
+// genai SDK's own error type (genai.APIError) discards the HTTP status text
+// and raw body whenever the response happens to parse as JSON with an
+// "error" object (even if that object's "message" is empty), so we capture
+// the response ourselves to preserve GeminiProvider's error-message
+// contract: callers get both the HTTP status and whatever error detail the
+// server sent, structured or not.
+type errorCapturingTransport struct {
+	base       http.RoundTripper
+	lastStatus string
+	lastBody   []byte
+}
+
+func (t *errorCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr == nil {
+			t.lastStatus = resp.Status
+			t.lastBody = body
+		}
+		// Restore the body so the genai SDK can still read and report on it.
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+	}
+
+	return resp, nil
+}
+
+// newClient builds a genai.Client scoped to a single request/response cycle,
+// configured from the provider's apiKey/baseURL/client fields. Building it
+// per-call (rather than baking it into NewGeminiProvider) is what lets
+// gemini_test.go construct &GeminiProvider{baseURL: server.URL, client:
+// server.Client()} directly and have it work against an httptest.Server.
+func (p *GeminiProvider) newClient(ctx context.Context) (*genai.Client, *errorCapturingTransport, error) {
+	httpClient := p.client
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
+
+	base := httpClient.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	transport := &errorCapturingTransport{base: base}
+
+	wrapped := &http.Client{
+		Transport:     transport,
+		CheckRedirect: httpClient.CheckRedirect,
+		Jar:           httpClient.Jar,
+		Timeout:       httpClient.Timeout,
+	}
+
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:     p.apiKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: wrapped,
+		HTTPOptions: genai.HTTPOptions{
+			BaseURL: p.baseURL,
+		},
+	})
+	return client, transport, err
+}
+
+// apiError turns a failed SDK call into an error that preserves the
+// provider's historical contract: include the HTTP status line, and prefer
+// a structured "error.message" from the response body when present,
+// otherwise fall back to the raw body.
+func (p *GeminiProvider) apiError(err error, transport *errorCapturingTransport) error {
+	if transport != nil && transport.lastStatus != "" {
+		return buildAPIError(transport.lastStatus, transport.lastBody)
+	}
+	return fmt.Errorf("gemini api error: %w", err)
+}
+
+func buildAPIError(status string, body []byte) error {
+	var errRes struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errRes); err != nil || errRes.Error.Message == "" {
+		return fmt.Errorf("gemini api error (%s): %s", status, string(body))
+	}
+	return fmt.Errorf("gemini api error (%s): %s", status, errRes.Error.Message)
+}
+
 func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent", p.baseURL, p.model)
+	client, transport, err := p.newClient(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to create gemini client: %w", err)
+	}
 
 	// Combine system and user prompts for Gemini
 	fullPrompt := fmt.Sprintf("%s\n\n%s", system, user)
-
-	payload := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{"text": fullPrompt},
-				},
-			},
-		},
-		"generationConfig": map[string]interface{}{
-			"response_mime_type": "application/json",
-		},
+	contents := []*genai.Content{genai.NewContentFromText(fullPrompt, genai.RoleUser)}
+	config := &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
 	}
 
-	var res struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-
-	err := p.post(ctx, reqURL, payload, &res)
+	resp, err := client.Models.GenerateContent(ctx, p.model, contents, config)
 	if err != nil {
-		return "", err
+		return "", p.apiError(err, transport)
 	}
 
-	if len(res.Candidates) == 0 || len(res.Candidates[0].Content.Parts) == 0 {
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
 		return "", fmt.Errorf("gemini returned no candidates or parts")
 	}
 
-	return res.Candidates[0].Content.Parts[0].Text, nil
+	return resp.Candidates[0].Content.Parts[0].Text, nil
 }
 
 func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	reqURL := fmt.Sprintf("%s/v1beta/models/%s:embedContent", p.baseURL, p.embedModel)
-
-	payload := map[string]interface{}{
-		"content": map[string]interface{}{
-			"parts": []map[string]interface{}{
-				{"text": text},
-			},
-		},
-	}
-
-	var res struct {
-		Embedding struct {
-			Values []float32 `json:"values"`
-		} `json:"embedding"`
-	}
-
-	err := p.post(ctx, reqURL, payload, &res)
+	client, transport, err := p.newClient(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
-	return res.Embedding.Values, nil
-}
+	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
 
-func (p *GeminiProvider) post(ctx context.Context, url string, body interface{}, target interface{}) error {
-	data, err := json.Marshal(body)
+	resp, err := client.Models.EmbedContent(ctx, p.embedModel, contents, nil)
 	if err != nil {
-		return err
+		return nil, p.apiError(err, transport)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", p.apiKey)
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("Error closing response body: %v\n", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		// Read the response body first so we can include it in the error if needed
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return fmt.Errorf("gemini api error (%s): failed to read response body: %w", resp.Status, readErr)
-		}
-
-		// Try to decode structured error response
-		var errRes struct {
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if decodeErr := json.Unmarshal(body, &errRes); decodeErr != nil || errRes.Error.Message == "" {
-			// If decode fails or message is empty, return error with raw body
-			return fmt.Errorf("gemini api error (%s): %s", resp.Status, string(body))
-		}
-		return fmt.Errorf("gemini api error (%s): %s", resp.Status, errRes.Error.Message)
+	if len(resp.Embeddings) == 0 {
+		return nil, fmt.Errorf("gemini returned no embeddings")
 	}
 
-	return json.NewDecoder(resp.Body).Decode(target)
+	return resp.Embeddings[0].Values, nil
 }

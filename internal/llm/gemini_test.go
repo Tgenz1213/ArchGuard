@@ -21,7 +21,11 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
-		// Validate request body
+		// Validate request body. Field names here match the genai SDK's wire
+		// format (camelCase, e.g. "responseMimeType"), which is the real
+		// Gemini REST API's canonical JSON schema; the previous hand-rolled
+		// client used the snake_case alias "response_mime_type", which the
+		// live API also accepts but the SDK does not emit.
 		var reqBody struct {
 			Contents []struct {
 				Parts []struct {
@@ -29,7 +33,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 				} `json:"parts"`
 			} `json:"contents"`
 			GenerationConfig struct {
-				ResponseMimeType string `json:"response_mime_type"`
+				ResponseMimeType string `json:"responseMimeType"`
 			} `json:"generationConfig"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
@@ -46,7 +50,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			t.Errorf("Expected prompt %q, got %q", expectedPrompt, reqBody.Contents[0].Parts[0].Text)
 		}
 		if reqBody.GenerationConfig.ResponseMimeType != "application/json" {
-			t.Errorf("Expected response_mime_type 'application/json', got %q", reqBody.GenerationConfig.ResponseMimeType)
+			t.Errorf("Expected responseMimeType 'application/json', got %q", reqBody.GenerationConfig.ResponseMimeType)
 		}
 
 		resp := struct {
@@ -106,11 +110,19 @@ func TestGeminiProvider_Chat(t *testing.T) {
 }
 
 func TestGeminiProvider_CreateEmbedding(t *testing.T) {
+	// The genai SDK always calls Gemini's ":batchEmbedContents" endpoint for
+	// embeddings on the Gemini Developer API backend (confirmed by reading
+	// google.golang.org/genai's Models.embedContent and by capturing the
+	// actual outgoing request against a local httptest.Server) -- there is
+	// no SDK option to route a single embedding through the older singular
+	// ":embedContent" endpoint that the hand-rolled client used. The request
+	// is therefore a "requests" envelope and the response uses the plural
+	// "embeddings" key, both wrapping the same single-item shape as before.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST method, got %s", r.Method)
 		}
-		if r.URL.Path != "/v1beta/models/text-embedding-004:embedContent" {
+		if r.URL.Path != "/v1beta/models/text-embedding-004:batchEmbedContents" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
 		if r.Header.Get("x-goog-api-key") != "test-api-key" {
@@ -119,31 +131,40 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 
 		// Validate request body
 		var reqBody struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
+			Requests []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				} `json:"content"`
+				Model string `json:"model"`
+			} `json:"requests"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("Failed to decode request body: %v", err)
 		}
-		if len(reqBody.Content.Parts) == 0 {
+		if len(reqBody.Requests) == 0 {
+			t.Fatal("Request body missing requests")
+		}
+		if len(reqBody.Requests[0].Content.Parts) == 0 {
 			t.Fatal("Request body missing parts")
 		}
-		if reqBody.Content.Parts[0].Text != "test text" {
-			t.Errorf("Expected text 'test text', got %q", reqBody.Content.Parts[0].Text)
+		if reqBody.Requests[0].Content.Parts[0].Text != "test text" {
+			t.Errorf("Expected text 'test text', got %q", reqBody.Requests[0].Content.Parts[0].Text)
+		}
+		if reqBody.Requests[0].Model != "models/text-embedding-004" {
+			t.Errorf("Expected model 'models/text-embedding-004', got %q", reqBody.Requests[0].Model)
 		}
 
 		resp := struct {
-			Embedding struct {
+			Embeddings []struct {
 				Values []float32 `json:"values"`
-			} `json:"embedding"`
+			} `json:"embeddings"`
 		}{
-			Embedding: struct {
+			Embeddings: []struct {
 				Values []float32 `json:"values"`
 			}{
-				Values: []float32{0.1, 0.2, 0.3},
+				{Values: []float32{0.1, 0.2, 0.3}},
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
