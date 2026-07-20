@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -245,15 +244,8 @@ func (e *Engine) Run(ctx context.Context) error {
 
 func (e *Engine) shouldExclude(path string) bool {
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
-		matched, _ := filepath.Match(pattern, path)
-		if matched {
+		if matchGlob(pattern, path) {
 			return true
-		}
-		if strings.Contains(pattern, "**") {
-			prefix := strings.TrimSuffix(pattern, "**")
-			if strings.HasPrefix(path, prefix) {
-				return true
-			}
 		}
 	}
 	return false
