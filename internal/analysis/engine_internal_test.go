@@ -54,3 +54,28 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 		t.Errorf("Expected content to be rolled back to newline (%q), but got %q", expected, content)
 	}
 }
+
+func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
+	cfg := &config.Config{
+		Analysis: config.Analysis{
+			ExcludePatterns: []string{"**/*_test.go", "vendor/**"},
+		},
+	}
+	engine := &Engine{Config: cfg}
+
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"foo_test.go", true},
+		{"internal/analysis/glob_test.go", true}, // regression: previously only matched exactly 2 path segments deep
+		{"internal/analysis/glob.go", false},
+		{"vendor/pkg/sub/file.go", true},
+	}
+
+	for _, c := range cases {
+		if got := engine.shouldExclude(c.path); got != c.want {
+			t.Errorf("shouldExclude(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
