@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // Provider defines how ArchGuard fetches ADR documents.
@@ -29,12 +31,11 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	var allADRs []ADR
 	var errs []error
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var g errgroup.Group
 
 	for _, p := range c.providers {
-		wg.Add(1)
-		go func(p Provider) {
-			defer wg.Done()
+		p := p
+		g.Go(func() error {
 			adrs, err := p.GetADRs(ctx)
 
 			mu.Lock()
@@ -44,12 +45,13 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 				// Do not crash the entire run if one remote provider drops connection.
 				fmt.Printf("Warning: failed to fetch ADRs from a provider: %v\n", err)
 				errs = append(errs, err)
-				return
+				return nil
 			}
 			allADRs = append(allADRs, adrs...)
-		}(p)
+			return nil
+		})
 	}
-	wg.Wait()
+	_ = g.Wait()
 
 	// If every single provider failed, then we should return an error.
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {

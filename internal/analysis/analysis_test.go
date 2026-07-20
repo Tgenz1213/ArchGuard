@@ -3,7 +3,10 @@ package analysis_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -144,5 +147,58 @@ func TestCustomSystemPrompt(t *testing.T) {
 	// 6. Verify captured system prompt
 	if capturedSystemPrompt != expectedSystemPrompt {
 		t.Errorf("Expected system prompt %q, got %q", expectedSystemPrompt, capturedSystemPrompt)
+	}
+}
+
+type concurrencyTrackingProvider struct {
+	mu      sync.Mutex
+	active  int
+	maxSeen int
+	files   []string
+}
+
+func (p *concurrencyTrackingProvider) GetFiles() ([]string, error) { return p.files, nil }
+func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
+	p.mu.Lock()
+	p.active++
+	if p.active > p.maxSeen {
+		p.maxSeen = p.active
+	}
+	p.mu.Unlock()
+
+	time.Sleep(10 * time.Millisecond)
+
+	p.mu.Lock()
+	p.active--
+	p.mu.Unlock()
+	return "package main", nil
+}
+func (p *concurrencyTrackingProvider) GetDiff(path string) (string, error) { return "", nil }
+
+func TestRun_RespectsMaxConcurrency(t *testing.T) {
+	files := make([]string, 10)
+	for i := range files {
+		files[i] = fmt.Sprintf("file%d.go", i)
+	}
+	content := &concurrencyTrackingProvider{files: files}
+
+	provider := &llm.MockProvider{}
+	store := index.NewLocalStore(5) // no ADRs -> no LLM calls, exercises the goroutine path cheaply
+
+	cfg := &config.Config{
+		Analysis: config.Analysis{MaxConcurrency: 3, ExcludePatterns: []string{}},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content.mu.Lock()
+	defer content.mu.Unlock()
+	if content.maxSeen > 3 {
+		t.Errorf("expected at most 3 concurrent GetContent calls, saw %d", content.maxSeen)
 	}
 }
