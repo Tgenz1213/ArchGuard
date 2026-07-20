@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
@@ -64,7 +65,7 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		}
 	}
 
-	if err := loadDotEnv(); err != nil {
+	if err := godotenv.Load(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
 	}
 
@@ -446,46 +447,4 @@ func printUsage() {
 	fmt.Println("  index    Rebuild the ADR index")
 	fmt.Println("\nGlobal Flags:")
 	fmt.Println("  -v, --version  Print version information")
-}
-
-func loadDotEnv() error {
-	f, err := os.Open(".env")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		closeErr := f.Close()
-		if err == nil {
-			err = closeErr
-		}
-	}()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		// Remove quotes if present
-		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) ||
-			(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
-			value = value[1 : len(value)-1]
-		}
-		if os.Getenv(key) == "" {
-			if err := os.Setenv(key, value); err != nil {
-				fmt.Fprintf(os.Stderr, "failed to set environment variable %q from .env: %v\n", key, err)
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	return nil
 }
