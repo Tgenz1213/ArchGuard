@@ -1,11 +1,12 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"net/url"
+
+	"github.com/ollama/ollama/api"
 )
 
 type OllamaProvider struct {
@@ -13,7 +14,7 @@ type OllamaProvider struct {
 	model       string
 	embedModel  string
 	temperature float64
-	client      *http.Client
+	client      *api.Client
 }
 
 // NewOllamaProvider initializes the Ollama provider with necessary configuration.
@@ -21,12 +22,29 @@ func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
+	return newOllamaProvider(baseURL, model, embedModel, temperature)
+}
+
+// NewOllamaProviderWithBaseURL initializes the Ollama provider pointed at the
+// given baseURL verbatim, without defaulting an empty value to localhost.
+// This exists so tests can point the provider at an httptest.Server.
+func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
+	return newOllamaProvider(baseURL, model, embedModel, temperature)
+}
+
+func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		// Fall back to a client with no configured host; requests will fail
+		// with a descriptive error rather than panicking on a nil base URL.
+		base = &url.URL{}
+	}
 	return &OllamaProvider{
 		host:        baseURL,
 		model:       model,
 		embedModel:  embedModel,
 		temperature: temperature,
-		client:      &http.Client{},
+		client:      api.NewClient(base, http.DefaultClient),
 	}
 }
 
@@ -35,78 +53,45 @@ func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *
  */
 
 func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	payload := map[string]interface{}{
-		"model":  p.model,
-		"format": "json",
-		"stream": false,
-		"options": map[string]interface{}{
+	stream := false
+	req := &api.ChatRequest{
+		Model:  p.model,
+		Stream: &stream,
+		Format: json.RawMessage(`"json"`),
+		Options: map[string]any{
 			"temperature": p.temperature,
 		},
-		"messages": []map[string]string{
-			{"role": "system", "content": system},
-			{"role": "user", "content": user},
+		Messages: []api.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
 		},
 	}
 
-	var res struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-
-	err := p.post(ctx, p.host+"/api/chat", payload, &res)
+	var content string
+	err := p.client.Chat(ctx, req, func(res api.ChatResponse) error {
+		content = res.Message.Content
+		return nil
+	})
 	if err != nil {
 		return "", err
 	}
-	return res.Message.Content, nil
+	return content, nil
 }
 
 func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	payload := map[string]interface{}{
-		"model":  p.embedModel,
-		"prompt": text,
+	req := &api.EmbeddingRequest{
+		Model:  p.embedModel,
+		Prompt: text,
 	}
 
-	var res struct {
-		Embedding []float32 `json:"embedding"`
-	}
-
-	err := p.post(ctx, p.host+"/api/embeddings", payload, &res)
+	res, err := p.client.Embeddings(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return res.Embedding, nil
-}
 
-/**
- * REGION: Internal Helpers
- */
-
-func (p *OllamaProvider) post(ctx context.Context, url string, body interface{}, target interface{}) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return err
+	embedding := make([]float32, len(res.Embedding))
+	for i, v := range res.Embedding {
+		embedding[i] = float32(v)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("Error closing response body: %v\n", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ollama api error: %s", resp.Status)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(target)
+	return embedding, nil
 }

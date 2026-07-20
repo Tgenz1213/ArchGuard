@@ -4,7 +4,7 @@ First off, thank you for taking the time to contribute! ArchGuard is built on th
 
 ## Getting Started
 
-To begin contributing, you will need Go 1.25 or later and a local instance of Ollama to run the default models. Once your environment is ready, fork the repository and clone it to your local machine.
+To begin contributing, you will need Go 1.26 or later and a local instance of Ollama to run the default models. Once your environment is ready, fork the repository and clone it to your local machine.
 
 Run `go mod download` to pull the necessary dependencies, including the tokenizer and YAML parser. You can build the project locally using `go build -o archguard ./cmd/archguard`. Before submitting any changes, ensure that the binary compiles and that you have tested your logic against a local ADR directory.
 
