@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 /**
@@ -81,24 +83,22 @@ func GetAnalyzeDriftPrompt(adrContent, codeContext, filename string) string {
 func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
 	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
 
-	maxRetries := 3
-	backoff := 2 * time.Second
+	const maxRetries = 3
+
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = 2 * time.Second
+	bo.Multiplier = 2
+	bo.RandomizationFactor = 0
+	bo.MaxElapsedTime = 0 // no overall deadline; ctx handles cancellation
+
 	var lastErr error
+	var final AnalysisResult
 
-	for i := 0; i <= maxRetries; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-				backoff *= 2
-			}
-		}
-
+	operation := func() error {
 		raw, err := p.Chat(ctx, systemPrompt, prompt)
 		if err != nil {
 			lastErr = err
-			continue
+			return err
 		}
 
 		cleaned := CleanJSON(raw)
@@ -107,13 +107,22 @@ func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, file
 			// Second attempt at unmarshaling raw output
 			if err2 := json.Unmarshal([]byte(raw), &res); err2 != nil {
 				lastErr = fmt.Errorf("invalid json from provider: %w", err2)
-				continue
+				return lastErr
 			}
 		}
-		return &res, nil
+		final = res
+		return nil
 	}
 
-	return nil, fmt.Errorf("analysis failed after %d retries: %w", maxRetries, lastErr)
+	retryPolicy := backoff.WithContext(backoff.WithMaxRetries(bo, maxRetries), ctx)
+	if err := backoff.Retry(operation, retryPolicy); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("analysis failed after %d retries: %w", maxRetries, lastErr)
+	}
+
+	return &final, nil
 }
 
 func CleanJSON(input string) string {
