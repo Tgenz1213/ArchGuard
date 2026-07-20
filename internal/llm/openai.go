@@ -1,126 +1,81 @@
 package llm
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
+const openAIBaseURL = "https://api.openai.com/v1"
+
 type OpenAIProvider struct {
-	apiKey     string
+	client     openai.Client
 	model      string
 	embedModel string
-	client     *http.Client
 }
 
+// NewOpenAIProvider constructs an OpenAIProvider that talks to the real
+// OpenAI API.
 func NewOpenAIProvider(apiKey, model, embedModel string) *OpenAIProvider {
+	return NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, openAIBaseURL, &http.Client{})
+}
+
+// NewOpenAIProviderWithBaseURL constructs an OpenAIProvider pointed at a
+// custom base URL using a custom HTTP client. This exists primarily so tests
+// can inject an httptest.Server instead of hitting the real OpenAI API.
+func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, httpClient *http.Client) *OpenAIProvider {
+	client := openai.NewClient(
+		option.WithAPIKey(apiKey),
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(httpClient),
+	)
 	return &OpenAIProvider{
-		apiKey:     apiKey,
+		client:     client,
 		model:      model,
 		embedModel: embedModel,
-		client:     &http.Client{},
 	}
 }
 
 func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	payload := map[string]interface{}{
-		"model": p.model,
-		"messages": []map[string]string{
-			{"role": "system", "content": system},
-			{"role": "user", "content": user},
+	resp, err := p.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model: p.model,
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(system),
+			openai.UserMessage(user),
 		},
-		"response_format": map[string]string{"type": "json_object"},
-	}
-
-	var res struct {
-		Choices []struct {
-			Message struct{ Content string } `json:"message"`
-		} `json:"choices"`
-	}
-
-	err := p.post(ctx, "https://api.openai.com/v1/chat/completions", payload, &res)
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
+		},
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("openai chat completion failed: %w", err)
 	}
-	if len(res.Choices) == 0 {
+	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no choices returned")
 	}
-	return res.Choices[0].Message.Content, nil
-}
-
-func (p *OpenAIProvider) post(ctx context.Context, url string, body interface{}, target interface{}) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("Error closing response body: %v\n", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("openai error: %s", resp.Status)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(target)
+	return resp.Choices[0].Message.Content, nil
 }
 
 func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	reqBody := map[string]interface{}{
-		"input": text,
-		"model": p.embedModel,
-	}
-	jsonBody, _ := json.Marshal(reqBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/embeddings", bytes.NewBuffer(jsonBody))
+	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
+		Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
+		Model: p.embedModel,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("openai embedding request failed: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("Error closing response body: %v\n", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai embedding api error: %s", resp.Status)
-	}
-
-	var result struct {
-		Data []struct {
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	if len(result.Data) == 0 {
+	if len(resp.Data) == 0 {
 		return nil, fmt.Errorf("no embedding data returned")
 	}
 
-	return result.Data[0].Embedding, nil
+	src := resp.Data[0].Embedding
+	embedding := make([]float32, len(src))
+	for i, v := range src {
+		embedding[i] = float32(v)
+	}
+	return embedding, nil
 }
