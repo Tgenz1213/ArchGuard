@@ -18,7 +18,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/genai v1.64.0
+	google.golang.org/genai v1.65.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
