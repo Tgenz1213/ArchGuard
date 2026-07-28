@@ -156,8 +156,8 @@ github.com/moby/sys/userns v0.1.0 h1:tVLXkFOxVu9A64/yh59slHVv9ahO9UIev4JZusOLG/g
 github.com/moby/sys/userns v0.1.0/go.mod h1:IHUYgu/kao6N8YZlp9Cf444ySSvCmDlmzUcYfDHOl28=
 github.com/moby/term v0.5.2 h1:6qk3FJAFDs6i/q3W/pQ97SX192qKfZgGjCQqfCJkgzQ=
 github.com/moby/term v0.5.2/go.mod h1:d3djjFCrjnB+fl8NJux+EJzu0msscUP+f8it8hPkFLc=
-github.com/ollama/ollama v0.32.1 h1:RLDnLktLMWaGGWOUV38/5cnUlcQPrlzMJ3/ihs9/pqY=
-github.com/ollama/ollama v0.32.1/go.mod h1:b1ydCt2oVg0VAg22WWDgCbwW0AyOaRKAFzlS91NI4OY=
+github.com/ollama/ollama v0.32.4 h1:Uea8//98hI8c7KyWiFzMavJlYk8KGodoikjOp2Qc3Xk=
+github.com/ollama/ollama v0.32.4/go.mod h1:b1ydCt2oVg0VAg22WWDgCbwW0AyOaRKAFzlS91NI4OY=
 github.com/openai/openai-go v1.12.0 h1:NBQCnXzqOTv5wsgNC36PrFEiskGfO5wccfCWDo9S1U0=
 github.com/openai/openai-go v1.12.0/go.mod h1:g461MYGXEXBVdV5SaR/5tNzNbSfwTBBefwc+LlDCK0Y=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
