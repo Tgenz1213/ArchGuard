@@ -102,13 +102,40 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 	}
 }
 
+// TestLocalStore_BuildIndex_UsesDocumentTaskType asserts BuildIndex embeds
+// ADR content with EmbeddingTaskDocument, so a provider capable of
+// asymmetric retrieval (e.g. Gemini) indexes it as a document, not a query.
+func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
+	adrs := []ADR{
+		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
+	}
+	var gotTask llm.EmbeddingTaskType
+	provider := &llm.MockProvider{
+		EmbeddingDim: 4,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			gotTask = task
+			return []float32{0.1, 0.2, 0.3, 0.4}, nil
+		},
+	}
+	adrProvider := &mockADRProvider{adrs: adrs}
+
+	store := NewLocalStore(2)
+	if err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+		t.Fatalf("BuildIndex failed: %v", err)
+	}
+
+	if gotTask != llm.EmbeddingTaskDocument {
+		t.Errorf("expected EmbeddingTaskDocument, got %v", gotTask)
+	}
+}
+
 func TestLocalStore_BuildIndex_ReturnsErrorOnEmbedFailure(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
 		{RelPath: "0002-fails.md", Title: "B", Status: "Accepted", Content: "content b"},
 	}
 	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Title: B") {
 				return nil, fmt.Errorf("simulated embedding failure")
 			}

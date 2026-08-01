@@ -181,7 +181,7 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		client:     server.Client(),
 	}
 
-	res, err := p.CreateEmbedding(context.Background(), "test text")
+	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -194,6 +194,68 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if res[i] != expected[i] {
 			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res[i])
 		}
+	}
+}
+
+// TestGeminiProvider_CreateEmbedding_TaskType asserts CreateEmbedding sends
+// Gemini's own TaskType string for each EmbeddingTaskType role.
+func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
+	cases := []struct {
+		name         string
+		task         EmbeddingTaskType
+		wantTaskType string
+	}{
+		{"document role sends RETRIEVAL_DOCUMENT", EmbeddingTaskDocument, "RETRIEVAL_DOCUMENT"},
+		{"query role sends RETRIEVAL_QUERY", EmbeddingTaskQuery, "RETRIEVAL_QUERY"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var gotTaskType string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var reqBody struct {
+					Requests []struct {
+						TaskType string `json:"taskType"`
+					} `json:"requests"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+					t.Fatalf("Failed to decode request body: %v", err)
+				}
+				if len(reqBody.Requests) == 0 {
+					t.Fatal("Request body missing requests")
+				}
+				gotTaskType = reqBody.Requests[0].TaskType
+
+				resp := struct {
+					Embeddings []struct {
+						Values []float32 `json:"values"`
+					} `json:"embeddings"`
+				}{
+					Embeddings: []struct {
+						Values []float32 `json:"values"`
+					}{{Values: []float32{0.1}}},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(resp); err != nil {
+					t.Fatalf("Failed to encode response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			p := &GeminiProvider{
+				apiKey:     "test-api-key",
+				embedModel: "text-embedding-004",
+				baseURL:    server.URL,
+				client:     server.Client(),
+			}
+
+			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
+				t.Fatalf("CreateEmbedding failed: %v", err)
+			}
+			if gotTaskType != c.wantTaskType {
+				t.Errorf("expected taskType %q, got %q", c.wantTaskType, gotTaskType)
+			}
+		})
 	}
 }
 

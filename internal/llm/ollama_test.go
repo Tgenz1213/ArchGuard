@@ -56,7 +56,7 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 
 	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	res, err := p.CreateEmbedding(context.Background(), "test text")
+	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}

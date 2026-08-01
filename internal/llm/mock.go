@@ -5,7 +5,7 @@ import (
 )
 
 type MockProvider struct {
-	EmbedFunc func(ctx context.Context, text string) ([]float32, error)
+	EmbedFunc func(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
 	// ChatFunc allows you to mock the raw string response from an LLM
 	ChatFunc func(ctx context.Context, system, user string) (string, error)
 	// CountTokensFunc allows you to mock token counting; defaults to a
@@ -19,9 +19,9 @@ func (m *MockProvider) SetDebug(debug bool) {
 	m.Debug = debug
 }
 
-func (m *MockProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+func (m *MockProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	if m.EmbedFunc != nil {
-		return m.EmbedFunc(ctx, text)
+		return m.EmbedFunc(ctx, text, task)
 	}
 	// Return a non-zero vector to avoid NaN in cosine similarity (0/0)
 	dim := m.EmbeddingDim

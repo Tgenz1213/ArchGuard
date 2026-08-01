@@ -70,7 +70,7 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 
 	p := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text")
+	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}

@@ -133,7 +133,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
 			}
 
-			embedding, err := e.Provider.CreateEmbedding(ctx, diffForEmbedding)
+			embedding, err := e.Provider.CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
 				mu.Lock()
