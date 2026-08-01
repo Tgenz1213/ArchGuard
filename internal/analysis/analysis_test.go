@@ -140,6 +140,65 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	}
 }
 
+// fallbackOnlyContentProvider always reports no diff, forcing Run onto the
+// whole-file-content fallback path regardless of what GetContent returns.
+type fallbackOnlyContentProvider struct {
+	files map[string]string
+}
+
+func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
+	var files []string
+	for k := range p.files {
+		files = append(files, k)
+	}
+	return files, nil
+}
+
+func (p *fallbackOnlyContentProvider) GetContent(path string) (string, error) {
+	return p.files[path], nil
+}
+
+func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
+	return "", nil
+}
+
+// TestRun_NeverStripsFallbackContent asserts Run only ever runs
+// stripDiffMetadata on text that actually came from GetDiff, never on the
+// whole-file-content fallback -- even when that fallback content happens to
+// look diff-shaped (e.g. a doc file with an example diff transcript).
+// Stripping fallback content on a heuristic match would corrupt real file
+// content that only coincidentally resembles a diff.
+func TestRun_NeverStripsFallbackContent(t *testing.T) {
+	diffLookalike := "diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n real content that must survive untouched\n more real content"
+
+	var gotText string
+	provider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			gotText = text
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &fallbackOnlyContentProvider{files: map[string]string{"docs.md": diffLookalike}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if gotText != diffLookalike {
+		t.Errorf("fallback content was stripped/altered before embedding.\ngot:  %q\nwant: %q", gotText, diffLookalike)
+	}
+}
+
 func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
 	var capturedSystemPrompt string

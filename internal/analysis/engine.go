@@ -126,10 +126,12 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 			diffForEmbedding, err := e.Content.GetDiff(file)
-			if err != nil || diffForEmbedding == "" {
+			isDiff := err == nil && diffForEmbedding != ""
+			if !isDiff {
 				diffForEmbedding = content
+			} else {
+				diffForEmbedding = stripDiffMetadata(diffForEmbedding)
 			}
-			diffForEmbedding = stripDiffMetadata(diffForEmbedding)
 
 			if len(diffForEmbedding) > 6000 {
 				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
@@ -368,9 +370,9 @@ func rollBackToNewline(s string) string {
 	return s
 }
 
-// stripDiffMetadata strips unified diff patch metadata (diff --git/index/
-// ---/+++ headers and @@ hunk headers) and the leading +/-/space marker
-// from each hunk line, leaving the underlying code content -- so an
+// stripDiffMetadata strips unified diff patch metadata (the diff --git/
+// index/---/+++ preamble and @@ hunk headers) and the leading +/-/space
+// marker from each hunk line, leaving the underlying code content -- so an
 // embedding compares actual code, not patch syntax, against ADR prose.
 //
 // Input with no @@ hunk header is passed through unchanged rather than
@@ -378,6 +380,15 @@ func rollBackToNewline(s string) string {
 // whole-file content used as a fallback when there's no diff), and
 // unconditionally stripping a leading space from every line would corrupt
 // ordinary indented code.
+//
+// Everything before the first @@ is preamble and is dropped unconditionally,
+// rather than matched line-by-line against "diff --git "/"index "/"--- "/
+// "+++ " prefixes: those prefixes can also occur as the first bytes of a
+// genuine hunk line (marker + content), e.g. a removed SQL/Lua-style "--
+// comment" line becomes "--- comment" once the '-' marker is prepended.
+// Re-checking for header prefixes after the hunk has started would
+// misclassify that as the "--- a/file" header and silently drop it and
+// every line after it.
 func stripDiffMetadata(s string) string {
 	if !isUnifiedDiff(s) {
 		return s
@@ -390,13 +401,11 @@ func stripDiffMetadata(s string) string {
 		switch {
 		case strings.HasPrefix(line, "@@"):
 			inHunk = true
-		case strings.HasPrefix(line, "diff --git "),
-			strings.HasPrefix(line, "index "),
-			strings.HasPrefix(line, "--- "),
-			strings.HasPrefix(line, "+++ "),
-			strings.HasPrefix(line, "\\"):
-			inHunk = false
-		case inHunk:
+		case !inHunk:
+			// preamble line (diff --git/index/---/+++), dropped
+		case strings.HasPrefix(line, "\\"):
+			// "\ No newline at end of file" marker, dropped
+		default:
 			if line != "" {
 				out = append(out, line[1:])
 			} else {
@@ -420,7 +429,7 @@ var hunkHeaderPattern = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)?
 // diff while making a false-positive match on unrelated content very
 // unlikely.
 func isUnifiedDiff(s string) bool {
-	hasGitHeader := strings.HasPrefix(s, "diff --git ") || strings.Contains(s, "\ndiff --git ")
+	hasGitHeader := strings.Contains("\n"+s, "\ndiff --git ")
 	return hasGitHeader && hunkHeaderPattern.MatchString(s)
 }
 

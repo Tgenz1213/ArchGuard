@@ -206,19 +206,27 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 }
 
-func TestStripDiffMetadata(t *testing.T) {
-	singleHunkDiff := strings.Join([]string{
-		"diff --git a/foo.go b/foo.go",
+// diffHeaderLines returns the diff --git/index/---/+++ preamble lines git
+// emits before a file's first hunk, so test fixtures below only need to
+// spell out the part that's actually interesting: the hunk body.
+func diffHeaderLines(file string) []string {
+	return []string{
+		"diff --git a/" + file + " b/" + file,
 		"index 1234567..89abcde 100644",
-		"--- a/foo.go",
-		"+++ b/foo.go",
+		"--- a/" + file,
+		"+++ b/" + file,
+	}
+}
+
+func TestStripDiffMetadata(t *testing.T) {
+	singleHunkDiff := strings.Join(append(diffHeaderLines("foo.go"), []string{
 		"@@ -1,4 +1,5 @@",
 		" package foo",
 		" ",
 		"-func old() {}",
 		"+func new() {}",
 		"+func another() {}",
-	}, "\n")
+	}...), "\n")
 	wantSingleHunk := strings.Join([]string{
 		"package foo",
 		"",
@@ -227,18 +235,14 @@ func TestStripDiffMetadata(t *testing.T) {
 		"func another() {}",
 	}, "\n")
 
-	multiHunkDiff := strings.Join([]string{
-		"diff --git a/bar.go b/bar.go",
-		"index abcdef1..2345678 100644",
-		"--- a/bar.go",
-		"+++ b/bar.go",
+	multiHunkDiff := strings.Join(append(diffHeaderLines("bar.go"), []string{
 		"@@ -1,2 +1,2 @@",
 		"-const A = 1",
 		"+const A = 2",
 		"@@ -10,2 +10,2 @@",
 		"-const B = 1",
 		"+const B = 2",
-	}, "\n")
+	}...), "\n")
 	wantMultiHunk := strings.Join([]string{
 		"const A = 1",
 		"const A = 2",
@@ -246,17 +250,31 @@ func TestStripDiffMetadata(t *testing.T) {
 		"const B = 2",
 	}, "\n")
 
-	noNewlineDiff := strings.Join([]string{
-		"diff --git a/baz.go b/baz.go",
-		"index 1111111..2222222 100644",
-		"--- a/baz.go",
-		"+++ b/baz.go",
+	noNewlineDiff := strings.Join(append(diffHeaderLines("baz.go"), []string{
 		"@@ -1,1 +1,1 @@",
 		"-old",
 		"+new",
 		"\\ No newline at end of file",
-	}, "\n")
+	}...), "\n")
 	wantNoNewline := strings.Join([]string{"old", "new"}, "\n")
+
+	// A removed line whose real source content starts with "-- " (a SQL/
+	// Lua/Haskell-style comment marker) becomes "--- ..." once git
+	// prepends the '-' diff marker -- colliding with the "--- a/file"
+	// header prefix. Regression test for that marker/header collision.
+	markerCollisionDiff := strings.Join(append(diffHeaderLines("query.sql"), []string{
+		"@@ -1,3 +1,4 @@",
+		" SELECT 1;",
+		"--- old comment",
+		"+SELECT 2;",
+		" trailing context;",
+	}...), "\n")
+	wantMarkerCollision := strings.Join([]string{
+		"SELECT 1;",
+		"-- old comment",
+		"SELECT 2;",
+		"trailing context;",
+	}, "\n")
 
 	plainFileContent := strings.Join([]string{
 		"package foo",
@@ -285,6 +303,7 @@ func TestStripDiffMetadata(t *testing.T) {
 		{"single hunk strips headers and markers", singleHunkDiff, wantSingleHunk},
 		{"multiple hunks strip independently", multiHunkDiff, wantMultiHunk},
 		{"no-newline marker line is dropped", noNewlineDiff, wantNoNewline},
+		{"removed line starting with -- doesn't collide with the --- header", markerCollisionDiff, wantMarkerCollision},
 		{"non-diff content passed through unchanged", plainFileContent, plainFileContent},
 		{"empty string unchanged", "", ""},
 		{"bare hunk-header lookalike without diff --git is not stripped", docWithBareHunkLookalike, docWithBareHunkLookalike},
