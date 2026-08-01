@@ -16,9 +16,9 @@ scope: "internal/**"
 
 `llm.Provider.CreateEmbedding` gains an `EmbeddingTaskType` parameter (`EmbeddingTaskDocument` or `EmbeddingTaskQuery`). Callers pass the role that matches what they're doing, not what provider is configured — the two index call sites always pass `EmbeddingTaskDocument`, and `engine.go` always passes `EmbeddingTaskQuery`.
 
-Only `GeminiProvider` acts on it, mapping the two roles to Gemini's own `TaskType` strings. `OpenAIProvider` and `OllamaProvider` accept and ignore the parameter — neither API exposes an equivalent mechanism today.
+`GeminiProvider` maps the two roles to Gemini's own `TaskType` strings. `OllamaProvider` maps them to nomic-embed-text's documented `search_document:`/`search_query:` text-prefix convention, gated on the configured embed model name starting with `nomic-embed` — no other Ollama embedding model is documented to use this convention, so the prefix is skipped for anything else. `OpenAIProvider` accepts and ignores the parameter — the OpenAI embeddings API has no equivalent mechanism.
 
 ## Consequences
 
 - Every current and future `llm.Provider` implementation must accept `EmbeddingTaskType`, even if it has nothing to do with it yet, to satisfy the interface.
-- This is the Gemini-specific counterpart to a separate, still-open question: whether `OllamaProvider` should get an equivalent asymmetric-retrieval signal via a text convention (e.g. nomic-embed-text's `search_query:`/`search_document:` prefixes) instead of an API parameter, since Ollama has no `TaskType`-like config field. That would reuse this same `EmbeddingTaskType` value at the call sites; it does not require another interface change.
+- Adding asymmetric retrieval for a new provider or embedding model never requires another interface change, only a new mapping from `EmbeddingTaskType` to that backend's own mechanism (API parameter, text prefix, or none).
