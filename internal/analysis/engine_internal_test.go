@@ -58,14 +58,13 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	}
 }
 
-// TestFetchContext_NonOpenAI_UsesProviderTokenCount proves the fix for
-// issue #39: truncation for a non-OpenAI provider is driven by that
-// provider's own CountTokens, not by tiktoken's cl100k_base fallback.
-// The mock provider here counts tokens completely differently from
-// tiktoken (1 token per 2 bytes, vs. cl100k_base's real BPE), so if the
-// engine were still silently using tiktoken under the hood, this test's
-// truncation boundary would land somewhere else and the assertion below
-// would fail.
+// TestFetchContext_NonOpenAI_UsesProviderTokenCount asserts truncation for
+// a non-OpenAI provider is driven by that provider's own CountTokens, not
+// by tiktoken's cl100k_base fallback. The mock provider here counts
+// tokens completely differently from tiktoken (1 token per 2 bytes, vs.
+// cl100k_base's real BPE), so if the engine were still silently using
+// tiktoken under the hood, this test's truncation boundary would land
+// somewhere else and the assertion below would fail.
 func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	// 20 bytes: "AAAAAAAAAA\nBBBBBBBBB" -> mock counts 1 token per 2 bytes = 10 tokens total.
 	content := "AAAAAAAAAA\nBBBBBBBBB"
@@ -106,7 +105,7 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	}
 }
 
-// TestFetchContext_CountTokensError_PropagatesLoudly proves AC4: if the
+// TestFetchContext_CountTokensError_PropagatesLoudly asserts that if the
 // provider can't produce a token count, fetchContext returns an error
 // instead of silently falling back to a length-based heuristic.
 func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
@@ -136,11 +135,11 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	}
 }
 
-// TestFetchContext_TruncationGuaranteesTokenBudget proves the fix for a
-// whole-branch review finding: truncateToTokenLimit must guarantee the
-// returned content's token count (per Provider.CountTokens) never exceeds
-// maxTokens, even when the whole-content bytesPerToken average is a poor
-// predictor of local density.
+// TestFetchContext_TruncationGuaranteesTokenBudget asserts that
+// truncateToTokenLimit guarantees the returned content's token count (per
+// Provider.CountTokens) never exceeds maxTokens, even when the
+// whole-content bytesPerToken average is a poor predictor of local
+// density.
 //
 // This mock provider counts only the last min(len(text), denseWindow)
 // bytes as "expensive" (1 token/byte within that window); anything beyond
@@ -167,8 +166,14 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 		},
 	}
 
+	lastLen := -1
 	mockProvider := &llm.MockProvider{
 		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
+			if len(text) == lastLen {
+				t.Errorf("CountTokens called twice with the same-length candidate (%d bytes) -- redundant call", len(text))
+			}
+			lastLen = len(text)
+
 			if len(text) > denseWindow {
 				return denseWindow, nil
 			}
@@ -190,6 +195,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 		t.Fatalf("expected mode truncated, got %s", mode)
 	}
 
+	lastLen = -1 // this verification call is expected to re-measure the final candidate
 	finalTokens, err := mockProvider.CountTokens(context.Background(), got)
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)

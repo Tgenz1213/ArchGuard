@@ -281,27 +281,19 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (string, string,
 // truncateToTokenLimit cuts content down to at most maxTokens tokens,
 // according to the provider's own CountTokens. It can't rely on
 // encode/decode (only tiktoken supports that): instead it estimates a
-// byte cutoff from the content's average bytes-per-token ratio (which
-// assumes roughly uniform token density across the content), then
+// byte cutoff from the content's average bytes-per-token ratio, then
 // verifies and shrinks that estimate via CountTokens, then rolls back to
 // the nearest preceding newline so truncated files don't end mid-line.
 //
-// The shrink itself happens in two phases so the result is a genuine
-// guarantee -- the returned content's token count is always <= maxTokens
-// (down to the edge case of an empty result, which is 0 tokens) -- not a
-// best-effort bound:
-//
-//  1. Proportional-shrink estimate: scale the cut by the ratio between the
-//     token budget and the actually measured count. This converges in one
-//     or two iterations when token density is roughly uniform, but for
-//     content whose density is highly non-uniform (e.g. a mostly-ASCII
-//     file ending in a dense CJK or base64 block), the whole-content ratio
-//     can be a poor local predictor, so this phase is bounded and may not
-//     converge.
-//  2. Halving fallback: if the proportional phase didn't converge, keep
-//     halving the cut and re-measuring until it fits. Integer halving
-//     strictly decreases the cut toward 0, so this phase is guaranteed to
-//     terminate with a candidate that fits, unlike phase 1.
+// The average-density estimate converges in one or two calls when token
+// density is roughly uniform, but can be a poor local predictor for
+// content with a highly non-uniform density (e.g. a mostly-ASCII file
+// ending in a dense CJK or base64 block), so a bounded proportional
+// shrink alone isn't guaranteed to converge. Below that, an unconditional
+// halving shrink guarantees termination -- integer halving strictly
+// decreases the cut toward 0 -- so the returned content's token count is
+// always <= maxTokens (down to the edge case of an empty result, 0
+// tokens), not just a best-effort bound.
 func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, totalTokens, maxTokens int) (string, error) {
 	bytesPerToken := float64(len(content)) / float64(totalTokens)
 	cut := clampRuneBoundary(content, int(float64(maxTokens)*bytesPerToken))
@@ -323,15 +315,17 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 	}
 
 	for !fits && cut > 0 {
+		// Halve before measuring, not after: the entry candidate is already
+		// known to exceed maxTokens, so re-measuring it would be redundant.
+		cut = clampRuneBoundary(content, cut/2)
+		candidate = content[:cut]
 		n, err := e.Provider.CountTokens(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
 		if n <= maxTokens {
-			break
+			fits = true
 		}
-		cut = clampRuneBoundary(content, cut/2)
-		candidate = content[:cut]
 	}
 
 	// Smart Truncate: roll back to the nearest preceding newline character.
