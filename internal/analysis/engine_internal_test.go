@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/config"
@@ -132,6 +133,69 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	_, _, err := engine.fetchContext(context.Background(), "test.go")
 	if err == nil {
 		t.Fatal("expected fetchContext to return an error when CountTokens fails, got nil")
+	}
+}
+
+// TestFetchContext_TruncationGuaranteesTokenBudget proves the fix for a
+// whole-branch review finding: truncateToTokenLimit must guarantee the
+// returned content's token count (per Provider.CountTokens) never exceeds
+// maxTokens, even when the whole-content bytesPerToken average is a poor
+// predictor of local density.
+//
+// This mock provider counts only the last min(len(text), denseWindow)
+// bytes as "expensive" (1 token/byte within that window); anything beyond
+// that window is free. So any candidate that still reaches into the dense
+// window costs ~denseWindow tokens almost no matter how much of the much
+// larger cheap prefix is trimmed off. maxTokens is set to denseWindow-1, so
+// the proportional-shrink ratio (maxTokens/denseWindow) is so close to 1
+// that scaling the cut by that ratio alone would need thousands of
+// iterations to work the cut down below the dense window -- far more than
+// a small bounded number of proportional attempts allows. The guarantee
+// only holds if a halving fallback kicks in afterward and keeps shrinking,
+// unconditionally, until the measured count actually fits.
+func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
+	const denseWindow = 1000
+	const maxTokens = denseWindow - 1 // 999: proportional ratio ~0.999, deliberately near 1
+
+	content := strings.Repeat("x", 100_000) // 100x the dense window; all cheap bytes
+
+	cfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxTokens: maxTokens,
+			Model:     "some-model",
+			Provider:  "ollama",
+		},
+	}
+
+	mockProvider := &llm.MockProvider{
+		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
+			if len(text) > denseWindow {
+				return denseWindow, nil
+			}
+			return len(text), nil
+		},
+	}
+
+	engine := &Engine{
+		Config:   cfg,
+		Content:  &MockTruncationProvider{Content: content},
+		Provider: mockProvider,
+	}
+
+	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	if err != nil {
+		t.Fatalf("fetchContext failed: %v", err)
+	}
+	if mode != "truncated" {
+		t.Fatalf("expected mode truncated, got %s", mode)
+	}
+
+	finalTokens, err := mockProvider.CountTokens(context.Background(), got)
+	if err != nil {
+		t.Fatalf("CountTokens failed: %v", err)
+	}
+	if finalTokens > maxTokens {
+		t.Errorf("truncateToTokenLimit did not honor the token budget: got %d tokens (content length %d bytes), want <= %d", finalTokens, len(got), maxTokens)
 	}
 }
 
