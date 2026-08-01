@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ArchGuard is a Go CLI (and GitHub Action) that detects "architectural drift": it uses an LLM to check whether staged/changed code violates rules written in Architectural Decision Records (ADRs — markdown files with YAML frontmatter). It embeds ADRs into a vector store, finds ADRs semantically relevant to a changed file, then asks an LLM provider (Ollama, OpenAI, or Gemini) a literal yes/no compliance question per relevant ADR. Notably, this repo dogfoods its own tooling: its architectural decisions live in `docs/arch/` and are themselves checked by ArchGuard.
+ArchGuard is a Go CLI that detects "architectural drift": it uses an LLM to check whether staged/changed code violates rules written in Architectural Decision Records (ADRs — markdown files with YAML frontmatter). It embeds ADRs into a vector store, finds ADRs semantically relevant to a changed file, then asks an LLM provider (Ollama, OpenAI, or Gemini) a literal yes/no compliance question per relevant ADR. Notably, this repo dogfoods its own tooling: its architectural decisions live in `docs/arch/` and are themselves checked by ArchGuard.
+
+It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commit check), and as a first-class GitHub Action (`action.yml` at repo root, published to the GitHub Marketplace) that runs `archguard check --ci` in a consumer's CI pipeline. These aren't two separate implementations — the Action builds and runs the same `cmd/archguard` binary from source, just wired for CI. Don't assume "CLI usage" is the only consumer of `internal/cli` behavior; changes to `check`'s flags, exit codes, or `--ci` behavior affect the Action too.
 
 ## Commands
 
@@ -39,6 +41,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 - **`internal/llm`**: `Provider` interface (`CreateEmbedding`, `Chat`) with `OpenAIProvider`, `OllamaProvider`, `GeminiProvider` implementations, plus a `MockProvider` (`mock.go`) for tests. This is the extension point for a new provider (e.g. Anthropic/Claude) — implement the interface here.
 - **`internal/git`**: All git plumbing (repo root discovery, staged/uncommitted/tracked file lists, diffs) shells out to `git`.
 - ADRs are matched to files structurally via YAML frontmatter `scope` (a glob, matched with `internal/analysis/glob.go`'s `matchGlob`, supporting `**`) and semantically via embedding similarity — both must pass for an ADR to apply to a given file.
+- **`action.yml`**: A composite GitHub Action, not a separate service — it `go install`s `./cmd/archguard` from the action's own checked-out source at run time, optionally installs Ollama and pulls `llama3.2` + `nomic-embed-text` (only when `inputs.provider == 'ollama'`), then runs `archguard check --ci`. Its only input is `provider`; everything else (model, thresholds, ADR path, exclude patterns) comes from the consumer's own `archguard.yaml`, same as local CLI usage. This is the CI Warn-Open path referenced above, not a distinct code path in `internal/analysis`.
 
 ## Conventions
 
