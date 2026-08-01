@@ -10,7 +10,7 @@ scope: "internal/**"
 
 `GeminiProvider.CreateEmbedding` called Gemini's embedding API with a `nil` config, leaving `EmbedContentConfig.TaskType` unset. The Gemini API exposes `TaskType` values `RETRIEVAL_DOCUMENT` and `RETRIEVAL_QUERY` specifically to make asymmetric retrieval work: an embedding produced for "this is a document being indexed" and one produced for "this is a query searching that index" are tuned differently even for the same underlying text, and Gemini's own docs recommend setting `TaskType` for exactly this reason.
 
-`llm.Provider.CreateEmbedding` had no way to signal which role a given call was playing. ArchGuard has exactly two embedding call sites, and they are unambiguously one role or the other: `internal/index/store.go` and `internal/index/pgvector.go` (`BuildIndex`) embed ADR content to index it; `internal/analysis/engine.go` (`Run`) embeds diff/code content to search the index.
+`llm.Provider.CreateEmbedding` had no way to signal which role a given call was playing. ArchGuard has three embedding call sites, and each is unambiguously one role or the other: `internal/index/store.go` and `internal/index/pgvector.go` (`BuildIndex`) embed ADR content to index it; `internal/analysis/engine.go` (`Run`) embeds diff/code content to search the index.
 
 ## Decision
 
