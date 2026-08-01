@@ -130,7 +130,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 			if len(diffForEmbedding) > 6000 {
-				diffForEmbedding = diffForEmbedding[:6000]
+				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
 			}
 
 			embedding, err := e.Provider.CreateEmbedding(ctx, diffForEmbedding)
@@ -162,7 +162,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				// Check for ignore directive (optimization: only check header)
 				header := content
 				if len(header) > 2000 {
-					header = header[:2000]
+					header = truncateRuneSafe(header, 2000)
 				}
 				if strings.Contains(header, fmt.Sprintf("archguard-ignore: %s", hit.ADR.ID)) {
 					if e.Debug {
@@ -349,6 +349,21 @@ func clampRuneBoundary(s string, cut int) int {
 		cut--
 	}
 	return cut
+}
+
+// truncateRuneSafe cuts s to at most limit bytes without splitting a
+// multi-byte UTF-8 rune.
+func truncateRuneSafe(s string, limit int) string {
+	return s[:clampRuneBoundary(s, limit)]
+}
+
+// rollBackToNewline trims s back to end at its last newline character, if
+// any, so truncated content doesn't end mid-line.
+func rollBackToNewline(s string) string {
+	if lastNewline := strings.LastIndex(s, "\n"); lastNewline != -1 {
+		return s[:lastNewline+1]
+	}
+	return s
 }
 
 func (e *Engine) findLineNumber(content, quote string) int {

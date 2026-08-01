@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
@@ -227,5 +228,96 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 		if got := engine.shouldExclude(c.path); got != c.want {
 			t.Errorf("shouldExclude(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+func TestTruncateRuneSafe(t *testing.T) {
+	cases := []struct {
+		name  string
+		s     string
+		limit int
+		want  string
+	}{
+		{"ascii under limit unchanged", "hello", 10, "hello"},
+		{"ascii exact limit unchanged", "hello", 5, "hello"},
+		{"ascii over limit cuts at byte boundary", "hello world", 5, "hello"},
+		{"2-byte rune (é) split backs up to rune start", "café", 4, "caf"},
+		{"3-byte rune (中) split backs up to rune start", "ab中cd", 4, "ab"},
+		{"4-byte rune (😀) split backs up to rune start", "hi😀jk", 4, "hi"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := truncateRuneSafe(c.s, c.limit)
+			if got != c.want {
+				t.Errorf("truncateRuneSafe(%q, %d) = %q, want %q", c.s, c.limit, got, c.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("truncateRuneSafe(%q, %d) = %q, not valid UTF-8", c.s, c.limit, got)
+			}
+			if len(got) > c.limit {
+				t.Errorf("truncateRuneSafe(%q, %d) = %q, exceeds limit (%d bytes)", c.s, c.limit, got, len(got))
+			}
+		})
+	}
+}
+
+func TestRollBackToNewline(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		want string
+	}{
+		{"no newline returns unchanged", "hello", "hello"},
+		{"trailing partial line rolled back", "line1\nline2", "line1\n"},
+		{"already ends at newline unchanged", "line1\n", "line1\n"},
+		{"multiple newlines rolls back to last", "a\nb\nc", "a\nb\n"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := rollBackToNewline(c.s); got != c.want {
+				t.Errorf("rollBackToNewline(%q) = %q, want %q", c.s, got, c.want)
+			}
+		})
+	}
+}
+
+// TestEmbeddingTruncation_MultiByteBoundary asserts the diffForEmbedding
+// truncation site (6000-byte limit) never splits a multi-byte UTF-8 rune,
+// using content engineered so a raw byte cut at 6000 would land mid-rune.
+func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
+	const limit = 6000
+	prefix := strings.Repeat("x", limit-2) + "\n"
+	content := prefix + "中文内容" + strings.Repeat("y", 100)
+
+	got := rollBackToNewline(truncateRuneSafe(content, limit))
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("result is not valid UTF-8: %q", got)
+	}
+	if len(got) > limit {
+		t.Fatalf("result exceeds limit: %d bytes > %d", len(got), limit)
+	}
+	if got != prefix {
+		t.Errorf("expected rollback to prefix ending at newline (%q), got %q", prefix, got)
+	}
+}
+
+// TestIgnoreHeaderTruncation_MultiByteBoundary asserts the archguard-ignore
+// header truncation site (2000-byte limit) never splits a multi-byte UTF-8
+// rune, using content engineered so a raw byte cut at 2000 would land
+// mid-rune.
+func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
+	const limit = 2000
+	content := strings.Repeat("x", limit-2) + "日本語" + strings.Repeat("y", 100)
+
+	got := truncateRuneSafe(content, limit)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("result is not valid UTF-8: %q", got)
+	}
+	if len(got) > limit {
+		t.Fatalf("result exceeds limit: %d bytes > %d", len(got), limit)
 	}
 }
