@@ -206,6 +206,87 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 }
 
+func TestStripDiffMetadata(t *testing.T) {
+	singleHunkDiff := strings.Join([]string{
+		"diff --git a/foo.go b/foo.go",
+		"index 1234567..89abcde 100644",
+		"--- a/foo.go",
+		"+++ b/foo.go",
+		"@@ -1,4 +1,5 @@",
+		" package foo",
+		" ",
+		"-func old() {}",
+		"+func new() {}",
+		"+func another() {}",
+	}, "\n")
+	wantSingleHunk := strings.Join([]string{
+		"package foo",
+		"",
+		"func old() {}",
+		"func new() {}",
+		"func another() {}",
+	}, "\n")
+
+	multiHunkDiff := strings.Join([]string{
+		"diff --git a/bar.go b/bar.go",
+		"index abcdef1..2345678 100644",
+		"--- a/bar.go",
+		"+++ b/bar.go",
+		"@@ -1,2 +1,2 @@",
+		"-const A = 1",
+		"+const A = 2",
+		"@@ -10,2 +10,2 @@",
+		"-const B = 1",
+		"+const B = 2",
+	}, "\n")
+	wantMultiHunk := strings.Join([]string{
+		"const A = 1",
+		"const A = 2",
+		"const B = 1",
+		"const B = 2",
+	}, "\n")
+
+	noNewlineDiff := strings.Join([]string{
+		"diff --git a/baz.go b/baz.go",
+		"index 1111111..2222222 100644",
+		"--- a/baz.go",
+		"+++ b/baz.go",
+		"@@ -1,1 +1,1 @@",
+		"-old",
+		"+new",
+		"\\ No newline at end of file",
+	}, "\n")
+	wantNoNewline := strings.Join([]string{"old", "new"}, "\n")
+
+	plainFileContent := strings.Join([]string{
+		"package foo",
+		"",
+		"func indented() {",
+		"    return",
+		"}",
+	}, "\n")
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"single hunk strips headers and markers", singleHunkDiff, wantSingleHunk},
+		{"multiple hunks strip independently", multiHunkDiff, wantMultiHunk},
+		{"no-newline marker line is dropped", noNewlineDiff, wantNoNewline},
+		{"non-diff content passed through unchanged", plainFileContent, plainFileContent},
+		{"empty string unchanged", "", ""},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stripDiffMetadata(c.input); got != c.want {
+				t.Errorf("stripDiffMetadata(%q) = %q, want %q", c.input, got, c.want)
+			}
+		})
+	}
+}
+
 func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 	cfg := &config.Config{
 		Analysis: config.Analysis{

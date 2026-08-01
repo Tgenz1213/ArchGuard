@@ -71,6 +71,51 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
+// TestOllamaProvider_CreateEmbedding_NomicTaskPrefix asserts the
+// search_query:/search_document: prefix is applied only for a
+// nomic-embed-text embedding model, and only with the prefix matching the
+// requested task role -- gated so it doesn't corrupt embeddings for any
+// other Ollama embedding model, which has no such text convention.
+func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
+	cases := []struct {
+		name       string
+		embedModel string
+		task       EmbeddingTaskType
+		wantPrompt string
+	}{
+		{"nomic + document task", "nomic-embed-text", EmbeddingTaskDocument, "search_document: test text"},
+		{"nomic + query task", "nomic-embed-text", EmbeddingTaskQuery, "search_query: test text"},
+		{"nomic versioned tag + query task", "nomic-embed-text:v1.5", EmbeddingTaskQuery, "search_query: test text"},
+		{"non-nomic model unprefixed", "mxbai-embed-large", EmbeddingTaskQuery, "test text"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var gotPrompt string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var reqBody map[string]interface{}
+				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+					t.Fatalf("failed to decode request body: %v", err)
+				}
+				gotPrompt, _ = reqBody["prompt"].(string)
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"embedding":[0.1]}`))
+			}))
+			defer server.Close()
+
+			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", c.embedModel, 0.0)
+
+			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
+				t.Fatalf("CreateEmbedding failed: %v", err)
+			}
+			if gotPrompt != c.wantPrompt {
+				t.Errorf("expected prompt %q, got %q", c.wantPrompt, gotPrompt)
+			}
+		})
+	}
+}
+
 func TestNewOllamaProvider_DefaultsBaseURL(t *testing.T) {
 	p := NewOllamaProvider("", "llama3.2", "nomic-embed-text", 0.0)
 	if p.host != "http://localhost:11434" {

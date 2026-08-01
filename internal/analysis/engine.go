@@ -128,6 +128,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if err != nil || diffForEmbedding == "" {
 				diffForEmbedding = content
 			}
+			diffForEmbedding = stripDiffMetadata(diffForEmbedding)
 
 			if len(diffForEmbedding) > 6000 {
 				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
@@ -364,6 +365,57 @@ func rollBackToNewline(s string) string {
 		return s[:lastNewline+1]
 	}
 	return s
+}
+
+// stripDiffMetadata strips unified diff patch metadata (diff --git/index/
+// ---/+++ headers and @@ hunk headers) and the leading +/-/space marker
+// from each hunk line, leaving the underlying code content -- so an
+// embedding compares actual code, not patch syntax, against ADR prose.
+//
+// Input with no @@ hunk header is passed through unchanged rather than
+// stripped line-by-line: that's the signal this isn't diff-shaped (e.g. it's
+// whole-file content used as a fallback when there's no diff), and
+// unconditionally stripping a leading space from every line would corrupt
+// ordinary indented code.
+func stripDiffMetadata(s string) string {
+	if !isUnifiedDiff(s) {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	inHunk := false
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case strings.HasPrefix(line, "diff --git "),
+			strings.HasPrefix(line, "index "),
+			strings.HasPrefix(line, "--- "),
+			strings.HasPrefix(line, "+++ "),
+			strings.HasPrefix(line, "\\"):
+			inHunk = false
+		case inHunk:
+			if line != "" {
+				out = append(out, line[1:])
+			} else {
+				out = append(out, "")
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// isUnifiedDiff reports whether s contains a unified diff hunk header
+// (@@ ... @@), the one line type that reliably distinguishes a diff from
+// ordinary file content.
+func isUnifiedDiff(s string) bool {
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(line, "@@") {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) findLineNumber(content, quote string) int {

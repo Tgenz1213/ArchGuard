@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/ollama/ollama/api"
 )
@@ -78,10 +79,25 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	return content, nil
 }
 
-func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) ([]float32, error) {
+// nomicTaskPrefix returns nomic-embed-text's asymmetric-retrieval
+// instruction prefix for task, or "" for any other embedding model --
+// nomic is the only Ollama embedding model documented to use this text
+// convention, so applying it to another model's input would just corrupt
+// the embedding with irrelevant tokens.
+func nomicTaskPrefix(embedModel string, task EmbeddingTaskType) string {
+	if !strings.HasPrefix(embedModel, "nomic-embed") {
+		return ""
+	}
+	if task == EmbeddingTaskQuery {
+		return "search_query: "
+	}
+	return "search_document: "
+}
+
+func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	req := &api.EmbeddingRequest{
 		Model:  p.embedModel,
-		Prompt: text,
+		Prompt: nomicTaskPrefix(p.embedModel, task) + text,
 	}
 
 	res, err := p.client.Embeddings(ctx, req)
