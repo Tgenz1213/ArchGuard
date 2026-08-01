@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -406,16 +407,21 @@ func stripDiffMetadata(s string) string {
 	return strings.Join(out, "\n")
 }
 
-// isUnifiedDiff reports whether s contains a unified diff hunk header
-// (@@ ... @@), the one line type that reliably distinguishes a diff from
-// ordinary file content.
+// hunkHeaderPattern matches a real unified diff hunk header, e.g.
+// "@@ -12,7 +12,8 @@" (optionally followed by trailing function context).
+var hunkHeaderPattern = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
+
+// isUnifiedDiff reports whether s looks like a real unified diff rather
+// than ordinary content that happens to contain a line starting with "@@"
+// (e.g. documentation with an example hunk header). It requires both a
+// "diff --git" header and a properly shaped hunk header -- internal/git's
+// GetDiff (ArchGuard's only source of diff text, via `git diff ... --
+// path`) always emits both together, so requiring both catches every real
+// diff while making a false-positive match on unrelated content very
+// unlikely.
 func isUnifiedDiff(s string) bool {
-	for _, line := range strings.Split(s, "\n") {
-		if strings.HasPrefix(line, "@@") {
-			return true
-		}
-	}
-	return false
+	hasGitHeader := strings.HasPrefix(s, "diff --git ") || strings.Contains(s, "\ndiff --git ")
+	return hasGitHeader && hunkHeaderPattern.MatchString(s)
 }
 
 func (e *Engine) findLineNumber(content, quote string) int {

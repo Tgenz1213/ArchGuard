@@ -266,6 +266,17 @@ func TestStripDiffMetadata(t *testing.T) {
 		"}",
 	}, "\n")
 
+	// A doc file that happens to contain a bare "@@..." line (e.g.
+	// documenting this very stripping behavior with an example hunk
+	// header) but no real "diff --git" header. Must not be misclassified
+	// as a diff -- stripping this would corrupt every following line by
+	// chopping off its first character.
+	docWithBareHunkLookalike := strings.Join([]string{
+		"# Example",
+		"@@ -1,3 +1,4 @@",
+		"    indented content that must survive untouched",
+	}, "\n")
+
 	cases := []struct {
 		name  string
 		input string
@@ -276,12 +287,44 @@ func TestStripDiffMetadata(t *testing.T) {
 		{"no-newline marker line is dropped", noNewlineDiff, wantNoNewline},
 		{"non-diff content passed through unchanged", plainFileContent, plainFileContent},
 		{"empty string unchanged", "", ""},
+		{"bare hunk-header lookalike without diff --git is not stripped", docWithBareHunkLookalike, docWithBareHunkLookalike},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := stripDiffMetadata(c.input); got != c.want {
 				t.Errorf("stripDiffMetadata(%q) = %q, want %q", c.input, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsUnifiedDiff(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		want bool
+	}{
+		{
+			"real diff with multi-line hunk counts",
+			"diff --git a/foo.go b/foo.go\nindex 111..222 100644\n--- a/foo.go\n+++ b/foo.go\n@@ -1,4 +1,5 @@\n content",
+			true,
+		},
+		{
+			"real diff with single-line hunk (no comma count)",
+			"diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n@@ -1 +1 @@\n-old\n+new",
+			true,
+		},
+		{"bare @@ line without diff --git header", "# Example\n@@ -1,3 +1,4 @@\ncontent", false},
+		{"diff --git header without a hunk header", "diff --git a/foo.go b/foo.go\nrenamed", false},
+		{"plain content with neither", "package foo\n\nfunc x() {}", false},
+		{"empty string", "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isUnifiedDiff(c.s); got != c.want {
+				t.Errorf("isUnifiedDiff(%q) = %v, want %v", c.s, got, c.want)
 			}
 		})
 	}
