@@ -99,3 +99,29 @@ func TestOpenAIProvider_ChatErrorOnNon200(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestOpenAIProvider_CountTokens(t *testing.T) {
+	p := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
+
+	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	if err != nil {
+		t.Fatalf("CountTokens failed: %v", err)
+	}
+	// "Hello, world!" is 4 tokens under cl100k_base (the encoding gpt-3.5-turbo
+	// resolves to): ["Hello", ",", " world", "!"].
+	if n != 4 {
+		t.Errorf("expected 4 tokens, got %d", n)
+	}
+}
+
+func TestOpenAIProvider_CountTokens_UnknownModelFallsBackToCl100kBase(t *testing.T) {
+	p := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
+
+	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	if err != nil {
+		t.Fatalf("CountTokens failed: %v", err)
+	}
+	if n != 4 {
+		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", n)
+	}
+}
