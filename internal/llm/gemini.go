@@ -149,10 +149,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 // geminiTaskType maps ArchGuard's provider-agnostic EmbeddingTaskType to
 // the Gemini API's own TaskType string values.
 func geminiTaskType(task EmbeddingTaskType) string {
-	if task == EmbeddingTaskQuery {
-		return "RETRIEVAL_QUERY"
-	}
-	return "RETRIEVAL_DOCUMENT"
+	return task.Pick("RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY")
 }
 
 func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {

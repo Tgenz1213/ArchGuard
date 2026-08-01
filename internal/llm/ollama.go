@@ -79,25 +79,36 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	return content, nil
 }
 
-// nomicTaskPrefix returns nomic-embed-text's asymmetric-retrieval
-// instruction prefix for task, or "" for any other embedding model --
-// nomic is the only Ollama embedding model documented to use this text
-// convention, so applying it to another model's input would just corrupt
-// the embedding with irrelevant tokens.
-func nomicTaskPrefix(embedModel string, task EmbeddingTaskType) string {
-	if !strings.HasPrefix(embedModel, "nomic-embed") {
-		return ""
+// embeddingPrefixConventions maps an embedding model name prefix to its
+// asymmetric-retrieval instruction-prefix convention. nomic-embed-text is
+// the only one ArchGuard currently knows about; supporting another local
+// embedding model's convention (e.g. E5's "query: "/"passage: ") is a new
+// entry here, not a new branch in embeddingTaskPrefix.
+var embeddingPrefixConventions = []struct {
+	modelPrefix    string
+	documentPrefix string
+	queryPrefix    string
+}{
+	{"nomic-embed", "search_document: ", "search_query: "},
+}
+
+// embeddingTaskPrefix returns the configured embed model's asymmetric-
+// retrieval instruction prefix for task, or "" if embedModel doesn't match
+// a known convention -- applying an unrelated model's prefix would just
+// corrupt the embedding with irrelevant tokens.
+func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
+	for _, c := range embeddingPrefixConventions {
+		if strings.HasPrefix(embedModel, c.modelPrefix) {
+			return task.Pick(c.documentPrefix, c.queryPrefix)
+		}
 	}
-	if task == EmbeddingTaskQuery {
-		return "search_query: "
-	}
-	return "search_document: "
+	return ""
 }
 
 func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	req := &api.EmbeddingRequest{
 		Model:  p.embedModel,
-		Prompt: nomicTaskPrefix(p.embedModel, task) + text,
+		Prompt: embeddingTaskPrefix(p.embedModel, task) + text,
 	}
 
 	res, err := p.client.Embeddings(ctx, req)
