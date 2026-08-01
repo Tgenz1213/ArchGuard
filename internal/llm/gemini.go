@@ -146,15 +146,25 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 	return resp.Candidates[0].Content.Parts[0].Text, nil
 }
 
-func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+// geminiTaskType maps ArchGuard's provider-agnostic EmbeddingTaskType to
+// the Gemini API's own TaskType string values.
+func geminiTaskType(task EmbeddingTaskType) string {
+	if task == EmbeddingTaskQuery {
+		return "RETRIEVAL_QUERY"
+	}
+	return "RETRIEVAL_DOCUMENT"
+}
+
+func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	client, transport, err := p.newClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
 	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
+	config := &genai.EmbedContentConfig{TaskType: geminiTaskType(task)}
 
-	resp, err := client.Models.EmbedContent(ctx, p.embedModel, contents, nil)
+	resp, err := client.Models.EmbedContent(ctx, p.embedModel, contents, config)
 	if err != nil {
 		return nil, p.apiError(err, transport)
 	}

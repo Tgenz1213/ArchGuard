@@ -80,7 +80,7 @@ Test Content`
 	// 5. Build Index
 	provider := &llm.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			return []float32{0.1, 0.1}, nil
 		},
 	}

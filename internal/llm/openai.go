@@ -61,7 +61,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string,
 	return resp.Choices[0].Message.Content, nil
 }
 
-func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) ([]float32, error) {
 	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
 		Model: p.embedModel,

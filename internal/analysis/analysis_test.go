@@ -95,6 +95,51 @@ func TestDriftDetection(t *testing.T) {
 	}
 }
 
+// TestRun_EmbedsFileContentAsQuery asserts Run embeds the file's
+// diff/code content with EmbeddingTaskQuery, so a provider capable of
+// asymmetric retrieval (e.g. Gemini) searches with it rather than indexing
+// it as a document.
+func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
+	var gotTask llm.EmbeddingTaskType
+	provider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			gotTask = task
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{"service.py": "// content ignored by mock"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if gotTask != llm.EmbeddingTaskQuery {
+		t.Errorf("expected EmbeddingTaskQuery, got %v", gotTask)
+	}
+}
+
 func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
 	var capturedSystemPrompt string

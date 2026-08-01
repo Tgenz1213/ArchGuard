@@ -141,7 +141,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
-				emb, err := provider.CreateEmbedding(gCtx, textToEmbed)
+				emb, err := provider.CreateEmbedding(gCtx, textToEmbed, llm.EmbeddingTaskDocument)
 				if err != nil {
 					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
 				}

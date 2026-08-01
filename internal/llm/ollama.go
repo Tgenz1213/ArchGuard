@@ -78,7 +78,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	return content, nil
 }
 
-func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) ([]float32, error) {
 	req := &api.EmbeddingRequest{
 		Model:  p.embedModel,
 		Prompt: text,

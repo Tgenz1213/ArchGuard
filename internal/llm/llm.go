@@ -20,8 +20,25 @@ type AnalysisResult struct {
 	QuotedCode string `json:"quoted_code"`
 }
 
+// EmbeddingTaskType distinguishes why an embedding is being created, so a
+// provider capable of asymmetric retrieval (e.g. Gemini's TaskType) can
+// return a vector tuned for that specific role rather than one general-
+// purpose embedding.
+type EmbeddingTaskType int
+
+const (
+	// EmbeddingTaskDocument marks content being indexed into the vector
+	// store (ADR content).
+	EmbeddingTaskDocument EmbeddingTaskType = iota
+	// EmbeddingTaskQuery marks content being embedded to search the
+	// vector store (diff/code content).
+	EmbeddingTaskQuery
+)
+
 type Provider interface {
-	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
+	// CreateEmbedding embeds text for the given task role. Providers
+	// without an asymmetric-retrieval mechanism may ignore task.
+	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
 	Chat(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 
 	// CountTokens returns the number of tokens `text` would consume for
