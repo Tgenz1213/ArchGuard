@@ -112,7 +112,7 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"done":true,"response":"","prompt_eval_count":%d}`, realPromptEvalCount)
+		_, _ = fmt.Fprintf(w, `{"done":true,"response":"","prompt_eval_count":%d}`, realPromptEvalCount)
 	}))
 	defer server.Close()
 
