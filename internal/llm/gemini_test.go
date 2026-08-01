@@ -353,3 +353,47 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 		t.Errorf("Expected error to contain status code, got: %s", errMsg)
 	}
 }
+
+func TestGeminiProvider_CountTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models/gemini-1.5-flash:countTokens" {
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+		}
+
+		var reqBody struct {
+			Contents []struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("Failed to decode request body: %v", err)
+		}
+		if len(reqBody.Contents) == 0 || len(reqBody.Contents[0].Parts) == 0 {
+			t.Fatal("Request body missing contents/parts")
+		}
+		if reqBody.Contents[0].Parts[0].Text != "Hello, world!" {
+			t.Errorf("Expected text %q, got %q", "Hello, world!", reqBody.Contents[0].Parts[0].Text)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"totalTokens": 5}`))
+	}))
+	defer server.Close()
+
+	p := &GeminiProvider{
+		apiKey:  "test-api-key",
+		model:   "gemini-1.5-flash",
+		baseURL: server.URL,
+		client:  server.Client(),
+	}
+
+	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	if err != nil {
+		t.Fatalf("CountTokens failed: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("expected 5 tokens, got %d", n)
+	}
+}

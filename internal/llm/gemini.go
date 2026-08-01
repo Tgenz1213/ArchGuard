@@ -165,3 +165,19 @@ func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 
 	return resp.Embeddings[0].Values, nil
 }
+
+func (p *GeminiProvider) CountTokens(ctx context.Context, text string) (int, error) {
+	client, transport, err := p.newClient(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create gemini client: %w", err)
+	}
+
+	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
+
+	resp, err := client.Models.CountTokens(ctx, p.model, contents, nil)
+	if err != nil {
+		return 0, p.apiError(err, transport)
+	}
+
+	return int(resp.TotalTokens), nil
+}

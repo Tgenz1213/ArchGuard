@@ -8,6 +8,7 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
+	"github.com/pkoukk/tiktoken-go"
 )
 
 const openAIBaseURL = "https://api.openai.com/v1"
@@ -78,4 +79,22 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 		embedding[i] = float32(v)
 	}
 	return embedding, nil
+}
+
+func (p *OpenAIProvider) CountTokens(ctx context.Context, text string) (int, error) {
+	model := p.model
+	if model == "" {
+		model = "gpt-3.5-turbo"
+	}
+
+	tkm, err := tiktoken.EncodingForModel(model)
+	if err != nil {
+		// Fallback to cl100k_base for unknown OpenAI model names.
+		tkm, err = tiktoken.GetEncoding("cl100k_base")
+		if err != nil {
+			return 0, fmt.Errorf("failed to load cl100k_base tokenizer: %w", err)
+		}
+	}
+
+	return len(tkm.Encode(text, nil, nil)), nil
 }

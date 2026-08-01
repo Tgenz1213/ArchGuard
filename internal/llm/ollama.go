@@ -95,3 +95,26 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string) ([]fl
 	}
 	return embedding, nil
 }
+
+func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, error) {
+	stream := false
+	req := &api.GenerateRequest{
+		Model:  p.model,
+		Prompt: text,
+		Raw:    true,
+		Stream: &stream,
+		Options: map[string]any{
+			"num_predict": 1,
+		},
+	}
+
+	var count int
+	err := p.client.Generate(ctx, req, func(res api.GenerateResponse) error {
+		count = res.PromptEvalCount
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}

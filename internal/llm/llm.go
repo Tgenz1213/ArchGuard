@@ -23,6 +23,12 @@ type AnalysisResult struct {
 type Provider interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
 	Chat(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+
+	// CountTokens returns the number of tokens `text` would consume for
+	// this provider's configured model. Each provider counts using
+	// whatever mechanism actually reflects its own model's tokenizer —
+	// see individual implementations for details.
+	CountTokens(ctx context.Context, text string) (int, error)
 }
 
 /**

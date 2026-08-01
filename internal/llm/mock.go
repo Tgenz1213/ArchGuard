@@ -7,9 +7,12 @@ import (
 type MockProvider struct {
 	EmbedFunc func(ctx context.Context, text string) ([]float32, error)
 	// ChatFunc allows you to mock the raw string response from an LLM
-	ChatFunc     func(ctx context.Context, system, user string) (string, error)
-	Debug        bool
-	EmbeddingDim int
+	ChatFunc func(ctx context.Context, system, user string) (string, error)
+	// CountTokensFunc allows you to mock token counting; defaults to a
+	// coarse len(text)/4 approximation if unset.
+	CountTokensFunc func(ctx context.Context, text string) (int, error)
+	Debug           bool
+	EmbeddingDim    int
 }
 
 func (m *MockProvider) SetDebug(debug bool) {
@@ -36,4 +39,11 @@ func (m *MockProvider) Chat(ctx context.Context, system, user string) (string, e
 	}
 	// Default mock response as a JSON string
 	return `{"violation": false, "reasoning": "default mock", "quoted_code": ""}`, nil
+}
+
+func (m *MockProvider) CountTokens(ctx context.Context, text string) (int, error) {
+	if m.CountTokensFunc != nil {
+		return m.CountTokensFunc(ctx, text)
+	}
+	return len(text) / 4, nil
 }
