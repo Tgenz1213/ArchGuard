@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
-	"github.com/pkoukk/tiktoken-go"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -103,7 +103,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "Analyzing %s...\n", file)
 			}
 
-			content, diffMode, err := e.fetchContext(file)
+			content, diffMode, err := e.fetchContext(ctx, file)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
 				mu.Lock()
@@ -248,7 +248,7 @@ func (e *Engine) shouldExclude(path string) bool {
 	return false
 }
 
-func (e *Engine) fetchContext(path string) (string, string, error) {
+func (e *Engine) fetchContext(ctx context.Context, path string) (string, string, error) {
 	maxTokens := e.Config.LLM.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8000
@@ -259,49 +259,71 @@ func (e *Engine) fetchContext(path string) (string, string, error) {
 		return "", "", err
 	}
 
-	tkm, err := e.getTokenizer()
+	totalTokens, err := e.Provider.CountTokens(ctx, fullContent)
 	if err != nil {
-		// Fallback if tokenizer fails completely (unlikely with cl100k_base fallback)
-		e.Log("Tokenizer initialization failed: %v", err)
-		if len(fullContent) > maxTokens*4 {
-			return fullContent[:maxTokens*4], "truncated", nil
-		}
-		return fullContent, "full", nil
+		return "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
 	}
-
-	tokenIds := tkm.Encode(fullContent, nil, nil)
-	if len(tokenIds) <= maxTokens {
+	if totalTokens <= maxTokens {
 		return fullContent, "full", nil
 	}
 
 	diff, err := e.Content.GetDiff(path)
 	if err != nil || diff == "" {
-		// Truncate using tokens for precision
-		truncatedIds := tokenIds[:maxTokens]
-		truncatedContent := tkm.Decode(truncatedIds)
-
-		// Smart Truncate: Roll back to the nearest preceding newline character
-		if lastNewline := strings.LastIndex(truncatedContent, "\n"); lastNewline != -1 {
-			truncatedContent = truncatedContent[:lastNewline+1]
+		truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
+		if err != nil {
+			return "", "", fmt.Errorf("truncating content for %s: %w", path, err)
 		}
-
-		return truncatedContent, "truncated", nil
+		return truncated, "truncated", nil
 	}
 	return diff, "diff", nil
 }
 
-func (e *Engine) getTokenizer() (*tiktoken.Tiktoken, error) {
-	model := e.Config.LLM.Model
-	if model == "" {
-		model = "gpt-3.5-turbo"
+// truncateToTokenLimit cuts content down to at most maxTokens tokens,
+// according to the provider's own CountTokens. It can't rely on
+// encode/decode (only tiktoken supports that): instead it estimates a
+// byte cutoff from the content's average bytes-per-token ratio, then
+// verifies and shrinks that estimate via CountTokens until it fits,
+// then rolls back to the nearest preceding newline so truncated files
+// don't end mid-line.
+func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, totalTokens, maxTokens int) (string, error) {
+	bytesPerToken := float64(len(content)) / float64(totalTokens)
+	cut := clampRuneBoundary(content, int(float64(maxTokens)*bytesPerToken))
+	candidate := content[:cut]
+
+	const maxAttempts = 5
+	for attempt := 0; attempt < maxAttempts && cut > 0; attempt++ {
+		n, err := e.Provider.CountTokens(ctx, candidate)
+		if err != nil {
+			return "", err
+		}
+		if n <= maxTokens {
+			break
+		}
+		cut = clampRuneBoundary(content, int(float64(cut)*0.9))
+		candidate = content[:cut]
 	}
 
-	tkm, err := tiktoken.EncodingForModel(model)
-	if err != nil {
-		// Fallback to cl100k_base for unknown models (e.g. Ollama)
-		return tiktoken.GetEncoding("cl100k_base")
+	// Smart Truncate: roll back to the nearest preceding newline character.
+	if lastNewline := strings.LastIndex(candidate, "\n"); lastNewline != -1 {
+		candidate = candidate[:lastNewline+1]
 	}
-	return tkm, nil
+
+	return candidate, nil
+}
+
+// clampRuneBoundary clamps cut into [0, len(s)] and, if it lands in the
+// middle of a multi-byte UTF-8 rune, backs it up to the start of that rune.
+func clampRuneBoundary(s string, cut int) int {
+	if cut < 0 {
+		return 0
+	}
+	if cut >= len(s) {
+		return len(s)
+	}
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return cut
 }
 
 func (e *Engine) findLineNumber(content, quote string) int {

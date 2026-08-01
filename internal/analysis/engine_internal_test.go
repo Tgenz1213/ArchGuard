@@ -1,9 +1,12 @@
 package analysis
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/config"
+	"github.com/tgenz1213/archguard/internal/llm"
 )
 
 type MockTruncationProvider struct {
@@ -31,11 +34,12 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	}
 
 	engine := &Engine{
-		Config:  cfg,
-		Content: &MockTruncationProvider{Content: longContent},
+		Config:   cfg,
+		Content:  &MockTruncationProvider{Content: longContent},
+		Provider: llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
-	content, mode, err := engine.fetchContext("test.go")
+	content, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -47,11 +51,87 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	t.Logf("Truncated content: %q", content)
 
 	// We expect the content to be rolled back to the newline.
-	// MaxTokens=4 typically covers "Line1" + "\n" + "Line" (partial)
-	// Smart truncate should yield "Line1\n"
 	expected := "Line1\n"
 	if content != expected {
 		t.Errorf("Expected content to be rolled back to newline (%q), but got %q", expected, content)
+	}
+}
+
+// TestFetchContext_NonOpenAI_UsesProviderTokenCount proves the fix for
+// issue #39: truncation for a non-OpenAI provider is driven by that
+// provider's own CountTokens, not by tiktoken's cl100k_base fallback.
+// The mock provider here counts tokens completely differently from
+// tiktoken (1 token per 2 bytes, vs. cl100k_base's real BPE), so if the
+// engine were still silently using tiktoken under the hood, this test's
+// truncation boundary would land somewhere else and the assertion below
+// would fail.
+func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
+	// 20 bytes: "AAAAAAAAAA\nBBBBBBBBB" -> mock counts 1 token per 2 bytes = 10 tokens total.
+	content := "AAAAAAAAAA\nBBBBBBBBB"
+
+	cfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxTokens: 5, // half of the mock's 10-token total -> must truncate
+			Model:     "llama3.2",
+			Provider:  "ollama",
+		},
+	}
+
+	mockProvider := &llm.MockProvider{
+		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
+			return len(text) / 2, nil
+		},
+	}
+
+	engine := &Engine{
+		Config:   cfg,
+		Content:  &MockTruncationProvider{Content: content},
+		Provider: mockProvider,
+	}
+
+	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	if err != nil {
+		t.Fatalf("fetchContext failed: %v", err)
+	}
+	if mode != "truncated" {
+		t.Fatalf("expected mode truncated, got %s", mode)
+	}
+	// MaxTokens=5 * 2 bytes/token = 10 bytes -> "AAAAAAAAAA" (exactly 10
+	// bytes, no newline yet) -> no preceding newline to roll back to, so
+	// content is returned as-is at the 10-byte boundary.
+	expected := "AAAAAAAAAA"
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
+// TestFetchContext_CountTokensError_PropagatesLoudly proves AC4: if the
+// provider can't produce a token count, fetchContext returns an error
+// instead of silently falling back to a length-based heuristic.
+func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
+	cfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxTokens: 100,
+			Model:     "some-model",
+			Provider:  "ollama",
+		},
+	}
+
+	mockProvider := &llm.MockProvider{
+		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
+			return 0, errors.New("model not found on server")
+		},
+	}
+
+	engine := &Engine{
+		Config:   cfg,
+		Content:  &MockTruncationProvider{Content: "some file content"},
+		Provider: mockProvider,
+	}
+
+	_, _, err := engine.fetchContext(context.Background(), "test.go")
+	if err == nil {
+		t.Fatal("expected fetchContext to return an error when CountTokens fails, got nil")
 	}
 }
 
