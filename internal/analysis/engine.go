@@ -382,13 +382,24 @@ func rollBackToNewline(s string) string {
 // ordinary indented code.
 //
 // Everything before the first @@ is preamble and is dropped unconditionally,
-// rather than matched line-by-line against "diff --git "/"index "/"--- "/
-// "+++ " prefixes: those prefixes can also occur as the first bytes of a
-// genuine hunk line (marker + content), e.g. a removed SQL/Lua-style "--
-// comment" line becomes "--- comment" once the '-' marker is prepended.
-// Re-checking for header prefixes after the hunk has started would
-// misclassify that as the "--- a/file" header and silently drop it and
-// every line after it.
+// rather than matched line-by-line against "index "/"--- "/"+++ " prefixes:
+// those prefixes can also occur as the first bytes of a genuine hunk line
+// (marker + content), e.g. a removed SQL/Lua-style "-- comment" line
+// becomes "--- comment" once the '-' marker is prepended. Re-checking for
+// header prefixes after the hunk has started would misclassify that as the
+// "--- a/file" header and silently drop it and every line after it.
+//
+// This function assumes s is a single-file diff, matching internal/git's
+// only diff-producing calls (`git diff --unified=100 -- <one path>`), which
+// is the only diff shape ArchGuard ever generates -- ADR scope matching,
+// suppression comments, caching, and violation-line reporting are all
+// file-scoped throughout the codebase, so mixing multiple files' diffs into
+// one embedding isn't a design goal. A "diff --git " line reached mid-hunk
+// still resets back to preamble (rather than being treated as hunk content
+// like other header-shaped lines) purely as defense-in-depth: unlike the
+// 4-character "--- "/"+++ " prefixes, "diff --git " is long and specific
+// enough that a real code line coincidentally starting with it is not a
+// realistic risk.
 func stripDiffMetadata(s string) string {
 	if !isUnifiedDiff(s) {
 		return s
@@ -403,6 +414,9 @@ func stripDiffMetadata(s string) string {
 			inHunk = true
 		case !inHunk:
 			// preamble line (diff --git/index/---/+++), dropped
+		case strings.HasPrefix(line, "diff --git "):
+			// a second file's preamble in (unsupported) multi-file input
+			inHunk = false
 		case strings.HasPrefix(line, "\\"):
 			// "\ No newline at end of file" marker, dropped
 		default:

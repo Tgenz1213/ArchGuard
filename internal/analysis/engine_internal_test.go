@@ -276,6 +276,16 @@ func TestStripDiffMetadata(t *testing.T) {
 		"trailing context;",
 	}, "\n")
 
+	// ArchGuard never produces multi-file diffs (internal/git always
+	// diffs a single path), but stripDiffMetadata defends against one
+	// anyway: a second file's preamble must reset out of hunk mode, not
+	// be corrupted by 1-byte stripping like ordinary hunk content.
+	multiFileDiff := strings.Join(append(
+		append(diffHeaderLines("file1.go"), "@@ -1,1 +1,1 @@", "+func f1() {}"),
+		append(diffHeaderLines("file2.go"), "@@ -1,1 +1,1 @@", "+func f2() {}")...,
+	), "\n")
+	wantMultiFile := strings.Join([]string{"func f1() {}", "func f2() {}"}, "\n")
+
 	plainFileContent := strings.Join([]string{
 		"package foo",
 		"",
@@ -304,6 +314,7 @@ func TestStripDiffMetadata(t *testing.T) {
 		{"multiple hunks strip independently", multiHunkDiff, wantMultiHunk},
 		{"no-newline marker line is dropped", noNewlineDiff, wantNoNewline},
 		{"removed line starting with -- doesn't collide with the --- header", markerCollisionDiff, wantMarkerCollision},
+		{"multi-file diff's second preamble resets out of hunk mode", multiFileDiff, wantMultiFile},
 		{"non-diff content passed through unchanged", plainFileContent, plainFileContent},
 		{"empty string unchanged", "", ""},
 		{"bare hunk-header lookalike without diff --git is not stripped", docWithBareHunkLookalike, docWithBareHunkLookalike},
