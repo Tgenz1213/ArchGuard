@@ -32,20 +32,9 @@ type VectorStore struct {
 	SimilarityThreshold  float64 `yaml:"similarity_threshold"`
 	ConnectionString     string  `yaml:"connection_string"`
 	EmbeddingConcurrency int     `yaml:"embedding_concurrency"`
-	// ReindexEnabled turns PgStore's automatic HNSW reindex maintenance in
-	// BuildIndex on or off. nil (unset in YAML) means enabled -- only an
-	// explicit `reindex_enabled: false` turns it off, since a plain bool's
-	// zero value can't distinguish "unset" from "explicitly false".
-	ReindexEnabled *bool `yaml:"reindex_enabled"`
-	// ReindexThreshold is the fraction (0.0-1.0) of churned ADRs (embedded +
-	// deleted, relative to total) that triggers a reindex. <= 0 means unset;
-	// PgStore falls back to its 0.20 default.
-	ReindexThreshold float64 `yaml:"reindex_threshold"`
-	// ReindexConcurrently selects REINDEX INDEX CONCURRENTLY (non-blocking)
-	// vs. plain REINDEX INDEX (ACCESS EXCLUSIVE lock) when a reindex fires.
-	// nil (unset in YAML) means CONCURRENTLY -- only an explicit
-	// `reindex_concurrently: false` selects the blocking form.
-	ReindexConcurrently *bool `yaml:"reindex_concurrently"`
+	ReindexEnabled       *bool   `yaml:"reindex_enabled"`      // nil (unset) = enabled; only explicit false disables
+	ReindexThreshold     float64 `yaml:"reindex_threshold"`    // churn fraction that triggers a reindex; <= 0 = PgStore's 0.20 default
+	ReindexConcurrently  *bool   `yaml:"reindex_concurrently"` // nil (unset) = CONCURRENTLY; only explicit false uses blocking REINDEX
 }
 
 type Confluence struct {
