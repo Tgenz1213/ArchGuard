@@ -12,16 +12,40 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// defaultReindexThreshold is the fraction of churned ADRs (embedded +
+// deleted, relative to total) that triggers an automatic HNSW reindex when
+// ReindexOptions.Threshold is unset (<= 0).
+const defaultReindexThreshold = 0.20
+
+// hnswIndexName is the HNSW index BuildIndex maintains automatically.
+const hnswIndexName = "archguard_adrs_embedding_idx"
+
+// ReindexOptions controls PgStore's automatic HNSW index maintenance,
+// triggered by BuildIndex when ADR churn crosses Threshold. Enabled and
+// Concurrently are *bool (not bool) because both default to true when
+// unset, which a plain bool's zero value cannot represent.
+type ReindexOptions struct {
+	// Enabled turns automatic reindexing on or off. nil means enabled.
+	Enabled *bool
+	// Threshold is the churn fraction (0.0-1.0) that triggers a reindex.
+	// <= 0 means "use the default" (defaultReindexThreshold).
+	Threshold float64
+	// Concurrently selects REINDEX INDEX CONCURRENTLY (nil or true) vs.
+	// plain, blocking REINDEX INDEX (explicit false).
+	Concurrently *bool
+}
+
 // PgStore implements the VectorStore interface using PostgreSQL and pgvector.
 type PgStore struct {
 	pool             *pgxpool.Pool
 	connectionString string
 	projectName      string
 	concurrency      int
+	reindex          ReindexOptions
 }
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
-func NewPgStore(connStr string, projectName string, concurrency int) (*PgStore, error) {
+func NewPgStore(connStr string, projectName string, concurrency int, reindex ReindexOptions) (*PgStore, error) {
 	ctx := context.Background()
 
 	// Ensure the vector extension exists BEFORE setting up the pool
@@ -54,7 +78,43 @@ func NewPgStore(connStr string, projectName string, concurrency int) (*PgStore, 
 		connectionString: connStr,
 		projectName:      projectName,
 		concurrency:      concurrency,
+		reindex:          reindex,
 	}, nil
+}
+
+// reindexEnabled resolves ReindexOptions.Enabled, defaulting to true when unset.
+func (s *PgStore) reindexEnabled() bool {
+	if s.reindex.Enabled == nil {
+		return true
+	}
+	return *s.reindex.Enabled
+}
+
+// reindexThreshold resolves ReindexOptions.Threshold, defaulting to
+// defaultReindexThreshold when unset (<= 0).
+func (s *PgStore) reindexThreshold() float64 {
+	if s.reindex.Threshold <= 0 {
+		return defaultReindexThreshold
+	}
+	return s.reindex.Threshold
+}
+
+// reindexConcurrently resolves ReindexOptions.Concurrently, defaulting to
+// true (CONCURRENTLY) when unset.
+func (s *PgStore) reindexConcurrently() bool {
+	if s.reindex.Concurrently == nil {
+		return true
+	}
+	return *s.reindex.Concurrently
+}
+
+// reindexStatement returns the SQL statement BuildIndex issues to rebuild
+// the HNSW index, chosen by reindexConcurrently.
+func (s *PgStore) reindexStatement() string {
+	if s.reindexConcurrently() {
+		return "REINDEX INDEX CONCURRENTLY " + hnswIndexName
+	}
+	return "REINDEX INDEX " + hnswIndexName
 }
 
 // CalculateHash is a no-op for PgStore because the database maintains state incrementally (or is completely truncated on Build).
@@ -195,13 +255,19 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	// Conditional HNSW maintenance routine
-	modifiedCount := len(adrsToEmbed) + len(toDelete)
-	totalCount := len(validADRs) + len(toDelete)
-	if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= 0.20 {
-		fmt.Println("Modifications exceeded 20% threshold. Rebuilding HNSW index...")
-		_, err := s.pool.Exec(ctx, "REINDEX INDEX archguard_adrs_embedding_idx")
-		if err != nil {
-			fmt.Printf("Warning: failed to reindex HNSW graph: %v\n", err)
+	if s.reindexEnabled() {
+		modifiedCount := len(adrsToEmbed) + len(toDelete)
+		totalCount := len(validADRs) + len(toDelete)
+		threshold := s.reindexThreshold()
+		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
+			mode := "blocking"
+			if s.reindexConcurrently() {
+				mode = "concurrently"
+			}
+			fmt.Printf("Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...\n", threshold*100, mode)
+			if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
+				fmt.Printf("Warning: failed to reindex HNSW graph: %v\n", err)
+			}
 		}
 	}
 
