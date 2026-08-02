@@ -7,6 +7,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
+	"github.com/tgenz1213/archguard/internal/llm"
 )
 
 func TestExitCodeForAnalysisError(t *testing.T) {
@@ -61,5 +62,37 @@ func TestValidateProviderConfig_NonClaudeProvidersUnaffected(t *testing.T) {
 		if err := validateProviderConfig(cfg); err != nil {
 			t.Errorf("provider %q: expected no error with vector_store.provider unset, got: %v", provider, err)
 		}
+	}
+}
+
+func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
+	cfg := &config.Config{
+		LLM: config.LLMConfig{Provider: "voyage"},
+	}
+	if err := validateProviderConfig(cfg); err == nil {
+		t.Fatal("expected an error when llm.provider is voyage (embeddings-only, no chat capability)")
+	}
+}
+
+func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},
+		VectorStore: config.VectorStore{Model: "voyage-4"},
+	}
+
+	claude, err := buildProvider("claude", "test-key", cfg)
+	if err != nil {
+		t.Fatalf("buildProvider(claude) failed: %v", err)
+	}
+	if _, ok := claude.(*llm.ClaudeProvider); !ok {
+		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
+	}
+
+	voyage, err := buildProvider("voyage", "test-key", cfg)
+	if err != nil {
+		t.Fatalf("buildProvider(voyage) failed: %v", err)
+	}
+	if _, ok := voyage.(*llm.VoyageProvider); !ok {
+		t.Errorf("expected *llm.VoyageProvider, got %T", voyage)
 	}
 }

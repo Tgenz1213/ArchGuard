@@ -146,6 +146,9 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 // API, so vector_store.provider must name a different, embedding-capable
 // provider explicitly -- there's no safe default to fall back to.
 func validateProviderConfig(cfg *config.Config) error {
+	if cfg.LLM.Provider == "voyage" {
+		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
+	}
 	if cfg.LLM.Provider == "claude" && cfg.VectorStore.Provider == "" {
 		return fmt.Errorf("vector_store.provider must be set when llm.provider is \"claude\": Claude has no embeddings API, so an embedding-capable provider (openai, ollama, gemini, or voyage) must be chosen explicitly")
 	}
@@ -170,6 +173,16 @@ func buildProvider(name, apiKey string, cfg *config.Config) (llm.Provider, error
 			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+	case "claude":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
+	case "voyage":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
