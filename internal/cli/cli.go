@@ -112,10 +112,13 @@ func Execute(chatProviderFactory, embedProviderFactory func(*config.Config) llm.
 		chatProvider = chatProviderFactory(cfg)
 
 		_, _, reuseChatProvider := resolveEmbedProvider(cfg, "", "")
-		if reuseChatProvider || embedProviderFactory == nil {
+		switch {
+		case reuseChatProvider:
 			embedProvider = chatProvider
-		} else {
+		case embedProviderFactory != nil:
 			embedProvider = embedProviderFactory(cfg)
+		default:
+			return ExitConfig, fmt.Errorf("embedProviderFactory is required: llm.provider and vector_store.provider name different providers")
 		}
 	} else {
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
