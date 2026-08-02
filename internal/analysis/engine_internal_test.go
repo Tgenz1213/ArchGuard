@@ -206,6 +206,160 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 }
 
+// diffHeaderLines returns the diff --git/index/---/+++ preamble lines git
+// emits before a file's first hunk, so test fixtures below only need to
+// spell out the part that's actually interesting: the hunk body.
+func diffHeaderLines(file string) []string {
+	return []string{
+		"diff --git a/" + file + " b/" + file,
+		"index 1234567..89abcde 100644",
+		"--- a/" + file,
+		"+++ b/" + file,
+	}
+}
+
+func TestStripDiffMetadata(t *testing.T) {
+	singleHunkDiff := strings.Join(append(diffHeaderLines("foo.go"), []string{
+		"@@ -1,4 +1,5 @@",
+		" package foo",
+		" ",
+		"-func old() {}",
+		"+func new() {}",
+		"+func another() {}",
+	}...), "\n")
+	wantSingleHunk := strings.Join([]string{
+		"package foo",
+		"",
+		"func old() {}",
+		"func new() {}",
+		"func another() {}",
+	}, "\n")
+
+	multiHunkDiff := strings.Join(append(diffHeaderLines("bar.go"), []string{
+		"@@ -1,2 +1,2 @@",
+		"-const A = 1",
+		"+const A = 2",
+		"@@ -10,2 +10,2 @@",
+		"-const B = 1",
+		"+const B = 2",
+	}...), "\n")
+	wantMultiHunk := strings.Join([]string{
+		"const A = 1",
+		"const A = 2",
+		"const B = 1",
+		"const B = 2",
+	}, "\n")
+
+	noNewlineDiff := strings.Join(append(diffHeaderLines("baz.go"), []string{
+		"@@ -1,1 +1,1 @@",
+		"-old",
+		"+new",
+		"\\ No newline at end of file",
+	}...), "\n")
+	wantNoNewline := strings.Join([]string{"old", "new"}, "\n")
+
+	// A removed line whose real source content starts with "-- " (a SQL/
+	// Lua/Haskell-style comment marker) becomes "--- ..." once git
+	// prepends the '-' diff marker -- colliding with the "--- a/file"
+	// header prefix. Regression test for that marker/header collision.
+	markerCollisionDiff := strings.Join(append(diffHeaderLines("query.sql"), []string{
+		"@@ -1,3 +1,4 @@",
+		" SELECT 1;",
+		"--- old comment",
+		"+SELECT 2;",
+		" trailing context;",
+	}...), "\n")
+	wantMarkerCollision := strings.Join([]string{
+		"SELECT 1;",
+		"-- old comment",
+		"SELECT 2;",
+		"trailing context;",
+	}, "\n")
+
+	// ArchGuard never produces multi-file diffs (internal/git always
+	// diffs a single path), but stripDiffMetadata defends against one
+	// anyway: a second file's preamble must reset out of hunk mode, not
+	// be corrupted by 1-byte stripping like ordinary hunk content.
+	multiFileDiff := strings.Join(append(
+		append(diffHeaderLines("file1.go"), "@@ -1,1 +1,1 @@", "+func f1() {}"),
+		append(diffHeaderLines("file2.go"), "@@ -1,1 +1,1 @@", "+func f2() {}")...,
+	), "\n")
+	wantMultiFile := strings.Join([]string{"func f1() {}", "func f2() {}"}, "\n")
+
+	plainFileContent := strings.Join([]string{
+		"package foo",
+		"",
+		"func indented() {",
+		"    return",
+		"}",
+	}, "\n")
+
+	// A doc file that happens to contain a bare "@@..." line (e.g.
+	// documenting this very stripping behavior with an example hunk
+	// header) but no real "diff --git" header. Must not be misclassified
+	// as a diff -- stripping this would corrupt every following line by
+	// chopping off its first character.
+	docWithBareHunkLookalike := strings.Join([]string{
+		"# Example",
+		"@@ -1,3 +1,4 @@",
+		"    indented content that must survive untouched",
+	}, "\n")
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"single hunk strips headers and markers", singleHunkDiff, wantSingleHunk},
+		{"multiple hunks strip independently", multiHunkDiff, wantMultiHunk},
+		{"no-newline marker line is dropped", noNewlineDiff, wantNoNewline},
+		{"removed line starting with -- doesn't collide with the --- header", markerCollisionDiff, wantMarkerCollision},
+		{"multi-file diff's second preamble resets out of hunk mode", multiFileDiff, wantMultiFile},
+		{"non-diff content passed through unchanged", plainFileContent, plainFileContent},
+		{"empty string unchanged", "", ""},
+		{"bare hunk-header lookalike without diff --git is not stripped", docWithBareHunkLookalike, docWithBareHunkLookalike},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stripDiffMetadata(c.input); got != c.want {
+				t.Errorf("stripDiffMetadata(%q) = %q, want %q", c.input, got, c.want)
+			}
+		})
+	}
+}
+
+func TestIsUnifiedDiff(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		want bool
+	}{
+		{
+			"real diff with multi-line hunk counts",
+			"diff --git a/foo.go b/foo.go\nindex 111..222 100644\n--- a/foo.go\n+++ b/foo.go\n@@ -1,4 +1,5 @@\n content",
+			true,
+		},
+		{
+			"real diff with single-line hunk (no comma count)",
+			"diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n@@ -1 +1 @@\n-old\n+new",
+			true,
+		},
+		{"bare @@ line without diff --git header", "# Example\n@@ -1,3 +1,4 @@\ncontent", false},
+		{"diff --git header without a hunk header", "diff --git a/foo.go b/foo.go\nrenamed", false},
+		{"plain content with neither", "package foo\n\nfunc x() {}", false},
+		{"empty string", "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isUnifiedDiff(c.s); got != c.want {
+				t.Errorf("isUnifiedDiff(%q) = %v, want %v", c.s, got, c.want)
+			}
+		})
+	}
+}
+
 func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 	cfg := &config.Config{
 		Analysis: config.Analysis{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -125,8 +126,11 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 			diffForEmbedding, err := e.Content.GetDiff(file)
-			if err != nil || diffForEmbedding == "" {
+			isDiff := err == nil && diffForEmbedding != ""
+			if !isDiff {
 				diffForEmbedding = content
+			} else {
+				diffForEmbedding = stripDiffMetadata(diffForEmbedding)
 			}
 
 			if len(diffForEmbedding) > 6000 {
@@ -364,6 +368,83 @@ func rollBackToNewline(s string) string {
 		return s[:lastNewline+1]
 	}
 	return s
+}
+
+// stripDiffMetadata strips unified diff patch metadata (the diff --git/
+// index/---/+++ preamble and @@ hunk headers) and the leading +/-/space
+// marker from each hunk line, leaving the underlying code content -- so an
+// embedding compares actual code, not patch syntax, against ADR prose.
+//
+// Input with no @@ hunk header is passed through unchanged rather than
+// stripped line-by-line: that's the signal this isn't diff-shaped (e.g. it's
+// whole-file content used as a fallback when there's no diff), and
+// unconditionally stripping a leading space from every line would corrupt
+// ordinary indented code.
+//
+// Everything before the first @@ is preamble and is dropped unconditionally,
+// rather than matched line-by-line against "index "/"--- "/"+++ " prefixes:
+// those prefixes can also occur as the first bytes of a genuine hunk line
+// (marker + content), e.g. a removed SQL/Lua-style "-- comment" line
+// becomes "--- comment" once the '-' marker is prepended. Re-checking for
+// header prefixes after the hunk has started would misclassify that as the
+// "--- a/file" header and silently drop it and every line after it.
+//
+// This function assumes s is a single-file diff, matching internal/git's
+// only diff-producing calls (`git diff --unified=100 -- <one path>`), which
+// is the only diff shape ArchGuard ever generates -- ADR scope matching,
+// suppression comments, caching, and violation-line reporting are all
+// file-scoped throughout the codebase, so mixing multiple files' diffs into
+// one embedding isn't a design goal. A "diff --git " line reached mid-hunk
+// still resets back to preamble (rather than being treated as hunk content
+// like other header-shaped lines) purely as defense-in-depth: unlike the
+// 4-character "--- "/"+++ " prefixes, "diff --git " is long and specific
+// enough that a real code line coincidentally starting with it is not a
+// realistic risk.
+func stripDiffMetadata(s string) string {
+	if !isUnifiedDiff(s) {
+		return s
+	}
+
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	inHunk := false
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case !inHunk:
+			// preamble line (diff --git/index/---/+++), dropped
+		case strings.HasPrefix(line, "diff --git "):
+			// a second file's preamble in (unsupported) multi-file input
+			inHunk = false
+		case strings.HasPrefix(line, "\\"):
+			// "\ No newline at end of file" marker, dropped
+		default:
+			if line != "" {
+				out = append(out, line[1:])
+			} else {
+				out = append(out, "")
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// hunkHeaderPattern matches a real unified diff hunk header, e.g.
+// "@@ -12,7 +12,8 @@" (optionally followed by trailing function context).
+var hunkHeaderPattern = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
+
+// isUnifiedDiff reports whether s looks like a real unified diff rather
+// than ordinary content that happens to contain a line starting with "@@"
+// (e.g. documentation with an example hunk header). It requires both a
+// "diff --git" header and a properly shaped hunk header -- internal/git's
+// GetDiff (ArchGuard's only source of diff text, via `git diff ... --
+// path`) always emits both together, so requiring both catches every real
+// diff while making a false-positive match on unrelated content very
+// unlikely.
+func isUnifiedDiff(s string) bool {
+	hasGitHeader := strings.Contains("\n"+s, "\ndiff --git ")
+	return hasGitHeader && hunkHeaderPattern.MatchString(s)
 }
 
 func (e *Engine) findLineNumber(content, quote string) int {

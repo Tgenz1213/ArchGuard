@@ -35,6 +35,17 @@ const (
 	EmbeddingTaskQuery
 )
 
+// Pick returns document if t is EmbeddingTaskDocument, or query if t is
+// EmbeddingTaskQuery. Providers use it to map the task role onto their own
+// backend's document/query convention (an API parameter, a text prefix,
+// etc.) without each repeating the same two-way branch.
+func (t EmbeddingTaskType) Pick(document, query string) string {
+	if t == EmbeddingTaskQuery {
+		return query
+	}
+	return document
+}
+
 type Provider interface {
 	// CreateEmbedding embeds text for the given task role. Providers
 	// without an asymmetric-retrieval mechanism may ignore task.

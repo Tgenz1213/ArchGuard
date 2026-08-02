@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/ollama/ollama/api"
 )
@@ -78,10 +79,44 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	return content, nil
 }
 
-func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) ([]float32, error) {
+// embeddingPrefixConventions maps an embedding model name prefix to its
+// asymmetric-retrieval instruction-prefix convention. nomic-embed-text is
+// the only one ArchGuard currently knows about; supporting another local
+// embedding model's convention (e.g. E5's "query: "/"passage: ") is a new
+// entry here, not a new branch in embeddingTaskPrefix.
+var embeddingPrefixConventions = []struct {
+	modelPrefix    string
+	documentPrefix string
+	queryPrefix    string
+}{
+	{"nomic-embed", "search_document: ", "search_query: "},
+}
+
+// embeddingTaskPrefix returns the configured embed model's asymmetric-
+// retrieval instruction prefix for task, or "" if embedModel doesn't match
+// a known convention -- applying an unrelated model's prefix would just
+// corrupt the embedding with irrelevant tokens.
+//
+// The match is against the model name's last "/"-separated segment, not
+// the raw string, so a registry- or namespace-qualified name (e.g.
+// "my-registry:5000/nomic-embed-text") still matches on "nomic-embed-text".
+func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
+	name := embedModel
+	if i := strings.LastIndex(name, "/"); i != -1 {
+		name = name[i+1:]
+	}
+	for _, c := range embeddingPrefixConventions {
+		if strings.HasPrefix(name, c.modelPrefix) {
+			return task.Pick(c.documentPrefix, c.queryPrefix)
+		}
+	}
+	return ""
+}
+
+func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	req := &api.EmbeddingRequest{
 		Model:  p.embedModel,
-		Prompt: text,
+		Prompt: embeddingTaskPrefix(p.embedModel, task) + text,
 	}
 
 	res, err := p.client.Embeddings(ctx, req)
