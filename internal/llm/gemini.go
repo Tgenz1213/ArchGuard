@@ -146,12 +146,6 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 	return resp.Candidates[0].Content.Parts[0].Text, nil
 }
 
-// geminiTaskType maps ArchGuard's provider-agnostic EmbeddingTaskType to
-// the Gemini API's own TaskType string values.
-func geminiTaskType(task EmbeddingTaskType) string {
-	return task.Pick("RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY")
-}
-
 func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	client, transport, err := p.newClient(ctx)
 	if err != nil {
@@ -159,7 +153,8 @@ func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task 
 	}
 
 	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
-	config := &genai.EmbedContentConfig{TaskType: geminiTaskType(task)}
+	// Gemini's own TaskType values for asymmetric retrieval.
+	config := &genai.EmbedContentConfig{TaskType: task.Pick("RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY")}
 
 	resp, err := client.Models.EmbedContent(ctx, p.embedModel, contents, config)
 	if err != nil {
