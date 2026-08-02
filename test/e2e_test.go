@@ -49,7 +49,9 @@ var (
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if sharedBinaryPath != "" {
-		os.RemoveAll(filepath.Dir(sharedBinaryPath))
+		if err := os.RemoveAll(filepath.Dir(sharedBinaryPath)); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to clean up shared e2e binary dir: %v\n", err)
+		}
 	}
 	os.Exit(code)
 }
