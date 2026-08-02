@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	// mockFactory provides a deterministic LLM provider for end-to-end testing environments.
-	mockFactory := func(cfg *config.Config) llm.Provider {
-		fmt.Println("Using Mock LLM Provider (E2E)")
+	// CreateEmbedding stays functional here since single-provider configs reuse this as embedProvider too.
+	chatProviderFactory := func(cfg *config.Config) llm.Provider {
+		fmt.Println("Using Mock Chat LLM Provider (E2E)")
 
 		mock := &llm.MockProvider{
 			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
@@ -31,7 +31,21 @@ func main() {
 		return mock
 	}
 
-	if exitCode, err := cli.Execute(mockFactory); err != nil {
+	// ChatFunc always errors: this provider's Chat method has no legitimate caller, so a call here means a wiring regression.
+	embedProviderFactory := func(cfg *config.Config) llm.Provider {
+		fmt.Println("Using Mock Embed LLM Provider (E2E)")
+
+		mock := &llm.MockProvider{
+			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
+		}
+		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
+			return "", fmt.Errorf("mock embed-only provider does not support chat")
+		}
+
+		return mock
+	}
+
+	if exitCode, err := cli.Execute(chatProviderFactory, embedProviderFactory); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}

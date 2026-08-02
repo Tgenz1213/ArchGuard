@@ -19,7 +19,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if exitCode, err := cli.Execute(nil); err != nil {
+	if exitCode, err := cli.Execute(nil, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}

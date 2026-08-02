@@ -33,9 +33,11 @@ const (
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
 
-// Execute parses the command-line arguments, normalizes paths relative to the git root,
-// and routes execution to the appropriate command handler.
-func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error) {
+// Execute parses arguments and runs the requested command. chatProviderFactory
+// and embedProviderFactory are test injection points (nil in production);
+// embedProviderFactory is only used when resolveEmbedProvider says the two
+// roles don't share a provider name, otherwise the chat provider is reused.
+func Execute(chatProviderFactory, embedProviderFactory func(*config.Config) llm.Provider) (ExitCode, error) {
 	fmt.Println("ArchGuard - Architectural Drift Detector")
 
 	repoRoot, err := git.GetRepoRoot()
@@ -106,9 +108,15 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 	}
 
 	var chatProvider, embedProvider llm.Provider
-	if providerFactory != nil {
-		chatProvider = providerFactory(cfg)
-		embedProvider = chatProvider
+	if chatProviderFactory != nil {
+		chatProvider = chatProviderFactory(cfg)
+
+		_, _, reuseChatProvider := resolveEmbedProvider(cfg, "", "")
+		if reuseChatProvider || embedProviderFactory == nil {
+			embedProvider = chatProvider
+		} else {
+			embedProvider = embedProviderFactory(cfg)
+		}
 	} else {
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
 		chatProvider, err = buildProvider(cfg.LLM.Provider, chatAPIKey, cfg)
