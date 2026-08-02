@@ -74,6 +74,74 @@ func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
 	}
 }
 
+func TestResolveEmbedProvider_SameProviderReusesInstance(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "openai"},
+		VectorStore: config.VectorStore{Provider: ""},
+	}
+	name, _, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
+	if !reuse {
+		t.Error("expected reuse=true when vector_store.provider is unset")
+	}
+	if name != "openai" {
+		t.Errorf("expected name openai, got %q", name)
+	}
+}
+
+func TestResolveEmbedProvider_ExplicitSameProviderReusesInstance(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "openai"},
+		VectorStore: config.VectorStore{Provider: "openai"},
+	}
+	_, _, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
+	if !reuse {
+		t.Error("expected reuse=true when vector_store.provider explicitly matches llm.provider")
+	}
+}
+
+func TestResolveEmbedProvider_DifferentProviderUsesEmbedKey(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "claude"},
+		VectorStore: config.VectorStore{Provider: "openai"},
+	}
+	name, apiKey, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
+	if reuse {
+		t.Error("expected reuse=false for different providers")
+	}
+	if name != "openai" {
+		t.Errorf("expected name openai, got %q", name)
+	}
+	if apiKey != "embed-key" {
+		t.Errorf("expected embed-key, got %q", apiKey)
+	}
+}
+
+// TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey is the
+// regression guard for the credential-leak bug fixed in commit fee5a7c:
+// when the embed provider differs from the chat provider and the embed
+// API key env var is unset, the chat provider's key must NEVER be used as
+// a substitute -- that would send one vendor's credential to a different
+// vendor's API.
+func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "claude"},
+		VectorStore: config.VectorStore{Provider: "openai"},
+	}
+	name, apiKey, reuse := resolveEmbedProvider(cfg, "chat-key", "")
+	if reuse {
+		t.Error("expected reuse=false for different providers")
+	}
+	if name != "openai" {
+		t.Errorf("expected name openai, got %q", name)
+	}
+	if apiKey == "chat-key" {
+		t.Fatal("REGRESSION: embed provider fell back to the chat provider's API key -- this is the exact credential-leak bug fixed in fee5a7c")
+	}
+	if apiKey != "" {
+		t.Errorf("expected empty apiKey (embed key was unset, must not substitute chat key), got %q", apiKey)
+	}
+}
+
 func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},

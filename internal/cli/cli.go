@@ -116,19 +116,11 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 			return ExitConfig, err
 		}
 
-		embedProviderName := cfg.VectorStore.Provider
-		if embedProviderName == "" {
-			embedProviderName = cfg.LLM.Provider
-		}
-
-		if embedProviderName == cfg.LLM.Provider {
+		embedProviderName, embedAPIKey, reuseChatProvider := resolveEmbedProvider(cfg, chatAPIKey, os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
+		if reuseChatProvider {
 			embedProvider = chatProvider
 		} else {
-			// Do not fall back to chatAPIKey here: embedProviderName differs
-			// from cfg.LLM.Provider whenever this branch runs, which always
-			// means a different vendor. Falling back would send the chat
-			// provider's credential to a vendor it was never meant for.
-			embedProvider, err = buildProvider(embedProviderName, os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"), cfg)
+			embedProvider, err = buildProvider(embedProviderName, embedAPIKey, cfg)
 			if err != nil {
 				return ExitConfig, err
 			}
@@ -155,6 +147,28 @@ func validateProviderConfig(cfg *config.Config) error {
 		return fmt.Errorf("vector_store.provider must be set when llm.provider is \"claude\": Claude has no embeddings API, so an embedding-capable provider (openai, ollama, gemini, or voyage) must be chosen explicitly")
 	}
 	return nil
+}
+
+// resolveEmbedProvider determines which provider name and API key to use
+// for the embedding provider, given the already-resolved chat provider's
+// name (cfg.LLM.Provider) and API key. reuse is true when the embedding
+// provider is the same as the chat provider -- callers should reuse the
+// already-constructed chat provider instance directly rather than build a
+// second one. When reuse is false, apiKey is always embedEnvKey, NEVER
+// chatAPIKey: embedProviderName only differs from cfg.LLM.Provider when
+// this branch is taken, which always means a different vendor, and a
+// credential should never cross a vendor boundary. This is the fix for the
+// bug in commit fee5a7c, where a missing ARCHGUARD_EMBEDDING_API_KEY used
+// to silently fall back to the chat provider's key.
+func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (name, apiKey string, reuse bool) {
+	name = cfg.VectorStore.Provider
+	if name == "" {
+		name = cfg.LLM.Provider
+	}
+	if name == cfg.LLM.Provider {
+		return name, chatAPIKey, true
+	}
+	return name, embedEnvKey, false
 }
 
 // buildProvider constructs the llm.Provider named by name, using apiKey for
