@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 
 const fixtureFilename = "sensitive.js"
 
+const noSecretsADRContent = `---
+title: "No Secrets in Logs"
+status: "Accepted"
+scope: "**"
+---
+
+## Context
+Logging sensitive data is a security risk.
+
+## Decision
+Do not print passwords or secrets to console.log.`
+
 func getBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "e2e_archguard.exe"
@@ -23,17 +36,62 @@ func getBinaryName() string {
 	return "e2e_archguard"
 }
 
-// buildE2EBinary creates an isolated binary in a fresh git repo temp dir.
-// Each test gets its own so they don't interfere.
-func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
+var (
+	sharedBinaryOnce sync.Once
+	sharedBinaryPath string
+	sharedBinaryErr  error
+)
+
+// TestMain builds the archguard-e2e binary once and cleans it up after the
+// whole package's tests finish -- the binary is stateless, so every test
+// sharing one build (instead of each building its own) cuts the package's
+// build cost from N `go build` invocations to 1.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if sharedBinaryPath != "" {
+		os.RemoveAll(filepath.Dir(sharedBinaryPath))
+	}
+	os.Exit(code)
+}
+
+func buildSharedE2EBinary(t *testing.T) string {
 	t.Helper()
 
-	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to get module root: %v", err)
+	sharedBinaryOnce.Do(func() {
+		cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			sharedBinaryErr = fmt.Errorf("failed to get module root: %w", err)
+			return
+		}
+		sourceRoot := strings.TrimSpace(string(out))
+
+		binDir, err := os.MkdirTemp("", "archguard-e2e-bin")
+		if err != nil {
+			sharedBinaryErr = fmt.Errorf("failed to create shared binary dir: %w", err)
+			return
+		}
+		sharedBinaryPath = filepath.Join(binDir, getBinaryName())
+
+		buildCmd := exec.Command("go", "build", "-o", sharedBinaryPath, "./cmd/archguard-e2e")
+		buildCmd.Dir = sourceRoot
+		if out, err := buildCmd.CombinedOutput(); err != nil {
+			sharedBinaryErr = fmt.Errorf("failed to build binary: %w\nOutput: %s", err, out)
+		}
+	})
+
+	if sharedBinaryErr != nil {
+		t.Fatalf("shared E2E binary build failed: %v", sharedBinaryErr)
 	}
-	sourceRoot := strings.TrimSpace(string(out))
+	return sharedBinaryPath
+}
+
+// buildE2EBinary creates an isolated git repo temp dir (archguard requires
+// running inside one) and returns it plus the path to the shared,
+// once-built archguard-e2e binary. Each test gets its own repo so tests
+// don't interfere with each other.
+func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
+	t.Helper()
 
 	tempDir = t.TempDir()
 
@@ -43,15 +101,41 @@ func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
 	}
 
-	binaryPath = filepath.Join(tempDir, getBinaryName())
-	t.Log("Building archguard binary for E2E test...")
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/archguard-e2e")
-	buildCmd.Dir = sourceRoot
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, out)
-	}
+	return tempDir, buildSharedE2EBinary(t)
+}
 
-	return tempDir, binaryPath
+// writeE2EConfig writes archguard.yaml and an empty .env into dir.
+func writeE2EConfig(t *testing.T, dir, configContent string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create archguard.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to create .env: %v", err)
+	}
+}
+
+// writeNoSecretsADR writes the shared "no secrets in logs" ADR fixture.
+func writeNoSecretsADR(t *testing.T, dir string) {
+	t.Helper()
+	adrPath := filepath.Join(dir, "docs", "arch", "0000-no-secrets-in-log.md")
+	if err := os.MkdirAll(filepath.Dir(adrPath), 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	if err := os.WriteFile(adrPath, []byte(noSecretsADRContent), 0644); err != nil {
+		t.Fatalf("Failed to create mock ADR: %v", err)
+	}
+}
+
+// violationFixtureContent returns JS source containing
+// testutil.MockViolationTrigger, tripping the mock chat provider's
+// violation detection.
+func violationFixtureContent() string {
+	return fmt.Sprintf(`
+function sensitiveData() {
+    console.log("%s: 123");
+}
+`, testutil.MockViolationTrigger)
 }
 
 // TestE2E_ScanJS verifies that the CLI correctly identifies violations in a JS file
@@ -70,44 +154,14 @@ analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
 `
-	if err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
-		t.Fatalf("Failed to create archguard.yaml: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to create .env: %v", err)
-	}
+	writeE2EConfig(t, tempDir, configContent)
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
-
-	fixtureContent := fmt.Sprintf(`
-function sensitiveData() {
-    console.log("%s: 123");
-}
-`, testutil.MockViolationTrigger)
-
-	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
 
-	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
-	adrContent := `---
-title: "No Secrets in Logs"
-status: "Accepted"
-scope: "**"
----
-
-## Context
-Logging sensitive data is a security risk.
-
-## Decision
-Do not print passwords or secrets to console.log.`
-
-	if err := os.MkdirAll(filepath.Dir(adrPath), 0755); err != nil {
-		t.Fatalf("Failed to create ADR directory: %v", err)
-	}
-	if err := os.WriteFile(adrPath, []byte(adrContent), 0644); err != nil {
-		t.Fatalf("Failed to create mock ADR: %v", err)
-	}
+	writeNoSecretsADR(t, tempDir)
 
 	t.Log("Indexing ADRs for E2E test...")
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
@@ -211,7 +265,77 @@ analysis:
 	})
 }
 
-// runCheck executes the archguard check command.
+// runIndexOnce executes `archguard index` once and returns its output
+// alongside the exit code actually observed.
+func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {
+	t.Helper()
+
+	cmd := exec.Command(binaryPath, "index")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	outputStr := string(out)
+
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return outputStr, exitError.ExitCode()
+		}
+		t.Fatalf("Index binary failed to execute: %v", err)
+	}
+	return outputStr, 0
+}
+
+// runIndexCmd runs archguard index and fails the test if the exit code doesn't match.
+func runIndexCmd(t *testing.T, dir, binaryPath string, expectedExitCode int) {
+	t.Helper()
+
+	output, exitCode := runIndexOnce(t, dir, binaryPath)
+	if exitCode != expectedExitCode {
+		t.Fatalf("expected index exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
+	}
+	t.Logf("Index output: %s", output)
+}
+
+// runIndexCmdCapture is runIndexCmd but returns the output for assertions
+// beyond the exit code.
+func runIndexCmdCapture(t *testing.T, dir, binaryPath string, expectedExitCode int) string {
+	t.Helper()
+
+	output, exitCode := runIndexOnce(t, dir, binaryPath)
+	if exitCode != expectedExitCode {
+		t.Fatalf("expected index exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
+	}
+	return output
+}
+
+// runCheckOnce executes `archguard check [target]` once and returns its
+// output alongside the exit code actually observed.
+func runCheckOnce(t *testing.T, dir, binaryPath, target string) (output string, exitCode int) {
+	t.Helper()
+
+	args := []string{"check"}
+	if target != "" {
+		args = append(args, target)
+	}
+
+	cmd := exec.Command(binaryPath, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	outputStr := string(out)
+
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return outputStr, exitError.ExitCode()
+		}
+		t.Fatalf("Binary failed to execute: %v", err)
+	}
+	return outputStr, 0
+}
+
+// runCheck executes archguard check, retrying up to 3 times on exit-code mismatch.
 func runCheck(t *testing.T, dir, binaryPath, target string, expectedExitCode int) {
 	t.Helper()
 
@@ -219,31 +343,11 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectedExitCode int
 	var lastErr error
 
 	for i := range maxRetries {
-		args := []string{"check"}
-		if target != "" {
-			args = append(args, target)
-		}
-
-		cmd := exec.Command(binaryPath, args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
-
-		output, err := cmd.CombinedOutput()
-		outputStr := string(output)
-
-		exitCode := 0
-		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
-				exitCode = exitError.ExitCode()
-			} else {
-				t.Fatalf("Binary failed to execute: %v", err)
-			}
-		}
-
+		output, exitCode := runCheckOnce(t, dir, binaryPath, target)
 		if exitCode == expectedExitCode {
 			return
 		}
-		lastErr = fmt.Errorf("expected exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, outputStr)
+		lastErr = fmt.Errorf("expected exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 
 		if i < maxRetries-1 {
 			t.Logf("Retry %d/%d", i+1, maxRetries)
@@ -254,28 +358,15 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectedExitCode int
 	t.Fatalf("runCheck failed after %d retries: %v", maxRetries, lastErr)
 }
 
-// runIndexCmd executes the archguard index command and checks the expected exit code.
-func runIndexCmd(t *testing.T, dir, binaryPath string, expectedExitCode int) {
+// runCheckCapture is runCheck but returns output with no retry -- the
+// dual-provider suite's mocks are fully deterministic, so a mismatch there
+// is a real failure, not flakiness.
+func runCheckCapture(t *testing.T, dir, binaryPath, target string, expectedExitCode int) string {
 	t.Helper()
 
-	cmd := exec.Command(binaryPath, "index")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
-
-	output, err := cmd.CombinedOutput()
-	outputStr := string(output)
-
-	exitCode := 0
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-		} else {
-			t.Fatalf("Index binary failed to execute: %v", err)
-		}
-	}
-
+	output, exitCode := runCheckOnce(t, dir, binaryPath, target)
 	if exitCode != expectedExitCode {
-		t.Fatalf("expected index exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, outputStr)
+		t.Fatalf("expected check exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 	}
-	t.Logf("Index output: %s", outputStr)
+	return output
 }
