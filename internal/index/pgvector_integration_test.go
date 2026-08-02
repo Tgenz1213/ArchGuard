@@ -237,6 +237,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, outputLow, "Rebuilding HNSW index", "10% churn should exceed a 5% threshold")
+	assert.NotContains(t, outputLow, "Warning: failed to reindex", "the triggered reindex should actually succeed, not just be attempted")
 }
 
 func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
@@ -262,6 +263,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, outputDefault, "Rebuilding HNSW index (concurrently)", "default should use the non-blocking CONCURRENTLY form")
+	assert.NotContains(t, outputDefault, "Warning: failed to reindex", "REINDEX INDEX CONCURRENTLY should actually succeed against a real pgvector HNSW index")
 
 	// Explicit false: should log the "(blocking)" mode instead.
 	blocking := false
@@ -279,4 +281,5 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, outputBlocking, "Rebuilding HNSW index (blocking)", "explicit false should use the blocking REINDEX form")
 	assert.NotContains(t, outputBlocking, "(concurrently)")
+	assert.NotContains(t, outputBlocking, "Warning: failed to reindex", "the blocking REINDEX INDEX form should actually succeed too")
 }

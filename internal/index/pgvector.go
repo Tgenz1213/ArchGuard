@@ -121,8 +121,8 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 			embedding vector(%d),
 			UNIQUE (project_name, rel_path)
 		);
-		CREATE INDEX IF NOT EXISTS archguard_adrs_embedding_idx ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
-	`, dim)
+		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
+	`, dim, hnswIndexName)
 
 	_, err := s.pool.Exec(ctx, query)
 	return err
