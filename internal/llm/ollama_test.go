@@ -86,7 +86,10 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 		{"nomic + document task", "nomic-embed-text", EmbeddingTaskDocument, "search_document: test text"},
 		{"nomic + query task", "nomic-embed-text", EmbeddingTaskQuery, "search_query: test text"},
 		{"nomic versioned tag + query task", "nomic-embed-text:v1.5", EmbeddingTaskQuery, "search_query: test text"},
+		{"registry-qualified nomic model still matches", "my-registry:5000/nomic-embed-text", EmbeddingTaskQuery, "search_query: test text"},
+		{"namespaced nomic model still matches", "library/nomic-embed-text", EmbeddingTaskDocument, "search_document: test text"},
 		{"non-nomic model unprefixed", "mxbai-embed-large", EmbeddingTaskQuery, "test text"},
+		{"registry-qualified non-nomic model unprefixed", "my-registry:5000/mxbai-embed-large", EmbeddingTaskQuery, "test text"},
 	}
 
 	for _, c := range cases {

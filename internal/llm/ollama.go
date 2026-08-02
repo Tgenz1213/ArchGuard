@@ -96,9 +96,17 @@ var embeddingPrefixConventions = []struct {
 // retrieval instruction prefix for task, or "" if embedModel doesn't match
 // a known convention -- applying an unrelated model's prefix would just
 // corrupt the embedding with irrelevant tokens.
+//
+// The match is against the model name's last "/"-separated segment, not
+// the raw string, so a registry- or namespace-qualified name (e.g.
+// "my-registry:5000/nomic-embed-text") still matches on "nomic-embed-text".
 func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
+	name := embedModel
+	if i := strings.LastIndex(name, "/"); i != -1 {
+		name = name[i+1:]
+	}
 	for _, c := range embeddingPrefixConventions {
-		if strings.HasPrefix(embedModel, c.modelPrefix) {
+		if strings.HasPrefix(name, c.modelPrefix) {
 			return task.Pick(c.documentPrefix, c.queryPrefix)
 		}
 	}
