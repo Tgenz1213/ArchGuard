@@ -18,12 +18,13 @@ Every `llm.Provider` implementation (OpenAI, Ollama, Gemini) has always implemen
 
 `internal/analysis.Engine` gains an `EmbedProvider` field (falls back to `Provider` when nil) rather than the `Provider` interface itself being split into separate chat/embedding interfaces -- this keeps every existing provider implementation and every existing single-provider config untouched, and keeps the change to `internal/cli` additive (one new resolution step, not a rewrite).
 
-`internal/cli.validateProviderConfig` enforces two provider-pairing invariants that can't be expressed in the YAML schema itself:
+`internal/cli.validateProviderConfig` enforces three provider-pairing invariants that can't be expressed in the YAML schema itself:
 
 - `llm.provider: "claude"` requires `vector_store.provider` to be set explicitly. There's no safe default to fall back to, since falling back to `llm.provider` itself would mean falling back to Claude, which can't embed.
+- `vector_store.provider: "claude"` is rejected unconditionally. Claude can't embed regardless of which provider is handling chat, so it can never validly fill the embedding role either.
 - `llm.provider: "voyage"` is rejected unconditionally, regardless of `vector_store.provider`. Voyage has no chat API at all -- unlike Claude, which at least has a valid *conditional* path as `llm.provider` once `vector_store.provider` is set, no config makes Voyage work as the chat provider.
 
-Both fail fast at config load (`ExitConfig`, exit code 3) rather than surfacing as a runtime error from the provider's `Chat` or `CreateEmbedding` method.
+All three fail fast at config load (`ExitConfig`, exit code 3) rather than surfacing as a runtime error from the provider's `Chat` or `CreateEmbedding` method.
 
 `ARCHGUARD_EMBEDDING_API_KEY` is a new, optional environment variable, read only when the resolved embedding provider (`vector_store.provider`, or `llm.provider` when `vector_store.provider` is unset) differs from the chat provider. It does not fall back to `ARCHGUARD_API_KEY` when unset: whenever this branch runs, the embedding provider is necessarily a different vendor than the chat provider, so falling back would mean sending one vendor's API key to a different vendor's API. A credential should never cross a vendor boundary, so `buildProvider` is called with an empty string (triggering the same "no API key set" warning any other misconfigured provider gets) rather than reusing `ARCHGUARD_API_KEY`. `ARCHGUARD_API_KEY` continues to supply the chat provider's key unchanged.
 
@@ -33,8 +34,8 @@ Two new providers land alongside this: `ClaudeProvider` (`Chat`/`CountTokens` vi
 
 ## Consequences
 
-- A user pairing `llm.provider: claude` with any embedding-capable `vector_store.provider` gets a config-time error, not a runtime one, if they forget to set it. `llm.provider: voyage` is rejected at config load unconditionally, regardless of `vector_store.provider`.
+- A user pairing `llm.provider: claude` with any embedding-capable `vector_store.provider` gets a config-time error, not a runtime one, if they forget to set it, or if they set `vector_store.provider` to `claude` itself. `llm.provider: voyage` is rejected at config load unconditionally, regardless of `vector_store.provider`.
 - A cross-vendor pairing (e.g. `llm.provider: claude` with `vector_store.provider: voyage`) requires two separate API keys, `ARCHGUARD_API_KEY` and `ARCHGUARD_EMBEDDING_API_KEY` -- there is no shared-key convenience path, by design, since the two providers are different vendors.
 - `internal/analysis.Engine` and `internal/index`'s `BuildIndex` never needed a signature change -- `BuildIndex` already only ever calls `CreateEmbedding`, so `internal/cli` just needed to pass the resolved embedding provider into it instead of the chat provider.
-- Every future provider that can't do both chat and embeddings (or vice versa) fits this same pattern: implement `llm.Provider`, return an error from the unsupported method(s), and let `vector_store.provider` (or, symmetrically, a hypothetical embedding-only provider used as `llm.provider`, though nothing currently does this) resolve the pairing. `validateProviderConfig` is the place to add a fail-fast check if the new provider, like Voyage, can never validly fill one of the two roles.
+- Every future provider that can't do both chat and embeddings (or vice versa) fits this same pattern: implement `llm.Provider`, return an error from the unsupported method(s), and let `vector_store.provider` (or, symmetrically, `llm.provider`, as Claude and Voyage already demonstrate for each direction) resolve the pairing. `validateProviderConfig` is the place to add a fail-fast check if the new provider can never validly fill one of the two roles.
 - `cmd/archguard-e2e/main.go`'s `providerFactory` injection point still supplies a single mock for both roles -- e2e coverage of the dual-provider split doesn't exist yet and would need its own follow-up if wanted.

@@ -74,6 +74,16 @@ func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
 	}
 }
 
+func TestValidateProviderConfig_ClaudeRejectedAsEmbeddingProvider(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "gemini"},
+		VectorStore: config.VectorStore{Provider: "claude"},
+	}
+	if err := validateProviderConfig(cfg); err == nil {
+		t.Fatal("expected an error when vector_store.provider is claude (chat-only, no embeddings capability)")
+	}
+}
+
 func TestResolveEmbedProvider_SameProviderReusesInstance(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "openai"},
