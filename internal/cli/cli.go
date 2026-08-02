@@ -144,7 +144,9 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 // validateProviderConfig checks provider-related config invariants that
 // can't be expressed in the YAML schema itself. Claude has no embeddings
 // API, so vector_store.provider must name a different, embedding-capable
-// provider explicitly -- there's no safe default to fall back to.
+// provider explicitly -- there's no safe default to fall back to. Voyage
+// is the mirror-image case: it has no chat API at all, so it can never be
+// llm.provider, regardless of vector_store.provider.
 func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
 		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
