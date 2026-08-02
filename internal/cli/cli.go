@@ -101,34 +101,111 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		indexFile = cfg.IndexFile
 	}
 
-	var provider llm.Provider
+	if err := validateProviderConfig(cfg); err != nil {
+		return ExitConfig, err
+	}
+
+	var chatProvider, embedProvider llm.Provider
 	if providerFactory != nil {
-		provider = providerFactory(cfg)
+		chatProvider = providerFactory(cfg)
+		embedProvider = chatProvider
 	} else {
-		switch cfg.LLM.Provider {
-		case "openai":
-			apiKey := os.Getenv("ARCHGUARD_API_KEY")
-			if apiKey == "" {
-				fmt.Println("Warning: ARCHGUARD_API_KEY is not set. OpenAI provider may fail.")
+		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
+		chatProvider, err = buildProvider(cfg.LLM.Provider, chatAPIKey, cfg)
+		if err != nil {
+			return ExitConfig, err
+		}
+
+		embedProviderName, embedAPIKey, reuseChatProvider := resolveEmbedProvider(cfg, chatAPIKey, os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
+		if reuseChatProvider {
+			embedProvider = chatProvider
+		} else {
+			embedProvider, err = buildProvider(embedProviderName, embedAPIKey, cfg)
+			if err != nil {
+				return ExitConfig, err
 			}
-			provider = llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
-		case "ollama":
-			provider = llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature)
-		case "gemini":
-			apiKey := os.Getenv("ARCHGUARD_API_KEY")
-			if apiKey == "" {
-				fmt.Println("Warning: ARCHGUARD_API_KEY is not set. Gemini provider requires an API key.")
-			}
-			provider = llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
-		default:
-			return ExitConfig, fmt.Errorf("unknown provider: %s", cfg.LLM.Provider)
 		}
 	}
 
 	if command == "check" {
-		return runCheck(cfg, provider, indexFile, os.Args[2:])
+		return runCheck(cfg, chatProvider, embedProvider, indexFile, os.Args[2:])
 	}
-	return runIndex(context.Background(), cfg, provider, indexFile)
+	return runIndex(context.Background(), cfg, embedProvider, indexFile)
+}
+
+// validateProviderConfig checks provider-related config invariants that
+// can't be expressed in the YAML schema itself. Claude has no embeddings
+// API, so vector_store.provider must name a different, embedding-capable
+// provider explicitly -- there's no safe default to fall back to -- and
+// can never itself be "claude". Voyage is the mirror-image case: it has
+// no chat API at all, so it can never be llm.provider, regardless of
+// vector_store.provider.
+func validateProviderConfig(cfg *config.Config) error {
+	if cfg.LLM.Provider == "voyage" {
+		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
+	}
+	if cfg.LLM.Provider == "claude" && cfg.VectorStore.Provider == "" {
+		return fmt.Errorf("vector_store.provider must be set when llm.provider is \"claude\": Claude has no embeddings API, so an embedding-capable provider (openai, ollama, gemini, or voyage) must be chosen explicitly")
+	}
+	if cfg.VectorStore.Provider == "claude" {
+		return fmt.Errorf("vector_store.provider cannot be \"claude\": Claude has no embeddings API; choose an embedding-capable provider (openai, ollama, gemini, or voyage)")
+	}
+	return nil
+}
+
+// resolveEmbedProvider determines which provider name and API key to use
+// for the embedding provider, given the already-resolved chat provider's
+// name (cfg.LLM.Provider) and API key. reuse is true when the embedding
+// provider is the same as the chat provider -- callers should reuse the
+// already-constructed chat provider instance directly rather than build a
+// second one. When reuse is false, apiKey is always embedEnvKey, NEVER
+// chatAPIKey: embedProviderName only differs from cfg.LLM.Provider when
+// this branch is taken, which always means a different vendor, and a
+// credential should never cross a vendor boundary. This is the fix for the
+// bug in commit fee5a7c, where a missing ARCHGUARD_EMBEDDING_API_KEY used
+// to silently fall back to the chat provider's key.
+func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (name, apiKey string, reuse bool) {
+	name = cfg.VectorStore.Provider
+	if name == "" {
+		name = cfg.LLM.Provider
+	}
+	if name == cfg.LLM.Provider {
+		return name, chatAPIKey, true
+	}
+	return name, embedEnvKey, false
+}
+
+// buildProvider constructs the llm.Provider named by name, using apiKey for
+// providers that need one. It's called once for the chat provider
+// (llm.provider) and, when vector_store.provider names a different
+// provider, once more for the embedding provider.
+func buildProvider(name, apiKey string, cfg *config.Config) (llm.Provider, error) {
+	switch name {
+	case "openai":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+	case "ollama":
+		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
+	case "gemini":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+	case "claude":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
+	case "voyage":
+		if apiKey == "" {
+			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+		}
+		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", name)
+	}
 }
 
 // runInit initializes a new ArchGuard project by prompting the user for configuration
@@ -311,7 +388,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go]"
 
 // runCheck executes the architectural drift analysis against a set of files
 // based on the provided flags and ADR index.
-func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args []string) (ExitCode, error) {
+func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
@@ -360,7 +437,7 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 		fmt.Printf("Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(context.Background(), cfg, provider, indexFile); err != nil {
+		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -391,7 +468,8 @@ func runCheck(cfg *config.Config, provider llm.Provider, indexFile string, args 
 		fmt.Println("[DEBUG] Mode Enabled")
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, contentProvider, *debug, *ci)
+	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
+	engine.EmbedProvider = embedProvider
 	if err := engine.Run(context.Background()); err != nil {
 		return exitCodeForAnalysisError(err), fmt.Errorf("analysis failed: %v", err)
 	}
@@ -408,7 +486,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, indexFile string) (ExitCode, error) {
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
@@ -428,7 +506,7 @@ func runIndex(ctx context.Context, cfg *config.Config, provider llm.Provider, in
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
 
-	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, provider, adrProvider); err != nil {
+	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 

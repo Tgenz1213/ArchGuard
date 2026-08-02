@@ -18,13 +18,20 @@ import (
 
 // Engine coordinates the analysis of source files against ADRs using LLM providers.
 type Engine struct {
-	Config   *config.Config
-	Store    index.VectorStore
+	Config *config.Config
+	Store  index.VectorStore
+	// Provider handles Chat and CountTokens. It also handles CreateEmbedding
+	// unless EmbedProvider is set.
 	Provider llm.Provider
-	Content  ContentProvider
-	Debug    bool
-	CI       bool // CI-safe mode (Warn-Open behavior)
-	Cache    *cache.Cache
+	// EmbedProvider, if set, handles CreateEmbedding instead of Provider --
+	// for a chat-only provider (e.g. Claude, which has no embeddings API)
+	// paired with a separate embedding provider. See
+	// docs/arch/0004-decoupled-chat-and-embedding-providers.md.
+	EmbedProvider llm.Provider
+	Content       ContentProvider
+	Debug         bool
+	CI            bool // CI-safe mode (Warn-Open behavior)
+	Cache         *cache.Cache
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -56,6 +63,14 @@ func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provide
 		CI:       ci,
 		Cache:    c,
 	}
+}
+
+// embedProvider returns EmbedProvider if set, otherwise Provider.
+func (e *Engine) embedProvider() llm.Provider {
+	if e.EmbedProvider != nil {
+		return e.EmbedProvider
+	}
+	return e.Provider
 }
 
 // Log prints debug information if the engine is in debug mode.
@@ -137,7 +152,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
 			}
 
-			embedding, err := e.Provider.CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
+			embedding, err := e.embedProvider().CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
 				mu.Lock()
