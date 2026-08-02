@@ -152,6 +152,48 @@ func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testin
 	}
 }
 
+func TestResolveEmbedProviderInstance_ReusesChatProviderWhenNamesMatch(t *testing.T) {
+	cfg := &config.Config{LLM: config.LLMConfig{Provider: "openai"}}
+	chat := &llm.MockProvider{}
+
+	got, err := resolveEmbedProviderInstance(cfg, chat, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != llm.Provider(chat) {
+		t.Error("expected the chat provider instance to be reused")
+	}
+}
+
+func TestResolveEmbedProviderInstance_BuildsFromFactoryWhenNamesDiffer(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "claude"},
+		VectorStore: config.VectorStore{Provider: "openai"},
+	}
+	chat := &llm.MockProvider{}
+	embed := &llm.MockProvider{}
+
+	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Provider { return embed })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != llm.Provider(embed) {
+		t.Error("expected the embed factory's provider to be used, not the chat provider")
+	}
+}
+
+func TestResolveEmbedProviderInstance_ErrorsWhenEmbedFactoryRequiredButNil(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "claude"},
+		VectorStore: config.VectorStore{Provider: "openai"},
+	}
+	chat := &llm.MockProvider{}
+
+	if _, err := resolveEmbedProviderInstance(cfg, chat, nil); err == nil {
+		t.Fatal("expected an error when the roles need different providers but embedFactory is nil")
+	}
+}
+
 func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},

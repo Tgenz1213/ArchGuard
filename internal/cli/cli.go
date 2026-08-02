@@ -33,9 +33,16 @@ const (
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
 
-// Execute parses the command-line arguments, normalizes paths relative to the git root,
-// and routes execution to the appropriate command handler.
-func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error) {
+// ProviderFactories are test injection points for Execute (zero value in
+// production). A named struct rather than two same-typed params, so a
+// caller can't silently swap the chat/embed roles.
+type ProviderFactories struct {
+	Chat  func(*config.Config) llm.Provider
+	Embed func(*config.Config) llm.Provider
+}
+
+// Execute parses arguments and runs the requested command.
+func Execute(factories ProviderFactories) (ExitCode, error) {
 	fmt.Println("ArchGuard - Architectural Drift Detector")
 
 	repoRoot, err := git.GetRepoRoot()
@@ -106,9 +113,13 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 	}
 
 	var chatProvider, embedProvider llm.Provider
-	if providerFactory != nil {
-		chatProvider = providerFactory(cfg)
-		embedProvider = chatProvider
+	if factories.Chat != nil {
+		chatProvider = factories.Chat(cfg)
+
+		embedProvider, err = resolveEmbedProviderInstance(cfg, chatProvider, factories.Embed)
+		if err != nil {
+			return ExitConfig, err
+		}
 	} else {
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
 		chatProvider, err = buildProvider(cfg.LLM.Provider, chatAPIKey, cfg)
@@ -173,6 +184,23 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 		return name, chatAPIKey, true
 	}
 	return name, embedEnvKey, false
+}
+
+// resolveEmbedProviderInstance picks the embed-role provider for the mock
+// injection path, given the already-constructed chat provider and cfg's
+// reuse decision. Errors instead of silently reusing chatProvider when the
+// roles need different providers but embedFactory is nil -- mirrors the
+// real path's fail-fast behavior.
+func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider, embedFactory func(*config.Config) llm.Provider) (llm.Provider, error) {
+	_, _, reuse := resolveEmbedProvider(cfg, "", "")
+	switch {
+	case reuse:
+		return chatProvider, nil
+	case embedFactory != nil:
+		return embedFactory(cfg), nil
+	default:
+		return nil, fmt.Errorf("ProviderFactories.Embed is required: llm.provider and vector_store.provider name different providers")
+	}
 }
 
 // buildProvider constructs the llm.Provider named by name, using apiKey for
