@@ -124,11 +124,11 @@ func Execute(providerFactory func(*config.Config) llm.Provider) (ExitCode, error
 		if embedProviderName == cfg.LLM.Provider {
 			embedProvider = chatProvider
 		} else {
-			embedAPIKey := os.Getenv("ARCHGUARD_EMBEDDING_API_KEY")
-			if embedAPIKey == "" {
-				embedAPIKey = chatAPIKey
-			}
-			embedProvider, err = buildProvider(embedProviderName, embedAPIKey, cfg)
+			// Do not fall back to chatAPIKey here: embedProviderName differs
+			// from cfg.LLM.Provider whenever this branch runs, which always
+			// means a different vendor. Falling back would send the chat
+			// provider's credential to a vendor it was never meant for.
+			embedProvider, err = buildProvider(embedProviderName, os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"), cfg)
 			if err != nil {
 				return ExitConfig, err
 			}
