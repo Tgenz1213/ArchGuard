@@ -20,9 +20,9 @@ const hnswIndexName = "archguard_adrs_embedding_idx"
 // and Concurrently are *bool, not bool, because both default to true when
 // unset -- a plain bool's zero value can't represent "unset" vs "explicitly false".
 type ReindexOptions struct {
-	Enabled      *bool   // nil = enabled
-	Threshold    float64 // churn fraction that triggers a reindex; <= 0 = defaultReindexThreshold
-	Concurrently *bool   // nil = REINDEX INDEX CONCURRENTLY; explicit false = blocking REINDEX INDEX
+	Enabled      *bool    // nil = enabled
+	Threshold    *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
+	Concurrently *bool    // nil = REINDEX INDEX CONCURRENTLY; explicit false = blocking REINDEX INDEX
 }
 
 // PgStore implements the VectorStore interface using PostgreSQL and pgvector.
@@ -81,10 +81,10 @@ func (s *PgStore) reindexEnabled() bool {
 }
 
 func (s *PgStore) reindexThreshold() float64 {
-	if s.reindex.Threshold <= 0 {
+	if s.reindex.Threshold == nil {
 		return defaultReindexThreshold
 	}
-	return s.reindex.Threshold
+	return *s.reindex.Threshold
 }
 
 func (s *PgStore) reindexConcurrently() bool {

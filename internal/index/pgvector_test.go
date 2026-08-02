@@ -6,6 +6,10 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
+func float64Ptr(f float64) *float64 {
+	return &f
+}
+
 func TestPgStore_ReindexEnabled(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -29,12 +33,13 @@ func TestPgStore_ReindexEnabled(t *testing.T) {
 func TestPgStore_ReindexThreshold(t *testing.T) {
 	tests := []struct {
 		name      string
-		threshold float64
+		threshold *float64
 		want      float64
 	}{
-		{"zero defaults to 0.20", 0, 0.20},
-		{"negative defaults to 0.20", -1, 0.20},
-		{"custom value respected", 0.5, 0.5},
+		{"nil defaults to 0.20", nil, 0.20},
+		{"explicit zero is respected, not defaulted", float64Ptr(0), 0},
+		{"negative value respected", float64Ptr(-1), -1},
+		{"custom value respected", float64Ptr(0.5), 0.5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

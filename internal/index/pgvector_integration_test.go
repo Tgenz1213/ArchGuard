@@ -207,7 +207,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	highLocalProvider := index.NewLocalProvider(highTmpDir, []string{"Accepted"})
 
 	highThreshold := 0.5
-	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.ReindexOptions{Threshold: highThreshold})
+	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.ReindexOptions{Threshold: &highThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeHigh.Load("", "test-model", 2, ""))
 	// Baseline build: 100% churn (first build), ignored -- only sets up the
@@ -228,7 +228,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	lowLocalProvider := index.NewLocalProvider(lowTmpDir, []string{"Accepted"})
 
 	lowThreshold := 0.05
-	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.ReindexOptions{Threshold: lowThreshold})
+	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.ReindexOptions{Threshold: &lowThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeLow.Load("", "test-model", 2, ""))
 	require.NoError(t, storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider))
