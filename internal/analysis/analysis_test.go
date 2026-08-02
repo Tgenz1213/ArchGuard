@@ -199,6 +199,67 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	}
 }
 
+// TestRun_UsesEmbedProviderWhenSet asserts Run embeds via EmbedProvider,
+// not Provider, when EmbedProvider is set -- the mechanism that lets a
+// chat-only provider (e.g. Claude) pair with a separate embedding
+// provider.
+func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
+	chatCalled := false
+	chatProvider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalled = true
+			return `{"violation": false, "reasoning": "none", "quoted_code": ""}`, nil
+		},
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			t.Fatal("chatProvider.CreateEmbedding should not be called when EmbedProvider is set")
+			return nil, nil
+		},
+	}
+
+	embedCalled := false
+	embedProvider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			embedCalled = true
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{"service.py": "// content ignored by mock"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, chatProvider, content, false, false)
+	engine.Cache = nil
+	engine.EmbedProvider = embedProvider
+	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if !embedCalled {
+		t.Error("expected embedProvider.CreateEmbedding to be called")
+	}
+	if !chatCalled {
+		t.Error("expected chatProvider.Chat to be called (ADR similarity search still found the one seeded ADR)")
+	}
+}
+
 func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
 	var capturedSystemPrompt string
