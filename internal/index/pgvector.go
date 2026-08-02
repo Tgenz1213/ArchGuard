@@ -12,16 +12,31 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const defaultReindexThreshold = 0.20
+
+const hnswIndexName = "archguard_adrs_embedding_idx"
+
+// ReindexOptions controls PgStore's automatic HNSW index maintenance. Enabled
+// and Concurrently are *bool, not bool, because both default to true when
+// unset -- a plain bool's zero value can't represent "unset" vs "explicitly false".
+type ReindexOptions struct {
+	Enabled      *bool    // nil = enabled
+	Threshold    *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
+	Concurrently *bool    // nil = REINDEX INDEX CONCURRENTLY; explicit false = blocking REINDEX INDEX
+}
+
 // PgStore implements the VectorStore interface using PostgreSQL and pgvector.
 type PgStore struct {
 	pool             *pgxpool.Pool
 	connectionString string
 	projectName      string
 	concurrency      int
+	reindex          ReindexOptions
 }
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
-func NewPgStore(connStr string, projectName string, concurrency int) (*PgStore, error) {
+// reindex controls automatic HNSW index maintenance during BuildIndex.
+func NewPgStore(connStr string, projectName string, concurrency int, reindex ReindexOptions) (*PgStore, error) {
 	ctx := context.Background()
 
 	// Ensure the vector extension exists BEFORE setting up the pool
@@ -54,7 +69,36 @@ func NewPgStore(connStr string, projectName string, concurrency int) (*PgStore, 
 		connectionString: connStr,
 		projectName:      projectName,
 		concurrency:      concurrency,
+		reindex:          reindex,
 	}, nil
+}
+
+func (s *PgStore) reindexEnabled() bool {
+	if s.reindex.Enabled == nil {
+		return true
+	}
+	return *s.reindex.Enabled
+}
+
+func (s *PgStore) reindexThreshold() float64 {
+	if s.reindex.Threshold == nil {
+		return defaultReindexThreshold
+	}
+	return *s.reindex.Threshold
+}
+
+func (s *PgStore) reindexConcurrently() bool {
+	if s.reindex.Concurrently == nil {
+		return true
+	}
+	return *s.reindex.Concurrently
+}
+
+func (s *PgStore) reindexStatement() string {
+	if s.reindexConcurrently() {
+		return "REINDEX INDEX CONCURRENTLY " + hnswIndexName
+	}
+	return "REINDEX INDEX " + hnswIndexName
 }
 
 // CalculateHash is a no-op for PgStore because the database maintains state incrementally (or is completely truncated on Build).
@@ -77,8 +121,8 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 			embedding vector(%d),
 			UNIQUE (project_name, rel_path)
 		);
-		CREATE INDEX IF NOT EXISTS archguard_adrs_embedding_idx ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
-	`, dim)
+		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
+	`, dim, hnswIndexName)
 
 	_, err := s.pool.Exec(ctx, query)
 	return err
@@ -195,13 +239,19 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	// Conditional HNSW maintenance routine
-	modifiedCount := len(adrsToEmbed) + len(toDelete)
-	totalCount := len(validADRs) + len(toDelete)
-	if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= 0.20 {
-		fmt.Println("Modifications exceeded 20% threshold. Rebuilding HNSW index...")
-		_, err := s.pool.Exec(ctx, "REINDEX INDEX archguard_adrs_embedding_idx")
-		if err != nil {
-			fmt.Printf("Warning: failed to reindex HNSW graph: %v\n", err)
+	if s.reindexEnabled() {
+		modifiedCount := len(adrsToEmbed) + len(toDelete)
+		totalCount := len(validADRs) + len(toDelete)
+		threshold := s.reindexThreshold()
+		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
+			mode := "blocking"
+			if s.reindexConcurrently() {
+				mode = "concurrently"
+			}
+			fmt.Printf("Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...\n", threshold*100, mode)
+			if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
+				fmt.Printf("Warning: failed to reindex HNSW graph: %v\n", err)
+			}
 		}
 	}
 

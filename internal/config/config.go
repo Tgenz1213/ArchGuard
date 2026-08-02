@@ -26,12 +26,15 @@ type LLMConfig struct {
 }
 
 type VectorStore struct {
-	Provider             string  `yaml:"provider"`
-	Model                string  `yaml:"model"`
-	EmbeddingDim         int     `yaml:"embedding_dim"`
-	SimilarityThreshold  float64 `yaml:"similarity_threshold"`
-	ConnectionString     string  `yaml:"connection_string"`
-	EmbeddingConcurrency int     `yaml:"embedding_concurrency"`
+	Provider             string   `yaml:"provider"`
+	Model                string   `yaml:"model"`
+	EmbeddingDim         int      `yaml:"embedding_dim"`
+	SimilarityThreshold  float64  `yaml:"similarity_threshold"`
+	ConnectionString     string   `yaml:"connection_string"`
+	EmbeddingConcurrency int      `yaml:"embedding_concurrency"`
+	ReindexEnabled       *bool    `yaml:"reindex_enabled"`      // nil (unset) = enabled; only explicit false disables
+	ReindexThreshold     *float64 `yaml:"reindex_threshold"`    // nil (unset) = PgStore's 0.20 default; explicit 0.0 reindexes on any churn
+	ReindexConcurrently  *bool    `yaml:"reindex_concurrently"` // nil (unset) = CONCURRENTLY; only explicit false uses blocking REINDEX
 }
 
 type Confluence struct {

@@ -44,7 +44,11 @@ func NewLocalStore(concurrency int) *LocalStore {
 // NewVectorStore creates the appropriate VectorStore based on the configuration.
 func NewVectorStore(cfg *config.Config) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
-		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency)
+		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, ReindexOptions{
+			Enabled:      cfg.VectorStore.ReindexEnabled,
+			Threshold:    cfg.VectorStore.ReindexThreshold,
+			Concurrently: cfg.VectorStore.ReindexConcurrently,
+		})
 	}
 	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
 }
