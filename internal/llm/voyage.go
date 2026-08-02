@@ -5,9 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
+
+// maxVoyageErrorBodyBytes bounds how much of a non-2xx response body is read
+// for inclusion in an error message, so a misbehaving or malicious server
+// can't force us to buffer an unbounded response into memory.
+const maxVoyageErrorBodyBytes = 4096
 
 const voyageBaseURL = "https://api.voyageai.com"
 const defaultVoyageModel = "voyage-4"
@@ -135,7 +141,11 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("voyage api error: %s", resp.Status)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxVoyageErrorBodyBytes))
+		if readErr != nil || len(body) == 0 {
+			return fmt.Errorf("voyage api error: %s", resp.Status)
+		}
+		return fmt.Errorf("voyage api error: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(respBody); err != nil {

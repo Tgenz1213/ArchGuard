@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,30 @@ func TestVoyageProvider_DefaultsEmbedModel(t *testing.T) {
 	p := NewVoyageProvider("test-api-key", "")
 	if p.embedModel != "voyage-4" {
 		t.Errorf("expected default embed model voyage-4, got %q", p.embedModel)
+	}
+}
+
+// TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody guards against
+// doRequest discarding the response body on a non-2xx response. Voyage's API
+// puts the actual failure cause (invalid model, bad auth, rate limit) in the
+// JSON body, so the error returned to the caller must include it rather than
+// just the bare HTTP status line.
+func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) {
+	const wantDetail = "model \"bogus-model\" is not a valid Voyage model name"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"detail":"` + wantDetail + `"}`))
+	}))
+	defer server.Close()
+
+	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
+
+	_, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskQuery)
+	if err == nil {
+		t.Fatal("expected CreateEmbedding to return an error for a 400 response")
+	}
+	if !strings.Contains(err.Error(), wantDetail) {
+		t.Errorf("expected error to contain response body detail %q, got: %v", wantDetail, err)
 	}
 }
