@@ -217,7 +217,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 		err = storeHigh.BuildIndex(ctx, "test-model", 3, provider, highLocalProvider)
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, outputHigh, "Rebuilding HNSW index", "10%% churn should not exceed a 50%% threshold")
+	assert.NotContains(t, outputHigh, "Rebuilding HNSW index", "10% churn should not exceed a 50% threshold")
 
 	// Low threshold (5%): the same 10% churn pattern SHOULD trigger a reindex.
 	lowTmpDir := t.TempDir()
@@ -236,7 +236,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 		err = storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider)
 	})
 	require.NoError(t, err)
-	assert.Contains(t, outputLow, "Rebuilding HNSW index", "10%% churn should exceed a 5%% threshold")
+	assert.Contains(t, outputLow, "Rebuilding HNSW index", "10% churn should exceed a 5% threshold")
 }
 
 func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
