@@ -23,9 +23,11 @@ func getBinaryName() string {
 	return "e2e_archguard"
 }
 
-// TestE2E_ScanJS verifies that the CLI correctly identifies violations in a JS file
-// and passes when the file is removed.
-func TestE2E_ScanJS(t *testing.T) {
+// buildE2EBinary creates an isolated binary in a fresh git repo temp dir.
+// Each test gets its own so they don't interfere.
+func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
+	t.Helper()
+
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -33,14 +35,29 @@ func TestE2E_ScanJS(t *testing.T) {
 	}
 	sourceRoot := strings.TrimSpace(string(out))
 
-	tempDir := t.TempDir()
+	tempDir = t.TempDir()
 
-	// Initialize a git repo in the temp directory since archguard requires it
 	gitInitCmd := exec.Command("git", "init")
 	gitInitCmd.Dir = tempDir
 	if out, err := gitInitCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
 	}
+
+	binaryPath = filepath.Join(tempDir, getBinaryName())
+	t.Log("Building archguard binary for E2E test...")
+	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/archguard-e2e")
+	buildCmd.Dir = sourceRoot
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, out)
+	}
+
+	return tempDir, binaryPath
+}
+
+// TestE2E_ScanJS verifies that the CLI correctly identifies violations in a JS file
+// and passes when the file is removed.
+func TestE2E_ScanJS(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
 
 	configContent := `
 version: "1"
@@ -58,15 +75,6 @@ analysis:
 	}
 	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to create .env: %v", err)
-	}
-
-	binaryName := getBinaryName()
-	t.Log("Building archguard binary for E2E test...")
-	binaryPath := filepath.Join(tempDir, binaryName)
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/archguard-e2e")
-	buildCmd.Dir = sourceRoot
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		t.Fatalf("Failed to build binary: %v\nOutput: %s", err, out)
 	}
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
