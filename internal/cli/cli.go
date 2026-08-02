@@ -199,7 +199,7 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	case embedFactory != nil:
 		return embedFactory(cfg), nil
 	default:
-		return nil, fmt.Errorf("embedProviderFactory is required: llm.provider and vector_store.provider name different providers")
+		return nil, fmt.Errorf("ProviderFactories.Embed is required: llm.provider and vector_store.provider name different providers")
 	}
 }
 

@@ -12,20 +12,16 @@ import (
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
-// Marker text is printed when a mock's method is actually invoked, not when
-// the mock is constructed -- so e2e tests can prove a call was routed to
-// the right provider, not just that both provider objects were built.
-const (
-	chatMarker  = "Using Mock Chat LLM Provider (E2E)"
-	embedMarker = "Using Mock Embed LLM Provider (E2E)"
-)
-
 func main() {
+	// testutil.Mock{Chat,Embed}ProviderMarker are printed when a mock's method
+	// is actually invoked, not when the mock is constructed -- so e2e tests
+	// can prove a call was routed to the right provider, not just that both
+	// provider objects were built.
 	chatProviderFactory := func(cfg *config.Config) llm.Provider {
 		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			fmt.Println(chatMarker)
+			fmt.Println(testutil.MockChatProviderMarker)
 			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
 				return `{"violation": true, "reasoning": "Mock violation: trigger found", "quoted_code": "` + testutil.MockViolationTrigger + `"}`, nil
 			}
@@ -34,7 +30,7 @@ func main() {
 
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
-			fmt.Println(chatMarker)
+			fmt.Println(testutil.MockChatProviderMarker)
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 
@@ -49,7 +45,7 @@ func main() {
 			return "", fmt.Errorf("mock embed-only provider does not support chat")
 		}
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
-			fmt.Println(embedMarker)
+			fmt.Println(testutil.MockEmbedProviderMarker)
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 

@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/cli"
+	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
 const (
-	chatProviderMarker  = "Using Mock Chat LLM Provider (E2E)"
-	embedProviderMarker = "Using Mock Embed LLM Provider (E2E)"
+	chatProviderMarker  = testutil.MockChatProviderMarker
+	embedProviderMarker = testutil.MockEmbedProviderMarker
 )
 
 // Drives index+check against differing llm.provider/vector_store.provider
