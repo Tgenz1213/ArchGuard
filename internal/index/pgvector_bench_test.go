@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"sort"
 	"strings"
@@ -230,4 +231,41 @@ func latencyPercentiles(latencies []time.Duration) (p50, p95 time.Duration) {
 	}
 	p95 = sorted[idx95]
 	return p50, p95
+}
+
+func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.ReindexOptions{})
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 8, ""))
+
+	pool := newBenchAdminPool(t, ctx, connStr)
+	rng := rand.New(rand.NewSource(1))
+
+	require.NoError(t, seedProjectADRs(ctx, pool, rng, "seed_test_project", 30, 8))
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, "SELECT COUNT(*) FROM archguard_adrs WHERE project_name = $1", "seed_test_project").Scan(&count))
+	assert.Equal(t, 30, count)
+}
+
+// seedProjectADRs inserts synthetic ADRs directly via SQL, sequentially (not BuildIndex's concurrent pattern) so insertion order — and thus the resulting HNSW graph — is reproducible across runs.
+func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, projectName string, count int, dim int) error {
+	for i := 0; i < count; i++ {
+		relPath := fmt.Sprintf("adr_%d.md", i)
+		vec := pgvector.NewVector(randomVector(rng, dim))
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, projectName, relPath, relPath, "Accepted", "synthetic benchmark content", vec); err != nil {
+			return err
+		}
+	}
+	return nil
 }
