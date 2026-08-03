@@ -175,11 +175,19 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, "SET LOCAL enable_indexscan = off"); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, "SET LOCAL enable_bitmapscan = off"); err != nil {
-		return nil, err
+	// SET LOCAL, not relying on session defaults: Task 6 sets enable_seqscan/enable_sort
+	// off at the role level so PgStore.Search is forced onto the HNSW index, so this
+	// query must explicitly restore them within its own transaction to stay a true
+	// seqscan-forced ground truth regardless of that ambient state.
+	for _, stmt := range []string{
+		"SET LOCAL enable_seqscan = on",
+		"SET LOCAL enable_sort = on",
+		"SET LOCAL enable_indexscan = off",
+		"SET LOCAL enable_bitmapscan = off",
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return nil, err
+		}
 	}
 
 	vec := pgvector.NewVector(queryEmbedding)
@@ -331,4 +339,209 @@ func iterativeScanSupportedVersion(version string) bool {
 		return false
 	}
 	return major > 0 || minor >= 8
+}
+
+const (
+	benchEmbeddingDim         = 1536
+	benchQueriesPerScalePoint = 50
+	benchTopK                 = 3
+	// -1.0: cosine distance never exceeds 2, so the floor excludes nothing.
+	benchThreshold = -1.0
+)
+
+type scalePoint struct {
+	label          string
+	totalProjects  int
+	adrsPerProject int
+}
+
+var benchScalePoints = []scalePoint{
+	{"1proj_25adrs", 1, 25},
+	{"1proj_100adrs", 1, 100},
+	{"10proj_25adrs", 10, 25},
+	{"10proj_100adrs", 10, 100},
+	{"50proj_25adrs", 50, 25},
+	{"50proj_100adrs", 50, 100},
+}
+
+// BenchmarkPgStoreSearch_ProjectFiltering measures Search's recall and latency across a multi-project scale sweep (issue #44).
+//
+// Must run with -benchtime=1x: it repeats internally per scale point, not via b.N.
+//
+//	go test -bench=BenchmarkPgStoreSearch_ProjectFiltering -run ^$ -benchtime=1x -v ./internal/index
+func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
+	ctx := context.Background()
+	connStr := setupPgContainer(b, ctx)
+
+	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.ReindexOptions{})
+	require.NoError(b, err)
+	require.NoError(b, initStore.Load("", "bench-model", benchEmbeddingDim, ""))
+	initStore.Close()
+
+	pool := newBenchAdminPool(b, ctx, connStr)
+
+	iterativeAvailable, pgvectorVersion, err := probeIterativeScanSupport(ctx, pool)
+	require.NoError(b, err)
+	b.Logf("pgvector extension version: %s (iterative index scans available: %v)", pgvectorVersion, iterativeAvailable)
+
+	// At this table size the planner naturally prefers the (project_name, rel_path)
+	// btree + an explicit sort over the HNSW index. Forcing these off at the role level
+	// (new connections inherit it) makes the measured path actually exercise HNSW --
+	// without this, recall is trivially 100% by construction (see assertUsesHNSWIndex).
+	for _, stmt := range []string{
+		"ALTER ROLE postgres SET enable_seqscan = off",
+		"ALTER ROLE postgres SET enable_bitmapscan = off",
+		"ALTER ROLE postgres SET enable_sort = off",
+	} {
+		_, err := pool.Exec(ctx, stmt)
+		require.NoError(b, err)
+	}
+	b.Cleanup(func() {
+		for _, stmt := range []string{
+			"ALTER ROLE postgres RESET enable_seqscan",
+			"ALTER ROLE postgres RESET enable_bitmapscan",
+			"ALTER ROLE postgres RESET enable_sort",
+		} {
+			_, _ = pool.Exec(ctx, stmt)
+		}
+	})
+
+	rng := rand.New(rand.NewSource(42))
+
+	for _, sp := range benchScalePoints {
+		b.Run(sp.label, func(b *testing.B) {
+			measureScalePoint(ctx, b, pool, connStr, rng, sp, iterativeAvailable)
+		})
+	}
+}
+
+const benchTargetProject = "bench_target"
+
+func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, connStr string, rng *rand.Rand, sp scalePoint, iterativeAvailable bool) {
+	_, err := pool.Exec(ctx, "TRUNCATE TABLE archguard_adrs")
+	require.NoError(b, err)
+
+	require.NoError(b, seedProjectADRs(ctx, pool, rng, benchTargetProject, sp.adrsPerProject, benchEmbeddingDim))
+	for i := 0; i < sp.totalProjects-1; i++ {
+		noiseProject := fmt.Sprintf("bench_noise_%d", i)
+		require.NoError(b, seedProjectADRs(ctx, pool, rng, noiseProject, sp.adrsPerProject, benchEmbeddingDim))
+	}
+
+	// Without this the planner costs plans off default/absent statistics (~1 row
+	// estimated vs. 100+ actual), which was part of why it avoided HNSW in the first place.
+	_, err = pool.Exec(ctx, "ANALYZE archguard_adrs")
+	require.NoError(b, err)
+
+	queries := make([][]float32, benchQueriesPerScalePoint)
+	groundTruth := make([][]string, benchQueriesPerScalePoint)
+	for i := range queries {
+		queries[i] = randomVector(rng, benchEmbeddingDim)
+		gt, err := groundTruthSearch(ctx, pool, queries[i], benchTargetProject, benchThreshold, benchTopK)
+		require.NoError(b, err)
+		groundTruth[i] = gt
+	}
+
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
+
+	b.Run("baseline", func(b *testing.B) {
+		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.ReindexOptions{})
+		require.NoError(b, err)
+		defer store.Close()
+		reportRecallAndLatency(b, store, queries, groundTruth)
+	})
+
+	if !iterativeAvailable {
+		b.Log("iterative index scans unavailable at this pgvector version; skipping mitigation comparison")
+		return
+	}
+
+	// Role-level (not ALTER DATABASE) since setupPgContainer always connects as "postgres"; applies to connections opened after this point.
+	_, err = pool.Exec(ctx, "ALTER ROLE postgres SET hnsw.iterative_scan = 'relaxed_order'")
+	require.NoError(b, err)
+	defer func() {
+		_, _ = pool.Exec(ctx, "ALTER ROLE postgres RESET hnsw.iterative_scan")
+	}()
+
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
+
+	b.Run("iterative_scan", func(b *testing.B) {
+		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.ReindexOptions{})
+		require.NoError(b, err)
+		defer store.Close()
+		reportRecallAndLatency(b, store, queries, groundTruth)
+	})
+}
+
+// assertUsesHNSWIndex fails loudly if the measured query's plan doesn't use the HNSW index.
+// Opens its own fresh connection (not the shared pool, no SET LOCAL overrides) so it inherits
+// whatever ambient role-level GUC state PgStore.Search's own connections would see -- a version
+// that forced its own GUCs here previously passed even when the role-level fix was disabled and
+// every measured query had silently reverted to brute-force KNN.
+func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []float32, projectName string, threshold float64, topK int) error {
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+		return err
+	}
+
+	vec := pgvector.NewVector(queryEmbedding)
+	distanceThreshold := 1.0 - threshold
+
+	rows, err := conn.Query(ctx, `
+		EXPLAIN SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
+		FROM archguard_adrs
+		WHERE project_name = $2 AND embedding <=> $1 <= $3
+		ORDER BY embedding <=> $1
+		LIMIT $4
+	`, vec, projectName, distanceThreshold, topK)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			return err
+		}
+		plan.WriteString(line)
+		plan.WriteString("\n")
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !strings.Contains(plan.String(), "archguard_adrs_embedding_idx") {
+		return fmt.Errorf("measured query did not use the HNSW index; plan was:\n%s", plan.String())
+	}
+	return nil
+}
+
+func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]float32, groundTruth [][]string) {
+	latencies := make([]time.Duration, len(queries))
+	var recallSum float64
+
+	for i, q := range queries {
+		start := time.Now()
+		results := store.Search(q, benchThreshold, benchTopK)
+		latencies[i] = time.Since(start)
+
+		relPaths := make([]string, len(results))
+		for j, r := range results {
+			relPaths[j] = r.ADR.RelPath
+		}
+		recallSum += computeRecall(relPaths, groundTruth[i])
+	}
+
+	recallPct := recallSum / float64(len(queries)) * 100
+	p50, p95 := latencyPercentiles(latencies)
+
+	b.ReportMetric(recallPct, "recall_pct")
+	b.ReportMetric(float64(p50.Nanoseconds()), "p50_ns")
+	b.ReportMetric(float64(p95.Nanoseconds()), "p95_ns")
+	b.ReportMetric(0, "ns/op") // suppress the default (whole-closure wall time, dominated by pool setup) next to the real per-query metrics above
 }
