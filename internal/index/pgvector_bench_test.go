@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,26 @@ func TestLatencyPercentiles_Empty(t *testing.T) {
 	p50, p95 := latencyPercentiles(nil)
 	assert.Equal(t, time.Duration(0), p50)
 	assert.Equal(t, time.Duration(0), p95)
+}
+
+func TestIterativeScanSupportedVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{"pre-0.8", "0.7.0", false},
+		{"0.8.0 supported", "0.8.0", true},
+		{"0.8.5 supported", "0.8.5", true},
+		{"1.0.0 supported", "1.0.0", true},
+		{"malformed string", "abc", false},
+		{"single component", "0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, iterativeScanSupportedVersion(tt.version))
+		})
+	}
 }
 
 func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
@@ -255,6 +276,26 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 	assert.Equal(t, 30, count)
 }
 
+func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.ReindexOptions{})
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	pool := newBenchAdminPool(t, ctx, connStr)
+
+	available, version, err := probeIterativeScanSupport(ctx, pool)
+	require.NoError(t, err)
+	assert.NotEmpty(t, version, "expected a pgvector extension version string")
+	t.Logf("pgvector extension version %s: iterative scan support = %v", version, available)
+}
+
 // seedProjectADRs inserts synthetic ADRs directly via SQL, sequentially (not BuildIndex's concurrent pattern) so insertion order — and thus the resulting HNSW graph — is reproducible across runs.
 func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, projectName string, count int, dim int) error {
 	for i := 0; i < count; i++ {
@@ -268,4 +309,26 @@ func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, pr
 		}
 	}
 	return nil
+}
+
+// probeIterativeScanSupport reports the pgvector version and whether hnsw.iterative_scan (0.8.0+) is supported.
+func probeIterativeScanSupport(ctx context.Context, pool *pgxpool.Pool) (available bool, pgvectorVersion string, err error) {
+	if err := pool.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&pgvectorVersion); err != nil {
+		return false, "", fmt.Errorf("failed to read pgvector extension version: %w", err)
+	}
+	return iterativeScanSupportedVersion(pgvectorVersion), pgvectorVersion, nil
+}
+
+// iterativeScanSupportedVersion reports whether version is pgvector 0.8.0 or later.
+func iterativeScanSupportedVersion(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	minor, errMinor := strconv.Atoi(parts[1])
+	if errMajor != nil || errMinor != nil {
+		return false
+	}
+	return major > 0 || minor >= 8
 }
