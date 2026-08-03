@@ -1,12 +1,21 @@
 package index_test
 
 import (
+	"context"
 	"math/rand"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pgvector/pgvector-go"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/tgenz1213/archguard/internal/index"
 )
 
 func TestRandomVector_ReturnsRequestedDimension(t *testing.T) {
@@ -56,6 +65,125 @@ func TestLatencyPercentiles_Empty(t *testing.T) {
 	p50, p95 := latencyPercentiles(nil)
 	assert.Equal(t, time.Duration(0), p50)
 	assert.Equal(t, time.Duration(0), p95)
+}
+
+func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.ReindexOptions{})
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	pool := newBenchAdminPool(t, ctx, connStr)
+
+	vectors := map[string][]float32{
+		"same.md":       {1, 0},
+		"orthogonal.md": {0, 1},
+		"diag.md":       {1, 1},
+		"opposite.md":   {-1, 0},
+		"near.md":       {0.9, 0.1},
+	}
+	for relPath, v := range vectors {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, "gt_test_project", relPath, relPath, "Accepted", "content", pgvector.NewVector(v))
+		require.NoError(t, err)
+	}
+
+	// Hand-computed cosine distance from query (1,0), ascending:
+	// same.md=0, near.md=0.0061, diag.md=0.2929, orthogonal.md=1, opposite.md=2
+	got, err := groundTruthSearch(ctx, pool, []float32{1, 0}, "gt_test_project", -1.0, 5)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"same.md", "near.md", "diag.md", "orthogonal.md", "opposite.md"}, got)
+
+	// Confirm the seqscan actually avoided the HNSW index, or this isn't independent ground truth.
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, "SET LOCAL enable_indexscan = off")
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, "SET LOCAL enable_bitmapscan = off")
+	require.NoError(t, err)
+
+	rows, err := tx.Query(ctx, `
+		EXPLAIN SELECT rel_path FROM archguard_adrs
+		WHERE project_name = $2 AND embedding <=> $1 <= $3
+		ORDER BY embedding <=> $1 LIMIT $4
+	`, pgvector.NewVector([]float32{1, 0}), "gt_test_project", 2.0, 5)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+		plan.WriteString(line)
+	}
+	require.NoError(t, rows.Err())
+	assert.NotContains(t, plan.String(), "Index Scan", "expected seqscan-forced ground truth query to avoid the HNSW index")
+}
+
+// newBenchAdminPool is for operations PgStore's public API doesn't expose: seeding, TRUNCATE, ground truth, GUC changes.
+func newBenchAdminPool(tb testing.TB, ctx context.Context, connStr string) *pgxpool.Pool {
+	tb.Helper()
+
+	config, err := pgxpool.ParseConfig(connStr)
+	require.NoError(tb, err)
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvec.RegisterTypes(ctx, conn)
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(tb, err)
+	tb.Cleanup(pool.Close)
+	return pool
+}
+
+// groundTruthSearch mirrors PgStore.Search's query with the HNSW index disabled, for the exact nearest-neighbor order.
+func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding []float32, projectName string, threshold float64, topK int) ([]string, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_indexscan = off"); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_bitmapscan = off"); err != nil {
+		return nil, err
+	}
+
+	vec := pgvector.NewVector(queryEmbedding)
+	distanceThreshold := 1.0 - threshold
+
+	rows, err := tx.Query(ctx, `
+		SELECT rel_path
+		FROM archguard_adrs
+		WHERE project_name = $2 AND embedding <=> $1 <= $3
+		ORDER BY embedding <=> $1
+		LIMIT $4
+	`, vec, projectName, distanceThreshold, topK)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var relPaths []string
+	for rows.Next() {
+		var relPath string
+		if err := rows.Scan(&relPath); err != nil {
+			return nil, err
+		}
+		relPaths = append(relPaths, relPath)
+	}
+	return relPaths, rows.Err()
 }
 
 func randomVector(rng *rand.Rand, dim int) []float32 {
