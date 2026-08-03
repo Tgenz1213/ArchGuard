@@ -73,6 +73,11 @@ func NewPgStore(connStr string, projectName string, concurrency int, reindex Rei
 	}, nil
 }
 
+// Close releases the store's connection pool.
+func (s *PgStore) Close() {
+	s.pool.Close()
+}
+
 func (s *PgStore) reindexEnabled() bool {
 	if s.reindex.Enabled == nil {
 		return true
