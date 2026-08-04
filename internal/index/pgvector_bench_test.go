@@ -167,6 +167,17 @@ func newBenchAdminPool(tb testing.TB, ctx context.Context, connStr string) *pgxp
 	return pool
 }
 
+// groundTruthQuery is the single source of truth for the ground-truth SELECT text, consumed by
+// both groundTruthSearch and assertGroundTruthAvoidsIndexScan so the guard can't silently drift
+// out of sync with the query it's meant to be checking.
+const groundTruthQuery = `
+	SELECT rel_path
+	FROM archguard_adrs
+	WHERE project_name = $2 AND embedding <=> $1 <= $3
+	ORDER BY embedding <=> $1
+	LIMIT $4
+`
+
 // groundTruthSearch mirrors PgStore.Search's query with the HNSW index disabled, for the exact nearest-neighbor order.
 func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding []float32, projectName string, threshold float64, topK int) ([]string, error) {
 	tx, err := pool.Begin(ctx)
@@ -193,13 +204,7 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 	vec := pgvector.NewVector(queryEmbedding)
 	distanceThreshold := 1.0 - threshold
 
-	rows, err := tx.Query(ctx, `
-		SELECT rel_path
-		FROM archguard_adrs
-		WHERE project_name = $2 AND embedding <=> $1 <= $3
-		ORDER BY embedding <=> $1
-		LIMIT $4
-	`, vec, projectName, distanceThreshold, topK)
+	rows, err := tx.Query(ctx, groundTruthQuery, vec, projectName, distanceThreshold, topK)
 	if err != nil {
 		return nil, err
 	}
@@ -371,9 +376,6 @@ var benchScalePoints = []scalePoint{
 //	go test -bench=BenchmarkPgStoreSearch_ProjectFiltering -run ^$ -benchtime=1x -v ./internal/index
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
-	if b.N != 1 {
-		b.Fatalf("must run with -benchtime=1x (got b.N=%d) -- see doc comment for the exact invocation", b.N)
-	}
 	connStr := setupPgContainer(b, ctx)
 
 	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.ReindexOptions{})
@@ -542,13 +544,7 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 	vec := pgvector.NewVector(queryEmbedding)
 	distanceThreshold := 1.0 - threshold
 
-	rows, err := tx.Query(ctx, `
-		EXPLAIN SELECT rel_path
-		FROM archguard_adrs
-		WHERE project_name = $2 AND embedding <=> $1 <= $3
-		ORDER BY embedding <=> $1
-		LIMIT $4
-	`, vec, projectName, distanceThreshold, topK)
+	rows, err := tx.Query(ctx, "EXPLAIN "+groundTruthQuery, vec, projectName, distanceThreshold, topK)
 	if err != nil {
 		return err
 	}
@@ -574,6 +570,10 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 }
 
 func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]float32, groundTruth [][]string) {
+	if b.N != 1 {
+		b.Fatalf("must run with -benchtime=1x (got b.N=%d) -- see BenchmarkPgStoreSearch_ProjectFiltering's doc comment for the exact invocation", b.N)
+	}
+
 	latencies := make([]time.Duration, len(queries))
 	var recallSum float64
 	var resultCountSum int
