@@ -22,7 +22,7 @@ func TestPgStore_ReindexEnabled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &PgStore{reindex: ReindexOptions{Enabled: tt.enabled}}
+			s := &PgStore{hnsw: HNSWOptions{Enabled: tt.enabled}}
 			if got := s.reindexEnabled(); got != tt.want {
 				t.Errorf("reindexEnabled() = %v, want %v", got, tt.want)
 			}
@@ -43,7 +43,7 @@ func TestPgStore_ReindexThreshold(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &PgStore{reindex: ReindexOptions{Threshold: tt.threshold}}
+			s := &PgStore{hnsw: HNSWOptions{Threshold: tt.threshold}}
 			if got := s.reindexThreshold(); got != tt.want {
 				t.Errorf("reindexThreshold() = %v, want %v", got, tt.want)
 			}
@@ -63,7 +63,7 @@ func TestPgStore_ReindexConcurrently(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &PgStore{reindex: ReindexOptions{Concurrently: tt.concurrently}}
+			s := &PgStore{hnsw: HNSWOptions{Concurrently: tt.concurrently}}
 			if got := s.reindexConcurrently(); got != tt.want {
 				t.Errorf("reindexConcurrently() = %v, want %v", got, tt.want)
 			}
@@ -83,9 +83,51 @@ func TestPgStore_ReindexStatement(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &PgStore{reindex: ReindexOptions{Concurrently: tt.concurrently}}
+			s := &PgStore{hnsw: HNSWOptions{Concurrently: tt.concurrently}}
 			if got := s.reindexStatement(); got != tt.want {
 				t.Errorf("reindexStatement() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPgStore_IterativeScanConfigured(t *testing.T) {
+	tests := []struct {
+		name          string
+		iterativeScan *bool
+		want          bool
+	}{
+		{"nil defaults to true", nil, true},
+		{"explicit true", boolPtr(true), true},
+		{"explicit false", boolPtr(false), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &PgStore{hnsw: HNSWOptions{IterativeScan: tt.iterativeScan}}
+			if got := s.iterativeScanConfigured(); got != tt.want {
+				t.Errorf("iterativeScanConfigured() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIterativeScanSupportedVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{"0.8.0 supported", "0.8.0", true},
+		{"0.8.5 supported", "0.8.5", true},
+		{"1.0.0 supported", "1.0.0", true},
+		{"pre-0.8", "0.7.4", false},
+		{"0.7.0 unsupported", "0.7.0", false},
+		{"malformed string", "abc", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IterativeScanSupportedVersion(tt.version); got != tt.want {
+				t.Errorf("IterativeScanSupportedVersion(%q) = %v, want %v", tt.version, got, tt.want)
 			}
 		})
 	}

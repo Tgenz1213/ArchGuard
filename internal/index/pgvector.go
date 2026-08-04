@@ -3,6 +3,8 @@ package index
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,13 +18,15 @@ const defaultReindexThreshold = 0.20
 
 const hnswIndexName = "archguard_adrs_embedding_idx"
 
-// ReindexOptions controls PgStore's automatic HNSW index maintenance. Enabled
-// and Concurrently are *bool, not bool, because both default to true when
+// HNSWOptions controls PgStore's HNSW-related tuning: automatic index
+// maintenance and iterative-scan behavior. Enabled, Concurrently, and
+// IterativeScan are *bool, not bool, because they default to true when
 // unset -- a plain bool's zero value can't represent "unset" vs "explicitly false".
-type ReindexOptions struct {
-	Enabled      *bool    // nil = enabled
-	Threshold    *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
-	Concurrently *bool    // nil = REINDEX INDEX CONCURRENTLY; explicit false = blocking REINDEX INDEX
+type HNSWOptions struct {
+	Enabled       *bool    // nil = enabled
+	Threshold     *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
+	Concurrently  *bool    // nil = REINDEX INDEX CONCURRENTLY; explicit false = blocking REINDEX INDEX
+	IterativeScan *bool    // nil = enabled when pgvector supports it; explicit false disables
 }
 
 // PgStore implements the VectorStore interface using PostgreSQL and pgvector.
@@ -31,12 +35,28 @@ type PgStore struct {
 	connectionString string
 	projectName      string
 	concurrency      int
-	reindex          ReindexOptions
+	hnsw             HNSWOptions
+}
+
+// IterativeScanSupportedVersion reports whether version (a pgvector
+// extension version string, e.g. "0.8.0") is 0.8.0 or later, the version
+// that introduced the hnsw.iterative_scan GUC.
+func IterativeScanSupportedVersion(version string) bool {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(parts[0])
+	minor, errMinor := strconv.Atoi(parts[1])
+	if errMajor != nil || errMinor != nil {
+		return false
+	}
+	return major > 0 || minor >= 8
 }
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
-// reindex controls automatic HNSW index maintenance during BuildIndex.
-func NewPgStore(connStr string, projectName string, concurrency int, reindex ReindexOptions) (*PgStore, error) {
+// hnsw controls automatic HNSW index maintenance and iterative-scan behavior.
+func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOptions) (*PgStore, error) {
 	ctx := context.Background()
 
 	// Ensure the vector extension exists BEFORE setting up the pool
@@ -45,9 +65,23 @@ func NewPgStore(connStr string, projectName string, concurrency int, reindex Rei
 		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
 	}
 	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	_ = tempConn.Close(ctx)
 	if err != nil {
+		_ = tempConn.Close(ctx)
 		return nil, fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
+	// Probe the installed pgvector version to decide whether
+	// hnsw.iterative_scan (0.8.0+) can safely be applied. A query error here
+	// is treated as unsupported (fail-safe) rather than failing NewPgStore.
+	var pgvectorVersion string
+	versionErr := tempConn.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&pgvectorVersion)
+	_ = tempConn.Close(ctx)
+
+	versionSupportsIt := versionErr == nil && IterativeScanSupportedVersion(pgvectorVersion)
+	iterativeScanWanted := hnsw.IterativeScan == nil || *hnsw.IterativeScan
+	applyIterativeScan := iterativeScanWanted && versionSupportsIt
+	if iterativeScanWanted && !versionSupportsIt {
+		fmt.Printf("Warning: pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.\n", pgvectorVersion)
 	}
 
 	config, err := pgxpool.ParseConfig(connStr)
@@ -56,7 +90,15 @@ func NewPgStore(connStr string, projectName string, concurrency int, reindex Rei
 	}
 
 	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvec.RegisterTypes(ctx, conn)
+		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+			return err
+		}
+		if applyIterativeScan {
+			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -69,9 +111,13 @@ func NewPgStore(connStr string, projectName string, concurrency int, reindex Rei
 		connectionString: connStr,
 		projectName:      projectName,
 		concurrency:      concurrency,
-		reindex:          reindex,
+		hnsw:             hnsw,
 	}, nil
 }
+
+// Pool exposes the store's connection pool for integration tests that need to
+// inspect real pooled-connection state (e.g. AfterConnect-applied GUCs).
+func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
 
 // Close releases the store's connection pool.
 func (s *PgStore) Close() {
@@ -79,24 +125,31 @@ func (s *PgStore) Close() {
 }
 
 func (s *PgStore) reindexEnabled() bool {
-	if s.reindex.Enabled == nil {
+	if s.hnsw.Enabled == nil {
 		return true
 	}
-	return *s.reindex.Enabled
+	return *s.hnsw.Enabled
 }
 
 func (s *PgStore) reindexThreshold() float64 {
-	if s.reindex.Threshold == nil {
+	if s.hnsw.Threshold == nil {
 		return defaultReindexThreshold
 	}
-	return *s.reindex.Threshold
+	return *s.hnsw.Threshold
 }
 
 func (s *PgStore) reindexConcurrently() bool {
-	if s.reindex.Concurrently == nil {
+	if s.hnsw.Concurrently == nil {
 		return true
 	}
-	return *s.reindex.Concurrently
+	return *s.hnsw.Concurrently
+}
+
+func (s *PgStore) iterativeScanConfigured() bool {
+	if s.hnsw.IterativeScan == nil {
+		return true
+	}
+	return *s.hnsw.IterativeScan
 }
 
 func (s *PgStore) reindexStatement() string {

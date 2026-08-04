@@ -35,6 +35,7 @@ type VectorStore struct {
 	ReindexEnabled       *bool    `yaml:"reindex_enabled"`      // nil (unset) = enabled; only explicit false disables
 	ReindexThreshold     *float64 `yaml:"reindex_threshold"`    // nil (unset) = PgStore's 0.20 default; explicit 0.0 reindexes on any churn
 	ReindexConcurrently  *bool    `yaml:"reindex_concurrently"` // nil (unset) = CONCURRENTLY; only explicit false uses blocking REINDEX
+	IterativeScan        *bool    `yaml:"iterative_scan"`       // nil (unset) = enabled when pgvector supports it; only explicit false disables
 }
 
 type Confluence struct {

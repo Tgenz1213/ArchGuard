@@ -113,7 +113,7 @@ func TestPgStore_Integration(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	// 2. Initialize PgStore
-	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.ReindexOptions{})
+	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 
 	// 3. Load Store
@@ -144,7 +144,7 @@ Test Content`
 	require.NoError(t, err)
 
 	// Insert into a second project to test isolation
-	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.ReindexOptions{})
+	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 	err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	disabled := false
-	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.ReindexOptions{Enabled: &disabled})
+	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.HNSWOptions{Enabled: &disabled})
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -207,7 +207,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	highLocalProvider := index.NewLocalProvider(highTmpDir, []string{"Accepted"})
 
 	highThreshold := 0.5
-	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.ReindexOptions{Threshold: &highThreshold})
+	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.HNSWOptions{Threshold: &highThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeHigh.Load("", "test-model", 2, ""))
 	// Baseline build: 100% churn (first build), ignored -- only sets up the
@@ -228,7 +228,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	lowLocalProvider := index.NewLocalProvider(lowTmpDir, []string{"Accepted"})
 
 	lowThreshold := 0.05
-	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.ReindexOptions{Threshold: &lowThreshold})
+	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.HNSWOptions{Threshold: &lowThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeLow.Load("", "test-model", 2, ""))
 	require.NoError(t, storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider))
@@ -257,7 +257,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, defaultTmpDir, 3)
 	defaultLocalProvider := index.NewLocalProvider(defaultTmpDir, []string{"Accepted"})
 
-	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.ReindexOptions{})
+	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 	require.NoError(t, storeDefault.Load("", "test-model", 2, ""))
 
@@ -274,7 +274,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, blockingTmpDir, 3)
 	blockingLocalProvider := index.NewLocalProvider(blockingTmpDir, []string{"Accepted"})
 
-	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.ReindexOptions{Concurrently: &blocking})
+	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.HNSWOptions{Concurrently: &blocking})
 	require.NoError(t, err)
 	require.NoError(t, storeBlocking.Load("", "test-model", 2, ""))
 
