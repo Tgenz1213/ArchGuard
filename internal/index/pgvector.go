@@ -96,7 +96,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	switch {
 	case versionErr != nil:
 		if iterativeScanWanted {
-			fmt.Printf("Warning: failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for this connection.\n", versionErr)
+			fmt.Printf("Warning: failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.\n", versionErr)
 		}
 	case iterativeScanWanted && IterativeScanSupportedVersion(pgvectorVersion):
 		applyIterativeScan = true
@@ -115,7 +115,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		}
 		if applyIterativeScan {
 			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
-				fmt.Printf("Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use exact HNSW search instead.\n", err)
+				fmt.Printf("Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.\n", err)
 			}
 		}
 		return nil
