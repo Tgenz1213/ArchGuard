@@ -15,6 +15,7 @@ It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commi
 - Run all tests: `go test ./...`
 - Run with race + coverage (matches CI): `go test -v -race -cover ./...`
 - Run a single test: `go test ./internal/analysis -run TestName -v`
+- Run the HNSW project-filter recall/latency benchmark (requires Docker): `go test -bench=BenchmarkPgStoreSearch_ProjectFiltering -run ^$ -benchtime=1x -v ./internal/index`
 - Lint (matches CI): `golangci-lint run --timeout=5m`
 - Local release dry-run: `goreleaser release --snapshot --clean`
 - Exercise the CLI locally: `archguard init` → `archguard index` → `archguard check --staged` (or `--all`, `--ci`, `--debug`, or a specific path)
@@ -32,6 +33,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
   - `VectorStore` interface (`LocalStore` = JSON file at `.archguard/index.json`; `PgStore` = Postgres + pgvector with HNSW) is chosen by `NewVectorStore` based on whether `vector_store.connection_string` is set.
   - **Delta Indexing**: `BuildIndex` skips re-embedding an ADR if its `RelPath`, `Content`, `Title`, and `Status` are unchanged from the existing index — only new/modified ADRs hit the embedding API.
   - **This differs by backend.** `LocalStore`: on every `check`, `CalculateHash` (vector-store model name + each ADR's `RelPath` and `Content`) is compared against the hash saved in `.archguard/index.json`; a mismatch triggers an automatic `runIndex` rebuild before proceeding. `PgStore`: `CalculateHash` is a constant (`"remote"`) and `Load` does no hash comparison at all — it only ensures the `archguard_adrs` table and HNSW index exist, so Postgres-backed setups never auto-trigger a rebuild from a hash mismatch the way local ones do.
+  **`pgvector_bench_test.go`** benchmarks `PgStore.Search`'s recall (against exact, seqscan-forced ground truth) and latency across a synthetic multi-project scale sweep, since a single shared HNSW index across all `project_name` values is not inherently partition-aware — see issue #44. It's a `testing.B` benchmark, so `go test ./...` never runs it; invoke it explicitly (see Commands).
   - **HNSW maintenance is configurable and non-blocking by default.** `PgStore.BuildIndex` reindexes the `archguard_adrs_embedding_idx` HNSW index automatically once ADR churn (embedded + deleted, relative to total) crosses a threshold (`vector_store.reindex_threshold`, default `0.20`). It uses `REINDEX INDEX CONCURRENTLY` by default (`vector_store.reindex_concurrently`, default enabled) rather than a blocking `REINDEX INDEX`, so `PgStore.Search` and concurrent `BuildIndex` writes aren't blocked for the rebuild's duration. Both the threshold and the reindex trigger itself (`vector_store.reindex_enabled`, default enabled) can be overridden in `archguard.yaml`.
 - **`internal/analysis`**: The core engine (`engine.go`).
   - `ContentProvider` abstracts *which* files to scan and how to read them: `UncommittedProvider` (default), `StagedProvider` (`--staged`), `AllProvider` (`--all` or a `.` path arg), `SingleFileProvider` (explicit path arg).
