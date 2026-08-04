@@ -20,7 +20,7 @@ It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commi
 - Local release dry-run: `goreleaser release --snapshot --clean`
 - Exercise the CLI locally: `archguard init` → `archguard index` → `archguard check --staged` (or `--all`, `--ci`, `--debug`, or a specific path)
 
-CI (`.github/workflows/ci.yml`) runs `golangci-lint`, then `go test -v -race -cover ./...` and a build, on Go 1.26. Postgres/pgvector integration tests (`internal/index/pgvector_integration_test.go`) use `testcontainers-go` and require Docker; the rest of the suite doesn't.
+CI (`.github/workflows/ci.yml`) runs `golangci-lint`, then `go test -v -race -cover ./...` and a build, on Go 1.26. Postgres/pgvector integration tests (`internal/index/pgvector_integration_test.go`) and some of `pgvector_bench_test.go`'s `Test*` functions use `testcontainers-go` and require Docker; the rest of the suite doesn't.
 
 ## Architecture
 

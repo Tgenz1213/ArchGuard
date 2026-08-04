@@ -305,7 +305,7 @@ func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, pr
 
 // probeIterativeScanSupport reports the pgvector version and whether hnsw.iterative_scan (0.8.0+) is supported.
 func probeIterativeScanSupport(ctx context.Context, pool *pgxpool.Pool) (available bool, pgvectorVersion string, err error) {
-	if err := pool.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&pgvectorVersion); err != nil {
+	if err := pool.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion); err != nil {
 		return false, "", fmt.Errorf("failed to read pgvector extension version: %w", err)
 	}
 	return index.IterativeScanSupportedVersion(pgvectorVersion), pgvectorVersion, nil
@@ -415,7 +415,8 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
 
 	b.Run("baseline", func(b *testing.B) {
-		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{})
+		disabled := false
+		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{IterativeScan: &disabled})
 		require.NoError(b, err)
 		defer store.Close()
 		reportRecallAndLatency(b, store, queries, groundTruth)

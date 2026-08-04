@@ -43,16 +43,30 @@ type PgStore struct {
 // that introduced the hnsw.iterative_scan GUC.
 func IterativeScanSupportedVersion(version string) bool {
 	parts := strings.SplitN(version, ".", 3)
-	if len(parts) < 2 {
+	if len(parts) < 1 {
 		return false
 	}
 	major, errMajor := strconv.Atoi(parts[0])
-	minor, errMinor := strconv.Atoi(parts[1])
-	if errMajor != nil || errMinor != nil {
+	if errMajor != nil {
 		return false
 	}
-	return major > 0 || minor >= 8
+	if major > 0 {
+		return true
+	}
+	if len(parts) < 2 {
+		return false
+	}
+	minor, errMinor := strconv.Atoi(parts[1])
+	if errMinor != nil {
+		return false
+	}
+	return minor >= 8
 }
+
+// PgvectorVersionQuery reads the installed pgvector extension's version string,
+// exported so the benchmark's version probe (internal/index/pgvector_bench_test.go)
+// can run the exact same query NewPgStore does, rather than a copy that could drift.
+const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
 // hnsw controls automatic HNSW index maintenance and iterative-scan behavior.
@@ -74,7 +88,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	// hnsw.iterative_scan (0.8.0+) can safely be applied. A query error here
 	// is treated as unsupported (fail-safe) rather than failing NewPgStore.
 	var pgvectorVersion string
-	versionErr := tempConn.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&pgvectorVersion)
+	versionErr := tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&pgvectorVersion)
 	_ = tempConn.Close(ctx)
 
 	iterativeScanWanted := hnsw.iterativeScanConfigured()
@@ -101,7 +115,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		}
 		if applyIterativeScan {
 			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
-				return err
+				fmt.Printf("Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use exact HNSW search instead.\n", err)
 			}
 		}
 		return nil

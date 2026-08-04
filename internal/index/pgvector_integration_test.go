@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -314,6 +315,19 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// NewPgStore's own AfterConnect logic already ran the equivalent version
+	// probe above; this is a second, independent probe (not reusing that
+	// result) so the test can decide for itself whether to skip.
+	probeConn, err := pgx.Connect(ctx, connStr)
+	require.NoError(t, err)
+	var pgvectorVersion string
+	err = probeConn.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion)
+	_ = probeConn.Close(ctx)
+	require.NoError(t, err)
+	if !index.IterativeScanSupportedVersion(pgvectorVersion) {
+		t.Skipf("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+)", pgvectorVersion)
+	}
 
 	value := showIterativeScan(t, ctx, store)
 	t.Logf("SHOW hnsw.iterative_scan (default) = %q", value)
