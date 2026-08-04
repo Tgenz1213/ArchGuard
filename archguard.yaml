@@ -13,6 +13,14 @@ vector_store:
   embedding_dim: 768
   similarity_threshold: 0.75
   embedding_concurrency: 5
+  # Postgres/pgvector-backed store (PgStore) instead of the local JSON index
+  # (LocalStore). Uncomment and set connection_string to switch backends; the
+  # ARCHGUARD_DB_URL env var overrides this value if both are set.
+  # connection_string: "postgres://user:password@localhost:5432/archguard"
+  # reindex_enabled: true         # default: true; set false to disable automatic HNSW reindexing entirely
+  # reindex_threshold: 0.20       # default: 0.20; reindex once (embedded + deleted) / total ADR churn crosses this fraction
+  # reindex_concurrently: true    # default: true; uses REINDEX INDEX CONCURRENTLY instead of a blocking REINDEX INDEX
+  # iterative_scan: true          # default: true when pgvector >= 0.8.0; sets hnsw.iterative_scan='relaxed_order' to recover recall lost to project-filtered search (see docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md)
 
 analysis:
   adr_path: "./docs/arch"
