@@ -13,7 +13,7 @@ require (
 	github.com/ollama/ollama v0.32.5
 	github.com/openai/openai-go v1.12.0
 	github.com/pgvector/pgvector-go v0.4.1
-	github.com/pgvector/pgvector-go/pgx v0.4.0
+	github.com/pgvector/pgvector-go/pgx v0.4.1
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.43.0
