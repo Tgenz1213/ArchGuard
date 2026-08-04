@@ -286,3 +286,55 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	assert.NotContains(t, outputBlocking, "(concurrently)")
 	assert.NotContains(t, outputBlocking, "Warning: failed to reindex", "the blocking REINDEX INDEX form should actually succeed too")
 }
+
+// showIterativeScan runs SHOW hnsw.iterative_scan on a live pooled connection
+// acquired from store, so the result reflects AfterConnect-applied session
+// state rather than a fresh, unrelated connection's defaults.
+func showIterativeScan(t *testing.T, ctx context.Context, store *index.PgStore) string {
+	t.Helper()
+
+	conn, err := store.Pool().Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	var value string
+	require.NoError(t, conn.QueryRow(ctx, "SHOW hnsw.iterative_scan").Scan(&value))
+	return value
+}
+
+func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	value := showIterativeScan(t, ctx, store)
+	t.Logf("SHOW hnsw.iterative_scan (default) = %q", value)
+	assert.Equal(t, "relaxed_order", value, "default HNSWOptions should apply hnsw.iterative_scan = 'relaxed_order' on this pgvector version")
+}
+
+func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	disabled := false
+	store, err := index.NewPgStore(connStr, "iterative_scan_disabled_project", 5, index.HNSWOptions{IterativeScan: &disabled})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	value := showIterativeScan(t, ctx, store)
+	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
+	assert.NotEqual(t, "relaxed_order", value, "IterativeScan: false should not apply hnsw.iterative_scan = 'relaxed_order'")
+}
