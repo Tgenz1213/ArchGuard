@@ -22,7 +22,7 @@ import (
 )
 
 // setupPgContainer starts a pgvector/pgvector:pg16 container and returns its
-// connection string, registering cleanup via t.Cleanup. Skips the test if
+// connection string, registering cleanup via tb.Cleanup. Skips the test if
 // Docker isn't available on the host.
 func setupPgContainer(tb testing.TB, ctx context.Context) string {
 	tb.Helper()

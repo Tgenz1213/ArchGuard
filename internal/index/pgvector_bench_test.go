@@ -371,6 +371,9 @@ var benchScalePoints = []scalePoint{
 //	go test -bench=BenchmarkPgStoreSearch_ProjectFiltering -run ^$ -benchtime=1x -v ./internal/index
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
+	if b.N != 1 {
+		b.Fatalf("must run with -benchtime=1x (got b.N=%d) -- see doc comment for the exact invocation", b.N)
+	}
 	connStr := setupPgContainer(b, ctx)
 
 	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.ReindexOptions{})
@@ -441,6 +444,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 		groundTruth[i] = gt
 	}
 
+	require.NoError(b, assertGroundTruthAvoidsIndexScan(ctx, pool, queries[0], benchTargetProject, benchThreshold, benchTopK))
 	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
 
 	b.Run("baseline", func(b *testing.B) {
@@ -490,13 +494,7 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	vec := pgvector.NewVector(queryEmbedding)
 	distanceThreshold := 1.0 - threshold
 
-	rows, err := conn.Query(ctx, `
-		EXPLAIN SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
-		FROM archguard_adrs
-		WHERE project_name = $2 AND embedding <=> $1 <= $3
-		ORDER BY embedding <=> $1
-		LIMIT $4
-	`, vec, projectName, distanceThreshold, topK)
+	rows, err := conn.Query(ctx, "EXPLAIN "+index.SearchQuery, vec, projectName, distanceThreshold, topK)
 	if err != nil {
 		return err
 	}
@@ -521,14 +519,70 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	return nil
 }
 
+// assertGroundTruthAvoidsIndexScan fails loudly if groundTruthSearch's plan uses an index scan --
+// its correctness as an exact oracle depends on this holding at every scale, not just the 5-row unit test.
+func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, queryEmbedding []float32, projectName string, threshold float64, topK int) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, stmt := range []string{
+		"SET LOCAL enable_seqscan = on",
+		"SET LOCAL enable_sort = on",
+		"SET LOCAL enable_indexscan = off",
+		"SET LOCAL enable_bitmapscan = off",
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+
+	vec := pgvector.NewVector(queryEmbedding)
+	distanceThreshold := 1.0 - threshold
+
+	rows, err := tx.Query(ctx, `
+		EXPLAIN SELECT rel_path
+		FROM archguard_adrs
+		WHERE project_name = $2 AND embedding <=> $1 <= $3
+		ORDER BY embedding <=> $1
+		LIMIT $4
+	`, vec, projectName, distanceThreshold, topK)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			return err
+		}
+		plan.WriteString(line)
+		plan.WriteString("\n")
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if strings.Contains(plan.String(), "Index Scan") {
+		return fmt.Errorf("ground truth query used an index scan, not an exact scan; plan was:\n%s", plan.String())
+	}
+	return nil
+}
+
 func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]float32, groundTruth [][]string) {
 	latencies := make([]time.Duration, len(queries))
 	var recallSum float64
+	var resultCountSum int
 
 	for i, q := range queries {
 		start := time.Now()
 		results := store.Search(q, benchThreshold, benchTopK)
 		latencies[i] = time.Since(start)
+		resultCountSum += len(results)
 
 		relPaths := make([]string, len(results))
 		for j, r := range results {
@@ -543,5 +597,6 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 	b.ReportMetric(recallPct, "recall_pct")
 	b.ReportMetric(float64(p50.Nanoseconds()), "p50_ns")
 	b.ReportMetric(float64(p95.Nanoseconds()), "p95_ns")
+	b.ReportMetric(float64(resultCountSum)/float64(len(queries)), "results_per_query")
 	b.ReportMetric(0, "ns/op") // suppress the default (whole-closure wall time, dominated by pool setup) next to the real per-query metrics above
 }
