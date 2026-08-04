@@ -103,8 +103,8 @@ func TestPgStore_IterativeScanConfigured(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &PgStore{hnsw: HNSWOptions{IterativeScan: tt.iterativeScan}}
-			if got := s.iterativeScanConfigured(); got != tt.want {
+			o := HNSWOptions{IterativeScan: tt.iterativeScan}
+			if got := o.iterativeScanConfigured(); got != tt.want {
 				t.Errorf("iterativeScanConfigured() = %v, want %v", got, tt.want)
 			}
 		})

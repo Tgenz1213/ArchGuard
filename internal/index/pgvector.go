@@ -77,10 +77,16 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	versionErr := tempConn.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&pgvectorVersion)
 	_ = tempConn.Close(ctx)
 
-	versionSupportsIt := versionErr == nil && IterativeScanSupportedVersion(pgvectorVersion)
-	iterativeScanWanted := hnsw.IterativeScan == nil || *hnsw.IterativeScan
-	applyIterativeScan := iterativeScanWanted && versionSupportsIt
-	if iterativeScanWanted && !versionSupportsIt {
+	iterativeScanWanted := hnsw.iterativeScanConfigured()
+	applyIterativeScan := false
+	switch {
+	case versionErr != nil:
+		if iterativeScanWanted {
+			fmt.Printf("Warning: failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for this connection.\n", versionErr)
+		}
+	case iterativeScanWanted && IterativeScanSupportedVersion(pgvectorVersion):
+		applyIterativeScan = true
+	case iterativeScanWanted:
 		fmt.Printf("Warning: pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.\n", pgvectorVersion)
 	}
 
@@ -145,11 +151,11 @@ func (s *PgStore) reindexConcurrently() bool {
 	return *s.hnsw.Concurrently
 }
 
-func (s *PgStore) iterativeScanConfigured() bool {
-	if s.hnsw.IterativeScan == nil {
+func (o HNSWOptions) iterativeScanConfigured() bool {
+	if o.IterativeScan == nil {
 		return true
 	}
-	return *s.hnsw.IterativeScan
+	return *o.IterativeScan
 }
 
 func (s *PgStore) reindexStatement() string {

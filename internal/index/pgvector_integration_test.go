@@ -336,5 +336,5 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 
 	value := showIterativeScan(t, ctx, store)
 	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
-	assert.NotEqual(t, "relaxed_order", value, "IterativeScan: false should not apply hnsw.iterative_scan = 'relaxed_order'")
+	assert.Equal(t, "off", value, "IterativeScan: false should leave hnsw.iterative_scan at pgvector's default value")
 }
