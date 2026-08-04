@@ -73,6 +73,11 @@ func NewPgStore(connStr string, projectName string, concurrency int, reindex Rei
 	}, nil
 }
 
+// Close releases the store's connection pool.
+func (s *PgStore) Close() {
+	s.pool.Close()
+}
+
 func (s *PgStore) reindexEnabled() bool {
 	if s.reindex.Enabled == nil {
 		return true
@@ -258,6 +263,17 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	return nil
 }
 
+// SearchQuery is PgStore.Search's query text, exported so the benchmark's HNSW-usage
+// guard (internal/index/pgvector_bench_test.go) can EXPLAIN the exact same query
+// Search runs, rather than a copy that could silently drift out of sync.
+const SearchQuery = `
+	SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
+	FROM archguard_adrs
+	WHERE project_name = $2 AND embedding <=> $1 <= $3
+	ORDER BY embedding <=> $1
+	LIMIT $4
+`
+
 // Search performs a vector similarity search across the Postgres store using cosine distance.
 func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
 	ctx := context.Background()
@@ -267,14 +283,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 	// So similarity >= threshold means distance <= 1 - threshold.
 	distanceThreshold := 1.0 - threshold
 
-	query := `
-		SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
-		FROM archguard_adrs
-		WHERE project_name = $2 AND embedding <=> $1 <= $3
-		ORDER BY embedding <=> $1
-		LIMIT $4
-	`
-	rows, err := s.pool.Query(ctx, query, vec, s.projectName, distanceThreshold, topK)
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, distanceThreshold, topK)
 	if err != nil {
 		fmt.Printf("PgStore Search query failed: %v\n", err)
 		return nil

@@ -22,10 +22,10 @@ import (
 )
 
 // setupPgContainer starts a pgvector/pgvector:pg16 container and returns its
-// connection string, registering cleanup via t.Cleanup. Skips the test if
+// connection string, registering cleanup via tb.Cleanup. Skips the test if
 // Docker isn't available on the host.
-func setupPgContainer(t *testing.T, ctx context.Context) string {
-	t.Helper()
+func setupPgContainer(tb testing.TB, ctx context.Context) string {
+	tb.Helper()
 
 	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("archguard_test"),
@@ -38,19 +38,19 @@ func setupPgContainer(t *testing.T, ctx context.Context) string {
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "failed to create Docker provider") || strings.Contains(err.Error(), "Cannot connect to the Docker daemon") {
-			t.Skipf("Skipping integration test: Docker is not available on this host (%v)", err)
+			tb.Skipf("Skipping integration test: Docker is not available on this host (%v)", err)
 		}
-		require.NoError(t, err)
+		require.NoError(tb, err)
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		if err := pgContainer.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
+			tb.Fatalf("failed to terminate container: %s", err)
 		}
 	})
 
 	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	return connStr
 }
 
