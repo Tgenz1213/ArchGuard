@@ -6,8 +6,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    # Stays at 5: grouping already folds routine minor/patch updates into
-    # one PR, so this only bounds concurrent major-version bumps.
+    # Stays at 5: the grouped minor/patch PR now counts as just one slot,
+    # leaving headroom for several concurrent major-version bumps.
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
