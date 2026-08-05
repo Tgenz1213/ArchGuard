@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -113,7 +114,7 @@ func TestPgStore_Integration(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	// 2. Initialize PgStore
-	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.ReindexOptions{})
+	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 
 	// 3. Load Store
@@ -144,7 +145,7 @@ Test Content`
 	require.NoError(t, err)
 
 	// Insert into a second project to test isolation
-	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.ReindexOptions{})
+	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 	err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
@@ -173,7 +174,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	disabled := false
-	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.ReindexOptions{Enabled: &disabled})
+	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.HNSWOptions{Enabled: &disabled})
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -207,7 +208,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	highLocalProvider := index.NewLocalProvider(highTmpDir, []string{"Accepted"})
 
 	highThreshold := 0.5
-	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.ReindexOptions{Threshold: &highThreshold})
+	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.HNSWOptions{Threshold: &highThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeHigh.Load("", "test-model", 2, ""))
 	// Baseline build: 100% churn (first build), ignored -- only sets up the
@@ -228,7 +229,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	lowLocalProvider := index.NewLocalProvider(lowTmpDir, []string{"Accepted"})
 
 	lowThreshold := 0.05
-	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.ReindexOptions{Threshold: &lowThreshold})
+	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.HNSWOptions{Threshold: &lowThreshold})
 	require.NoError(t, err)
 	require.NoError(t, storeLow.Load("", "test-model", 2, ""))
 	require.NoError(t, storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider))
@@ -257,7 +258,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, defaultTmpDir, 3)
 	defaultLocalProvider := index.NewLocalProvider(defaultTmpDir, []string{"Accepted"})
 
-	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.ReindexOptions{})
+	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.HNSWOptions{})
 	require.NoError(t, err)
 	require.NoError(t, storeDefault.Load("", "test-model", 2, ""))
 
@@ -274,7 +275,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, blockingTmpDir, 3)
 	blockingLocalProvider := index.NewLocalProvider(blockingTmpDir, []string{"Accepted"})
 
-	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.ReindexOptions{Concurrently: &blocking})
+	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.HNSWOptions{Concurrently: &blocking})
 	require.NoError(t, err)
 	require.NoError(t, storeBlocking.Load("", "test-model", 2, ""))
 
@@ -285,4 +286,69 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	assert.Contains(t, outputBlocking, "Rebuilding HNSW index (blocking)", "explicit false should use the blocking REINDEX form")
 	assert.NotContains(t, outputBlocking, "(concurrently)")
 	assert.NotContains(t, outputBlocking, "Warning: failed to reindex", "the blocking REINDEX INDEX form should actually succeed too")
+}
+
+// showIterativeScan runs SHOW hnsw.iterative_scan on a live pooled connection
+// acquired from store, so the result reflects AfterConnect-applied session
+// state rather than a fresh, unrelated connection's defaults.
+func showIterativeScan(t *testing.T, ctx context.Context, store *index.PgStore) string {
+	t.Helper()
+
+	conn, err := store.Pool().Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+
+	var value string
+	require.NoError(t, conn.QueryRow(ctx, "SHOW hnsw.iterative_scan").Scan(&value))
+	return value
+}
+
+func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// NewPgStore's own AfterConnect logic already ran the equivalent version
+	// probe above; this is a second, independent probe (not reusing that
+	// result) so the test can decide for itself whether to skip.
+	probeConn, err := pgx.Connect(ctx, connStr)
+	require.NoError(t, err)
+	var pgvectorVersion string
+	err = probeConn.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion)
+	_ = probeConn.Close(ctx)
+	require.NoError(t, err)
+	if !index.IterativeScanSupportedVersion(pgvectorVersion) {
+		t.Skipf("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+)", pgvectorVersion)
+	}
+
+	value := showIterativeScan(t, ctx, store)
+	t.Logf("SHOW hnsw.iterative_scan (default) = %q", value)
+	assert.Equal(t, "relaxed_order", value, "default HNSWOptions should apply hnsw.iterative_scan = 'relaxed_order' on this pgvector version")
+}
+
+func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	disabled := false
+	store, err := index.NewPgStore(connStr, "iterative_scan_disabled_project", 5, index.HNSWOptions{IterativeScan: &disabled})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	value := showIterativeScan(t, ctx, store)
+	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
+	assert.Equal(t, "off", value, "IterativeScan: false should leave hnsw.iterative_scan at pgvector's default value")
 }
