@@ -6,10 +6,24 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    # open-pull-requests-limit stays at 5: grouping folds all routine
+    # minor/patch updates (including transitive chains like Docker/Moby/
+    # containerd via testcontainers-go, or OpenTelemetry via
+    # google.golang.org/genai) into a single PR, so 5 remains comfortable
+    # headroom even on weeks with multiple major-version bumps.
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "go"
+    groups:
+      # Batch all minor/patch updates - direct and transitive - into one
+      # PR to cut review-fatigue noise. Major versions are deliberately
+      # excluded so they keep opening as individual PRs, since they're
+      # more likely to be breaking and warrant real scrutiny.
+      go-dependencies:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Maintain GitHub Actions workflows
   - package-ecosystem: "github-actions"
@@ -20,3 +34,10 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    groups:
+      # Same rationale as the gomod group above: batch routine action
+      # version bumps, keep majors individually reviewable.
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"
