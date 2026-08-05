@@ -22,13 +22,13 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
-// setupPgContainer starts a pgvector/pgvector:pg16 container and returns its
-// connection string, registering cleanup via tb.Cleanup. Skips the test if
+// setupPgContainer starts a pgvector/pgvector:0.8.6-pg16 container and returns
+// its connection string, registering cleanup via tb.Cleanup. Skips the test if
 // Docker isn't available on the host.
 func setupPgContainer(tb testing.TB, ctx context.Context) string {
 	tb.Helper()
 
-	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
+	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:0.8.6-pg16",
 		postgres.WithDatabase("archguard_test"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
