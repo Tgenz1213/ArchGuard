@@ -9,6 +9,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -30,6 +31,17 @@ type Engine struct {
 	Debug         bool
 	CI            bool // CI-safe mode (Warn-Open behavior)
 	Cache         *cache.Cache
+	// Baseline, if set, suppresses violations it already contains (matched
+	// by ADR ID + file + quoted code still present in the current content).
+	// nil means no baseline is in use.
+	Baseline *baseline.Baseline
+	// UpdateBaseline, when true, bypasses Baseline suppression entirely and
+	// makes Run collect a fresh snapshot of every violation into
+	// CollectedBaseline instead of gating on it.
+	UpdateBaseline bool
+	// CollectedBaseline is populated by Run when UpdateBaseline is true;
+	// cli.go is responsible for Saving it.
+	CollectedBaseline *baseline.Baseline
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -91,8 +103,10 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	var (
-		violations int
-		mu         sync.Mutex
+		violations       int
+		baselinedCount   int
+		collectedEntries []baseline.Entry
+		mu               sync.Mutex
 	)
 
 	concurrency := e.Config.Analysis.MaxConcurrency
@@ -171,6 +185,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 			localViolations := 0
+			localBaselined := 0
+			var localBaselineEntries []baseline.Entry
 			for _, hit := range hits {
 				if hit.ADR.Scope != "" && !matchGlob(hit.ADR.Scope, file) {
 					continue
@@ -230,24 +246,63 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				if res.Violation {
 					lineNum := e.findLineNumber(content, res.QuotedCode)
-					fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
-					fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
-					if res.QuotedCode != "" {
-						fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+					switch {
+					case e.UpdateBaseline:
+						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						localBaselineEntries = append(localBaselineEntries, baseline.Entry{
+							ADRID:      hit.ADR.ID,
+							File:       file,
+							QuotedCode: res.QuotedCode,
+						})
+					case e.Baseline.IsSuppressed(hit.ADR.ID, file, content):
+						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						localBaselined++
+					default:
+						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						localViolations++
 					}
-					localViolations++
 				}
 			}
 
 			mu.Lock()
 			fmt.Print(sb.String())
 			violations += localViolations
+			baselinedCount += localBaselined
+			if e.UpdateBaseline {
+				collectedEntries = append(collectedEntries, localBaselineEntries...)
+			}
 			mu.Unlock()
 			return nil
 		})
 	}
 
 	_ = g.Wait()
+
+	if e.UpdateBaseline {
+		b := baseline.New()
+		for _, entry := range collectedEntries {
+			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
+		}
+		e.CollectedBaseline = b
+		e.Info("Baseline scan complete: %d violation(s) recorded.", len(collectedEntries))
+		return nil
+	}
+
+	if e.Baseline != nil && (violations > 0 || baselinedCount > 0) {
+		e.Info("%d new violation(s), %d baselined.", violations, baselinedCount)
+	}
 
 	if violations > 0 {
 		return &DriftDetectedError{Count: violations}
