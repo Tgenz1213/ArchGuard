@@ -190,6 +190,74 @@ func TestResolveEmbedProviderInstance_ErrorsWhenEmbedFactoryRequiredButNil(t *te
 	}
 }
 
+func TestResolveContentProvider(t *testing.T) {
+	tests := []struct {
+		name           string
+		files          []string
+		staged         bool
+		all            bool
+		updateBaseline bool
+		want           analysis.ContentProvider
+	}{
+		{
+			name: "no args or flags defaults to uncommitted",
+			want: &analysis.UncommittedProvider{},
+		},
+		{
+			name:  "dot positional arg scans everything",
+			files: []string{"."},
+			want:  &analysis.AllProvider{},
+		},
+		{
+			name:  "specific file arg scans just that file",
+			files: []string{"internal/foo.go"},
+			want:  &analysis.SingleFileProvider{Path: "internal/foo.go"},
+		},
+		{
+			name:   "staged flag scans staged files",
+			staged: true,
+			want:   &analysis.StagedProvider{},
+		},
+		{
+			name: "all flag scans all tracked files",
+			all:  true,
+			want: &analysis.AllProvider{},
+		},
+		{
+			name:           "update-baseline alone scans everything",
+			updateBaseline: true,
+			want:           &analysis.AllProvider{},
+		},
+		{
+			name:           "update-baseline overrides staged",
+			staged:         true,
+			updateBaseline: true,
+			want:           &analysis.AllProvider{},
+		},
+		{
+			name:           "update-baseline overrides a file arg",
+			files:          []string{"internal/foo.go"},
+			updateBaseline: true,
+			want:           &analysis.AllProvider{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveContentProvider(tt.files, tt.staged, tt.all, tt.updateBaseline)
+			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
+				t.Fatalf("expected type %T, got %T", tt.want, got)
+			}
+			if sfp, ok := got.(*analysis.SingleFileProvider); ok {
+				wantSFP := tt.want.(*analysis.SingleFileProvider)
+				if sfp.Path != wantSFP.Path {
+					t.Errorf("expected path %q, got %q", wantSFP.Path, sfp.Path)
+				}
+			}
+		})
+	}
+}
+
 func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},
