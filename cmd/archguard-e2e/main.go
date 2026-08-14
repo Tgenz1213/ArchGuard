@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -20,10 +21,19 @@ func main() {
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 			fmt.Println(testutil.MockChatProviderMarker)
+			result := llm.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
 			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
-				return `{"violation": true, "reasoning": "Mock violation: trigger found", "quoted_code": "` + testutil.MockViolationTrigger + `"}`, nil
+				result = llm.AnalysisResult{
+					Violation:  true,
+					Reasoning:  "Mock violation: trigger found",
+					QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
+				}
 			}
-			return `{"violation": false, "reasoning": "Mock: no violation", "quoted_code": ""}`, nil
+			resp, err := json.Marshal(result)
+			if err != nil {
+				return "", err
+			}
+			return string(resp), nil
 		}
 
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
@@ -81,4 +91,30 @@ func codeContextContainsTrigger(prompt, trigger string) bool {
 	}
 
 	return strings.Contains(prompt[start:start+endRelativeOffset], trigger)
+}
+
+// extractTriggerLine returns the whole line (trimmed) within the prompt's
+// <code_context> block that contains trigger, so the mock's quoted_code is a
+// real code snippet rather than the bare trigger word -- letting baseline
+// re-surfacing tests invalidate a baselined line without also making the
+// mock stop flagging the file as a violation.
+func extractTriggerLine(prompt, trigger string) string {
+	start := strings.Index(prompt, "<code_context>")
+	if start == -1 {
+		return ""
+	}
+	start += len("<code_context>")
+
+	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
+	if endRelativeOffset == -1 {
+		return ""
+	}
+
+	block := prompt[start : start+endRelativeOffset]
+	for _, line := range strings.Split(block, "\n") {
+		if strings.Contains(line, trigger) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
