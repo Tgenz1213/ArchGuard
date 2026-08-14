@@ -192,6 +192,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--all`: Scan all tracked files.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode.
+  - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
 
 ### Automation & Exit Codes
 
@@ -249,6 +250,7 @@ Large files may be truncated to fit the LLM context. In `--ci` mode, truncated f
 - **Index Optimizations**: Employs Delta Indexing to bypass redundant LLM API calls on unchanged files, concurrent provider routines to mask network latency, and conditional HNSW graph maintenance routines in Postgres.
 - **Smart Truncation**: Files exceeding the token limit are rolled back to the nearest newline character to preserve code integrity during analysis.
 - **Caching**: Analysis results are persisted in `.archguard/cache` based on a hash of the model, ADR content, and file content to reduce API costs and execution time.
+- **Baseline Mode**: Run `archguard check --update-baseline` to snapshot every currently-detected violation into `archguard-baseline.json` at the repository root. Subsequent `archguard check` runs load it automatically (no extra flag needed) and treat a matching violation as already-known — excluded from the new-violation count and exit code, but still reported separately (e.g. "3 new violations, 12 baselined"). An entry is invalidated, and its violation re-surfaces as new, once the specific code it originally cited is no longer present in the file. Unlike `.archguard/index.json` and `.archguard/cache/`, `archguard-baseline.json` **is** committed to git, so a team's grandfathered violations travel with the repository.
 - **Parallel Execution**: Coordinates analysis across files using a worker pool (defaulting to 5 concurrent workers).
 
 ## 🤝 Contributing
