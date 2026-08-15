@@ -184,6 +184,25 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
+			// Suppression/invalidation must be checked against the file's
+			// actual current content, not "content" above -- that value is
+			// whatever fetchContext produced for the LLM this run (a diff or
+			// a truncated excerpt when the file exceeds the token limit), and
+			// a baselined QuotedCode can be genuinely still present in the
+			// file while absent from that partial view, which would
+			// spuriously re-surface an unrelated, unchanged violation as new.
+			// GetContent always returns the provider's notion of the whole
+			// file (working tree or staged blob), never truncated, so it's
+			// the right basis for "is the cited code still there." Only
+			// fetched when a baseline is actually in play, and falls back to
+			// content on error rather than failing the file.
+			suppressionContent := content
+			if e.Baseline != nil && !e.UpdateBaseline {
+				if full, ferr := e.Content.GetContent(file); ferr == nil {
+					suppressionContent = full
+				}
+			}
+
 			localViolations := 0
 			localBaselined := 0
 			var localBaselineEntries []baseline.Entry
@@ -258,11 +277,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							File:       file,
 							QuotedCode: res.QuotedCode,
 						})
-					// content is whatever fetchContext produced for this run
-					// (full file, diff, or a truncated excerpt) -- invalidation
-					// is checked against that, not necessarily the complete
-					// current file.
-					case e.Baseline.IsSuppressed(hit.ADR.ID, file, content):
+					case e.Baseline.IsSuppressed(hit.ADR.ID, file, suppressionContent):
 						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
 						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
 						if res.QuotedCode != "" {
@@ -300,7 +315,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
 		}
 		e.CollectedBaseline = b
-		e.Info("Baseline scan complete: %d violation(s) recorded.", len(collectedEntries))
+		e.Info("Baseline scan complete: %d violation(s) recorded.", len(b.Entries))
 		return nil
 	}
 

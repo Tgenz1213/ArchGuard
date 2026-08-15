@@ -269,7 +269,7 @@ analysis:
 func gitAdd(t *testing.T, dir, path string) {
 	t.Helper()
 
-	cmd := exec.Command("git", "add", path)
+	cmd := exec.Command("git", "add", "--", path)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to git add %s: %v\nOutput: %s", path, err, out)
