@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
@@ -343,6 +344,23 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 		if got := engine.shouldExclude(c.path); got != c.want {
 			t.Errorf("shouldExclude(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+// TestShouldExclude_BaselineFileAlwaysExcluded ensures the git-tracked,
+// self-referential baseline file is never scanned as source content, even
+// when the user's own exclude_patterns config doesn't mention it -- see
+// docs/arch/0006-violation-baseline-file.md.
+func TestShouldExclude_BaselineFileAlwaysExcluded(t *testing.T) {
+	cfg := &config.Config{
+		Analysis: config.Analysis{
+			ExcludePatterns: []string{"**/*_test.go"},
+		},
+	}
+	engine := &Engine{Config: cfg}
+
+	if !engine.shouldExclude(baseline.Path) {
+		t.Errorf("shouldExclude(%q) = false, want true regardless of ExcludePatterns", baseline.Path)
 	}
 }
 

@@ -491,7 +491,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return ExitSuccess, nil
 	}
 
-	fmt.Println("No architectural violations found.")
+	fmt.Println("No new architectural violations found.")
 	return ExitSuccess, nil
 }
 

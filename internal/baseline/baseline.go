@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -38,6 +39,9 @@ func Load(path string) (*Baseline, error) {
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil, err
 	}
+	if b.Entries == nil {
+		b.Entries = []Entry{}
+	}
 
 	return &b, nil
 }
@@ -47,6 +51,16 @@ func (b *Baseline) Save(path string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
+
+	// Sort by (File, ADRID) -- a unique key by construction (Add's overwrite
+	// semantics guarantee no duplicate pairs) -- so two --update-baseline
+	// runs over an unchanged repo produce byte-identical, diff-free JSON.
+	sort.Slice(b.Entries, func(i, j int) bool {
+		if b.Entries[i].File != b.Entries[j].File {
+			return b.Entries[i].File < b.Entries[j].File
+		}
+		return b.Entries[i].ADRID < b.Entries[j].ADRID
+	})
 
 	data, err := json.MarshalIndent(b, "", "  ")
 	if err != nil {

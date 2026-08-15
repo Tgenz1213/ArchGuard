@@ -1,6 +1,7 @@
 package baseline
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 
 	if loaded == nil {
 		t.Fatal("loaded baseline is nil")
+		return
 	}
 	if len(loaded.Entries) != 2 {
 		t.Errorf("expected 2 entries, got %d", len(loaded.Entries))
@@ -174,5 +176,57 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 
 	if len(loaded.Entries) != 1 {
 		t.Errorf("expected 1 entry, got %d", len(loaded.Entries))
+	}
+
+	// The file is meant to be human-reviewable in git diffs, so the raw
+	// bytes on disk must actually be 2-space-indented, not just
+	// unmarshal-compatible.
+	var want bytes.Buffer
+	if err := json.Indent(&want, data, "", "  "); err != nil {
+		t.Fatalf("Failed to compute expected indentation: %v", err)
+	}
+	if want.String() != string(data) {
+		t.Errorf("saved file is not 2-space indented:\ngot:\n%s\nwant:\n%s", data, want.String())
+	}
+}
+
+func TestSave_SortsEntriesDeterministically(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "baseline.json")
+
+	baseline := New()
+	// Add in a deliberately shuffled (File, ADRID) order.
+	baseline.Add("adr-002", "b_file.go", "code b2")
+	baseline.Add("adr-001", "a_file.go", "code a1")
+	baseline.Add("adr-001", "b_file.go", "code b1")
+	baseline.Add("adr-002", "a_file.go", "code a2")
+
+	if err := baseline.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("loaded baseline is nil")
+		return
+	}
+
+	want := []struct{ File, ADRID string }{
+		{"a_file.go", "adr-001"},
+		{"a_file.go", "adr-002"},
+		{"b_file.go", "adr-001"},
+		{"b_file.go", "adr-002"},
+	}
+	if len(loaded.Entries) != len(want) {
+		t.Fatalf("expected %d entries, got %d", len(want), len(loaded.Entries))
+	}
+	for i, w := range want {
+		if loaded.Entries[i].File != w.File || loaded.Entries[i].ADRID != w.ADRID {
+			t.Errorf("entry %d: got (File=%q, ADRID=%q), want (File=%q, ADRID=%q)",
+				i, loaded.Entries[i].File, loaded.Entries[i].ADRID, w.File, w.ADRID)
+		}
 	}
 }

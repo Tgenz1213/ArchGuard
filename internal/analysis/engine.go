@@ -258,6 +258,10 @@ func (e *Engine) Run(ctx context.Context) error {
 							File:       file,
 							QuotedCode: res.QuotedCode,
 						})
+					// content is whatever fetchContext produced for this run
+					// (full file, diff, or a truncated excerpt) -- invalidation
+					// is checked against that, not necessarily the complete
+					// current file.
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, content):
 						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
 						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
@@ -312,6 +316,13 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 func (e *Engine) shouldExclude(path string) bool {
+	// The baseline file is git-tracked and self-referential (it quotes prior
+	// violating source snippets), so it's always excluded from analysis --
+	// not conditional on the user's exclude_patterns config, same as
+	// .archguard/ never needing a user-configured exclude.
+	if path == baseline.Path {
+		return true
+	}
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
 		if matchGlob(pattern, path) {
 			return true
