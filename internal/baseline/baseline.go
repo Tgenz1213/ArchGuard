@@ -72,7 +72,11 @@ func (b *Baseline) Save(path string) error {
 		return err
 	}
 
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath) // best-effort cleanup; the rename error is what matters
+		return err
+	}
+	return nil
 }
 
 func (b *Baseline) Add(adrID, file, quotedCode string) {

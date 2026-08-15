@@ -131,7 +131,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "Analyzing %s...\n", file)
 			}
 
-			content, diffMode, err := e.fetchContext(ctx, file)
+			content, fullContent, diffMode, err := e.fetchContext(ctx, file)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
 				mu.Lock()
@@ -184,24 +184,9 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			// Suppression/invalidation must be checked against the file's
-			// actual current content, not "content" above -- that value is
-			// whatever fetchContext produced for the LLM this run (a diff or
-			// a truncated excerpt when the file exceeds the token limit), and
-			// a baselined QuotedCode can be genuinely still present in the
-			// file while absent from that partial view, which would
-			// spuriously re-surface an unrelated, unchanged violation as new.
-			// GetContent always returns the provider's notion of the whole
-			// file (working tree or staged blob), never truncated, so it's
-			// the right basis for "is the cited code still there." Only
-			// fetched when a baseline is actually in play, and falls back to
-			// content on error rather than failing the file.
-			suppressionContent := content
-			if e.Baseline != nil && !e.UpdateBaseline {
-				if full, ferr := e.Content.GetContent(file); ferr == nil {
-					suppressionContent = full
-				}
-			}
+			// Baseline reads/writes compare against the untruncated file,
+			// not the possibly-partial content the LLM saw.
+			baselineContent := fullContent
 
 			localViolations := 0
 			localBaselined := 0
@@ -272,12 +257,20 @@ func (e *Engine) Run(ctx context.Context) error {
 						if res.QuotedCode != "" {
 							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
 						}
-						localBaselineEntries = append(localBaselineEntries, baseline.Entry{
-							ADRID:      hit.ADR.ID,
-							File:       file,
-							QuotedCode: res.QuotedCode,
-						})
-					case e.Baseline.IsSuppressed(hit.ADR.ID, file, suppressionContent):
+						// A QuotedCode the LLM echoed back in escaped or diff-marked
+						// form won't match raw file content on the read side, so
+						// baselining it would suppress nothing -- skip rather than
+						// write a dead entry.
+						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
+							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
+								ADRID:      hit.ADR.ID,
+								File:       file,
+								QuotedCode: res.QuotedCode,
+							})
+						} else {
+							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
+						}
+					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
 						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
 						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
 						if res.QuotedCode != "" {
@@ -346,34 +339,37 @@ func (e *Engine) shouldExclude(path string) bool {
 	return false
 }
 
-func (e *Engine) fetchContext(ctx context.Context, path string) (string, string, error) {
+// fetchContext returns the content to send the LLM (possibly a diff or a
+// truncated excerpt) alongside the untruncated full file, so callers that
+// also need the whole file (e.g. baseline matching) don't have to re-read it.
+func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
 	maxTokens := e.Config.LLM.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8000
 	}
 
-	fullContent, err := e.Content.GetContent(path)
+	fullContent, err = e.Content.GetContent(path)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	totalTokens, err := e.Provider.CountTokens(ctx, fullContent)
 	if err != nil {
-		return "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
+		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
 	}
 	if totalTokens <= maxTokens {
-		return fullContent, "full", nil
+		return fullContent, fullContent, "full", nil
 	}
 
 	diff, err := e.Content.GetDiff(path)
 	if err != nil || diff == "" {
 		truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
 		if err != nil {
-			return "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+			return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
 		}
-		return truncated, "truncated", nil
+		return truncated, fullContent, "truncated", nil
 	}
-	return diff, "diff", nil
+	return diff, fullContent, "diff", nil
 }
 
 // truncateToTokenLimit cuts content to at most maxTokens per the

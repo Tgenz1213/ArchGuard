@@ -88,6 +88,28 @@ func TestSave_Atomic(t *testing.T) {
 	}
 }
 
+func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	// A directory at the destination path makes os.Rename fail (a file
+	// can't be renamed onto an existing directory), simulating any
+	// rename failure without depending on OS-specific permission errors.
+	path := filepath.Join(tmpDir, "baseline.json")
+	if err := os.Mkdir(path, 0755); err != nil {
+		t.Fatalf("failed to set up destination directory: %v", err)
+	}
+
+	baseline := New()
+	baseline.Add("adr-001", "file1.go", "func main()")
+
+	if err := baseline.Save(path); err == nil {
+		t.Fatal("expected Save to fail when the destination is a directory")
+	}
+
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("baseline.json.tmp was left behind after a rename failure")
+	}
+}
+
 func TestIsSuppressed_MatchingEntryWithQuotedCodeStillPresent_ReturnsTrue(t *testing.T) {
 	baseline := New()
 	baseline.Add("adr-001", "file1.go", "func main()")

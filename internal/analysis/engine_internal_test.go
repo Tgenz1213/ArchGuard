@@ -36,7 +36,7 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 		Provider: llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
-	content, mode, err := engine.fetchContext(context.Background(), "test.go")
+	content, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	_, _, err := engine.fetchContext(context.Background(), "test.go")
+	_, _, _, err := engine.fetchContext(context.Background(), "test.go")
 	if err == nil {
 		t.Fatal("expected fetchContext to return an error when CountTokens fails, got nil")
 	}
@@ -158,7 +158,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}

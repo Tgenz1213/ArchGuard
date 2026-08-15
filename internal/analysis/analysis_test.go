@@ -582,3 +582,56 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 		t.Errorf("expected entry %+v, got %+v", want, got)
 	}
 }
+
+// TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts that
+// when the LLM's quoted_code doesn't appear verbatim in the file (e.g. an
+// escaped delimiter or diff marker leaked into what the LLM echoed back),
+// Run skips baselining it rather than writing an entry that could never
+// match on the read side.
+func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library_ESCAPED_FORM"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 0 {
+		t.Fatalf("expected the mismatched entry to be skipped, got %d entries: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
+	}
+}
