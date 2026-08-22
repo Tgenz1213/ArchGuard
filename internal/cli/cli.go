@@ -54,19 +54,9 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	repoRoot = filepath.Clean(repoRoot)
 	cwd = filepath.Clean(cwd)
 
-	if !strings.EqualFold(cwd, repoRoot) {
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if !strings.HasPrefix(arg, "-") {
-				absPath := filepath.Join(cwd, arg)
-				relPath, err := filepath.Rel(repoRoot, absPath)
-				if err == nil {
-					relPath = filepath.ToSlash(relPath)
-					os.Args[i] = relPath
-				}
-			}
-		}
+	normalizePositionalArgPaths(os.Args, cwd, repoRoot)
 
+	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
 			return ExitError, fmt.Errorf("error changing to git root: %v", err)
 		}
@@ -142,6 +132,24 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		return runCheck(cfg, chatProvider, embedProvider, indexFile, os.Args[2:])
 	}
 	return runIndex(context.Background(), cfg, embedProvider, indexFile)
+}
+
+// Must run unconditionally, not just when cwd != repoRoot -- a Windows
+// backslash-style arg typed from the repo root needs this too (see #80).
+func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
+	for i := 2; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			target := arg
+			if !filepath.IsAbs(arg) {
+				target = filepath.Join(cwd, arg)
+			}
+			relPath, err := filepath.Rel(repoRoot, target)
+			if err == nil {
+				args[i] = filepath.ToSlash(relPath)
+			}
+		}
+	}
 }
 
 // validateProviderConfig checks provider-related config invariants the

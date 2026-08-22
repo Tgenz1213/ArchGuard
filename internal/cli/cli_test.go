@@ -3,9 +3,12 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
@@ -278,5 +281,69 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	}
 	if _, ok := voyage.(*llm.VoyageProvider); !ok {
 		t.Errorf("expected *llm.VoyageProvider, got %T", voyage)
+	}
+}
+
+func TestNormalizePositionalArgPaths_RunsEvenWhenCwdEqualsRepoRoot(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := repoRoot
+
+	args := []string{"archguard", "check", "./sub/../file.go", "--debug"}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	if args[2] != "file.go" {
+		t.Errorf("expected the uncleaned positional path to be cleaned to %q (proving the rewrite actually ran at cwd == repoRoot), got %q", "file.go", args[2])
+	}
+	if args[3] != "--debug" {
+		t.Errorf("flag argument must be left untouched, got %q", args[3])
+	}
+}
+
+func TestNormalizePositionalArgPaths_HandlesAbsolutePathArg(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := repoRoot
+
+	absArg := filepath.Join(repoRoot, "sub", "file.go")
+	args := []string{"archguard", "check", absArg}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	want := filepath.ToSlash(filepath.Join("sub", "file.go"))
+	if args[2] != want {
+		t.Errorf("expected an absolute in-repo path arg to normalize to the repo-relative form %q, got %q (this is the case that broke: filepath.Join(cwd, arg) mangles an already-absolute arg instead of using it directly)", want, args[2])
+	}
+}
+
+func TestNormalizePositionalArgPaths_ConvertsBackslashesOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("backslash-as-separator is a Windows-only path.filepath behavior")
+	}
+
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := repoRoot
+
+	args := []string{"archguard", "check", `internal\analysis\engine.go`}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	if args[2] != "internal/analysis/engine.go" {
+		t.Errorf("expected backslash-style arg to normalize to forward slashes at cwd == repoRoot, got %q", args[2])
+	}
+}
+
+func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlashes(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("backslash-as-separator is a Windows-only path.filepath behavior")
+	}
+
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := repoRoot
+
+	args := []string{"archguard", "check", `internal\analysis\engine.go`}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	b := baseline.New()
+	b.Add("0001", "internal/analysis/engine.go", "")
+
+	if !b.IsSuppressed("0001", args[2], "any content") {
+		t.Errorf("expected the normalized path %q to match a baseline entry recorded with forward slashes, but IsSuppressed returned false", args[2])
 	}
 }
