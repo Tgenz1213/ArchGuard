@@ -361,9 +361,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	// Simulate a row written before the adr_id/scope columns existed: same
-	// rel_path/title/status/content BuildIndex will see below, but adr_id
-	// and scope left NULL, as Task 1's migration would leave a pre-existing row.
+	// Simulate a legacy row with adr_id/scope still NULL.
 	_, err = store.Pool().Exec(ctx, `
 		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
 		VALUES ($1, $2, $3, $4, $5, $6)
