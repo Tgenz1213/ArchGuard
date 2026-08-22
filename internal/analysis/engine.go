@@ -38,6 +38,9 @@ type Engine struct {
 	UpdateBaseline bool
 	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
 	CollectedBaseline *baseline.Baseline
+	// SkippedFiles is populated by Run when UpdateBaseline is true: the count
+	// of files skipped due to per-file errors (fetchContext/CreateEmbedding failures).
+	SkippedFiles int
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -310,7 +313,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
 		}
 		e.CollectedBaseline = b
-		e.Info("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors.", len(b.Entries), skippedFiles)
+		e.SkippedFiles = skippedFiles
 		return nil
 	}
 

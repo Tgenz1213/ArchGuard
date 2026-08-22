@@ -377,6 +377,65 @@ function sensitiveData() {
 	})
 }
 
+// TestE2E_BaselineMode_SaveFailureDoesNotPrintSuccess asserts the success
+// message never prints if the baseline file write itself fails.
+func TestE2E_BaselineMode_SaveFailureDoesNotPrintSuccess(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	// Renaming onto a non-empty directory fails on both Linux and Windows,
+	// forcing Save to fail without a flaky permissions trick.
+	obstructionDir := filepath.Join(tempDir, baseline.Path)
+	if err := os.MkdirAll(obstructionDir, 0755); err != nil {
+		t.Fatalf("Failed to create obstruction directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(obstructionDir, "placeholder"), []byte("x"), 0644); err != nil {
+		t.Fatalf("Failed to create obstruction placeholder file: %v", err)
+	}
+
+	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			exitCode = exitError.ExitCode()
+		} else {
+			t.Fatalf("Binary failed to execute: %v", err)
+		}
+	}
+
+	if exitCode != int(cli.ExitError) {
+		t.Fatalf("expected exit code %d (Save failure), got %d. Output: %s", cli.ExitError, exitCode, out)
+	}
+
+	output := string(out)
+	if strings.Contains(output, "Baseline scan complete") {
+		t.Errorf("success message printed despite Save failure. Output: %s", output)
+	}
+	if !strings.Contains(output, "failed to write baseline file") {
+		t.Errorf("expected the actual Save failure to be reported. Output: %s", output)
+	}
+}
+
 // runIndexOnce executes `archguard index` once and returns its output
 // alongside the exit code actually observed.
 func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {

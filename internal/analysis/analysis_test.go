@@ -846,7 +846,10 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected exactly 1 collected entry, got %d: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
 	}
 
-	if !strings.Contains(output, "2 file(s) skipped due to errors") {
-		t.Fatalf("expected summary to report 2 skipped files, got output: %q", output)
+	if engine.SkippedFiles != 2 {
+		t.Fatalf("expected SkippedFiles to be 2, got %d", engine.SkippedFiles)
+	}
+	if !strings.Contains(output, "Error reading file badread.go") {
+		t.Fatalf("expected per-file error to still be logged, got output: %q", output)
 	}
 }
