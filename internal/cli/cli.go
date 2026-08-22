@@ -495,6 +495,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
+		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles)
 		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
 	}
