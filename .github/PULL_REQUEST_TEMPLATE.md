@@ -24,6 +24,6 @@ Known gaps or deferred work, with an issue link if one exists.
 - [ ] All acceptance criteria from the linked issue are met
 - [ ] `go test -race -cover ./...` passes
 - [ ] `golangci-lint run --timeout=5m` is clean
-- [ ] `CLAUDE.md` updated if this changes build/test commands, a cross-package interface, or adds a footgun
+- [ ] `CLAUDE.md` updated if this changes build/test commands, adds or renames a top-level package, changes a cross-package interface, or adds a footgun
 - [ ] A new ADR added under `docs/arch/` if this embodies an architecturally-significant decision
 - [ ] Comments follow the 2-line-max, WHY-only convention
