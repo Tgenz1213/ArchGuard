@@ -90,9 +90,7 @@ func TestSave_Atomic(t *testing.T) {
 
 func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	// A directory at the destination path makes os.Rename fail (a file
-	// can't be renamed onto an existing directory), simulating any
-	// rename failure without depending on OS-specific permission errors.
+	// A directory at the destination makes os.Rename fail without needing OS-specific permission errors.
 	path := filepath.Join(tmpDir, "baseline.json")
 	if err := os.Mkdir(path, 0755); err != nil {
 		t.Fatalf("failed to set up destination directory: %v", err)
@@ -200,9 +198,7 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 		t.Errorf("expected 1 entry, got %d", len(loaded.Entries))
 	}
 
-	// The file is meant to be human-reviewable in git diffs, so the raw
-	// bytes on disk must actually be 2-space-indented, not just
-	// unmarshal-compatible.
+	// Must be human-reviewable in git diffs: 2-space-indented on disk, not just unmarshal-compatible.
 	var want bytes.Buffer
 	if err := json.Indent(&want, data, "", "  "); err != nil {
 		t.Fatalf("Failed to compute expected indentation: %v", err)

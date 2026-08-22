@@ -496,10 +496,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 }
 
 // resolveContentProvider picks the ContentProvider for a check run.
-// updateBaseline forces a full-repo scan unconditionally (checked first),
-// overriding any file args or --staged/--all, since --update-baseline's
-// contract is to snapshot the whole repository regardless of other
-// file-selection flags.
+// updateBaseline forces a full-repo scan, overriding any other flag.
 func resolveContentProvider(files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
 	if updateBaseline {
 		return &analysis.AllProvider{}

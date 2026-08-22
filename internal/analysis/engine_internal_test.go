@@ -66,8 +66,7 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 }
 
 // TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff asserts
-// fetchContext never falls back to a diff when UpdateBaseline is true,
-// even when one is available and the file exceeds the token budget.
+// UpdateBaseline never falls back to a diff, even when one is available.
 func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T) {
 	fullContent := "Line1\nLine2\nLine3\nLine4\nLine5\n"
 	// A diff that only touches one line -- nowhere near the whole file.
@@ -390,10 +389,8 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 	}
 }
 
-// TestShouldExclude_BaselineFileAlwaysExcluded ensures the git-tracked,
-// self-referential baseline file is never scanned as source content, even
-// when the user's own exclude_patterns config doesn't mention it -- see
-// docs/arch/0006-violation-baseline-file.md.
+// TestShouldExclude_BaselineFileAlwaysExcluded ensures the baseline file
+// is excluded even when exclude_patterns doesn't mention it.
 func TestShouldExclude_BaselineFileAlwaysExcluded(t *testing.T) {
 	cfg := &config.Config{
 		Analysis: config.Analysis{

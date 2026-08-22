@@ -93,11 +93,8 @@ func codeContextContainsTrigger(prompt, trigger string) bool {
 	return strings.Contains(prompt[start:start+endRelativeOffset], trigger)
 }
 
-// extractTriggerLine returns the whole line (trimmed) within the prompt's
-// <code_context> block that contains trigger, so the mock's quoted_code is a
-// real code snippet rather than the bare trigger word -- letting baseline
-// re-surfacing tests invalidate a baselined line without also making the
-// mock stop flagging the file as a violation.
+// extractTriggerLine returns the trimmed line containing trigger, so
+// quoted_code is a real snippet, not the bare trigger word.
 func extractTriggerLine(prompt, trigger string) string {
 	start := strings.Index(prompt, "<code_context>")
 	if start == -1 {

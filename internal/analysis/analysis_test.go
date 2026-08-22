@@ -141,8 +141,7 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 }
 
 // TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff asserts the
-// ADR-relevance embedding uses full file content in --update-baseline
-// mode, not a partial uncommitted-hunk diff.
+// ADR-relevance embedding uses full file content, not a partial diff.
 func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	var gotText string
 	provider := &llm.MockProvider{
@@ -413,9 +412,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 }
 
 // TestRun_SuppressesBaselinedViolation asserts a violation matching a
-// seeded Baseline entry (same ADR ID + file, and the entry's QuotedCode is
-// still present in the current file content) is suppressed rather than
-// surfaced as drift.
+// seeded Baseline entry is suppressed rather than surfaced as drift.
 func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -460,10 +457,8 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	}
 }
 
-// TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile asserts a seeded Baseline
-// entry no longer suppresses the violation once its QuotedCode substring
-// isn't present in the current file content -- the code moved/changed, so
-// the baselined snapshot no longer applies.
+// TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile asserts a Baseline entry
+// stops suppressing once its QuotedCode is no longer in the file.
 func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -516,9 +511,8 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors asserts that
-// when UpdateBaseline is true, Run never fails on a violation -- it instead
-// records it into CollectedBaseline.
+// TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors asserts
+// UpdateBaseline never fails on a violation, only records it.
 func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -573,10 +567,7 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 }
 
 // TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression asserts
-// that even when a pre-existing Baseline would suppress the violation,
-// UpdateBaseline still records it into CollectedBaseline -- update mode
-// always collects a fresh snapshot rather than deferring to old suppression
-// state.
+// UpdateBaseline records a violation even if a pre-existing Baseline would suppress it.
 func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -634,11 +625,8 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	}
 }
 
-// TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts that
-// when the LLM's quoted_code doesn't appear verbatim in the file (e.g. an
-// escaped delimiter or diff marker leaked into what the LLM echoed back),
-// Run skips baselining it rather than writing an entry that could never
-// match on the read side.
+// TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts a
+// quoted_code that doesn't match the file verbatim is skipped, not baselined.
 func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -688,9 +676,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 }
 
 // TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts CI Warn-Open
-// (which exists to avoid failing a *build* on truncated context) doesn't
-// also drop a file from --update-baseline's snapshot, since that mode
-// never fails the build on a violation in the first place.
+// doesn't drop a file from --update-baseline's snapshot.
 func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {

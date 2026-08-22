@@ -31,16 +31,12 @@ type Engine struct {
 	Debug         bool
 	CI            bool // CI-safe mode (Warn-Open behavior)
 	Cache         *cache.Cache
-	// Baseline, if set, suppresses violations it already contains (matched
-	// by ADR ID + file + quoted code still present in the current content).
-	// nil means no baseline is in use.
+	// Baseline, if set, suppresses violations it already contains. nil means unused.
 	Baseline *baseline.Baseline
-	// UpdateBaseline, when true, bypasses Baseline suppression entirely and
-	// makes Run collect a fresh snapshot of every violation into
-	// CollectedBaseline instead of gating on it.
+	// UpdateBaseline, when true, bypasses Baseline and collects a fresh
+	// snapshot into CollectedBaseline instead.
 	UpdateBaseline bool
-	// CollectedBaseline is populated by Run when UpdateBaseline is true;
-	// cli.go is responsible for Saving it.
+	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
 	CollectedBaseline *baseline.Baseline
 }
 
@@ -262,10 +258,8 @@ func (e *Engine) Run(ctx context.Context) error {
 						if res.QuotedCode != "" {
 							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
 						}
-						// A QuotedCode the LLM echoed back in escaped or diff-marked
-						// form won't match raw file content on the read side, so
-						// baselining it would suppress nothing -- skip rather than
-						// write a dead entry.
+						// A QuotedCode that won't match the file verbatim would
+						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
 							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
 								ADRID:      hit.ADR.ID,
@@ -329,10 +323,8 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 func (e *Engine) shouldExclude(path string) bool {
-	// The baseline file is git-tracked and self-referential (it quotes prior
-	// violating source snippets), so it's always excluded from analysis --
-	// not conditional on the user's exclude_patterns config, same as
-	// .archguard/ never needing a user-configured exclude.
+	// Always excluded, not conditional on exclude_patterns: the baseline
+	// file quotes prior violations and must never be scanned as source.
 	if path == baseline.Path {
 		return true
 	}
@@ -344,9 +336,8 @@ func (e *Engine) shouldExclude(path string) bool {
 	return false
 }
 
-// fetchContext returns the content to send the LLM (possibly a diff or a
-// truncated excerpt) alongside the untruncated full file, so callers that
-// also need the whole file (e.g. baseline matching) don't have to re-read it.
+// fetchContext returns the LLM content (maybe a diff/excerpt) alongside
+// the untruncated fullContent, so callers needing both don't re-read the file.
 func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
 	maxTokens := e.Config.LLM.MaxTokens
 	if maxTokens == 0 {

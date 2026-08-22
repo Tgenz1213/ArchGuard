@@ -263,9 +263,7 @@ analysis:
 	})
 }
 
-// gitAdd stages path (relative to dir) into dir's git index -- required for
-// AllProvider (used by `check --update-baseline`), which lists files via
-// `git ls-files` rather than walking the working tree.
+// gitAdd stages path so AllProvider's `git ls-files` sees it.
 func gitAdd(t *testing.T, dir, path string) {
 	t.Helper()
 
@@ -276,10 +274,7 @@ func gitAdd(t *testing.T, dir, path string) {
 	}
 }
 
-// TestE2E_BaselineMode verifies the full baseline lifecycle through the
-// built binary: writing a baseline with --update-baseline, a baselined
-// violation being suppressed on a normal check, and the violation
-// re-surfacing once the baselined line's exact text changes.
+// TestE2E_BaselineMode verifies the full lifecycle: write, suppress, re-surface.
 func TestE2E_BaselineMode(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 

@@ -52,9 +52,8 @@ func (b *Baseline) Save(path string) error {
 		return err
 	}
 
-	// Sort by (File, ADRID) -- a unique key by construction (Add's overwrite
-	// semantics guarantee no duplicate pairs) -- so two --update-baseline
-	// runs over an unchanged repo produce byte-identical, diff-free JSON.
+	// Sorted so two --update-baseline runs over an unchanged repo produce
+	// byte-identical, diff-free JSON.
 	sort.Slice(b.Entries, func(i, j int) bool {
 		if b.Entries[i].File != b.Entries[j].File {
 			return b.Entries[i].File < b.Entries[j].File
