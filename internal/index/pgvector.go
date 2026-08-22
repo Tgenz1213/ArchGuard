@@ -178,11 +178,12 @@ func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	return "remote", nil
 }
 
-// Load verifies the database connection and ensures the tables exist.
-func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
-	ctx := context.Background()
-
-	query := fmt.Sprintf(`
+// ensureSchema creates the archguard_adrs table and HNSW index if they don't
+// exist, and adds the adr_id/scope columns if missing. Both Load and
+// BuildIndex call this -- BuildIndex must be self-sufficient since
+// cli.runIndex calls it without a preceding Load.
+func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
+	createQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
 			id SERIAL PRIMARY KEY,
 			project_name TEXT NOT NULL DEFAULT 'default',
@@ -193,13 +194,50 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 			embedding vector(%d),
 			UNIQUE (project_name, rel_path)
 		);
-		ALTER TABLE archguard_adrs ADD COLUMN IF NOT EXISTS adr_id TEXT;
-		ALTER TABLE archguard_adrs ADD COLUMN IF NOT EXISTS scope TEXT;
 		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
 	`, dim, hnswIndexName)
+	if _, err := s.pool.Exec(ctx, createQuery); err != nil {
+		return err
+	}
 
-	_, err := s.pool.Exec(ctx, query)
-	return err
+	rows, err := s.pool.Query(ctx, `
+		SELECT column_name FROM information_schema.columns
+		WHERE table_name = 'archguard_adrs' AND column_name IN ('adr_id', 'scope')
+	`)
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool)
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			rows.Close()
+			return err
+		}
+		present[col] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	var alters []string
+	if !present["adr_id"] {
+		alters = append(alters, "ADD COLUMN IF NOT EXISTS adr_id TEXT")
+	}
+	if !present["scope"] {
+		alters = append(alters, "ADD COLUMN IF NOT EXISTS scope TEXT")
+	}
+	if len(alters) > 0 {
+		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
+		return err
+	}
+	return nil
+}
+
+// Load verifies the database connection and ensures the tables exist.
+func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
+	return s.ensureSchema(context.Background(), dim)
 }
 
 // Save is a no-op for PgStore as data is persisted immediately during BuildIndex.
@@ -209,6 +247,10 @@ func (s *PgStore) Save(path string) error {
 
 // BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
 func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
+	if err := s.ensureSchema(ctx, dim); err != nil {
+		return fmt.Errorf("failed to ensure schema: %w", err)
+	}
+
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return err

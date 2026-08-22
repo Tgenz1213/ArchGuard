@@ -368,6 +368,11 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
 	require.NoError(t, err)
 
+	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, preSyncResults, 1, "Search must still find a row with NULL adr_id/scope columns, not fail the scan")
+	assert.Equal(t, "", preSyncResults[0].ADR.ID, "NULL adr_id should degrade to empty string via COALESCE, not break the scan")
+	assert.Equal(t, "", preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
+
 	tmpDir := t.TempDir()
 	adrContent := "---\ntitle: \"Legacy ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Content"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0007-legacy.md"), []byte(adrContent), 0644))
