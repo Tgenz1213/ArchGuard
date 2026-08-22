@@ -313,6 +313,18 @@ func TestNormalizePositionalArgPaths_HandlesAbsolutePathArg(t *testing.T) {
 	}
 }
 
+func TestNormalizePositionalArgPaths_LeavesEmptyArgUntouched(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := repoRoot
+
+	args := []string{"archguard", "check", ""}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	if args[2] != "" {
+		t.Errorf("expected an empty positional arg to be left untouched (not resolved to %q, which resolveContentProvider treats as a whole-repo scan), got %q", ".", args[2])
+	}
+}
+
 func TestNormalizePositionalArgPaths_ConvertsBackslashesOnWindows(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("backslash-as-separator is a Windows-only path.filepath behavior")
@@ -341,9 +353,9 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 	normalizePositionalArgPaths(args, cwd, repoRoot)
 
 	b := baseline.New()
-	b.Add("0001", "internal/analysis/engine.go", "")
+	b.Add("0001", "internal/analysis/engine.go", "quoted violating code")
 
-	if !b.IsSuppressed("0001", args[2], "any content") {
+	if !b.IsSuppressed("0001", args[2], "some context\nquoted violating code\nmore context") {
 		t.Errorf("expected the normalized path %q to match a baseline entry recorded with forward slashes, but IsSuppressed returned false", args[2])
 	}
 }

@@ -139,7 +139,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	for i := 2; i < len(args); i++ {
 		arg := args[i]
-		if !strings.HasPrefix(arg, "-") {
+		if arg != "" && !strings.HasPrefix(arg, "-") {
 			target := arg
 			if !filepath.IsAbs(arg) {
 				target = filepath.Join(cwd, arg)
