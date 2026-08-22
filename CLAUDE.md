@@ -59,6 +59,13 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 - Exit codes are meaningful and tested: `0` success, `1` general error, `2` usage, `3` config, `4` drift detected, `5` index error — preserve these in `internal/cli` if you touch command dispatch.
 - **Code comments: default to zero. When one's genuinely needed, it's 1-2 lines, never more.** Only write a comment for a non-obvious WHY (a hidden constraint, a workaround, a subtle invariant) — never to restate what the code does, narrate the task/fix that produced it, or read like a tutorial. A comment over 2 lines is bloat by default; treat that length as a hard signal to cut it down or delete it, not a reason to search for a justification. Write it plainly enough that a non-expert could follow the words even if the concept is technical. This applies everywhere, not just new code — trim a bloated comment you touch in passing. It's a deliberate rule against the tendency (especially in AI-written code) to over-explain: every extra line costs every future reader, human or AI, more than it cost to type.
 
+## Ticket & PR Conventions
+
+- Issues use the templates in `.github/ISSUE_TEMPLATE/` (bug report / feature request); PRs use `.github/PULL_REQUEST_TEMPLATE.md`.
+- Every issue needs testable **acceptance criteria** — concrete pass/fail conditions (exit codes, specific behavior, "test X added"), not a vague problem description — before work starts on it. If an issue lacks them, add them first rather than implementing against an ambiguous ask.
+- PR and commit titles follow Conventional Commits (see above). Link issues with `Closes #N`.
+- An architecturally-significant PR should add an ADR under `docs/arch/` (see "Keeping this file and the ADRs current" below) — self-apply this when opening PRs autonomously.
+
 ## Known footguns / non-obvious behavior
 
 - **`cli.Execute` rewrites `os.Args` in place before any flag parsing.** Every argument from index 2 onward that doesn't start with `-` is treated as a path and rewritten relative to the repo root, then the process `chdir`s there. This runs regardless of which subcommand is selected. If you add a subcommand with a non-path positional argument, it will still get run through `filepath.Rel` against the repo root — verify it survives that rewrite, especially in tests that invoke `Execute` from a non-root working directory.
