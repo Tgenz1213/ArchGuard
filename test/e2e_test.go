@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
@@ -258,6 +260,120 @@ analysis:
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
+	})
+}
+
+// gitAdd stages path so AllProvider's `git ls-files` sees it.
+func gitAdd(t *testing.T, dir, path string) {
+	t.Helper()
+
+	cmd := exec.Command("git", "add", "--", path)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to git add %s: %v\nOutput: %s", path, err, out)
+	}
+}
+
+// TestE2E_BaselineMode verifies the full lifecycle: write, suppress, re-surface.
+func TestE2E_BaselineMode(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+	fixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    %s
+}
+`, violatingLine)
+	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	// --update-baseline scans via `git ls-files`, so the fixture must be tracked.
+	gitAdd(t, tempDir, fixtureFilename)
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	var writtenEntry baseline.Entry
+	t.Run("update-baseline writes baseline file", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "check", "--update-baseline")
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		out, err := cmd.CombinedOutput()
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
+			} else {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+		}
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
+		}
+
+		baselinePath := filepath.Join(tempDir, baseline.Path)
+		data, err := os.ReadFile(baselinePath)
+		if err != nil {
+			t.Fatalf("Failed to read baseline file %s: %v", baselinePath, err)
+		}
+
+		var b baseline.Baseline
+		if err := json.Unmarshal(data, &b); err != nil {
+			t.Fatalf("Failed to unmarshal baseline file: %v\nContent: %s", err, data)
+		}
+
+		if len(b.Entries) != 1 {
+			t.Fatalf("expected exactly 1 baseline entry, got %d: %+v", len(b.Entries), b.Entries)
+		}
+		writtenEntry = b.Entries[0]
+
+		const expectedADRID = "0000" // from writeNoSecretsADR's "0000-no-secrets-in-log.md"
+		if writtenEntry.ADRID != expectedADRID {
+			t.Errorf("expected baseline entry ADRID %q, got %q", expectedADRID, writtenEntry.ADRID)
+		}
+		if writtenEntry.File != fixtureFilename {
+			t.Errorf("expected baseline entry File %q, got %q", fixtureFilename, writtenEntry.File)
+		}
+		if writtenEntry.QuotedCode != violatingLine {
+			t.Errorf("expected baseline entry QuotedCode %q, got %q", violatingLine, writtenEntry.QuotedCode)
+		}
+	})
+
+	t.Run("check suppresses baselined violation", func(t *testing.T) {
+		output := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
+		if !strings.Contains(output, "baselined") {
+			t.Errorf("expected output to mention baselined suppression, got: %s", output)
+		}
+	})
+
+	t.Run("check re-flags violation once baselined line changes", func(t *testing.T) {
+		newViolatingLine := fmt.Sprintf(`console.log("%s: 456");`, testutil.MockViolationTrigger)
+		newFixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    %s
+}
+`, newViolatingLine)
+		if err := os.WriteFile(fixturePath, []byte(newFixtureContent), 0644); err != nil {
+			t.Fatalf("Failed to update fixture: %v", err)
+		}
+
+		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
 	})
 }
 

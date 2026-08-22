@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
@@ -18,6 +19,17 @@ type MockTruncationProvider struct {
 func (m *MockTruncationProvider) GetFiles() ([]string, error)            { return []string{"test.go"}, nil }
 func (m *MockTruncationProvider) GetContent(path string) (string, error) { return m.Content, nil }
 func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
+
+// MockDiffCapableProvider is like MockTruncationProvider but returns a
+// non-empty diff, simulating a real ContentProvider with local edits.
+type MockDiffCapableProvider struct {
+	Content string
+	Diff    string
+}
+
+func (m *MockDiffCapableProvider) GetFiles() ([]string, error)            { return []string{"test.go"}, nil }
+func (m *MockDiffCapableProvider) GetContent(path string) (string, error) { return m.Content, nil }
+func (m *MockDiffCapableProvider) GetDiff(path string) (string, error)    { return m.Diff, nil }
 
 func TestFetchContext_SmartTruncation(t *testing.T) {
 	longContent := "Line1\nLine2\nLine3"
@@ -35,7 +47,7 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 		Provider: llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
-	content, mode, err := engine.fetchContext(context.Background(), "test.go")
+	content, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -50,6 +62,37 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	expected := "Line1\n"
 	if content != expected {
 		t.Errorf("Expected content to be rolled back to newline (%q), but got %q", expected, content)
+	}
+}
+
+// TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff asserts
+// UpdateBaseline never falls back to a diff, even when one is available.
+func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T) {
+	fullContent := "Line1\nLine2\nLine3\nLine4\nLine5\n"
+	// A diff that only touches one line -- nowhere near the whole file.
+	diffHunk := "@@ -3,1 +3,1 @@\n-OldLine3\n+Line3\n"
+
+	cfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxTokens: 4,
+			Model:     "gpt-3.5-turbo",
+		},
+	}
+
+	engine := &Engine{
+		Config:         cfg,
+		Content:        &MockDiffCapableProvider{Content: fullContent, Diff: diffHunk},
+		Provider:       llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		UpdateBaseline: true,
+	}
+
+	_, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	if err != nil {
+		t.Fatalf("fetchContext failed: %v", err)
+	}
+
+	if mode != "truncated" {
+		t.Errorf("expected update-baseline mode to prefer truncation over a partial diff, got mode %q", mode)
 	}
 }
 
@@ -78,7 +121,7 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -114,7 +157,7 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	_, _, err := engine.fetchContext(context.Background(), "test.go")
+	_, _, _, err := engine.fetchContext(context.Background(), "test.go")
 	if err == nil {
 		t.Fatal("expected fetchContext to return an error when CountTokens fails, got nil")
 	}
@@ -157,7 +200,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 		Provider: mockProvider,
 	}
 
-	got, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -343,6 +386,21 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 		if got := engine.shouldExclude(c.path); got != c.want {
 			t.Errorf("shouldExclude(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+// TestShouldExclude_BaselineFileAlwaysExcluded ensures the baseline file
+// is excluded even when exclude_patterns doesn't mention it.
+func TestShouldExclude_BaselineFileAlwaysExcluded(t *testing.T) {
+	cfg := &config.Config{
+		Analysis: config.Analysis{
+			ExcludePatterns: []string{"**/*_test.go"},
+		},
+	}
+	engine := &Engine{Config: cfg}
+
+	if !engine.shouldExclude(baseline.Path) {
+		t.Errorf("shouldExclude(%q) = false, want true regardless of ExcludePatterns", baseline.Path)
 	}
 }
 

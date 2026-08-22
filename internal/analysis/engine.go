@@ -9,6 +9,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -30,6 +31,13 @@ type Engine struct {
 	Debug         bool
 	CI            bool // CI-safe mode (Warn-Open behavior)
 	Cache         *cache.Cache
+	// Baseline, if set, suppresses violations it already contains. nil means unused.
+	Baseline *baseline.Baseline
+	// UpdateBaseline, when true, bypasses Baseline and collects a fresh
+	// snapshot into CollectedBaseline instead.
+	UpdateBaseline bool
+	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
+	CollectedBaseline *baseline.Baseline
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -91,8 +99,10 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	var (
-		violations int
-		mu         sync.Mutex
+		violations       int
+		baselinedCount   int
+		collectedEntries []baseline.Entry
+		mu               sync.Mutex
 	)
 
 	concurrency := e.Config.Analysis.MaxConcurrency
@@ -117,7 +127,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "Analyzing %s...\n", file)
 			}
 
-			content, diffMode, err := e.fetchContext(ctx, file)
+			content, fullContent, diffMode, err := e.fetchContext(ctx, file)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
 				mu.Lock()
@@ -130,7 +140,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "  Context mode: %s\n", diffMode)
 			}
 
-			if diffMode == "truncated" && e.CI {
+			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
 				fmt.Fprintf(&sb, "  [WARN-OPEN] File %s was truncated for analysis. In CI mode this is treated as a warning (no failure).\n", file)
 				mu.Lock()
 				fmt.Print(sb.String())
@@ -138,12 +148,17 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			diffForEmbedding, err := e.Content.GetDiff(file)
-			isDiff := err == nil && diffForEmbedding != ""
-			if !isDiff {
-				diffForEmbedding = content
-			} else {
-				diffForEmbedding = stripDiffMetadata(diffForEmbedding)
+			if diffMode == "truncated" && e.UpdateBaseline {
+				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
+			}
+
+			// Same reasoning as fetchContext above: a diff only covers the
+			// uncommitted hunk, not the whole file --update-baseline needs.
+			diffForEmbedding := content
+			if !e.UpdateBaseline {
+				if diff, err := e.Content.GetDiff(file); err == nil && diff != "" {
+					diffForEmbedding = stripDiffMetadata(diff)
+				}
 			}
 
 			if len(diffForEmbedding) > 6000 {
@@ -170,7 +185,13 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
+			// Baseline reads/writes compare against the untruncated file,
+			// not the possibly-partial content the LLM saw.
+			baselineContent := fullContent
+
 			localViolations := 0
+			localBaselined := 0
+			var localBaselineEntries []baseline.Entry
 			for _, hit := range hits {
 				if hit.ADR.Scope != "" && !matchGlob(hit.ADR.Scope, file) {
 					continue
@@ -230,24 +251,69 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				if res.Violation {
 					lineNum := e.findLineNumber(content, res.QuotedCode)
-					fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
-					fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
-					if res.QuotedCode != "" {
-						fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+					switch {
+					case e.UpdateBaseline:
+						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						// A QuotedCode that won't match the file verbatim would
+						// suppress nothing -- skip rather than write a dead entry.
+						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
+							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
+								ADRID:      hit.ADR.ID,
+								File:       file,
+								QuotedCode: res.QuotedCode,
+							})
+						} else {
+							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
+						}
+					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
+						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						localBaselined++
+					default:
+						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
+						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
+						if res.QuotedCode != "" {
+							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
+						}
+						localViolations++
 					}
-					localViolations++
 				}
 			}
 
 			mu.Lock()
 			fmt.Print(sb.String())
 			violations += localViolations
+			baselinedCount += localBaselined
+			if e.UpdateBaseline {
+				collectedEntries = append(collectedEntries, localBaselineEntries...)
+			}
 			mu.Unlock()
 			return nil
 		})
 	}
 
 	_ = g.Wait()
+
+	if e.UpdateBaseline {
+		b := baseline.New()
+		for _, entry := range collectedEntries {
+			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
+		}
+		e.CollectedBaseline = b
+		e.Info("Baseline scan complete: %d violation(s) recorded.", len(b.Entries))
+		return nil
+	}
+
+	if e.Baseline != nil && (violations > 0 || baselinedCount > 0) {
+		e.Info("%d new violation(s), %d baselined.", violations, baselinedCount)
+	}
 
 	if violations > 0 {
 		return &DriftDetectedError{Count: violations}
@@ -257,6 +323,11 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 func (e *Engine) shouldExclude(path string) bool {
+	// Always excluded, not conditional on exclude_patterns: the baseline
+	// file quotes prior violations and must never be scanned as source.
+	if path == baseline.Path {
+		return true
+	}
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
 		if matchGlob(pattern, path) {
 			return true
@@ -265,34 +336,41 @@ func (e *Engine) shouldExclude(path string) bool {
 	return false
 }
 
-func (e *Engine) fetchContext(ctx context.Context, path string) (string, string, error) {
+// fetchContext returns the LLM content (maybe a diff/excerpt) alongside
+// the untruncated fullContent, so callers needing both don't re-read the file.
+func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
 	maxTokens := e.Config.LLM.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8000
 	}
 
-	fullContent, err := e.Content.GetContent(path)
+	fullContent, err = e.Content.GetContent(path)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	totalTokens, err := e.Provider.CountTokens(ctx, fullContent)
 	if err != nil {
-		return "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
+		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
 	}
 	if totalTokens <= maxTokens {
-		return fullContent, "full", nil
+		return fullContent, fullContent, "full", nil
 	}
 
-	diff, err := e.Content.GetDiff(path)
-	if err != nil || diff == "" {
-		truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
-		if err != nil {
-			return "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+	// A diff only covers the uncommitted-vs-HEAD hunk, which can't satisfy
+	// --update-baseline's whole-file snapshot contract (docs/arch/0006).
+	if !e.UpdateBaseline {
+		diff, err := e.Content.GetDiff(path)
+		if err == nil && diff != "" {
+			return diff, fullContent, "diff", nil
 		}
-		return truncated, "truncated", nil
 	}
-	return diff, "diff", nil
+
+	truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
+	if err != nil {
+		return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+	}
+	return truncated, fullContent, "truncated", nil
 }
 
 // truncateToTokenLimit cuts content to at most maxTokens per the

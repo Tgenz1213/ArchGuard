@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
@@ -138,6 +140,42 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	}
 }
 
+// TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff asserts the
+// ADR-relevance embedding uses full file content, not a partial diff.
+func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
+	var gotText string
+	provider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			gotText = text
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	diffHunk := "@@ -1,1 +1,1 @@\n-old\n+import python_library\n"
+	fullContent := "unrelated preamble\nimport python_library\nmore unrelated content"
+	content := &diffCapableContentProvider{content: fullContent, diff: diffHunk}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if gotText != fullContent {
+		t.Errorf("expected update-baseline mode to embed the full file content, got %q, want %q", gotText, fullContent)
+	}
+}
+
 // fallbackOnlyContentProvider always reports no diff, forcing Run onto the
 // whole-file-content fallback path regardless of what GetContent returns.
 type fallbackOnlyContentProvider struct {
@@ -159,6 +197,19 @@ func (p *fallbackOnlyContentProvider) GetContent(path string) (string, error) {
 func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
 	return "", nil
 }
+
+// diffCapableContentProvider returns distinct content for GetContent and
+// GetDiff, so a test can assert which one Run actually used.
+type diffCapableContentProvider struct {
+	content string
+	diff    string
+}
+
+func (p *diffCapableContentProvider) GetFiles() ([]string, error) {
+	return []string{"service.py"}, nil
+}
+func (p *diffCapableContentProvider) GetContent(path string) (string, error) { return p.content, nil }
+func (p *diffCapableContentProvider) GetDiff(path string) (string, error)    { return p.diff, nil }
 
 // TestRun_NeverStripsFallbackContent asserts stripDiffMetadata never runs
 // on whole-file fallback content, even when it looks diff-shaped.
@@ -357,5 +408,326 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	defer content.mu.Unlock()
 	if content.maxSeen > 3 {
 		t.Errorf("expected at most 3 concurrent GetContent calls, saw %d", content.maxSeen)
+	}
+}
+
+// TestRun_SuppressesBaselinedViolation asserts a violation matching a
+// seeded Baseline entry is suppressed rather than surfaced as drift.
+func TestRun_SuppressesBaselinedViolation(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	b := baseline.New()
+	b.Add("0001", "service.py", "import python_library")
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.Baseline = b
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error (violation should be suppressed by baseline), got: %v", err)
+	}
+}
+
+// TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile asserts a Baseline entry
+// stops suppressing once its QuotedCode is no longer in the file.
+func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "// content ignored by mock, no longer contains the baselined snippet",
+		},
+	}
+
+	b := baseline.New()
+	b.Add("0001", "service.py", "import python_library")
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.Baseline = b
+
+	err := engine.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected DriftDetectedError, got nil")
+	}
+	var driftErr *analysis.DriftDetectedError
+	if !errors.As(err, &driftErr) {
+		t.Fatalf("expected *analysis.DriftDetectedError, got: %v", err)
+	}
+	if driftErr.Count != 1 {
+		t.Errorf("expected Count 1, got %d", driftErr.Count)
+	}
+}
+
+// TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors asserts
+// UpdateBaseline never fails on a violation, only records it.
+func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry, got %d", len(engine.CollectedBaseline.Entries))
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
+	if got != want {
+		t.Errorf("expected entry %+v, got %+v", want, got)
+	}
+}
+
+// TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression asserts
+// UpdateBaseline records a violation even if a pre-existing Baseline would suppress it.
+func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	b := baseline.New()
+	b.Add("0001", "service.py", "import python_library")
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.Baseline = b
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected the violation to still be recorded despite pre-existing suppression, got %d entries", len(engine.CollectedBaseline.Entries))
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
+	if got != want {
+		t.Errorf("expected entry %+v, got %+v", want, got)
+	}
+}
+
+// TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts a
+// quoted_code that doesn't match the file verbatim is skipped, not baselined.
+func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library_ESCAPED_FORM"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 0 {
+		t.Fatalf("expected the mismatched entry to be skipped, got %d entries: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
+	}
+}
+
+// TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts CI Warn-Open
+// doesn't drop a file from --update-baseline's snapshot.
+func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+		LLM:         config.LLMConfig{MaxTokens: 5}, // small enough that the file below must be truncated
+	}
+	// Padded well past the token budget, with no diff available, so
+	// fetchContext has to truncate it rather than fall back to a diff.
+	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n// content ignored by mock"
+	content := &fallbackOnlyContentProvider{files: map[string]string{
+		"service.py": bigContent,
+	}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, true) // ci=true
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected the truncated file to still be analyzed and recorded under --ci --update-baseline, got %d entries", len(engine.CollectedBaseline.Entries))
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
+	if got != want {
+		t.Errorf("expected entry %+v, got %+v", want, got)
 	}
 }

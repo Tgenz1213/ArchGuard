@@ -13,6 +13,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -404,6 +405,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	all := checkFlags.Bool("all", false, "Scan all tracked files")
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
+	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
 
 	if err := checkFlags.Parse(args); err != nil {
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
@@ -456,33 +458,62 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		}
 	}
 
-	var contentProvider analysis.ContentProvider
-	if len(files) > 0 {
-		target := files[0]
-		if target == "." {
-			contentProvider = &analysis.AllProvider{}
-		} else {
-			contentProvider = &analysis.SingleFileProvider{Path: target}
-		}
-	} else if *staged {
-		contentProvider = &analysis.StagedProvider{}
-	} else if *all {
-		contentProvider = &analysis.AllProvider{}
-	} else {
-		contentProvider = &analysis.UncommittedProvider{}
+	if *updateBaseline && (len(files) > 0 || *staged) {
+		fmt.Println("Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
+	contentProvider := resolveContentProvider(files, *staged, *all, *updateBaseline)
 
 	if *debug {
 		fmt.Println("[DEBUG] Mode Enabled")
 	}
 
+	var loadedBaseline *baseline.Baseline
+	if !*updateBaseline {
+		loadedBaseline, err = baseline.Load(baseline.Path)
+		if err != nil {
+			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
+		}
+	}
+
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
 	engine.EmbedProvider = embedProvider
+	engine.Baseline = loadedBaseline
+	engine.UpdateBaseline = *updateBaseline
 	if err := engine.Run(context.Background()); err != nil {
 		return exitCodeForAnalysisError(err), fmt.Errorf("analysis failed: %v", err)
 	}
-	fmt.Println("No architectural violations found.")
+
+	if *updateBaseline {
+		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
+			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
+		}
+		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
+		return ExitSuccess, nil
+	}
+
+	fmt.Println("No new architectural violations found.")
 	return ExitSuccess, nil
+}
+
+// resolveContentProvider picks the ContentProvider for a check run.
+// updateBaseline forces a full-repo scan, overriding any other flag.
+func resolveContentProvider(files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
+	if updateBaseline {
+		return &analysis.AllProvider{}
+	}
+	if len(files) > 0 {
+		if files[0] == "." {
+			return &analysis.AllProvider{}
+		}
+		return &analysis.SingleFileProvider{Path: files[0]}
+	}
+	if staged {
+		return &analysis.StagedProvider{}
+	}
+	if all {
+		return &analysis.AllProvider{}
+	}
+	return &analysis.UncommittedProvider{}
 }
 
 func exitCodeForAnalysisError(err error) ExitCode {
