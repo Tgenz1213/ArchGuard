@@ -140,6 +140,43 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	}
 }
 
+// TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff asserts the
+// ADR-relevance embedding uses full file content in --update-baseline
+// mode, not a partial uncommitted-hunk diff.
+func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
+	var gotText string
+	provider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			gotText = text
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	diffHunk := "@@ -1,1 +1,1 @@\n-old\n+import python_library\n"
+	fullContent := "unrelated preamble\nimport python_library\nmore unrelated content"
+	content := &diffCapableContentProvider{content: fullContent, diff: diffHunk}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if gotText != fullContent {
+		t.Errorf("expected update-baseline mode to embed the full file content, got %q, want %q", gotText, fullContent)
+	}
+}
+
 // fallbackOnlyContentProvider always reports no diff, forcing Run onto the
 // whole-file-content fallback path regardless of what GetContent returns.
 type fallbackOnlyContentProvider struct {
@@ -161,6 +198,19 @@ func (p *fallbackOnlyContentProvider) GetContent(path string) (string, error) {
 func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
 	return "", nil
 }
+
+// diffCapableContentProvider returns distinct content for GetContent and
+// GetDiff, so a test can assert which one Run actually used.
+type diffCapableContentProvider struct {
+	content string
+	diff    string
+}
+
+func (p *diffCapableContentProvider) GetFiles() ([]string, error) {
+	return []string{"service.py"}, nil
+}
+func (p *diffCapableContentProvider) GetContent(path string) (string, error) { return p.content, nil }
+func (p *diffCapableContentProvider) GetDiff(path string) (string, error)    { return p.diff, nil }
 
 // TestRun_NeverStripsFallbackContent asserts stripDiffMetadata never runs
 // on whole-file fallback content, even when it looks diff-shaped.
@@ -637,14 +687,10 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 	}
 }
 
-// TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts that the CI
-// Warn-Open early-return (which exists to avoid failing a *build* on
-// possibly-incomplete context) does not also skip a file's contribution to
-// --update-baseline's collected snapshot. Update-baseline mode never fails
-// the build on a violation, so Warn-Open's protective purpose doesn't apply
-// there -- but the ADR-documented contract for --update-baseline is that it
-// captures "every currently-detected violation", so a truncated file run
-// under --ci must still be analyzed and recorded, not silently dropped.
+// TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts CI Warn-Open
+// (which exists to avoid failing a *build* on truncated context) doesn't
+// also drop a file from --update-baseline's snapshot, since that mode
+// never fails the build on a violation in the first place.
 func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {

@@ -21,8 +21,7 @@ func (m *MockTruncationProvider) GetContent(path string) (string, error) { retur
 func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
 
 // MockDiffCapableProvider is like MockTruncationProvider but returns a
-// non-empty diff, simulating AllProvider.GetDiff's real behavior of
-// returning only the uncommitted-vs-HEAD hunk rather than the whole file.
+// non-empty diff, simulating a real ContentProvider with local edits.
 type MockDiffCapableProvider struct {
 	Content string
 	Diff    string

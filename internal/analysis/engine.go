@@ -156,12 +156,13 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
 			}
 
-			diffForEmbedding, err := e.Content.GetDiff(file)
-			isDiff := err == nil && diffForEmbedding != ""
-			if !isDiff {
-				diffForEmbedding = content
-			} else {
-				diffForEmbedding = stripDiffMetadata(diffForEmbedding)
+			// Same reasoning as fetchContext above: a diff only covers the
+			// uncommitted hunk, not the whole file --update-baseline needs.
+			diffForEmbedding := content
+			if !e.UpdateBaseline {
+				if diff, err := e.Content.GetDiff(file); err == nil && diff != "" {
+					diffForEmbedding = stripDiffMetadata(diff)
+				}
 			}
 
 			if len(diffForEmbedding) > 6000 {
@@ -365,11 +366,8 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		return fullContent, fullContent, "full", nil
 	}
 
-	// --update-baseline's documented contract (docs/arch/0006) is to capture
-	// every currently-detected violation across the whole file. A diff only
-	// covers the uncommitted-vs-HEAD hunk, so it's never an acceptable
-	// substitute for the full file here, even though it's preferred over
-	// truncation for ordinary checks.
+	// A diff only covers the uncommitted-vs-HEAD hunk, which can't satisfy
+	// --update-baseline's whole-file snapshot contract (docs/arch/0006).
 	if !e.UpdateBaseline {
 		diff, err := e.Content.GetDiff(path)
 		if err == nil && diff != "" {
