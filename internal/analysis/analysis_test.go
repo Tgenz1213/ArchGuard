@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -633,5 +634,68 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 	}
 	if len(engine.CollectedBaseline.Entries) != 0 {
 		t.Fatalf("expected the mismatched entry to be skipped, got %d entries: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
+	}
+}
+
+// TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts that the CI
+// Warn-Open early-return (which exists to avoid failing a *build* on
+// possibly-incomplete context) does not also skip a file's contribution to
+// --update-baseline's collected snapshot. Update-baseline mode never fails
+// the build on a violation, so Warn-Open's protective purpose doesn't apply
+// there -- but the ADR-documented contract for --update-baseline is that it
+// captures "every currently-detected violation", so a truncated file run
+// under --ci must still be analyzed and recorded, not silently dropped.
+func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+		LLM:         config.LLMConfig{MaxTokens: 5}, // small enough that the file below must be truncated
+	}
+	// Padded well past the token budget, with no diff available, so
+	// fetchContext has to truncate it rather than fall back to a diff.
+	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n// content ignored by mock"
+	content := &fallbackOnlyContentProvider{files: map[string]string{
+		"service.py": bigContent,
+	}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, true) // ci=true
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected the truncated file to still be analyzed and recorded under --ci --update-baseline, got %d entries", len(engine.CollectedBaseline.Entries))
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
+	if got != want {
+		t.Errorf("expected entry %+v, got %+v", want, got)
 	}
 }

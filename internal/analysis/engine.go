@@ -144,12 +144,16 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "  Context mode: %s\n", diffMode)
 			}
 
-			if diffMode == "truncated" && e.CI {
+			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
 				fmt.Fprintf(&sb, "  [WARN-OPEN] File %s was truncated for analysis. In CI mode this is treated as a warning (no failure).\n", file)
 				mu.Lock()
 				fmt.Print(sb.String())
 				mu.Unlock()
 				return nil
+			}
+
+			if diffMode == "truncated" && e.UpdateBaseline {
+				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
 			}
 
 			diffForEmbedding, err := e.Content.GetDiff(file)
@@ -361,15 +365,23 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		return fullContent, fullContent, "full", nil
 	}
 
-	diff, err := e.Content.GetDiff(path)
-	if err != nil || diff == "" {
-		truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
-		if err != nil {
-			return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+	// --update-baseline's documented contract (docs/arch/0006) is to capture
+	// every currently-detected violation across the whole file. A diff only
+	// covers the uncommitted-vs-HEAD hunk, so it's never an acceptable
+	// substitute for the full file here, even though it's preferred over
+	// truncation for ordinary checks.
+	if !e.UpdateBaseline {
+		diff, err := e.Content.GetDiff(path)
+		if err == nil && diff != "" {
+			return diff, fullContent, "diff", nil
 		}
-		return truncated, fullContent, "truncated", nil
 	}
-	return diff, fullContent, "diff", nil
+
+	truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
+	if err != nil {
+		return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+	}
+	return truncated, fullContent, "truncated", nil
 }
 
 // truncateToTokenLimit cuts content to at most maxTokens per the

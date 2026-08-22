@@ -20,6 +20,18 @@ func (m *MockTruncationProvider) GetFiles() ([]string, error)            { retur
 func (m *MockTruncationProvider) GetContent(path string) (string, error) { return m.Content, nil }
 func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
 
+// MockDiffCapableProvider is like MockTruncationProvider but returns a
+// non-empty diff, simulating AllProvider.GetDiff's real behavior of
+// returning only the uncommitted-vs-HEAD hunk rather than the whole file.
+type MockDiffCapableProvider struct {
+	Content string
+	Diff    string
+}
+
+func (m *MockDiffCapableProvider) GetFiles() ([]string, error)            { return []string{"test.go"}, nil }
+func (m *MockDiffCapableProvider) GetContent(path string) (string, error) { return m.Content, nil }
+func (m *MockDiffCapableProvider) GetDiff(path string) (string, error)    { return m.Diff, nil }
+
 func TestFetchContext_SmartTruncation(t *testing.T) {
 	longContent := "Line1\nLine2\nLine3"
 
@@ -51,6 +63,38 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	expected := "Line1\n"
 	if content != expected {
 		t.Errorf("Expected content to be rolled back to newline (%q), but got %q", expected, content)
+	}
+}
+
+// TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff asserts
+// fetchContext never falls back to a diff when UpdateBaseline is true,
+// even when one is available and the file exceeds the token budget.
+func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T) {
+	fullContent := "Line1\nLine2\nLine3\nLine4\nLine5\n"
+	// A diff that only touches one line -- nowhere near the whole file.
+	diffHunk := "@@ -3,1 +3,1 @@\n-OldLine3\n+Line3\n"
+
+	cfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxTokens: 4,
+			Model:     "gpt-3.5-turbo",
+		},
+	}
+
+	engine := &Engine{
+		Config:         cfg,
+		Content:        &MockDiffCapableProvider{Content: fullContent, Diff: diffHunk},
+		Provider:       llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		UpdateBaseline: true,
+	}
+
+	_, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	if err != nil {
+		t.Fatalf("fetchContext failed: %v", err)
+	}
+
+	if mode != "truncated" {
+		t.Errorf("expected update-baseline mode to prefer truncation over a partial diff, got mode %q", mode)
 	}
 }
 
