@@ -101,6 +101,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	var (
 		violations       int
 		baselinedCount   int
+		skippedFiles     int
 		collectedEntries []baseline.Entry
 		mu               sync.Mutex
 	)
@@ -132,6 +133,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
 				mu.Lock()
 				fmt.Print(sb.String())
+				skippedFiles++
 				mu.Unlock()
 				return nil
 			}
@@ -170,6 +172,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
 				mu.Lock()
 				fmt.Print(sb.String())
+				skippedFiles++
 				mu.Unlock()
 				return nil
 			}
@@ -307,7 +310,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
 		}
 		e.CollectedBaseline = b
-		e.Info("Baseline scan complete: %d violation(s) recorded.", len(b.Entries))
+		e.Info("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors.", len(b.Entries), skippedFiles)
 		return nil
 	}
 
