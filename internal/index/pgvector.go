@@ -178,11 +178,12 @@ func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	return "remote", nil
 }
 
-// Load verifies the database connection and ensures the tables exist.
-func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
-	ctx := context.Background()
-
-	query := fmt.Sprintf(`
+// ensureSchema creates the archguard_adrs table and HNSW index if they don't
+// exist, and adds the adr_id/scope columns if missing. Both Load and
+// BuildIndex call this -- BuildIndex must be self-sufficient since
+// cli.runIndex calls it without a preceding Load.
+func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
+	createQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
 			id SERIAL PRIMARY KEY,
 			project_name TEXT NOT NULL DEFAULT 'default',
@@ -195,9 +196,48 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 		);
 		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
 	`, dim, hnswIndexName)
+	if _, err := s.pool.Exec(ctx, createQuery); err != nil {
+		return err
+	}
 
-	_, err := s.pool.Exec(ctx, query)
-	return err
+	rows, err := s.pool.Query(ctx, `
+		SELECT column_name FROM information_schema.columns
+		WHERE table_name = 'archguard_adrs' AND column_name IN ('adr_id', 'scope')
+	`)
+	if err != nil {
+		return err
+	}
+	present := make(map[string]bool)
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			rows.Close()
+			return err
+		}
+		present[col] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	var alters []string
+	if !present["adr_id"] {
+		alters = append(alters, "ADD COLUMN IF NOT EXISTS adr_id TEXT")
+	}
+	if !present["scope"] {
+		alters = append(alters, "ADD COLUMN IF NOT EXISTS scope TEXT")
+	}
+	if len(alters) > 0 {
+		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
+		return err
+	}
+	return nil
+}
+
+// Load verifies the database connection and ensures the tables exist.
+func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
+	return s.ensureSchema(context.Background(), dim)
 }
 
 // Save is a no-op for PgStore as data is persisted immediately during BuildIndex.
@@ -207,13 +247,17 @@ func (s *PgStore) Save(path string) error {
 
 // BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
 func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
+	if err := s.ensureSchema(ctx, dim); err != nil {
+		return fmt.Errorf("failed to ensure schema: %w", err)
+	}
+
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return err
 	}
 
 	// Fetch existing ADRs from database for this project
-	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content FROM archguard_adrs WHERE project_name = $1", s.projectName)
+	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, '') FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
 		return fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
@@ -221,24 +265,28 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	existingMap := make(map[string]ADR)
 	for rows.Next() {
-		var relPath, title, status, content string
-		if err := rows.Scan(&relPath, &title, &status, &content); err != nil {
+		var relPath, title, status, content, adrID, scope string
+		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope); err != nil {
 			continue
 		}
 		existingMap[relPath] = ADR{
+			ID:      adrID,
 			Title:   title,
 			Status:  status,
 			Content: content,
+			Scope:   scope,
 		}
 	}
 
 	var adrsToEmbed []int
+	var adrsToSync []int
 	for i, valid := range validADRs {
 		existing, ok := existingMap[valid.RelPath]
-		if ok && existing.Content == valid.Content && existing.Title == valid.Title && existing.Status == valid.Status {
-			// Already embedded and unchanged
-		} else {
+		switch {
+		case !ok || existing.Content != valid.Content || existing.Title != valid.Title || existing.Status != valid.Status:
 			adrsToEmbed = append(adrsToEmbed, i)
+		case existing.ID != valid.ID || existing.Scope != valid.Scope:
+			adrsToSync = append(adrsToSync, i)
 		}
 	}
 
@@ -265,14 +313,16 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 				vec := pgvector.NewVector(emb)
 				_, err = s.pool.Exec(gCtx, `
-					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-					VALUES ($1, $2, $3, $4, $5, $6)
+					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 					ON CONFLICT (project_name, rel_path) DO UPDATE SET
 						title = EXCLUDED.title,
 						status = EXCLUDED.status,
 						content = EXCLUDED.content,
-						embedding = EXCLUDED.embedding
-				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec)
+						embedding = EXCLUDED.embedding,
+						adr_id = EXCLUDED.adr_id,
+						scope = EXCLUDED.scope
+				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
 				if err != nil {
 					return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[idx].RelPath, err)
 				}
@@ -285,6 +335,19 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			return err
 		}
 		fmt.Println()
+	}
+
+	if len(adrsToSync) > 0 {
+		fmt.Printf("Syncing ID/scope metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
+		for _, idx := range adrsToSync {
+			_, err := s.pool.Exec(ctx, `
+				UPDATE archguard_adrs SET adr_id = $1, scope = $2
+				WHERE project_name = $3 AND rel_path = $4
+			`, validADRs[idx].ID, validADRs[idx].Scope, s.projectName, validADRs[idx].RelPath)
+			if err != nil {
+				return fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
+			}
+		}
 	}
 
 	// Delete missing ADRs
@@ -333,7 +396,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
 // query, instead of a copy that could drift.
 const SearchQuery = `
-	SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
+	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, (1 - (embedding <=> $1)) as similarity
 	FROM archguard_adrs
 	WHERE project_name = $2 AND embedding <=> $1 <= $3
 	ORDER BY embedding <=> $1
@@ -360,7 +423,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 	for rows.Next() {
 		var adr ADR
 		var score float64
-		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &score); err != nil {
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &score); err != nil {
 			fmt.Printf("PgStore Row scan failed: %v\n", err)
 			continue
 		}

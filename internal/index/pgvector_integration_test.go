@@ -12,12 +12,16 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/baseline"
+	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
@@ -132,9 +136,10 @@ func TestPgStore_Integration(t *testing.T) {
 	adrContent := `---
 title: "Integration Test ADR"
 status: "Accepted"
+scope: "**/*.go"
 ---
 Test Content`
-	err = os.WriteFile(filepath.Join(tmpDir, "test_adr.md"), []byte(adrContent), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "0001-test-adr.md"), []byte(adrContent), 0644)
 	require.NoError(t, err)
 
 	// 5. Build Index
@@ -156,6 +161,8 @@ Test Content`
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
 		assert.Equal(t, "Accepted", results[0].ADR.Status)
 		assert.Contains(t, results[0].ADR.Content, "Test Content")
+		assert.Equal(t, "0001", results[0].ADR.ID, "ADR ID (derived from the 0001- filename prefix) should round-trip through PgStore")
+		assert.Equal(t, "**/*.go", results[0].ADR.Scope, "ADR scope glob should round-trip through PgStore")
 		// Similarity score should be very high
 		assert.Greater(t, results[0].Score, 0.9)
 	}
@@ -342,4 +349,219 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 	value := showIterativeScan(t, ctx, store)
 	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
 	assert.Equal(t, "off", value, "IterativeScan: false should leave hnsw.iterative_scan at pgvector's default value")
+}
+
+func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// Simulate a legacy row with adr_id/scope still NULL.
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+
+	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, preSyncResults, 1, "Search must still find a row with NULL adr_id/scope columns, not fail the scan")
+	assert.Equal(t, "", preSyncResults[0].ADR.ID, "NULL adr_id should degrade to empty string via COALESCE, not break the scan")
+	assert.Equal(t, "", preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
+
+	tmpDir := t.TempDir()
+	adrContent := "---\ntitle: \"Legacy ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Content"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0007-legacy.md"), []byte(adrContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	output := captureStdout(t, func() {
+		err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, results, 1)
+	assert.Equal(t, "0007", results[0].ADR.ID, "adr_id should be backfilled from NULL by the sync path")
+	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
+}
+
+// TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad reproduces
+// cli.runIndex's call pattern (BuildIndex with no preceding Load) against a
+// table created with the pre-migration schema, to prove BuildIndex can bring
+// its own schema up to date rather than depending on Load having run first.
+func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "legacy_no_load_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Reproduce an existing PgStore user's pre-upgrade table: the original
+	// schema, no adr_id/scope columns, with real indexed data already in it.
+	_, err = store.Pool().Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS archguard_adrs (
+			id SERIAL PRIMARY KEY,
+			project_name TEXT NOT NULL DEFAULT 'default',
+			rel_path TEXT,
+			title TEXT,
+			status TEXT,
+			content TEXT,
+			embedding vector(2),
+			UNIQUE (project_name, rel_path)
+		)
+	`)
+	require.NoError(t, err)
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, "legacy_no_load_project", "0009-legacy.md", "Legacy Pre-Migration ADR", "Accepted", "\nLegacy Pre-Migration Content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+
+	tmpDir := t.TempDir()
+	adrContent := "---\ntitle: \"Legacy Pre-Migration ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Pre-Migration Content"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0009-legacy.md"), []byte(adrContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	// Deliberately skip store.Load() -- this is what broke before BuildIndex
+	// started ensuring its own schema (cli.runIndex never calls Load).
+	err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err, "BuildIndex must create/alter its own schema when Load was never called")
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, results, 1)
+	assert.Equal(t, "0009", results[0].ADR.ID)
+	assert.Equal(t, "**/*.go", results[0].ADR.Scope)
+}
+
+// fakeContentProvider is a minimal analysis.ContentProvider for exercising
+// Engine.Run against a real PgStore without needing git plumbing.
+type fakeContentProvider struct {
+	files map[string]string
+}
+
+func (f *fakeContentProvider) GetFiles() ([]string, error) {
+	names := make([]string, 0, len(f.files))
+	for name := range f.files {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func (f *fakeContentProvider) GetContent(path string) (string, error) {
+	return f.files[path], nil
+}
+
+func (f *fakeContentProvider) GetDiff(path string) (string, error) {
+	return "", nil
+}
+
+// buildTwoADREngineFixture indexes two broadly-matching ADRs ("0001-a.md",
+// "0002-b.md") into a fresh PgStore-backed project and returns an Engine
+// wired to it, a MockProvider that always reports a violation, and the
+// project name -- shared setup for the archguard-ignore and baseline
+// scoping tests below, which both need two ADRs relevant to the same file
+// so suppressing one doesn't accidentally suppress the other.
+func buildTwoADREngineFixture(t *testing.T, ctx context.Context, connStr, projectName, fileContent string) (*analysis.Engine, *index.PgStore) {
+	t.Helper()
+
+	store, err := index.NewPgStore(connStr, projectName, 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	adrDir := t.TempDir()
+	adrA := "---\ntitle: \"ADR A\"\nstatus: \"Accepted\"\n---\nRule A body"
+	adrB := "---\ntitle: \"ADR B\"\nstatus: \"Accepted\"\n---\nRule B body"
+	require.NoError(t, os.WriteFile(filepath.Join(adrDir, "0001-a.md"), []byte(adrA), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(adrDir, "0002-b.md"), []byte(adrB), 0644))
+
+	llmProvider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{0.1, 0.1}, nil
+		},
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": true, "reasoning": "violates", "quoted_code": "bad code"}`, nil
+		},
+	}
+
+	adrProvider := index.NewLocalProvider(adrDir, []string{"Accepted"})
+	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, llmProvider, adrProvider))
+
+	content := &fakeContentProvider{files: map[string]string{"service.go": fileContent}}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	engine := analysis.NewEngine(cfg, store, llmProvider, content, false, false)
+	engine.Cache = nil
+	return engine, store
+}
+
+// TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR proves
+// archguard-ignore against a PgStore-backed index suppresses only the named
+// ADR. Before PgStore persisted adr_id, every hit's ADR.ID was "", collapsing
+// the "archguard-ignore: %s" match to a bare "archguard-ignore: " substring
+// check -- which would suppress both ADRs here, not just the named one.
+func TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	engine, store := buildTwoADREngineFixture(t, ctx, connStr, "engine_ignore_project", "archguard-ignore: 0001\nbad code\n")
+	defer store.Close()
+
+	err := engine.Run(ctx)
+	require.Error(t, err)
+	var driftErr *analysis.DriftDetectedError
+	require.ErrorAs(t, err, &driftErr)
+	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be suppressed by archguard-ignore while ADR B (0002) still surfaces as a violation")
+}
+
+// TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR proves
+// baseline suppression against a PgStore-backed index suppresses only the
+// ADR named in the baseline entry, not every ADR on the file. Before
+// PgStore persisted adr_id, every hit's ADR.ID was "", so a baseline entry
+// meant for one ADR would key-match every ADR on that file.
+func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	engine, store := buildTwoADREngineFixture(t, ctx, connStr, "engine_baseline_project", "bad code\n")
+	defer store.Close()
+
+	b := baseline.New()
+	b.Add("0001", "service.go", "")
+	engine.Baseline = b
+
+	err := engine.Run(ctx)
+	require.Error(t, err)
+	var driftErr *analysis.DriftDetectedError
+	require.ErrorAs(t, err, &driftErr)
+	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be baselined while ADR B (0002) still surfaces as a new violation")
 }
