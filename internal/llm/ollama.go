@@ -26,9 +26,8 @@ func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 	return newOllamaProvider(baseURL, model, embedModel, temperature)
 }
 
-// NewOllamaProviderWithBaseURL initializes the Ollama provider pointed at the
-// given baseURL verbatim, without defaulting an empty value to localhost.
-// This exists so tests can point the provider at an httptest.Server.
+// NewOllamaProviderWithBaseURL is like NewOllamaProvider but never defaults
+// an empty baseURL to localhost, so tests can point it at an httptest.Server.
 func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
 	return newOllamaProvider(baseURL, model, embedModel, temperature)
 }
@@ -79,11 +78,8 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	return content, nil
 }
 
-// embeddingPrefixConventions maps an embedding model name prefix to its
-// asymmetric-retrieval instruction-prefix convention. nomic-embed-text is
-// the only one ArchGuard currently knows about; supporting another local
-// embedding model's convention (e.g. E5's "query: "/"passage: ") is a new
-// entry here, not a new branch in embeddingTaskPrefix.
+// embeddingPrefixConventions maps a model name prefix to its
+// asymmetric-retrieval instruction prefixes; add entries here, not branches.
 var embeddingPrefixConventions = []struct {
 	modelPrefix    string
 	documentPrefix string
@@ -92,14 +88,8 @@ var embeddingPrefixConventions = []struct {
 	{"nomic-embed", "search_document: ", "search_query: "},
 }
 
-// embeddingTaskPrefix returns the configured embed model's asymmetric-
-// retrieval instruction prefix for task, or "" if embedModel doesn't match
-// a known convention -- applying an unrelated model's prefix would just
-// corrupt the embedding with irrelevant tokens.
-//
-// The match is against the model name's last "/"-separated segment, not
-// the raw string, so a registry- or namespace-qualified name (e.g.
-// "my-registry:5000/nomic-embed-text") still matches on "nomic-embed-text".
+// embeddingTaskPrefix returns "" if embedModel matches no known
+// convention, matching against the last "/"-separated name segment.
 func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
 	name := embedModel
 	if i := strings.LastIndex(name, "/"); i != -1 {

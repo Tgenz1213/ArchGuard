@@ -13,10 +13,8 @@ import (
 )
 
 func main() {
-	// testutil.Mock{Chat,Embed}ProviderMarker are printed when a mock's method
-	// is actually invoked, not when the mock is constructed -- so e2e tests
-	// can prove a call was routed to the right provider, not just that both
-	// provider objects were built.
+	// Markers print on invocation, not construction, so tests can prove a
+	// call was routed to the right provider.
 	chatProviderFactory := func(cfg *config.Config) llm.Provider {
 		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 

@@ -18,10 +18,8 @@ const defaultReindexThreshold = 0.20
 
 const hnswIndexName = "archguard_adrs_embedding_idx"
 
-// HNSWOptions controls PgStore's HNSW-related tuning: automatic index
-// maintenance and iterative-scan behavior. Enabled, Concurrently, and
-// IterativeScan are *bool, not bool, because they default to true when
-// unset -- a plain bool's zero value can't represent "unset" vs "explicitly false".
+// HNSWOptions controls PgStore's HNSW tuning. *bool fields default to
+// true when nil -- a plain bool can't distinguish "unset" from "false".
 type HNSWOptions struct {
 	Enabled       *bool    // nil = enabled
 	Threshold     *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
@@ -38,9 +36,8 @@ type PgStore struct {
 	hnsw             HNSWOptions
 }
 
-// IterativeScanSupportedVersion reports whether version (a pgvector
-// extension version string, e.g. "0.8.0") is 0.8.0 or later, the version
-// that introduced the hnsw.iterative_scan GUC.
+// IterativeScanSupportedVersion reports whether version is >= 0.8.0, which
+// introduced the hnsw.iterative_scan GUC.
 func IterativeScanSupportedVersion(version string) bool {
 	parts := strings.SplitN(version, ".", 3)
 	if len(parts) < 1 {
@@ -63,9 +60,8 @@ func IterativeScanSupportedVersion(version string) bool {
 	return minor >= 8
 }
 
-// PgvectorVersionQuery reads the installed pgvector extension's version string,
-// exported so the benchmark's version probe (internal/index/pgvector_bench_test.go)
-// can run the exact same query NewPgStore does, rather than a copy that could drift.
+// PgvectorVersionQuery is exported so pgvector_bench_test.go's version
+// probe stays in sync with NewPgStore's, instead of a copy that could drift.
 const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 
 // NewPgStore initializes a new PgStore connected to the given database URL.
@@ -84,9 +80,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		return nil, fmt.Errorf("failed to create vector extension: %w", err)
 	}
 
-	// Probe the installed pgvector version to decide whether
-	// hnsw.iterative_scan (0.8.0+) can safely be applied. A query error here
-	// is treated as unsupported (fail-safe) rather than failing NewPgStore.
+	// A query error here is treated as unsupported, not a fatal error.
 	var pgvectorVersion string
 	versionErr := tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&pgvectorVersion)
 	_ = tempConn.Close(ctx)
@@ -336,9 +330,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	return nil
 }
 
-// SearchQuery is PgStore.Search's query text, exported so the benchmark's HNSW-usage
-// guard (internal/index/pgvector_bench_test.go) can EXPLAIN the exact same query
-// Search runs, rather than a copy that could silently drift out of sync.
+// SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
+// query, instead of a copy that could drift.
 const SearchQuery = `
 	SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
 	FROM archguard_adrs

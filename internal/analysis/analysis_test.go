@@ -95,10 +95,8 @@ func TestDriftDetection(t *testing.T) {
 	}
 }
 
-// TestRun_EmbedsFileContentAsQuery asserts Run embeds the file's
-// diff/code content with EmbeddingTaskQuery, so a provider capable of
-// asymmetric retrieval (e.g. Gemini) searches with it rather than indexing
-// it as a document.
+// TestRun_EmbedsFileContentAsQuery asserts Run embeds with
+// EmbeddingTaskQuery, not EmbeddingTaskDocument.
 func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	var gotTask llm.EmbeddingTaskType
 	provider := &llm.MockProvider{
@@ -162,12 +160,8 @@ func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
 	return "", nil
 }
 
-// TestRun_NeverStripsFallbackContent asserts Run only ever runs
-// stripDiffMetadata on text that actually came from GetDiff, never on the
-// whole-file-content fallback -- even when that fallback content happens to
-// look diff-shaped (e.g. a doc file with an example diff transcript).
-// Stripping fallback content on a heuristic match would corrupt real file
-// content that only coincidentally resembles a diff.
+// TestRun_NeverStripsFallbackContent asserts stripDiffMetadata never runs
+// on whole-file fallback content, even when it looks diff-shaped.
 func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	diffLookalike := "diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n real content that must survive untouched\n more real content"
 
@@ -200,9 +194,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 }
 
 // TestRun_UsesEmbedProviderWhenSet asserts Run embeds via EmbedProvider,
-// not Provider, when EmbedProvider is set -- the mechanism that lets a
-// chat-only provider (e.g. Claude) pair with a separate embedding
-// provider.
+// not Provider, when EmbedProvider is set.
 func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 	chatCalled := false
 	chatProvider := &llm.MockProvider{

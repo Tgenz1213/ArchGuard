@@ -34,8 +34,7 @@ const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
 
 // ProviderFactories are test injection points for Execute (zero value in
-// production). A named struct rather than two same-typed params, so a
-// caller can't silently swap the chat/embed roles.
+// production).
 type ProviderFactories struct {
 	Chat  func(*config.Config) llm.Provider
 	Embed func(*config.Config) llm.Provider
@@ -144,13 +143,8 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	return runIndex(context.Background(), cfg, embedProvider, indexFile)
 }
 
-// validateProviderConfig checks provider-related config invariants that
-// can't be expressed in the YAML schema itself. Claude has no embeddings
-// API, so vector_store.provider must name a different, embedding-capable
-// provider explicitly -- there's no safe default to fall back to -- and
-// can never itself be "claude". Voyage is the mirror-image case: it has
-// no chat API at all, so it can never be llm.provider, regardless of
-// vector_store.provider.
+// validateProviderConfig checks provider-related config invariants the
+// YAML schema itself can't express (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
 func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
 		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
@@ -164,17 +158,8 @@ func validateProviderConfig(cfg *config.Config) error {
 	return nil
 }
 
-// resolveEmbedProvider determines which provider name and API key to use
-// for the embedding provider, given the already-resolved chat provider's
-// name (cfg.LLM.Provider) and API key. reuse is true when the embedding
-// provider is the same as the chat provider -- callers should reuse the
-// already-constructed chat provider instance directly rather than build a
-// second one. When reuse is false, apiKey is always embedEnvKey, NEVER
-// chatAPIKey: embedProviderName only differs from cfg.LLM.Provider when
-// this branch is taken, which always means a different vendor, and a
-// credential should never cross a vendor boundary. This is the fix for the
-// bug in commit fee5a7c, where a missing ARCHGUARD_EMBEDDING_API_KEY used
-// to silently fall back to the chat provider's key.
+// resolveEmbedProvider picks the embed provider's name and API key.
+// apiKey is embedEnvKey whenever reuse is false -- never chatAPIKey.
 func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (name, apiKey string, reuse bool) {
 	name = cfg.VectorStore.Provider
 	if name == "" {
@@ -186,11 +171,8 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 	return name, embedEnvKey, false
 }
 
-// resolveEmbedProviderInstance picks the embed-role provider for the mock
-// injection path, given the already-constructed chat provider and cfg's
-// reuse decision. Errors instead of silently reusing chatProvider when the
-// roles need different providers but embedFactory is nil -- mirrors the
-// real path's fail-fast behavior.
+// resolveEmbedProviderInstance is resolveEmbedProvider's mock-injection
+// counterpart; errors instead of silently reusing chatProvider when needed.
 func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider, embedFactory func(*config.Config) llm.Provider) (llm.Provider, error) {
 	_, _, reuse := resolveEmbedProvider(cfg, "", "")
 	switch {
@@ -203,10 +185,8 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	}
 }
 
-// buildProvider constructs the llm.Provider named by name, using apiKey for
-// providers that need one. It's called once for the chat provider
-// (llm.provider) and, when vector_store.provider names a different
-// provider, once more for the embedding provider.
+// buildProvider constructs the llm.Provider named by name, using apiKey
+// for providers that need one.
 func buildProvider(name, apiKey string, cfg *config.Config) (llm.Provider, error) {
 	switch name {
 	case "openai":

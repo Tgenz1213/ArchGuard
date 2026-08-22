@@ -21,11 +21,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
-		// Validate request body. Field names here match the genai SDK's wire
-		// format (camelCase, e.g. "responseMimeType"), which is the real
-		// Gemini REST API's canonical JSON schema; the previous hand-rolled
-		// client used the snake_case alias "response_mime_type", which the
-		// live API also accepts but the SDK does not emit.
+		// Field names match the genai SDK's camelCase wire format.
 		var reqBody struct {
 			Contents []struct {
 				Parts []struct {
@@ -110,14 +106,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 }
 
 func TestGeminiProvider_CreateEmbedding(t *testing.T) {
-	// The genai SDK always calls Gemini's ":batchEmbedContents" endpoint for
-	// embeddings on the Gemini Developer API backend (confirmed by reading
-	// google.golang.org/genai's Models.embedContent and by capturing the
-	// actual outgoing request against a local httptest.Server) -- there is
-	// no SDK option to route a single embedding through the older singular
-	// ":embedContent" endpoint that the hand-rolled client used. The request
-	// is therefore a "requests" envelope and the response uses the plural
-	// "embeddings" key, both wrapping the same single-item shape as before.
+	// genai always calls ":batchEmbedContents", never the singular endpoint.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST method, got %s", r.Method)

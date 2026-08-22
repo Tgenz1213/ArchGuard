@@ -126,12 +126,8 @@ func TestResolveEmbedProvider_DifferentProviderUsesEmbedKey(t *testing.T) {
 	}
 }
 
-// TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey is the
-// regression guard for the credential-leak bug fixed in commit fee5a7c:
-// when the embed provider differs from the chat provider and the embed
-// API key env var is unset, the chat provider's key must NEVER be used as
-// a substitute -- that would send one vendor's credential to a different
-// vendor's API.
+// TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey asserts
+// an unset embed API key never falls back to the chat provider's key.
 func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "claude"},

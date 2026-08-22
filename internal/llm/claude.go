@@ -11,9 +11,7 @@ import (
 
 const claudeBaseURL = "https://api.anthropic.com"
 
-// claudeMaxResponseTokens bounds Claude's generated response. ArchGuard's
-// prompts (internal/llm/llm.go's ChatPrompt) always ask for a short JSON
-// object, so a fixed budget -- not a config field -- is sufficient.
+// claudeMaxResponseTokens is fixed, not configurable: prompts always ask for a short JSON object.
 const claudeMaxResponseTokens = 1024
 
 type ClaudeProvider struct {
@@ -27,10 +25,7 @@ func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
 	return NewClaudeProviderWithBaseURL(apiKey, model, claudeBaseURL, &http.Client{})
 }
 
-// NewClaudeProviderWithBaseURL constructs a ClaudeProvider pointed at a
-// custom base URL using a custom HTTP client. This exists primarily so
-// tests can inject an httptest.Server instead of hitting the real
-// Anthropic API.
+// NewClaudeProviderWithBaseURL lets tests inject an httptest.Server.
 func NewClaudeProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.Client) *ClaudeProvider {
 	client := anthropic.NewClient(
 		option.WithAPIKey(apiKey),
@@ -63,11 +58,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 	return "", fmt.Errorf("claude returned no text content")
 }
 
-// CreateEmbedding always fails: Anthropic has no embeddings API. Callers
-// must configure vector_store.provider to a different, embedding-capable
-// provider -- see docs/arch/0004-decoupled-chat-and-embedding-providers.md
-// and internal/cli.validateProviderConfig, which enforces this at config
-// load time so this path should be unreachable in practice.
+// CreateEmbedding always fails: Anthropic has no embeddings API (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
 func (p *ClaudeProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	return nil, fmt.Errorf("ClaudeProvider does not support embeddings: Claude has no embeddings API; configure vector_store.provider to an embedding-capable provider (openai, ollama, gemini, or voyage)")
 }

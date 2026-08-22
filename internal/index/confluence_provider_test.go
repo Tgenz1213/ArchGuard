@@ -145,10 +145,7 @@ Content 2</p>`
 }
 
 func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
-	// Real Confluence storage format renders each line of a page as its own
-	// block element, unlike the other fixtures in this file (which embed
-	// literal newlines inside a single <p> and would pass even with a naive
-	// HTML-to-text conversion that doesn't reconstruct block boundaries).
+	// Real storage format: one <p> per line, unlike this file's other fixtures.
 	html := `<p>---</p><p>title: Use Go</p><p>status: Accepted</p><p>scope: "**/*.go"</p><p>---</p><p>We will use Go for all services.</p>`
 
 	raw := extractRawText(html)

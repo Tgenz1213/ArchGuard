@@ -20,10 +20,8 @@ type AnalysisResult struct {
 	QuotedCode string `json:"quoted_code"`
 }
 
-// EmbeddingTaskType distinguishes why an embedding is being created, so a
-// provider capable of asymmetric retrieval (e.g. Gemini's TaskType) can
-// return a vector tuned for that specific role rather than one general-
-// purpose embedding.
+// EmbeddingTaskType distinguishes why an embedding is being created, so an
+// asymmetric-retrieval-capable provider can tune the vector for that role.
 type EmbeddingTaskType int
 
 const (
@@ -35,10 +33,8 @@ const (
 	EmbeddingTaskQuery
 )
 
-// Pick returns document if t is EmbeddingTaskDocument, or query if t is
-// EmbeddingTaskQuery. Providers use it to map the task role onto their own
-// backend's document/query convention (an API parameter, a text prefix,
-// etc.) without each repeating the same two-way branch.
+// Pick returns document or query depending on t, so providers can map the
+// task role onto their own backend's convention in one line.
 func (t EmbeddingTaskType) Pick(document, query string) string {
 	if t == EmbeddingTaskQuery {
 		return query
@@ -52,10 +48,7 @@ type Provider interface {
 	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
 	Chat(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 
-	// CountTokens returns the number of tokens `text` would consume for
-	// this provider's configured model. Each provider counts using
-	// whatever mechanism actually reflects its own model's tokenizer —
-	// see individual implementations for details.
+	// CountTokens uses each provider's own tokenizer, not a shared one.
 	CountTokens(ctx context.Context, text string) (int, error)
 }
 

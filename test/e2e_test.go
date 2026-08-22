@@ -42,10 +42,7 @@ var (
 	sharedBinaryErr  error
 )
 
-// TestMain builds the archguard-e2e binary once and cleans it up after the
-// whole package's tests finish -- the binary is stateless, so every test
-// sharing one build (instead of each building its own) cuts the package's
-// build cost from N `go build` invocations to 1.
+// TestMain builds the archguard-e2e binary once, shared by every test.
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if sharedBinaryPath != "" {
@@ -89,9 +86,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 }
 
 // buildE2EBinary creates an isolated git repo temp dir (archguard requires
-// running inside one) and returns it plus the path to the shared,
-// once-built archguard-e2e binary. Each test gets its own repo so tests
-// don't interfere with each other.
+// one) and returns it plus the shared archguard-e2e binary's path.
 func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 	t.Helper()
 
@@ -129,8 +124,7 @@ func writeNoSecretsADR(t *testing.T, dir string) {
 	}
 }
 
-// violationFixtureContent returns JS source containing
-// testutil.MockViolationTrigger, tripping the mock chat provider's
+// violationFixtureContent returns JS source that trips the mock provider's
 // violation detection.
 func violationFixtureContent() string {
 	return fmt.Sprintf(`
@@ -360,9 +354,7 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectedExitCode int
 	t.Fatalf("runCheck failed after %d retries: %v", maxRetries, lastErr)
 }
 
-// runCheckCapture is runCheck but returns output with no retry -- the
-// dual-provider suite's mocks are fully deterministic, so a mismatch there
-// is a real failure, not flakiness.
+// runCheckCapture is runCheck but with no retry -- callers are deterministic.
 func runCheckCapture(t *testing.T, dir, binaryPath, target string, expectedExitCode int) string {
 	t.Helper()
 

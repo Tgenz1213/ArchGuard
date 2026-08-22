@@ -25,9 +25,7 @@ func NewOpenAIProvider(apiKey, model, embedModel string) *OpenAIProvider {
 	return NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, openAIBaseURL, &http.Client{})
 }
 
-// NewOpenAIProviderWithBaseURL constructs an OpenAIProvider pointed at a
-// custom base URL using a custom HTTP client. This exists primarily so tests
-// can inject an httptest.Server instead of hitting the real OpenAI API.
+// NewOpenAIProviderWithBaseURL lets tests inject an httptest.Server.
 func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, httpClient *http.Client) *OpenAIProvider {
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
