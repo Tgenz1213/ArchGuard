@@ -150,13 +150,8 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	return allADRs, nil
 }
 
-// extractRawText strips HTML tags from a string using goquery to produce a
-// clean, raw string for frontmatter parsing. Confluence's storage format
-// renders each line of a page as its own block element (e.g. one <p> per
-// line), so a newline is inserted after every br/p/div element before text
-// extraction -- otherwise goquery's Text() would concatenate all lines
-// together with no separator, and the YAML frontmatter block would no
-// longer parse.
+// extractRawText strips HTML tags via goquery, inserting a newline after
+// each br/p/div first so lines don't get concatenated together.
 func extractRawText(htmlContent string) string {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {

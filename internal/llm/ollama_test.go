@@ -71,11 +71,8 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-// TestOllamaProvider_CreateEmbedding_NomicTaskPrefix asserts the
-// search_query:/search_document: prefix is applied only for a
-// nomic-embed-text embedding model, and only with the prefix matching the
-// requested task role -- gated so it doesn't corrupt embeddings for any
-// other Ollama embedding model, which has no such text convention.
+// TestOllamaProvider_CreateEmbedding_NomicTaskPrefix asserts the nomic
+// search_query:/search_document: prefix is gated to nomic-embed-text models.
 func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -128,10 +125,7 @@ func TestNewOllamaProvider_DefaultsBaseURL(t *testing.T) {
 
 func TestOllamaProvider_CountTokens(t *testing.T) {
 	const representativeString = "Hello, world!"
-	// Ollama's own tokenizer, not cl100k_base, produces this count: 5 tokens
-	// for "Hello, world!" under llama3.2, vs. cl100k_base's 4. Captured from
-	// a real local `llama3.2` server via /api/generate with num_predict:1.
-	const realPromptEvalCount = 5
+	const realPromptEvalCount = 5 // llama3.2's real tokenizer count, captured live
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/generate" {

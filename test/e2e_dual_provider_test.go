@@ -15,10 +15,8 @@ const (
 	embedProviderMarker = testutil.MockEmbedProviderMarker
 )
 
-// Drives index+check against differing llm.provider/vector_store.provider
-// names, asserting via stdout markers -- printed when a mock method is
-// actually invoked, not when the provider is constructed -- that index
-// only ever calls the embed mock and check calls both.
+// Asserts, via stdout markers, that index only calls the embed mock while
+// check calls both, when llm.provider and vector_store.provider differ.
 func TestE2E_DualProvider_IndexAndCheckUseDistinctProviders(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 

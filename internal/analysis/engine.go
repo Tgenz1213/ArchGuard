@@ -23,10 +23,8 @@ type Engine struct {
 	// Provider handles Chat and CountTokens. It also handles CreateEmbedding
 	// unless EmbedProvider is set.
 	Provider llm.Provider
-	// EmbedProvider, if set, handles CreateEmbedding instead of Provider --
-	// for a chat-only provider (e.g. Claude, which has no embeddings API)
-	// paired with a separate embedding provider. See
-	// docs/arch/0004-decoupled-chat-and-embedding-providers.md.
+	// EmbedProvider, if set, handles CreateEmbedding instead of Provider.
+	// See docs/arch/0004-decoupled-chat-and-embedding-providers.md.
 	EmbedProvider llm.Provider
 	Content       ContentProvider
 	Debug         bool
@@ -297,22 +295,8 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (string, string,
 	return diff, "diff", nil
 }
 
-// truncateToTokenLimit cuts content down to at most maxTokens tokens,
-// according to the provider's own CountTokens. It can't rely on
-// encode/decode (only tiktoken supports that): instead it estimates a
-// byte cutoff from the content's average bytes-per-token ratio, then
-// verifies and shrinks that estimate via CountTokens, then rolls back to
-// the nearest preceding newline so truncated files don't end mid-line.
-//
-// The average-density estimate converges in one or two calls when token
-// density is roughly uniform, but can be a poor local predictor for
-// content with a highly non-uniform density (e.g. a mostly-ASCII file
-// ending in a dense CJK or base64 block), so a bounded proportional
-// shrink alone isn't guaranteed to converge. Below that, an unconditional
-// halving shrink guarantees termination -- integer halving strictly
-// decreases the cut toward 0 -- so the returned content's token count is
-// always <= maxTokens (down to the edge case of an empty result, 0
-// tokens), not just a best-effort bound.
+// truncateToTokenLimit cuts content to at most maxTokens per the
+// provider's own CountTokens, then rolls back to the nearest newline.
 func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, totalTokens, maxTokens int) (string, error) {
 	bytesPerToken := float64(len(content)) / float64(totalTokens)
 	cut := clampRuneBoundary(content, int(float64(maxTokens)*bytesPerToken))
@@ -385,36 +369,8 @@ func rollBackToNewline(s string) string {
 	return s
 }
 
-// stripDiffMetadata strips unified diff patch metadata (the diff --git/
-// index/---/+++ preamble and @@ hunk headers) and the leading +/-/space
-// marker from each hunk line, leaving the underlying code content -- so an
-// embedding compares actual code, not patch syntax, against ADR prose.
-//
-// Input with no @@ hunk header is passed through unchanged rather than
-// stripped line-by-line: that's the signal this isn't diff-shaped (e.g. it's
-// whole-file content used as a fallback when there's no diff), and
-// unconditionally stripping a leading space from every line would corrupt
-// ordinary indented code.
-//
-// Everything before the first @@ is preamble and is dropped unconditionally,
-// rather than matched line-by-line against "index "/"--- "/"+++ " prefixes:
-// those prefixes can also occur as the first bytes of a genuine hunk line
-// (marker + content), e.g. a removed SQL/Lua-style "-- comment" line
-// becomes "--- comment" once the '-' marker is prepended. Re-checking for
-// header prefixes after the hunk has started would misclassify that as the
-// "--- a/file" header and silently drop it and every line after it.
-//
-// This function assumes s is a single-file diff, matching internal/git's
-// only diff-producing calls (`git diff --unified=100 -- <one path>`), which
-// is the only diff shape ArchGuard ever generates -- ADR scope matching,
-// suppression comments, caching, and violation-line reporting are all
-// file-scoped throughout the codebase, so mixing multiple files' diffs into
-// one embedding isn't a design goal. A "diff --git " line reached mid-hunk
-// still resets back to preamble (rather than being treated as hunk content
-// like other header-shaped lines) purely as defense-in-depth: unlike the
-// 4-character "--- "/"+++ " prefixes, "diff --git " is long and specific
-// enough that a real code line coincidentally starting with it is not a
-// realistic risk.
+// stripDiffMetadata strips unified-diff markup, leaving only code content,
+// so an embedding compares code against ADR prose, not patch syntax.
 func stripDiffMetadata(s string) string {
 	if !isUnifiedDiff(s) {
 		return s
@@ -449,14 +405,8 @@ func stripDiffMetadata(s string) string {
 // "@@ -12,7 +12,8 @@" (optionally followed by trailing function context).
 var hunkHeaderPattern = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
 
-// isUnifiedDiff reports whether s looks like a real unified diff rather
-// than ordinary content that happens to contain a line starting with "@@"
-// (e.g. documentation with an example hunk header). It requires both a
-// "diff --git" header and a properly shaped hunk header -- internal/git's
-// GetDiff (ArchGuard's only source of diff text, via `git diff ... --
-// path`) always emits both together, so requiring both catches every real
-// diff while making a false-positive match on unrelated content very
-// unlikely.
+// isUnifiedDiff reports whether s looks like a real diff, not just content
+// that happens to contain an "@@" line (e.g. a doc with an example hunk).
 func isUnifiedDiff(s string) bool {
 	hasGitHeader := strings.Contains("\n"+s, "\ndiff --git ")
 	return hasGitHeader && hunkHeaderPattern.MatchString(s)

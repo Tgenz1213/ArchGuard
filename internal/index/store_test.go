@@ -103,8 +103,7 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 }
 
 // TestLocalStore_BuildIndex_UsesDocumentTaskType asserts BuildIndex embeds
-// ADR content with EmbeddingTaskDocument, so a provider capable of
-// asymmetric retrieval (e.g. Gemini) indexes it as a document, not a query.
+// ADR content with EmbeddingTaskDocument, not EmbeddingTaskQuery.
 func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},

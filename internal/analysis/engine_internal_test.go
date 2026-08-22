@@ -20,12 +20,6 @@ func (m *MockTruncationProvider) GetContent(path string) (string, error) { retur
 func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
 
 func TestFetchContext_SmartTruncation(t *testing.T) {
-	// A long string with newlines.
-	// We want enough tokens so that MaxTokens=5 cuts it off.
-	// "Line1" -> ~2 tokens
-	// "\n" -> 1 token
-	// "Line2" -> ~2 tokens
-	// "Line3"
 	longContent := "Line1\nLine2\nLine3"
 
 	cfg := &config.Config{
@@ -59,16 +53,10 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	}
 }
 
-// TestFetchContext_NonOpenAI_UsesProviderTokenCount asserts truncation for
-// a non-OpenAI provider is driven by that provider's own CountTokens, not
-// by tiktoken's cl100k_base fallback. The mock provider here counts
-// tokens completely differently from tiktoken (1 token per 2 bytes, vs.
-// cl100k_base's real BPE), so if the engine were still silently using
-// tiktoken under the hood, this test's truncation boundary would land
-// somewhere else and the assertion below would fail.
+// TestFetchContext_NonOpenAI_UsesProviderTokenCount asserts truncation
+// uses the provider's own CountTokens, not a hardcoded tiktoken fallback.
 func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
-	// 20 bytes: "AAAAAAAAAA\nBBBBBBBBB" -> mock counts 1 token per 2 bytes = 10 tokens total.
-	content := "AAAAAAAAAA\nBBBBBBBBB"
+	content := "AAAAAAAAAA\nBBBBBBBBB" // mock counts 1 token/2 bytes = 10 tokens
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
@@ -97,18 +85,14 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	if mode != "truncated" {
 		t.Fatalf("expected mode truncated, got %s", mode)
 	}
-	// MaxTokens=5 * 2 bytes/token = 10 bytes -> "AAAAAAAAAA" (exactly 10
-	// bytes, no newline yet) -> no preceding newline to roll back to, so
-	// content is returned as-is at the 10-byte boundary.
-	expected := "AAAAAAAAAA"
+	expected := "AAAAAAAAAA" // exactly at the byte cutoff, no newline to roll back to
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
 }
 
-// TestFetchContext_CountTokensError_PropagatesLoudly asserts that if the
-// provider can't produce a token count, fetchContext returns an error
-// instead of silently falling back to a length-based heuristic.
+// TestFetchContext_CountTokensError_PropagatesLoudly asserts a CountTokens
+// failure returns an error instead of falling back to a length heuristic.
 func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
@@ -136,28 +120,13 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	}
 }
 
-// TestFetchContext_TruncationGuaranteesTokenBudget asserts that
-// truncateToTokenLimit guarantees the returned content's token count (per
-// Provider.CountTokens) never exceeds maxTokens, even when the
-// whole-content bytesPerToken average is a poor predictor of local
-// density.
-//
-// This mock provider counts only the last min(len(text), denseWindow)
-// bytes as "expensive" (1 token/byte within that window); anything beyond
-// that window is free. So any candidate that still reaches into the dense
-// window costs ~denseWindow tokens almost no matter how much of the much
-// larger cheap prefix is trimmed off. maxTokens is set to denseWindow-1, so
-// the proportional-shrink ratio (maxTokens/denseWindow) is so close to 1
-// that scaling the cut by that ratio alone would need thousands of
-// iterations to work the cut down below the dense window -- far more than
-// a small bounded number of proportional attempts allows. The guarantee
-// only holds if a halving fallback kicks in afterward and keeps shrinking,
-// unconditionally, until the measured count actually fits.
+// TestFetchContext_TruncationGuaranteesTokenBudget asserts truncation
+// always converges to maxTokens, even against non-uniform token density.
 func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	const denseWindow = 1000
-	const maxTokens = denseWindow - 1 // 999: proportional ratio ~0.999, deliberately near 1
+	const maxTokens = denseWindow - 1
 
-	content := strings.Repeat("x", 100_000) // 100x the dense window; all cheap bytes
+	content := strings.Repeat("x", 100_000)
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
@@ -206,9 +175,8 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 }
 
-// diffHeaderLines returns the diff --git/index/---/+++ preamble lines git
-// emits before a file's first hunk, so test fixtures below only need to
-// spell out the part that's actually interesting: the hunk body.
+// diffHeaderLines returns the diff --git preamble lines so fixtures below
+// only need to spell out the interesting part: the hunk body.
 func diffHeaderLines(file string) []string {
 	return []string{
 		"diff --git a/" + file + " b/" + file,
@@ -258,10 +226,8 @@ func TestStripDiffMetadata(t *testing.T) {
 	}...), "\n")
 	wantNoNewline := strings.Join([]string{"old", "new"}, "\n")
 
-	// A removed line whose real source content starts with "-- " (a SQL/
-	// Lua/Haskell-style comment marker) becomes "--- ..." once git
-	// prepends the '-' diff marker -- colliding with the "--- a/file"
-	// header prefix. Regression test for that marker/header collision.
+	// A removed "-- comment" line becomes "--- comment", colliding with
+	// the "--- a/file" header prefix.
 	markerCollisionDiff := strings.Join(append(diffHeaderLines("query.sql"), []string{
 		"@@ -1,3 +1,4 @@",
 		" SELECT 1;",
@@ -276,10 +242,8 @@ func TestStripDiffMetadata(t *testing.T) {
 		"trailing context;",
 	}, "\n")
 
-	// ArchGuard never produces multi-file diffs (internal/git always
-	// diffs a single path), but stripDiffMetadata defends against one
-	// anyway: a second file's preamble must reset out of hunk mode, not
-	// be corrupted by 1-byte stripping like ordinary hunk content.
+	// A second file's preamble must reset out of hunk mode, not get
+	// corrupted by 1-byte stripping like ordinary hunk content.
 	multiFileDiff := strings.Join(append(
 		append(diffHeaderLines("file1.go"), "@@ -1,1 +1,1 @@", "+func f1() {}"),
 		append(diffHeaderLines("file2.go"), "@@ -1,1 +1,1 @@", "+func f2() {}")...,
@@ -294,11 +258,8 @@ func TestStripDiffMetadata(t *testing.T) {
 		"}",
 	}, "\n")
 
-	// A doc file that happens to contain a bare "@@..." line (e.g.
-	// documenting this very stripping behavior with an example hunk
-	// header) but no real "diff --git" header. Must not be misclassified
-	// as a diff -- stripping this would corrupt every following line by
-	// chopping off its first character.
+	// A bare "@@..." line with no "diff --git" header must not be
+	// misclassified as a diff.
 	docWithBareHunkLookalike := strings.Join([]string{
 		"# Example",
 		"@@ -1,3 +1,4 @@",
@@ -437,9 +398,8 @@ func TestRollBackToNewline(t *testing.T) {
 	}
 }
 
-// TestEmbeddingTruncation_MultiByteBoundary asserts the diffForEmbedding
-// truncation site (6000-byte limit) never splits a multi-byte UTF-8 rune,
-// using content engineered so a raw byte cut at 6000 would land mid-rune.
+// TestEmbeddingTruncation_MultiByteBoundary asserts the 6000-byte
+// embedding truncation never splits a multi-byte UTF-8 rune.
 func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
 	const limit = 6000
 	prefix := strings.Repeat("x", limit-2) + "\n"
@@ -458,10 +418,8 @@ func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
 	}
 }
 
-// TestIgnoreHeaderTruncation_MultiByteBoundary asserts the archguard-ignore
-// header truncation site (2000-byte limit) never splits a multi-byte UTF-8
-// rune, using content engineered so a raw byte cut at 2000 would land
-// mid-rune.
+// TestIgnoreHeaderTruncation_MultiByteBoundary asserts the 2000-byte
+// archguard-ignore header truncation never splits a multi-byte UTF-8 rune.
 func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
 	const limit = 2000
 	content := strings.Repeat("x", limit-2) + "日本語" + strings.Repeat("y", 100)

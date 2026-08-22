@@ -29,14 +29,8 @@ func NewGeminiProvider(apiKey, model, embedModel string) *GeminiProvider {
 	}
 }
 
-// errorCapturingTransport wraps an http.RoundTripper and remembers the
-// status line and raw body of the most recent non-2xx response it saw. The
-// genai SDK's own error type (genai.APIError) discards the HTTP status text
-// and raw body whenever the response happens to parse as JSON with an
-// "error" object (even if that object's "message" is empty), so we capture
-// the response ourselves to preserve GeminiProvider's error-message
-// contract: callers get both the HTTP status and whatever error detail the
-// server sent, structured or not.
+// errorCapturingTransport remembers the status line and raw body of the
+// last non-2xx response, since genai.APIError sometimes discards both.
 type errorCapturingTransport struct {
 	base       http.RoundTripper
 	lastStatus string
@@ -63,11 +57,8 @@ func (t *errorCapturingTransport) RoundTrip(req *http.Request) (*http.Response, 
 	return resp, nil
 }
 
-// newClient builds a genai.Client scoped to a single request/response cycle,
-// configured from the provider's apiKey/baseURL/client fields. Building it
-// per-call (rather than baking it into NewGeminiProvider) is what lets
-// gemini_test.go construct &GeminiProvider{baseURL: server.URL, client:
-// server.Client()} directly and have it work against an httptest.Server.
+// newClient builds a genai.Client per call (not in NewGeminiProvider) so
+// tests can construct &GeminiProvider{baseURL: server.URL} directly.
 func (p *GeminiProvider) newClient(ctx context.Context) (*genai.Client, *errorCapturingTransport, error) {
 	httpClient := p.client
 	if httpClient == nil {
@@ -98,10 +89,7 @@ func (p *GeminiProvider) newClient(ctx context.Context) (*genai.Client, *errorCa
 	return client, transport, err
 }
 
-// apiError turns a failed SDK call into an error that preserves the
-// provider's historical contract: include the HTTP status line, and prefer
-// a structured "error.message" from the response body when present,
-// otherwise fall back to the raw body.
+// apiError prefers the captured HTTP status/body over the SDK's own error.
 func (p *GeminiProvider) apiError(err error, transport *errorCapturingTransport) error {
 	if transport != nil && transport.lastStatus != "" {
 		return buildAPIError(transport.lastStatus, transport.lastBody)

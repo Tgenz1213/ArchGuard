@@ -146,9 +146,8 @@ func newBenchAdminPool(tb testing.TB, ctx context.Context, connStr string) *pgxp
 	return pool
 }
 
-// groundTruthQuery is the single source of truth for the ground-truth SELECT text, consumed by
-// both groundTruthSearch and assertGroundTruthAvoidsIndexScan so the guard can't silently drift
-// out of sync with the query it's meant to be checking.
+// groundTruthQuery is shared by groundTruthSearch and its EXPLAIN guard so
+// the two can't silently drift apart.
 const groundTruthQuery = `
 	SELECT rel_path
 	FROM archguard_adrs
@@ -165,10 +164,8 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// SET LOCAL, not relying on session defaults: Task 6 sets enable_seqscan/enable_sort
-	// off at the role level so PgStore.Search is forced onto the HNSW index, so this
-	// query must explicitly restore them within its own transaction to stay a true
-	// seqscan-forced ground truth regardless of that ambient state.
+	// SET LOCAL: must override the role-level seqscan-off setting used
+	// elsewhere to force PgStore.Search onto the HNSW index.
 	for _, stmt := range []string{
 		"SET LOCAL enable_seqscan = on",
 		"SET LOCAL enable_sort = on",
@@ -334,11 +331,8 @@ var benchScalePoints = []scalePoint{
 	{"50proj_100adrs", 50, 100},
 }
 
-// BenchmarkPgStoreSearch_ProjectFiltering measures Search's recall and latency across a multi-project scale sweep (issue #44).
-//
-// Must run with -benchtime=1x: it repeats internally per scale point, not via b.N.
-//
-//	go test -bench=BenchmarkPgStoreSearch_ProjectFiltering -run ^$ -benchtime=1x -v ./internal/index
+// BenchmarkPgStoreSearch_ProjectFiltering measures Search's recall/latency
+// across a scale sweep (issue #44). Run with -benchtime=1x; see CLAUDE.md.
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
 	connStr := setupPgContainer(b, ctx)
@@ -354,10 +348,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	require.NoError(b, err)
 	b.Logf("pgvector extension version: %s (iterative index scans available: %v)", pgvectorVersion, iterativeAvailable)
 
-	// At this table size the planner naturally prefers the (project_name, rel_path)
-	// btree + an explicit sort over the HNSW index. Forcing these off at the role level
-	// (new connections inherit it) makes the measured path actually exercise HNSW --
-	// without this, recall is trivially 100% by construction (see assertUsesHNSWIndex).
+	// Forces the role off the btree/sort plan so Search actually exercises HNSW.
 	for _, stmt := range []string{
 		"ALTER ROLE postgres SET enable_seqscan = off",
 		"ALTER ROLE postgres SET enable_bitmapscan = off",
@@ -444,11 +435,8 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	})
 }
 
-// assertUsesHNSWIndex fails loudly if the measured query's plan doesn't use the HNSW index.
-// Opens its own fresh connection (not the shared pool, no SET LOCAL overrides) so it inherits
-// whatever ambient role-level GUC state PgStore.Search's own connections would see -- a version
-// that forced its own GUCs here previously passed even when the role-level fix was disabled and
-// every measured query had silently reverted to brute-force KNN.
+// assertUsesHNSWIndex fails if the query plan doesn't use the HNSW index.
+// Opens a fresh connection with no GUC overrides, matching what Search sees.
 func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []float32, projectName string, threshold float64, topK int) error {
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {

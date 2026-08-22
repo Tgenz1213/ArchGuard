@@ -22,9 +22,8 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
-// setupPgContainer starts a pgvector/pgvector:0.8.6-pg16 container and returns
-// its connection string, registering cleanup via tb.Cleanup. Skips the test if
-// Docker isn't available on the host.
+// setupPgContainer starts a pgvector container, returning its connection
+// string. Skips the test if Docker isn't available.
 func setupPgContainer(tb testing.TB, ctx context.Context) string {
 	tb.Helper()
 
@@ -150,10 +149,7 @@ Test Content`
 	err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
 
-	// 6. Search
-	// Query embedding [0.1, 0.1] should match perfectly.
-	// Since we inserted the same ADR into two different projects,
-	// if scoping works, we should only get 1 result back from the first store, not 2.
+	// Same ADR was inserted into two projects; scoping should return only 1.
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
 	assert.Len(t, results, 1)
 	if len(results) > 0 {
@@ -183,9 +179,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	// First build: 5 new / 5 total = 100% churn, comfortably over the
-	// default 20% threshold. If Enabled=false is respected, no reindex
-	// message is printed despite churn exceeding the threshold.
+	// 100% churn, well over the default threshold, but Enabled=false.
 	output := captureStdout(t, func() {
 		err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	})
@@ -288,9 +282,8 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	assert.NotContains(t, outputBlocking, "Warning: failed to reindex", "the blocking REINDEX INDEX form should actually succeed too")
 }
 
-// showIterativeScan runs SHOW hnsw.iterative_scan on a live pooled connection
-// acquired from store, so the result reflects AfterConnect-applied session
-// state rather than a fresh, unrelated connection's defaults.
+// showIterativeScan reads it from store's own pool, reflecting the
+// AfterConnect-applied session state rather than a fresh connection's default.
 func showIterativeScan(t *testing.T, ctx context.Context, store *index.PgStore) string {
 	t.Helper()
 
@@ -316,9 +309,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	// NewPgStore's own AfterConnect logic already ran the equivalent version
-	// probe above; this is a second, independent probe (not reusing that
-	// result) so the test can decide for itself whether to skip.
+	// Independent probe, not reused from NewPgStore, so the test can self-skip.
 	probeConn, err := pgx.Connect(ctx, connStr)
 	require.NoError(t, err)
 	var pgvectorVersion string

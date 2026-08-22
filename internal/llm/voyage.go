@@ -10,19 +10,14 @@ import (
 	"strings"
 )
 
-// maxVoyageErrorBodyBytes bounds how much of a non-2xx response body is read
-// for inclusion in an error message, so a misbehaving or malicious server
-// can't force us to buffer an unbounded response into memory.
+// maxVoyageErrorBodyBytes bounds how much of an error response body we buffer.
 const maxVoyageErrorBodyBytes = 4096
 
 const voyageBaseURL = "https://api.voyageai.com"
 const defaultVoyageModel = "voyage-4"
 
-// VoyageProvider implements CreateEmbedding only -- Voyage AI is an
-// embeddings-only API with no chat endpoint, so Chat and CountTokens
-// always return an error. It's the recommended embedding-provider pairing
-// for ClaudeProvider (Anthropic has no embeddings API of its own), but can
-// be used as vector_store.provider with any llm.provider.
+// VoyageProvider implements CreateEmbedding only -- Voyage has no chat
+// endpoint, so Chat and CountTokens always return an error.
 type VoyageProvider struct {
 	apiKey     string
 	embedModel string
@@ -30,17 +25,13 @@ type VoyageProvider struct {
 	client     *http.Client
 }
 
-// NewVoyageProvider constructs a VoyageProvider that talks to the real
-// Voyage API. embedModel defaults to "voyage-4" (Voyage's own recommended
-// balanced general-purpose model) if empty.
+// NewVoyageProvider talks to the real Voyage API; embedModel defaults to
+// "voyage-4" if empty.
 func NewVoyageProvider(apiKey, embedModel string) *VoyageProvider {
 	return NewVoyageProviderWithBaseURL(apiKey, embedModel, voyageBaseURL, &http.Client{})
 }
 
-// NewVoyageProviderWithBaseURL constructs a VoyageProvider pointed at a
-// custom base URL using a custom HTTP client. This exists primarily so
-// tests can inject an httptest.Server instead of hitting the real Voyage
-// API.
+// NewVoyageProviderWithBaseURL lets tests inject an httptest.Server.
 func NewVoyageProviderWithBaseURL(apiKey, embedModel, baseURL string, httpClient *http.Client) *VoyageProvider {
 	if embedModel == "" {
 		embedModel = defaultVoyageModel
@@ -66,12 +57,8 @@ func voyageInputType(task EmbeddingTaskType) string {
 	return task.Pick("document", "query")
 }
 
-// CreateEmbedding routes to Voyage's contextualized_embed() endpoint for
-// voyage-context-* models, or its plain embed() endpoint for everything
-// else. contextualized_embed() is always called with exactly one chunk
-// (the whole text) per call, matching this method's one-text-in/
-// one-vector-out contract -- see this plan's Global Constraints on why
-// true multi-chunk indexing is out of scope.
+// CreateEmbedding routes to contextualized_embed() for voyage-context-*
+// models (always as a single chunk), or embed() otherwise.
 func (p *VoyageProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
 	if strings.HasPrefix(p.embedModel, "voyage-context-") {
 		return p.contextualizedEmbed(ctx, text, task)
