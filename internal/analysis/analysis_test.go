@@ -1,9 +1,12 @@
 package analysis_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -729,5 +732,121 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
 	if got != want {
 		t.Errorf("expected entry %+v, got %+v", want, got)
+	}
+}
+
+// captureStdout redirects os.Stdout for the duration of fn and returns
+// everything written to it. Mirrors internal/index's helper of the same name.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read pipe: %v", err)
+	}
+	return buf.String()
+}
+
+// partialErrorContentProvider lets a test deterministically exercise
+// Run's per-file fail-open path via a chosen file's GetContent error.
+type partialErrorContentProvider struct {
+	files    []string
+	content  map[string]string
+	errFiles map[string]bool
+}
+
+func (p *partialErrorContentProvider) GetFiles() ([]string, error) { return p.files, nil }
+
+func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
+	if p.errFiles[path] {
+		return "", fmt.Errorf("simulated read error for %s", path)
+	}
+	return p.content[path], nil
+}
+
+func (p *partialErrorContentProvider) GetDiff(path string) (string, error) {
+	return p.GetContent(path)
+}
+
+func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "badembed") {
+				return nil, errors.New("simulated embedding failure")
+			}
+			v := make([]float32, 1536)
+			v[0] = 1.0
+			return v, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &partialErrorContentProvider{
+		files: []string{"good.go", "badread.go", "badembed.go"},
+		content: map[string]string{
+			"good.go":     "import python_library\n// content ignored by mock",
+			"badembed.go": "badembed marker content",
+		},
+		errFiles: map[string]bool{"badread.go": true},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+	if runErr != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
+	}
+
+	if engine.CollectedBaseline == nil {
+		t.Fatal("expected CollectedBaseline to be populated")
+	}
+	if len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry, got %d: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
+	}
+
+	if !strings.Contains(output, "2 file(s) skipped due to errors") {
+		t.Fatalf("expected summary to report 2 skipped files, got output: %q", output)
 	}
 }
