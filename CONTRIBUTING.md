@@ -48,5 +48,9 @@ When you are ready to submit your changes, please use **Conventional Commits** f
 When contributing to the CLI, ensure that behavioral changes respect standard exit codes:
 
 - **0**: Success (no violations found).
-- **1**: Failure (architectural violations detected or environment error).
+- **1**: General error (e.g. not run inside a git repository, baseline file I/O failure).
+- **2**: Usage error (missing/unknown command, bad flags).
+- **3**: Config error (failed to load or validate `archguard.yaml`).
+- **4**: Architectural drift detected.
+- **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 - **--ci flag**: Changes that result in truncated context should only trigger warnings in CI mode to maintain pipeline stability.
