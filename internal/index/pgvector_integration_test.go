@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -345,4 +346,46 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 	value := showIterativeScan(t, ctx, store)
 	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
 	assert.Equal(t, "off", value, "IterativeScan: false should leave hnsw.iterative_scan at pgvector's default value")
+}
+
+func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// Simulate a row written before the adr_id/scope columns existed: same
+	// rel_path/title/status/content BuildIndex will see below, but adr_id
+	// and scope left NULL, as Task 1's migration would leave a pre-existing row.
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+
+	tmpDir := t.TempDir()
+	adrContent := "---\ntitle: \"Legacy ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Content"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0007-legacy.md"), []byte(adrContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	output := captureStdout(t, func() {
+		err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, results, 1)
+	assert.Equal(t, "0007", results[0].ADR.ID, "adr_id should be backfilled from NULL by the sync path")
+	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
 }

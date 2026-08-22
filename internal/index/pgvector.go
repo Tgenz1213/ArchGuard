@@ -215,7 +215,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	// Fetch existing ADRs from database for this project
-	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content FROM archguard_adrs WHERE project_name = $1", s.projectName)
+	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, '') FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
 		return fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
@@ -223,24 +223,28 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	existingMap := make(map[string]ADR)
 	for rows.Next() {
-		var relPath, title, status, content string
-		if err := rows.Scan(&relPath, &title, &status, &content); err != nil {
+		var relPath, title, status, content, adrID, scope string
+		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope); err != nil {
 			continue
 		}
 		existingMap[relPath] = ADR{
+			ID:      adrID,
 			Title:   title,
 			Status:  status,
 			Content: content,
+			Scope:   scope,
 		}
 	}
 
 	var adrsToEmbed []int
+	var adrsToSync []int
 	for i, valid := range validADRs {
 		existing, ok := existingMap[valid.RelPath]
-		if ok && existing.Content == valid.Content && existing.Title == valid.Title && existing.Status == valid.Status {
-			// Already embedded and unchanged
-		} else {
+		switch {
+		case !ok || existing.Content != valid.Content || existing.Title != valid.Title || existing.Status != valid.Status:
 			adrsToEmbed = append(adrsToEmbed, i)
+		case existing.ID != valid.ID || existing.Scope != valid.Scope:
+			adrsToSync = append(adrsToSync, i)
 		}
 	}
 
@@ -289,6 +293,19 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			return err
 		}
 		fmt.Println()
+	}
+
+	if len(adrsToSync) > 0 {
+		fmt.Printf("Syncing ID/scope metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
+		for _, idx := range adrsToSync {
+			_, err := s.pool.Exec(ctx, `
+				UPDATE archguard_adrs SET adr_id = $1, scope = $2
+				WHERE project_name = $3 AND rel_path = $4
+			`, validADRs[idx].ID, validADRs[idx].Scope, s.projectName, validADRs[idx].RelPath)
+			if err != nil {
+				return fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
+			}
+		}
 	}
 
 	// Delete missing ADRs
