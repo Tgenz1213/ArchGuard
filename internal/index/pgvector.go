@@ -193,6 +193,8 @@ func (s *PgStore) Load(path, modelName string, dim int, currentHash string) erro
 			embedding vector(%d),
 			UNIQUE (project_name, rel_path)
 		);
+		ALTER TABLE archguard_adrs ADD COLUMN IF NOT EXISTS adr_id TEXT;
+		ALTER TABLE archguard_adrs ADD COLUMN IF NOT EXISTS scope TEXT;
 		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
 	`, dim, hnswIndexName)
 
@@ -265,14 +267,16 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 				vec := pgvector.NewVector(emb)
 				_, err = s.pool.Exec(gCtx, `
-					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-					VALUES ($1, $2, $3, $4, $5, $6)
+					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 					ON CONFLICT (project_name, rel_path) DO UPDATE SET
 						title = EXCLUDED.title,
 						status = EXCLUDED.status,
 						content = EXCLUDED.content,
-						embedding = EXCLUDED.embedding
-				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec)
+						embedding = EXCLUDED.embedding,
+						adr_id = EXCLUDED.adr_id,
+						scope = EXCLUDED.scope
+				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
 				if err != nil {
 					return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[idx].RelPath, err)
 				}
@@ -333,7 +337,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
 // query, instead of a copy that could drift.
 const SearchQuery = `
-	SELECT rel_path, title, status, content, (1 - (embedding <=> $1)) as similarity
+	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, (1 - (embedding <=> $1)) as similarity
 	FROM archguard_adrs
 	WHERE project_name = $2 AND embedding <=> $1 <= $3
 	ORDER BY embedding <=> $1
@@ -360,7 +364,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 	for rows.Next() {
 		var adr ADR
 		var score float64
-		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &score); err != nil {
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &score); err != nil {
 			fmt.Printf("PgStore Row scan failed: %v\n", err)
 			continue
 		}

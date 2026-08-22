@@ -132,9 +132,10 @@ func TestPgStore_Integration(t *testing.T) {
 	adrContent := `---
 title: "Integration Test ADR"
 status: "Accepted"
+scope: "**/*.go"
 ---
 Test Content`
-	err = os.WriteFile(filepath.Join(tmpDir, "test_adr.md"), []byte(adrContent), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "0001-test-adr.md"), []byte(adrContent), 0644)
 	require.NoError(t, err)
 
 	// 5. Build Index
@@ -156,6 +157,8 @@ Test Content`
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
 		assert.Equal(t, "Accepted", results[0].ADR.Status)
 		assert.Contains(t, results[0].ADR.Content, "Test Content")
+		assert.Equal(t, "0001", results[0].ADR.ID, "ADR ID (derived from the 0001- filename prefix) should round-trip through PgStore")
+		assert.Equal(t, "**/*.go", results[0].ADR.Scope, "ADR scope glob should round-trip through PgStore")
 		// Similarity score should be very high
 		assert.Greater(t, results[0].Score, 0.9)
 	}
