@@ -144,7 +144,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 }
 
 // validateProviderConfig checks provider-related config invariants the
-// YAML schema itself can't express (see docs/arch/0004).
+// YAML schema itself can't express (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
 func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
 		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
