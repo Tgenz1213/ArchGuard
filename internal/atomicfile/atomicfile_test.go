@@ -37,6 +37,23 @@ func TestWrite_CreatesMissingParentDirectory(t *testing.T) {
 	}
 }
 
+func TestWrite_WriteFailure_CleansUpTmpFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "out.json")
+	// A directory at path+".tmp" makes os.WriteFile fail without needing OS-specific permission errors.
+	if err := os.Mkdir(path+".tmp", 0755); err != nil {
+		t.Fatalf("failed to set up tmp-path directory: %v", err)
+	}
+
+	if err := Write(path, []byte("data")); err == nil {
+		t.Fatal("expected Write to fail when the tmp path is a directory")
+	}
+
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("out.json.tmp was left behind after a write failure")
+	}
+}
+
 func TestWrite_RenameFailure_CleansUpTmpFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	// A directory at the destination makes os.Rename fail without needing OS-specific permission errors.

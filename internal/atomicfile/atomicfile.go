@@ -17,6 +17,7 @@ func Write(path string, data []byte) error {
 
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		_ = os.Remove(tmpPath) // best-effort cleanup of a partial write
 		return err
 	}
 
