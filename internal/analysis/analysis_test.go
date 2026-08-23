@@ -950,3 +950,73 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		}
 	})
 }
+
+// TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount asserts a failed
+// ADR check is counted without blocking other ADRs for the same file.
+func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(user, "BADADRMARKER") {
+				return "", errors.New("simulated LLM failure")
+			}
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+		{
+			ID:        "0002",
+			Title:     "Bad ADR",
+			Status:    "Accepted",
+			Content:   "BADADRMARKER content.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	// Already-cancelled context: llm.AnalyzeDrift's real exponential-backoff
+	// retry short-circuits to zero delay once ctx is done, instead of ~14s
+	// of real sleep across 3 retries. MockProvider ignores ctx everywhere
+	// else, so this has no effect on the ADR that succeeds.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := engine.Run(ctx); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.SkippedADRChecks != 1 {
+		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	}
+	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry from the successful ADR, got %+v", engine.CollectedBaseline)
+	}
+	if engine.CollectedBaseline.Entries[0].ADRID != "0001" {
+		t.Errorf("expected the surviving entry to be from ADR 0001, got %+v", engine.CollectedBaseline.Entries[0])
+	}
+}
