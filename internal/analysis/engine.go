@@ -41,6 +41,9 @@ type Engine struct {
 	// SkippedFiles is populated by Run when UpdateBaseline is true: the count
 	// of files skipped due to per-file errors (fetchContext/CreateEmbedding failures).
 	SkippedFiles int
+	// SkippedADRChecks is populated by Run when UpdateBaseline is true: the
+	// count of per-ADR checks skipped due to llm.AnalyzeDrift failures.
+	SkippedADRChecks int
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -105,6 +108,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		violations       int
 		baselinedCount   int
 		skippedFiles     int
+		skippedADRChecks int
 		collectedEntries []baseline.Entry
 		mu               sync.Mutex
 	)
@@ -197,6 +201,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			localViolations := 0
 			localBaselined := 0
+			localSkippedADRChecks := 0
 			var localBaselineEntries []baseline.Entry
 			for _, hit := range hits {
 				if hit.ADR.Scope != "" && !matchGlob(hit.ADR.Scope, file) {
@@ -246,6 +251,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					res, err = llm.AnalyzeDrift(ctx, e.Provider, hit.ADR.Content, content, file, systemPrompt)
 					if err != nil {
 						fmt.Fprintf(&sb, "    Warning: LLM analysis failed: %v\n", err)
+						localSkippedADRChecks++
 						continue
 					}
 					if e.Cache != nil {
@@ -285,6 +291,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			fmt.Print(sb.String())
 			violations += localViolations
 			baselinedCount += localBaselined
+			skippedADRChecks += localSkippedADRChecks
 			if e.UpdateBaseline {
 				collectedEntries = append(collectedEntries, localBaselineEntries...)
 			}
@@ -302,6 +309,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 		e.CollectedBaseline = b
 		e.SkippedFiles = skippedFiles
+		e.SkippedADRChecks = skippedADRChecks
 		return nil
 	}
 
