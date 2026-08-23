@@ -496,6 +496,44 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope)
 }
 
+func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scan_failure_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// A valid row plus one with a NULL title (a nullable TEXT column),
+	// proving the failure amid several rows, not a single-row table.
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, "scan_failure_project", "0002-good.md", "Good ADR", "Accepted", "other content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, NULL, $3, $4, $5)
+	`, "scan_failure_project", "0001-bad.md", "Accepted", "content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0001-bad.md"), []byte("---\ntitle: \"Bad ADR\"\nstatus: \"Accepted\"\n---\ncontent"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0002-good.md"), []byte("---\ntitle: \"Good ADR\"\nstatus: \"Accepted\"\n---\nother content"), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.Error(t, err, "a Scan failure on one row must fail BuildIndex, not be silently dropped")
+	assert.Contains(t, err.Error(), "failed to scan existing ADR row")
+}
+
 // fakeContentProvider is a minimal analysis.ContentProvider for exercising
 // Engine.Run against a real PgStore without needing git plumbing.
 type fakeContentProvider struct {

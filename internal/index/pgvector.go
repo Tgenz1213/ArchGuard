@@ -267,7 +267,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	for rows.Next() {
 		var relPath, title, status, content, adrID, scope string
 		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope); err != nil {
-			continue
+			return fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 		existingMap[relPath] = ADR{
 			ID:      adrID,
