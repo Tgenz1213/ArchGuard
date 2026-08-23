@@ -1020,3 +1020,57 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 		t.Errorf("expected the surviving entry to be from ADR 0001, got %+v", engine.CollectedBaseline.Entries[0])
 	}
 }
+
+// TestRun_ReportsSkippedFileCount asserts a plain (non-update-baseline)
+// Run's summary reports files skipped due to per-file errors, reusing the
+// counter #87 introduced for --update-baseline.
+func TestRun_ReportsSkippedFileCount(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &partialErrorContentProvider{
+		files: []string{"good.go", "badread.go"},
+		content: map[string]string{
+			"good.go": "import python_library\n// content ignored by mock",
+		},
+		errFiles: map[string]bool{"badread.go": true},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, analysis.ErrDriftDetected) {
+		t.Fatalf("expected a drift-detected error from the one real violation, got: %v", runErr)
+	}
+	if !strings.Contains(output, "1 new violation(s), 0 baselined, 1 file(s) skipped due to errors.") {
+		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
+	}
+}

@@ -313,8 +313,8 @@ func (e *Engine) Run(ctx context.Context) error {
 		return nil
 	}
 
-	if e.Baseline != nil && (violations > 0 || baselinedCount > 0) {
-		e.Info("%d new violation(s), %d baselined.", violations, baselinedCount)
+	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || skippedFiles > 0 {
+		e.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors.", violations, baselinedCount, skippedFiles)
 	}
 
 	if violations > 0 {
