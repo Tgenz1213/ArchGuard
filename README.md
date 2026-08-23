@@ -196,7 +196,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 ### Automation & Exit Codes
 
-- **Success (0)**: No architectural violations found.
+- **Success (0)**: No new architectural violations found.
 - **Violation (1)**: Architectural drift detected.
 - **Error (1)**: Configuration, environment, or indexing issues.
 
