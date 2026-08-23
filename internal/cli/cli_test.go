@@ -425,6 +425,18 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	if err := os.Chdir(cleanRoot); err != nil {
 		t.Fatalf("failed to chdir into repo root: %v", err)
 	}
+
+	// Confirms this test actually exercises cwd == repoRoot, the same way
+	// Execute computes and compares them -- otherwise a path-canonicalization
+	// difference could silently degrade this into testing the wrong branch.
+	gotWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory after chdir: %v", err)
+	}
+	if !strings.EqualFold(filepath.Clean(gotWd), cleanRoot) {
+		t.Fatalf("precondition failed: cwd %q does not equal repoRoot %q", gotWd, cleanRoot)
+	}
+
 	// Avoids a "failed to load .env" stderr warning from godotenv.Load,
 	// unrelated to what this test is checking.
 	if err := os.WriteFile(filepath.Join(cleanRoot, ".env"), []byte(""), 0644); err != nil {
