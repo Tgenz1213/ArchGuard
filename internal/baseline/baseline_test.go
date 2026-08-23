@@ -108,54 +108,85 @@ func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
 	}
 }
 
-func TestIsSuppressed_MatchingEntryWithQuotedCodeStillPresent_ReturnsTrue(t *testing.T) {
-	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
-
-	if !baseline.IsSuppressed("adr-001", "file1.go", "package main\n\nfunc main() {\n}") {
-		t.Fatal("expected IsSuppressed to return true when quoted code is present")
-	}
+func newBaselineWithEntry(adrID, file, quotedCode string) *Baseline {
+	b := New()
+	b.Add(adrID, file, quotedCode)
+	return b
 }
 
-func TestIsSuppressed_QuotedCodeNoLongerPresent_ReturnsFalse(t *testing.T) {
-	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
-
-	if baseline.IsSuppressed("adr-001", "file1.go", "package main\n\nfunc other() {\n}") {
-		t.Fatal("expected IsSuppressed to return false when quoted code is not present")
+func TestIsSuppressed(t *testing.T) {
+	tests := []struct {
+		name           string
+		baseline       *Baseline
+		adrID          string
+		file           string
+		currentContent string
+		want           bool
+	}{
+		{
+			name:           "matching entry with quoted code still present",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:          "adr-001",
+			file:           "file1.go",
+			currentContent: "package main\n\nfunc main() {\n}",
+			want:           true,
+		},
+		{
+			name:           "quoted code no longer present",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:          "adr-001",
+			file:           "file1.go",
+			currentContent: "package main\n\nfunc other() {\n}",
+			want:           false,
+		},
+		{
+			name:           "empty quoted code is always suppressed",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", ""),
+			adrID:          "adr-001",
+			file:           "file1.go",
+			currentContent: "package main",
+			want:           true,
+		},
+		{
+			name:           "empty quoted code is always suppressed even with empty file content",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", ""),
+			adrID:          "adr-001",
+			file:           "file1.go",
+			currentContent: "",
+			want:           true,
+		},
+		{
+			name:           "non-matching ADR ID",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:          "adr-002",
+			file:           "file1.go",
+			currentContent: "anything",
+			want:           false,
+		},
+		{
+			name:           "non-matching file",
+			baseline:       newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:          "adr-001",
+			file:           "file2.go",
+			currentContent: "anything",
+			want:           false,
+		},
+		{
+			name:           "nil baseline",
+			baseline:       nil,
+			adrID:          "adr-001",
+			file:           "file1.go",
+			currentContent: "anything",
+			want:           false,
+		},
 	}
-}
 
-func TestIsSuppressed_EmptyQuotedCode_AlwaysSuppressed(t *testing.T) {
-	baseline := New()
-	baseline.Add("adr-001", "file1.go", "")
-
-	if !baseline.IsSuppressed("adr-001", "file1.go", "package main") {
-		t.Fatal("expected IsSuppressed to return true for empty quoted code")
-	}
-
-	if !baseline.IsSuppressed("adr-001", "file1.go", "") {
-		t.Fatal("expected IsSuppressed to return true for empty quoted code even with empty file content")
-	}
-}
-
-func TestIsSuppressed_NoMatchingEntry_ReturnsFalse(t *testing.T) {
-	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
-
-	if baseline.IsSuppressed("adr-002", "file1.go", "anything") {
-		t.Fatal("expected IsSuppressed to return false for non-matching ADR ID")
-	}
-
-	if baseline.IsSuppressed("adr-001", "file2.go", "anything") {
-		t.Fatal("expected IsSuppressed to return false for non-matching file")
-	}
-}
-
-func TestIsSuppressed_NilBaseline_ReturnsFalse(t *testing.T) {
-	var baseline *Baseline
-	if baseline.IsSuppressed("adr-001", "file1.go", "anything") {
-		t.Fatal("expected nil baseline IsSuppressed to return false")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.baseline.IsSuppressed(tt.adrID, tt.file, tt.currentContent); got != tt.want {
+				t.Errorf("IsSuppressed() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
