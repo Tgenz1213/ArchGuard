@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+/archguard
 bin/
 
 # Test binaries
