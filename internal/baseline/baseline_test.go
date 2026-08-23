@@ -159,6 +159,18 @@ func TestIsSuppressed_NilBaseline_ReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestSave_NilBaseline_ReturnsNilError(t *testing.T) {
+	var baseline *Baseline
+	path := filepath.Join(t.TempDir(), "archguard-baseline.json")
+
+	if err := baseline.Save(path); err != nil {
+		t.Fatalf("expected nil baseline Save to return nil, got: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("expected no file to be written for a nil baseline, got err: %v", err)
+	}
+}
+
 func TestAdd_OverwritesExistingEntryForSameKey(t *testing.T) {
 	baseline := New()
 	baseline.Add("adr-001", "file1.go", "func main()")
