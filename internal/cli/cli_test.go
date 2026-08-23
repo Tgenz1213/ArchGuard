@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
@@ -357,5 +362,84 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 
 	if !b.IsSuppressed("0001", args[2], "some context\nquoted violating code\nmore context") {
 		t.Errorf("expected the normalized path %q to match a baseline entry recorded with forward slashes, but IsSuppressed returned false", args[2])
+	}
+}
+
+// captureStdout redirects os.Stdout for the duration of fn and returns
+// everything written to it. Mirrors internal/analysis's helper of the same name.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read pipe: %v", err)
+	}
+	return buf.String()
+}
+
+// TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
+// Execute's call site, not just the extracted function, to running unconditionally.
+func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
+	origArgs := os.Args
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get original working directory: %v", err)
+	}
+	defer func() {
+		os.Args = origArgs
+		if err := os.Chdir(origWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	}()
+
+	repoRoot := t.TempDir()
+	gitInit := exec.Command("git", "init")
+	gitInit.Dir = repoRoot
+	if out, err := gitInit.CombinedOutput(); err != nil {
+		t.Fatalf("failed to init git repo: %v\n%s", err, out)
+	}
+
+	// Resolve the same way Execute's git.GetRepoRoot() does, so cwd == repoRoot
+	// stays exact even where TMPDIR is a symlink.
+	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Fatalf("failed to resolve repo root: %v", err)
+	}
+	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
+
+	if err := os.Chdir(cleanRoot); err != nil {
+		t.Fatalf("failed to chdir into repo root: %v", err)
+	}
+	// Avoids a "failed to load .env" stderr warning from godotenv.Load,
+	// unrelated to what this test is checking.
+	if err := os.WriteFile(filepath.Join(cleanRoot, ".env"), []byte(""), 0644); err != nil {
+		t.Fatalf("failed to write empty .env: %v", err)
+	}
+
+	os.Args = []string{"archguard", "check", "./sub/../file.go"}
+
+	// Execute fails shortly after (no archguard.yaml here) -- irrelevant,
+	// since os.Args is already mutated by then.
+	captureStdout(t, func() {
+		_, _ = Execute(ProviderFactories{})
+	})
+
+	if os.Args[2] != "file.go" {
+		t.Errorf("expected the uncleaned positional path to be normalized to %q by Execute itself even though cwd == repoRoot, got %q", "file.go", os.Args[2])
 	}
 }
