@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
 	"golang.org/x/sync/errgroup"
@@ -100,22 +100,12 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 
 // Save persists the current state of the store to a JSON file.
 func (s *LocalStore) Save(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return err
-	}
-
-	return os.Rename(tmpPath, path)
+	return atomicfile.Write(path, data)
 }
 
 // BuildIndex crawls the specified directory, parses ADRs, and generates embeddings in parallel.

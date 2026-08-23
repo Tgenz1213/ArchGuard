@@ -69,6 +69,26 @@ func TestStore_Save_Atomic(t *testing.T) {
 	}
 }
 
+func TestStore_Save_RenameFailure_CleansUpTmpFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	// A directory at the destination makes os.Rename fail without needing OS-specific permission errors.
+	path := filepath.Join(tmpDir, "index.json")
+	if err := os.Mkdir(path, 0755); err != nil {
+		t.Fatalf("failed to set up destination directory: %v", err)
+	}
+
+	store := NewLocalStore(5)
+	store.ModelName = "mock-model"
+
+	if err := store.Save(path); err == nil {
+		t.Fatal("expected Save to fail when the destination is a directory")
+	}
+
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("index.json.tmp was left behind after a rename failure")
+	}
+}
+
 type mockADRProvider struct {
 	adrs []ADR
 	err  error

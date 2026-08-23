@@ -3,9 +3,10 @@ package baseline
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 )
 
 const Path = "archguard-baseline.json"
@@ -51,11 +52,6 @@ func (b *Baseline) Save(path string) error {
 		return nil
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
 	// Sorted so two --update-baseline runs over an unchanged repo produce
 	// byte-identical, diff-free JSON.
 	sort.Slice(b.Entries, func(i, j int) bool {
@@ -70,16 +66,7 @@ func (b *Baseline) Save(path string) error {
 		return err
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return err
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath) // best-effort cleanup; the rename error is what matters
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, data)
 }
 
 func (b *Baseline) Add(adrID, file, quotedCode string) {
