@@ -853,3 +853,100 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected per-file error to still be logged, got output: %q", output)
 	}
 }
+
+// TestRun_ViolationOutputFormat locks in the exact printed text for each of
+// Run's three violation-handling switch arms, since no prior test did.
+func TestRun_ViolationOutputFormat(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+	newStore := func() *index.LocalStore {
+		store := index.NewLocalStore(5)
+		store.ADRs = []index.ADR{
+			{
+				ID:        "0001",
+				Title:     "Use Golang",
+				Status:    "Accepted",
+				Content:   "All services must be Go.",
+				Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+			},
+		}
+		return store
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	newContent := func() *MockContentProvider {
+		return &MockContentProvider{
+			Files: map[string]string{
+				"service.py": "import python_library\n// content ignored by mock",
+			},
+		}
+	}
+
+	t.Run("new violation", func(t *testing.T) {
+		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine.Cache = nil
+
+		var runErr error
+		output := captureStdout(t, func() {
+			runErr = engine.Run(context.Background())
+		})
+
+		if !errors.Is(runErr, analysis.ErrDriftDetected) {
+			t.Fatalf("expected a drift-detected error, got: %v", runErr)
+		}
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
+		}
+	})
+
+	t.Run("baselined", func(t *testing.T) {
+		b := baseline.New()
+		b.Add("0001", "service.py", "import python_library")
+
+		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine.Cache = nil
+		engine.Baseline = b
+
+		var runErr error
+		output := captureStdout(t, func() {
+			runErr = engine.Run(context.Background())
+		})
+
+		if runErr != nil {
+			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
+		}
+		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
+		}
+	})
+
+	t.Run("update baseline", func(t *testing.T) {
+		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine.Cache = nil
+		engine.UpdateBaseline = true
+
+		var runErr error
+		output := captureStdout(t, func() {
+			runErr = engine.Run(context.Background())
+		})
+
+		if runErr != nil {
+			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
+		}
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
+		}
+	})
+}

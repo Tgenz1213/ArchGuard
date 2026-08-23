@@ -259,11 +259,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					lineNum := e.findLineNumber(content, res.QuotedCode)
 					switch {
 					case e.UpdateBaseline:
-						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
-						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
-						if res.QuotedCode != "" {
-							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
-						}
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -276,18 +272,10 @@ func (e *Engine) Run(ctx context.Context) error {
 							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						fmt.Fprintf(&sb, "    [BASELINED] %s [Line %d]\n", hit.ADR.Title, lineNum)
-						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
-						if res.QuotedCode != "" {
-							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
-						}
+						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
 						localBaselined++
 					default:
-						fmt.Fprintf(&sb, "    [VIOLATION] %s [Line %d]\n", hit.ADR.Title, lineNum)
-						fmt.Fprintf(&sb, "    Reasoning: %s\n", res.Reasoning)
-						if res.QuotedCode != "" {
-							fmt.Fprintf(&sb, "    Code: %s\n", res.QuotedCode)
-						}
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
 						localViolations++
 					}
 				}
@@ -507,4 +495,12 @@ func (e *Engine) findLineNumber(content, quote string) int {
 
 	lines := strings.Split(content[:idx], "\n")
 	return len(lines)
+}
+
+func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, reasoning, quotedCode string) {
+	fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
+	fmt.Fprintf(sb, "    Reasoning: %s\n", reasoning)
+	if quotedCode != "" {
+		fmt.Fprintf(sb, "    Code: %s\n", quotedCode)
+	}
 }
