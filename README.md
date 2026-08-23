@@ -176,6 +176,8 @@ archguard index
 
 This will automatically create the `archguard_adrs` table and safely scope all ADRs by your repository's Project Name, preventing conflicts across different codebases sharing the same database. ArchGuard automatically manages an HNSW vector graph on this table and uses `ON CONFLICT DO UPDATE` queries to safely maintain the database state without locking table scans.
 
+*Note:* If you're upgrading an existing PgStore install, run `archguard index` once after upgrading. A fix corrected how each ADR's ID and scope are stored in Postgres; existing rows only pick it up on their next index run, and until then `archguard-ignore` suppression, baseline scoping, and the `scope` glob filter may not work correctly for ADRs indexed before the upgrade.
+
 ---
 
 ## 📖 Usage Guide
