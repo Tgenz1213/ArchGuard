@@ -895,18 +895,17 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
 		engine.Cache = nil
 
+		var runErr error
 		output := captureStdout(t, func() {
-			_ = engine.Run(context.Background())
+			runErr = engine.Run(context.Background())
 		})
 
-		if !strings.Contains(output, "[VIOLATION] Use Golang [Line 1]") {
-			t.Errorf("expected [VIOLATION] line, got: %q", output)
+		if !errors.Is(runErr, analysis.ErrDriftDetected) {
+			t.Fatalf("expected a drift-detected error, got: %v", runErr)
 		}
-		if !strings.Contains(output, "Reasoning: Python is not allowed.") {
-			t.Errorf("expected Reasoning line, got: %q", output)
-		}
-		if !strings.Contains(output, "Code: import python_library") {
-			t.Errorf("expected Code line, got: %q", output)
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
 	})
 
@@ -918,18 +917,17 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.Cache = nil
 		engine.Baseline = b
 
+		var runErr error
 		output := captureStdout(t, func() {
-			_ = engine.Run(context.Background())
+			runErr = engine.Run(context.Background())
 		})
 
-		if !strings.Contains(output, "[BASELINED] Use Golang [Line 1]") {
-			t.Errorf("expected [BASELINED] line, got: %q", output)
+		if runErr != nil {
+			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
-		if !strings.Contains(output, "Reasoning: Python is not allowed.") {
-			t.Errorf("expected Reasoning line, got: %q", output)
-		}
-		if !strings.Contains(output, "Code: import python_library") {
-			t.Errorf("expected Code line, got: %q", output)
+		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
 	})
 
@@ -938,18 +936,17 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.Cache = nil
 		engine.UpdateBaseline = true
 
+		var runErr error
 		output := captureStdout(t, func() {
-			_ = engine.Run(context.Background())
+			runErr = engine.Run(context.Background())
 		})
 
-		if !strings.Contains(output, "[VIOLATION] Use Golang [Line 1]") {
-			t.Errorf("expected [VIOLATION] line, got: %q", output)
+		if runErr != nil {
+			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
-		if !strings.Contains(output, "Reasoning: Python is not allowed.") {
-			t.Errorf("expected Reasoning line, got: %q", output)
-		}
-		if !strings.Contains(output, "Code: import python_library") {
-			t.Errorf("expected Code line, got: %q", output)
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
 	})
 }

@@ -497,8 +497,6 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-// writeViolationOutput appends the shared [label]/reasoning/code lines used
-// by all three of Run's violation-handling switch arms.
 func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, reasoning, quotedCode string) {
 	fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
 	fmt.Fprintf(sb, "    Reasoning: %s\n", reasoning)
