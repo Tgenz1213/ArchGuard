@@ -108,8 +108,6 @@ func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
 	}
 }
 
-// newBaselineWithEntry builds a *Baseline with one entry, for table rows
-// that need a pre-populated baseline.
 func newBaselineWithEntry(adrID, file, quotedCode string) *Baseline {
 	b := New()
 	b.Add(adrID, file, quotedCode)
