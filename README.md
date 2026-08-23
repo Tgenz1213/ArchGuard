@@ -198,9 +198,12 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 ### Automation & Exit Codes
 
-- **Success (0)**: No new architectural violations found.
-- **Violation (1)**: Architectural drift detected.
-- **Error (1)**: Configuration, environment, or indexing issues.
+- **0**: Success (no new violations found; baselined violations still exit 0).
+- **1**: General error (e.g. not run inside a git repository, baseline file I/O failure).
+- **2**: Usage error (missing/unknown command, bad flags).
+- **3**: Config error (failed to load or validate `archguard.yaml`).
+- **4**: Architectural drift detected.
+- **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 
 ### Suppression
 
