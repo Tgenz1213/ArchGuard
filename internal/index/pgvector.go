@@ -202,7 +202,7 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT column_name FROM information_schema.columns
-		WHERE table_name = 'archguard_adrs' AND column_name IN ('adr_id', 'scope')
+		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope')
 	`)
 	if err != nil {
 		return err
@@ -277,6 +277,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			Scope:   scope,
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read existing ADRs: %w", err)
+	}
 
 	var adrsToEmbed []int
 	var adrsToSync []int
@@ -339,14 +342,27 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	if len(adrsToSync) > 0 {
 		fmt.Printf("Syncing ID/scope metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
+		batch := &pgx.Batch{}
 		for _, idx := range adrsToSync {
-			_, err := s.pool.Exec(ctx, `
+			batch.Queue(`
 				UPDATE archguard_adrs SET adr_id = $1, scope = $2
 				WHERE project_name = $3 AND rel_path = $4
 			`, validADRs[idx].ID, validADRs[idx].Scope, s.projectName, validADRs[idx].RelPath)
+		}
+
+		br := s.pool.SendBatch(ctx, batch)
+		for _, idx := range adrsToSync {
+			tag, err := br.Exec()
 			if err != nil {
+				_ = br.Close()
 				return fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
+			if tag.RowsAffected() == 0 {
+				fmt.Printf("Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
+			}
+		}
+		if err := br.Close(); err != nil {
+			return fmt.Errorf("failed to close sync batch: %w", err)
 		}
 	}
 

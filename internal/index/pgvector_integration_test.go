@@ -396,6 +396,51 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
 }
 
+// TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit covers the other
+// adrsToSync trigger: a scope-only edit, not a legacy NULL row.
+func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scope_only_edit_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrPath := filepath.Join(tmpDir, "0008-scope-edit.md")
+	initialContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nBody unchanged."
+	require.NoError(t, os.WriteFile(adrPath, []byte(initialContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, results, 1)
+	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "initial index should embed the original scope")
+
+	// Same title/status/body -- only the scope: frontmatter value changes.
+	editedContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nBody unchanged."
+	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
+
+	output := captureStdout(t, func() {
+		err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
+
+	results = store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Len(t, results, 1)
+	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
+}
+
 // TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad reproduces
 // cli.runIndex's call pattern (BuildIndex with no preceding Load) against a
 // table created with the pre-migration schema, to prove BuildIndex can bring
