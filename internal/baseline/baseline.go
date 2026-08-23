@@ -47,6 +47,10 @@ func Load(path string) (*Baseline, error) {
 }
 
 func (b *Baseline) Save(path string) error {
+	if b == nil {
+		return nil
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
