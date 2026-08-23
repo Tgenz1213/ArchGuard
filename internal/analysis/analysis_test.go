@@ -1073,3 +1073,48 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
 	}
 }
+
+// failingSearchStore wraps a real LocalStore but always fails Search, so a
+// test can exercise Engine.Run's Search-failure handling without Postgres.
+type failingSearchStore struct {
+	*index.LocalStore
+	searchErr error
+}
+
+func (f *failingSearchStore) Search(queryEmbedding []float32, threshold float64, topK int) ([]index.SearchResult, error) {
+	return nil, f.searchErr
+}
+
+func TestRun_SearchFailureIncrementsSkippedFiles(t *testing.T) {
+	store := &failingSearchStore{LocalStore: index.NewLocalStore(5), searchErr: errors.New("search backend unavailable")}
+
+	provider := &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{0.1, 0.1}, nil
+		},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "content"}}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error (a Search failure skips the file, it doesn't fail Run), got: %v", runErr)
+	}
+	if engine.SkippedFiles != 1 {
+		t.Fatalf("expected SkippedFiles to be 1, got %d", engine.SkippedFiles)
+	}
+	if !strings.Contains(output, "search backend unavailable") {
+		t.Fatalf("expected the search error to be logged, got output: %q", output)
+	}
+}

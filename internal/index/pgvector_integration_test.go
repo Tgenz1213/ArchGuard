@@ -155,7 +155,8 @@ Test Content`
 	require.NoError(t, err)
 
 	// Same ADR was inserted into two projects; scoping should return only 1.
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	if len(results) > 0 {
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
@@ -371,7 +372,8 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
 	require.NoError(t, err)
 
-	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	preSyncResults, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	require.Len(t, preSyncResults, 1, "Search must still find a row with NULL adr_id/scope columns, not fail the scan")
 	assert.Equal(t, "", preSyncResults[0].ADR.ID, "NULL adr_id should degrade to empty string via COALESCE, not break the scan")
 	assert.Equal(t, "", preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
@@ -390,7 +392,8 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
 	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "0007", results[0].ADR.ID, "adr_id should be backfilled from NULL by the sync path")
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
@@ -421,7 +424,8 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 
 	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "initial index should embed the original scope")
 
@@ -436,7 +440,8 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
 	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
 
-	results = store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results, err = store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
 }
@@ -490,7 +495,8 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err, "BuildIndex must create/alter its own schema when Load was never called")
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "0009", results[0].ADR.ID)
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope)
@@ -532,6 +538,43 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 	err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.Error(t, err, "a Scan failure on one row must fail BuildIndex, not be silently dropped")
 	assert.Contains(t, err.Error(), "failed to scan existing ADR row")
+}
+
+func TestPgStore_Integration_SearchReturnsErrorOnScanFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "search_scan_failure_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	// Two valid rows plus one with a NULL title, all within the search
+	// threshold -- a Scan failure must fail the whole call, not just drop the bad row.
+	for _, row := range []struct{ relPath, title string }{
+		{"0001-a.md", "ADR A"},
+		{"0003-c.md", "ADR C"},
+	} {
+		_, err = store.Pool().Exec(ctx, `
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, "search_scan_failure_project", row.relPath, row.title, "Accepted", "content", pgvector.NewVector([]float32{0.1, 0.1}))
+		require.NoError(t, err)
+	}
+	_, err = store.Pool().Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+		VALUES ($1, $2, NULL, $3, $4, $5)
+	`, "search_scan_failure_project", "0002-bad.md", "Accepted", "content", pgvector.NewVector([]float32{0.1, 0.1}))
+	require.NoError(t, err)
+
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.Error(t, err, "a Scan failure amid several matching rows must fail Search, not silently return a truncated result set")
+	assert.Contains(t, err.Error(), "failed to scan search result row")
+	assert.Nil(t, results)
 }
 
 // fakeContentProvider is a minimal analysis.ContentProvider for exercising

@@ -534,7 +534,10 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 
 	for i, q := range queries {
 		start := time.Now()
-		results := store.Search(q, benchThreshold, benchTopK)
+		results, err := store.Search(q, benchThreshold, benchTopK)
+		if err != nil {
+			b.Fatalf("Search failed: %v", err)
+		}
 		latencies[i] = time.Since(start)
 		resultCountSum += len(results)
 

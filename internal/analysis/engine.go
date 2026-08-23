@@ -39,7 +39,7 @@ type Engine struct {
 	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
 	CollectedBaseline *baseline.Baseline
 	// SkippedFiles is populated by Run when UpdateBaseline is true: the count
-	// of files skipped due to per-file errors (fetchContext/CreateEmbedding failures).
+	// of files skipped due to per-file errors (fetchContext/CreateEmbedding/Search failures).
 	SkippedFiles int
 	// SkippedADRChecks is populated by Run when UpdateBaseline is true: the
 	// count of per-ADR checks skipped due to llm.AnalyzeDrift failures.
@@ -121,6 +121,15 @@ func (e *Engine) Run(ctx context.Context) error {
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 
+	// skipFile flushes a file's buffered output and counts it as skipped,
+	// under one lock -- shared by every per-file error path below.
+	skipFile := func(sb *strings.Builder) {
+		mu.Lock()
+		fmt.Print(sb.String())
+		skippedFiles++
+		mu.Unlock()
+	}
+
 	for _, file := range files {
 		if e.shouldExclude(file) {
 			continue
@@ -138,10 +147,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			content, fullContent, diffMode, err := e.fetchContext(ctx, file)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
-				mu.Lock()
-				fmt.Print(sb.String())
-				skippedFiles++
-				mu.Unlock()
+				skipFile(&sb)
 				return nil
 			}
 
@@ -177,14 +183,16 @@ func (e *Engine) Run(ctx context.Context) error {
 			embedding, err := e.embedProvider().CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
 			if err != nil {
 				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
-				mu.Lock()
-				fmt.Print(sb.String())
-				skippedFiles++
-				mu.Unlock()
+				skipFile(&sb)
 				return nil
 			}
 
-			hits := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3)
+			hits, err := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3)
+			if err != nil {
+				fmt.Fprintf(&sb, "Error searching index for %s: %v\n", file, err)
+				skipFile(&sb)
+				return nil
+			}
 			if len(hits) == 0 {
 				if e.Debug {
 					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")

@@ -420,7 +420,7 @@ const SearchQuery = `
 `
 
 // Search performs a vector similarity search across the Postgres store using cosine distance.
-func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
+func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) ([]SearchResult, error) {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
 
@@ -430,8 +430,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 
 	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, distanceThreshold, topK)
 	if err != nil {
-		fmt.Printf("PgStore Search query failed: %v\n", err)
-		return nil
+		return nil, fmt.Errorf("search query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -440,8 +439,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 		var adr ADR
 		var score float64
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &score); err != nil {
-			fmt.Printf("PgStore Row scan failed: %v\n", err)
-			continue
+			return nil, fmt.Errorf("failed to scan search result row: %w", err)
 		}
 
 		results = append(results, SearchResult{
@@ -449,6 +447,9 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int) 
 			Score: score,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read search results: %w", err)
+	}
 
-	return results
+	return results, nil
 }
