@@ -1021,9 +1021,8 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsSkippedFileCount asserts a plain (non-update-baseline)
-// Run's summary reports files skipped due to per-file errors, reusing the
-// counter #87 introduced for --update-baseline.
+// TestRun_ReportsSkippedFileCount asserts that a non-baseline Run
+// reports files skipped due to per-file errors.
 func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
