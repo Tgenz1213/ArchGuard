@@ -495,13 +495,23 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
-		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
-		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
+		fmt.Println(formatBaselineScanSummary(len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks))
+		fmt.Println(formatBaselineWrittenSummary(baseline.Path, len(engine.CollectedBaseline.Entries)))
 		return ExitSuccess, nil
 	}
 
 	fmt.Println("No new architectural violations found.")
 	return ExitSuccess, nil
+}
+
+// formatBaselineScanSummary is its own function so runCheck's exact summary
+// wording is unit-testable without the engine/LLM pipeline that feeds it.
+func formatBaselineScanSummary(violations, skippedFiles, skippedADRChecks int) string {
+	return fmt.Sprintf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, skippedFiles, skippedADRChecks)
+}
+
+func formatBaselineWrittenSummary(path string, violations int) string {
+	return fmt.Sprintf("Baseline written to %s (%d violation(s) recorded).", path, violations)
 }
 
 // resolveContentProvider picks the ContentProvider for a check run.

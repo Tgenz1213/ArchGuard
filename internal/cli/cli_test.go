@@ -455,3 +455,40 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 		t.Errorf("expected the uncleaned positional path to be normalized to %q by Execute itself even though cwd == repoRoot, got %q", "file.go", os.Args[2])
 	}
 }
+
+func TestFormatBaselineScanSummary(t *testing.T) {
+	tests := []struct {
+		name                                       string
+		violations, skippedFiles, skippedADRChecks int
+		want                                       string
+	}{
+		{
+			name: "all zero", violations: 0, skippedFiles: 0, skippedADRChecks: 0,
+			want: "Baseline scan complete: 0 violation(s) recorded, 0 file(s) skipped due to errors, 0 ADR check(s) skipped due to LLM errors.",
+		},
+		{
+			name: "nonzero ADR checks skipped", violations: 1, skippedFiles: 0, skippedADRChecks: 1,
+			want: "Baseline scan complete: 1 violation(s) recorded, 0 file(s) skipped due to errors, 1 ADR check(s) skipped due to LLM errors.",
+		},
+		{
+			name: "all nonzero, distinct values", violations: 3, skippedFiles: 2, skippedADRChecks: 5,
+			want: "Baseline scan complete: 3 violation(s) recorded, 2 file(s) skipped due to errors, 5 ADR check(s) skipped due to LLM errors.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatBaselineScanSummary(tt.violations, tt.skippedFiles, tt.skippedADRChecks)
+			if got != tt.want {
+				t.Errorf("formatBaselineScanSummary(%d, %d, %d) = %q, want %q", tt.violations, tt.skippedFiles, tt.skippedADRChecks, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatBaselineWrittenSummary(t *testing.T) {
+	got := formatBaselineWrittenSummary("archguard-baseline.json", 3)
+	want := "Baseline written to archguard-baseline.json (3 violation(s) recorded)."
+	if got != want {
+		t.Errorf("formatBaselineWrittenSummary(...) = %q, want %q", got, want)
+	}
+}
