@@ -951,9 +951,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	})
 }
 
-// TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount asserts that a
-// per-ADR llm.AnalyzeDrift failure is counted separately from whole-file
-// skips, without blocking other ADRs' checks for the same file.
+// TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount asserts a failed
+// ADR check is counted without blocking other ADRs for the same file.
 func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
