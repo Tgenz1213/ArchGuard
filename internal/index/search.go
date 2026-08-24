@@ -13,7 +13,7 @@ type SearchResult struct {
 
 // Search performs a vector similarity search across the store, returning up to topK results
 // that meet or exceed the specified threshold.
-func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
+func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int) ([]SearchResult, error) {
 	var results []SearchResult
 
 	for i := range s.ADRs {
@@ -31,9 +31,9 @@ func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK in
 	})
 
 	if len(results) > topK {
-		return results[:topK]
+		return results[:topK], nil
 	}
-	return results
+	return results, nil
 }
 
 func cosineSimilarity(a, b []float32) float64 {
