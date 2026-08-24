@@ -5,21 +5,21 @@ go 1.26.0
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.12.0
-	github.com/anthropics/anthropic-sdk-go v1.63.1
+	github.com/anthropics/anthropic-sdk-go v1.66.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
-	github.com/ollama/ollama v0.32.13
+	github.com/ollama/ollama v0.32.15
 	github.com/openai/openai-go v1.12.0
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/pgvector/pgvector-go/pgx v0.4.1
 	github.com/pkoukk/tiktoken-go v0.1.8
-	github.com/stretchr/testify v1.12.0
+	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/genai v1.68.0
+	google.golang.org/genai v1.69.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -94,6 +94,7 @@ require (
 	go.opentelemetry.io/otel v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
