@@ -577,6 +577,45 @@ func TestPgStore_Integration_SearchReturnsErrorOnScanFailure(t *testing.T) {
 	assert.Nil(t, results)
 }
 
+// TestPgStore_Integration_SearchReturnsDistinctADRsForMultipleHits guards
+// against the per-row scan variable being reused across loop iterations,
+// which would make every hit alias the last-scanned row's ADR.
+func TestPgStore_Integration_SearchReturnsDistinctADRsForMultipleHits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "search_distinct_hits_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	for _, row := range []struct{ relPath, title string }{
+		{"0001-a.md", "ADR A"},
+		{"0002-b.md", "ADR B"},
+		{"0003-c.md", "ADR C"},
+	} {
+		_, err = store.Pool().Exec(ctx, `
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, "search_distinct_hits_project", row.relPath, row.title, "Accepted", "content", pgvector.NewVector([]float32{0.1, 0.1}))
+		require.NoError(t, err)
+	}
+
+	results, err := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+
+	gotTitles := make([]string, len(results))
+	for i, r := range results {
+		gotTitles[i] = r.ADR.Title
+	}
+	assert.ElementsMatch(t, []string{"ADR A", "ADR B", "ADR C"}, gotTitles, "each hit must retain its own row's ADR, not alias the last-scanned row")
+}
+
 // fakeContentProvider is a minimal analysis.ContentProvider for exercising
 // Engine.Run against a real PgStore without needing git plumbing.
 type fakeContentProvider struct {
