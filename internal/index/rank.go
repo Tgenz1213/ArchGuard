@@ -2,11 +2,8 @@ package index
 
 import "sort"
 
-// filterByScope narrows candidates to those an ADR structurally applies to:
-// no scope restriction, or a scope glob that matches filePath. Applied
-// before rankAndLimit so a scope-matching ADR can't be excluded just
-// because higher-similarity ADRs with a non-matching scope crowd it out
-// of the topK cut. See docs/arch/0007-scope-filtered-before-topk-similarity.md.
+// filterByScope keeps only ADRs with no scope restriction or a scope glob
+// matching filePath -- applied before rankAndLimit, not after.
 func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
