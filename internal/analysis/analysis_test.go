@@ -1073,3 +1073,55 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
 	}
 }
+
+// TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile proves the file
+// path Engine.Run passes to Store.Search is actually used for scope
+// filtering (#134): a scope-restricted ADR must be evaluated for a file
+// its scope matches, and skipped (no LLM call, no violation) for one it
+// doesn't -- even though both files embed identically here, so similarity
+// alone can't explain the difference.
+func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": true, "reasoning": "always violates in this test", "quoted_code": "bad"}`, nil
+		},
+	}
+
+	store := index.NewLocalStore(1)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Go-only rule",
+			Status:    "Accepted",
+			Scope:     "**/*.go",
+			Content:   "Go files must do X.",
+			Embedding: func() []float32 { v := make([]float32, 4); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.go": "package main",
+			"service.rb": "puts 'hi'",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	err := engine.Run(context.Background())
+
+	// Only service.go's ADR check should fire and produce a violation;
+	// service.rb's scope mismatch means the ADR is never evaluated for it.
+	var driftErr *analysis.DriftDetectedError
+	if !errors.As(err, &driftErr) {
+		t.Fatalf("expected a DriftDetectedError, got %v", err)
+	}
+	if driftErr.Count != 1 {
+		t.Errorf("expected exactly 1 violation (from service.go only), got %d", driftErr.Count)
+	}
+}
