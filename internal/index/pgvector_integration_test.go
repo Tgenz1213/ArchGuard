@@ -649,10 +649,8 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be baselined while ADR B (0002) still surfaces as a new violation")
 }
 
-// TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarity
-// mirrors search_test.go's LocalStore regression test for #134, against a
-// real PgStore: a scope-matching ADR must be evaluated even when 3+
-// non-matching-scope ADRs rank higher by similarity.
+// mirrors search_test.go's LocalStore regression test for #134 against a
+// real PgStore -- see that test for the scope-before-topK rationale.
 func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -677,10 +675,8 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
 	}
 
-	// The distractors embed identical-direction-to-query vectors (cosine
-	// sim 1.0); "Scope Match" embeds a less-aligned vector (cosine sim with
-	// [1,0] is ~0.707) -- lower similarity, but the only one whose scope
-	// matches "service.go".
+	// "Scope Match" embeds a less-aligned vector (~0.707 similarity) than
+	// the distractors (1.0), but it's the only one scoped to "service.go".
 	provider := &llm.MockProvider{
 		EmbeddingDim: 2,
 		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {

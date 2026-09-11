@@ -2,9 +2,8 @@ package index
 
 import "testing"
 
-// TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity
-// reproduces #134: a scope-matching ADR must be evaluated even when 3+
-// non-matching-scope ADRs rank higher by similarity than it does.
+// reproduces #134: a lower-similarity scope-matching ADR must still be
+// evaluated over 3+ higher-similarity non-matching-scope ADRs.
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
@@ -14,10 +13,8 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
 	}
 
-	// Query vector [1,0]: cosine sim with the distractors is 1.0 (identical
-	// direction), with "Scope Match" it's ~0.707 -- lower, but still above
-	// the 0.5 threshold, and topK=3 is smaller than the 4-ADR corpus, so the
-	// pre-fix code (rank-then-filter) would drop "Scope Match" entirely.
+	// "Scope Match" has lower similarity (~0.707) than the distractors
+	// (1.0), so pre-fix rank-then-filter code would have dropped it.
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
 
 	if len(results) != 1 {

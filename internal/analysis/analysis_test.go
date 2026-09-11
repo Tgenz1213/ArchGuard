@@ -1074,12 +1074,8 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	}
 }
 
-// TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile proves the file
-// path Engine.Run passes to Store.Search is actually used for scope
-// filtering (#134): a scope-restricted ADR must be evaluated for a file
-// its scope matches, and skipped (no LLM call, no violation) for one it
-// doesn't -- even though both files embed identically here, so similarity
-// alone can't explain the difference.
+// proves Engine.Run's file path reaches Store.Search's scope filter: same
+// embedding for both files, so only scope explains the differing outcome.
 func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {

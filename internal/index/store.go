@@ -21,8 +21,8 @@ type VectorStore interface {
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
 	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error
-	// Search applies threshold, topK, and a filePath-matched scope filter,
-	// in that order -- scope narrows candidates before the topK cut.
+	// Search filters candidates by scope before ranking and cutting to
+	// topK, not after -- see filterByScope and rankAndLimit.
 	Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
 }
 
