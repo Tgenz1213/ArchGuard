@@ -21,7 +21,9 @@ type VectorStore interface {
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
 	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error
-	Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult
+	// Search applies threshold, topK, and a filePath-matched scope filter,
+	// in that order -- scope narrows candidates before the topK cut.
+	Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
 }
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
