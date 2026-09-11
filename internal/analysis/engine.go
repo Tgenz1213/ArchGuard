@@ -204,7 +204,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			localSkippedADRChecks := 0
 			var localBaselineEntries []baseline.Entry
 			for _, hit := range hits {
-				if hit.ADR.Scope != "" && !matchGlob(hit.ADR.Scope, file) {
+				if hit.ADR.Scope != "" && !index.MatchGlob(hit.ADR.Scope, file) {
 					continue
 				}
 
@@ -331,7 +331,7 @@ func (e *Engine) shouldExclude(path string) bool {
 		return true
 	}
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
-		if matchGlob(pattern, path) {
+		if index.MatchGlob(pattern, path) {
 			return true
 		}
 	}

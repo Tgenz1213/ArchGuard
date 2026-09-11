@@ -1,4 +1,4 @@
-package analysis
+package index
 
 import "testing"
 
@@ -22,8 +22,8 @@ func TestMatchGlob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchGlob(tt.pattern, tt.path); got != tt.want {
-				t.Errorf("matchGlob(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+			if got := MatchGlob(tt.pattern, tt.path); got != tt.want {
+				t.Errorf("MatchGlob(%q, %q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
 			}
 		})
 	}
