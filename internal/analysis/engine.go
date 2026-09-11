@@ -184,7 +184,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			hits := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3)
+			hits := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3, file)
 			if len(hits) == 0 {
 				if e.Debug {
 					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")
@@ -204,10 +204,6 @@ func (e *Engine) Run(ctx context.Context) error {
 			localSkippedADRChecks := 0
 			var localBaselineEntries []baseline.Entry
 			for _, hit := range hits {
-				if hit.ADR.Scope != "" && !matchGlob(hit.ADR.Scope, file) {
-					continue
-				}
-
 				// Check for ignore directive (optimization: only check header)
 				header := content
 				if len(header) > 2000 {
@@ -331,7 +327,7 @@ func (e *Engine) shouldExclude(path string) bool {
 		return true
 	}
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
-		if matchGlob(pattern, path) {
+		if index.MatchGlob(pattern, path) {
 			return true
 		}
 	}

@@ -403,7 +403,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	}
 
 	require.NoError(b, assertGroundTruthAvoidsIndexScan(ctx, pool, queries[0], benchTargetProject, benchThreshold, benchTopK))
-	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, index.MaxSearchCandidates))
 
 	b.Run("baseline", func(b *testing.B) {
 		disabled := false
@@ -425,7 +425,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 		_, _ = pool.Exec(ctx, "ALTER ROLE postgres RESET hnsw.iterative_scan")
 	}()
 
-	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, benchTopK))
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, index.MaxSearchCandidates))
 
 	b.Run("iterative_scan", func(b *testing.B) {
 		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{})
@@ -534,7 +534,7 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 
 	for i, q := range queries {
 		start := time.Now()
-		results := store.Search(q, benchThreshold, benchTopK)
+		results := store.Search(q, benchThreshold, benchTopK, "")
 		latencies[i] = time.Since(start)
 		resultCountSum += len(results)
 

@@ -155,7 +155,7 @@ Test Content`
 	require.NoError(t, err)
 
 	// Same ADR was inserted into two projects; scoping should return only 1.
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	assert.Len(t, results, 1)
 	if len(results) > 0 {
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
@@ -371,7 +371,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
 	require.NoError(t, err)
 
-	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, preSyncResults, 1, "Search must still find a row with NULL adr_id/scope columns, not fail the scan")
 	assert.Equal(t, "", preSyncResults[0].ADR.ID, "NULL adr_id should degrade to empty string via COALESCE, not break the scan")
 	assert.Equal(t, "", preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
@@ -390,7 +390,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
 	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
 	assert.Equal(t, "0007", results[0].ADR.ID, "adr_id should be backfilled from NULL by the sync path")
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
@@ -421,7 +421,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 
 	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "initial index should embed the original scope")
 
@@ -436,7 +436,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
 	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
 
-	results = store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "app.ts")
 	require.Len(t, results, 1)
 	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
 }
@@ -490,7 +490,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err, "BuildIndex must create/alter its own schema when Load was never called")
 
-	results := store.Search([]float32{0.1, 0.1}, 0.5, 5)
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
 	assert.Equal(t, "0009", results[0].ADR.ID)
 	assert.Equal(t, "**/*.go", results[0].ADR.Scope)
@@ -647,4 +647,50 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	var driftErr *analysis.DriftDetectedError
 	require.ErrorAs(t, err, &driftErr)
 	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be baselined while ADR B (0002) still surfaces as a new violation")
+}
+
+// mirrors search_test.go's LocalStore regression test for #134 against a
+// real PgStore -- see that test for the scope-before-topK rationale.
+func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scope_before_topk_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrs := map[string]string{
+		"0001-distractor-a.md": "---\ntitle: \"Distractor A\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor A body",
+		"0002-distractor-b.md": "---\ntitle: \"Distractor B\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor B body",
+		"0003-distractor-c.md": "---\ntitle: \"Distractor C\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor C body",
+		"0004-scope-match.md":  "---\ntitle: \"Scope Match\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nScope Match body",
+	}
+	for name, content := range adrs {
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
+	}
+
+	// "Scope Match" embeds a less-aligned vector (~0.707 similarity) than
+	// the distractors (1.0), but it's the only one scoped to "service.go".
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "Scope Match") {
+				return []float32{1, 1}, nil
+			}
+			return []float32{1, 0}, nil
+		},
+	}
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
+
+	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
+
+	require.Len(t, results, 1, "expected exactly 1 result (the scope-matching ADR): %+v", results)
+	assert.Equal(t, "Scope Match", results[0].ADR.Title)
 }

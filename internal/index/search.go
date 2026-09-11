@@ -2,7 +2,6 @@ package index
 
 import (
 	"math"
-	"sort"
 )
 
 // SearchResult represents an ADR matched during a vector search with its similarity score.
@@ -11,29 +10,23 @@ type SearchResult struct {
 	Score float64
 }
 
-// Search performs a vector similarity search across the store, returning up to topK results
-// that meet or exceed the specified threshold.
-func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int) []SearchResult {
-	var results []SearchResult
+// Search returns up to topK ADRs above threshold whose scope (if any)
+// matches filePath, scope-filtered before the topK cut, not after.
+func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	var candidates []SearchResult
 
 	for i := range s.ADRs {
 		score := cosineSimilarity(queryEmbedding, s.ADRs[i].Embedding)
 		if score >= threshold {
-			results = append(results, SearchResult{
+			candidates = append(candidates, SearchResult{
 				ADR:   &s.ADRs[i],
 				Score: score,
 			})
 		}
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
-
-	if len(results) > topK {
-		return results[:topK]
-	}
-	return results
+	candidates = filterByScope(candidates, filePath)
+	return rankAndLimit(candidates, topK)
 }
 
 func cosineSimilarity(a, b []float32) float64 {
