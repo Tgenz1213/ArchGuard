@@ -2,8 +2,8 @@ package index
 
 import "sort"
 
-// filterByScope keeps only ADRs with no scope restriction or a scope glob
-// matching filePath -- applied before rankAndLimit, not after.
+// filterByScope keeps ADRs with no scope restriction or a scope glob matching
+// filePath, overwriting candidates in place (call before rankAndLimit, not after).
 func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
@@ -17,6 +17,9 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 // rankAndLimit sorts candidates by descending similarity score and
 // truncates to at most topK.
 func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
+	if topK < 0 {
+		topK = 0
+	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
 	if len(candidates) > topK {
 		return candidates[:topK]

@@ -419,9 +419,9 @@ const SearchQuery = `
 	LIMIT $4
 `
 
-// maxSearchCandidates bounds PgStore.Search's fetch so Go-side scope
+// MaxSearchCandidates bounds PgStore.Search's fetch so Go-side scope
 // filtering (SQL can't evaluate a doublestar glob) sees every candidate.
-const maxSearchCandidates = 1000
+const MaxSearchCandidates = 1000
 
 // Search returns up to topK ADRs above threshold cosine similarity whose
 // scope (if any) matches filePath, scope-filtered before the topK cut.
@@ -433,7 +433,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	// So similarity >= threshold means distance <= 1 - threshold.
 	distanceThreshold := 1.0 - threshold
 
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, distanceThreshold, maxSearchCandidates)
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, distanceThreshold, MaxSearchCandidates)
 	if err != nil {
 		fmt.Printf("PgStore Search query failed: %v\n", err)
 		return nil

@@ -16,8 +16,8 @@ func TestMatchGlob(t *testing.T) {
 		{"double star suffix matches direct child", "vendor/**", "vendor/foo.go", true},
 		{"double star suffix matches nested", "vendor/**", "vendor/pkg/sub/foo.go", true},
 		{"double star prefix matches top-level file", "**/*_test.go", "foo_test.go", true},
-		{"double star prefix matches nested file (regression)", "**/*_test.go", "internal/analysis/glob_test.go", true},
-		{"double star prefix does not match non-test file", "**/*_test.go", "internal/analysis/glob.go", false},
+		{"double star prefix matches nested file (regression)", "**/*_test.go", "internal/index/glob_test.go", true},
+		{"double star prefix does not match non-test file", "**/*_test.go", "internal/index/glob.go", false},
 	}
 
 	for _, tt := range tests {

@@ -25,6 +25,20 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 	}
 }
 
+func TestLocalStore_Search_ZeroCandidatesAfterScopeFilter(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "TS only", Scope: "**/*.ts", Embedding: []float32{1, 0}},
+		{Title: "JS only", Scope: "**/*.js", Embedding: []float32{1, 0}},
+	}
+
+	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
+
+	if len(results) != 0 {
+		t.Fatalf("expected no results once scope filtering excludes every ADR, got %d: %+v", len(results), results)
+	}
+}
+
 func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
