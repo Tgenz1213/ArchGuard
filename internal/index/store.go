@@ -16,17 +16,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// SkippedADR records one ADR that BuildIndex could not embed or persist
-// this run. The ADR is left out of the corpus (LocalStore) or its existing
-// row is left untouched (PgStore) rather than partially applied.
+// SkippedADR records one ADR that BuildIndex could not embed or persist.
 type SkippedADR struct {
 	RelPath string
 	Err     error
 }
 
 // BuildIndexResult reports ADRs BuildIndex could not process. A non-empty
-// Skipped does not make BuildIndex return an error -- one bad ADR must not
-// block every other ADR from being indexed.
+// Skipped does not make BuildIndex return an error.
 type BuildIndexResult struct {
 	Skipped []SkippedADR
 }
