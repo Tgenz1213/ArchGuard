@@ -323,7 +323,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
-					markFailed(idx, embErr)
+					markFailed(idx, fmt.Errorf("embed: %w", embErr))
 					return nil
 				}
 				validADRs[idx].Embedding = emb
@@ -341,7 +341,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 						scope = EXCLUDED.scope
 				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
 				if upsertErr != nil {
-					markFailed(idx, upsertErr)
+					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
 					return nil
 				}
 				fmt.Printf(".")
@@ -351,6 +351,18 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 		_ = g.Wait()
 		fmt.Println()
+
+		// A canceled ctx fails every in-flight embed at once; that's one
+		// build-wide failure, not N independently skippable ADRs.
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		// Nothing was written in this branch, so the sync/delete/reindex
+		// bookkeeping below has nothing to act on -- skip straight out.
+		if len(validADRs) > 0 && len(failed) == len(validADRs) {
+			return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
+		}
 	}
 
 	if len(adrsToSync) > 0 {
@@ -368,14 +380,14 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			tag, err := br.Exec()
 			if err != nil {
 				_ = br.Close()
-				return BuildIndexResult{}, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
+				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
 			if tag.RowsAffected() == 0 {
 				fmt.Printf("Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
 			}
 		}
 		if err := br.Close(); err != nil {
-			return BuildIndexResult{}, fmt.Errorf("failed to close sync batch: %w", err)
+			return result, fmt.Errorf("failed to close sync batch: %w", err)
 		}
 	}
 
@@ -397,7 +409,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		for _, relPath := range toDelete {
 			_, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath)
 			if err != nil {
-				return BuildIndexResult{}, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
+				return result, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
 			}
 		}
 	}

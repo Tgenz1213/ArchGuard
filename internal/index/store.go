@@ -159,17 +159,21 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
 
+		markFailed := func(idx int, err error) {
+			mu.Lock()
+			failed[idx] = true
+			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
+			mu.Unlock()
+			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+		}
+
 		for _, idx := range adrsToEmbed {
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
-					mu.Lock()
-					failed[idx] = true
-					result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: embErr})
-					mu.Unlock()
-					fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, embErr)
+					markFailed(idx, embErr)
 					return nil
 				}
 				validADRs[idx].Embedding = emb
@@ -180,6 +184,16 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 		_ = g.Wait()
 		fmt.Println()
+
+		// A canceled ctx fails every in-flight embed at once; that's one
+		// build-wide failure, not N independently skippable ADRs.
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+
+		if len(validADRs) > 0 && len(failed) == len(validADRs) {
+			return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
+		}
 	}
 
 	finalADRs := make([]ADR, 0, len(validADRs))
@@ -198,7 +212,9 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		s.Dim = len(finalADRs[0].Embedding)
 	}
 
-	hash, err := s.CalculateHash(finalADRs, modelName)
+	// Hash the full fetched set, not finalADRs: the hash answers "does this
+	// index match the ADR files on disk", and a skipped ADR is still on disk.
+	hash, err := s.CalculateHash(validADRs, modelName)
 	if err != nil {
 		return result, fmt.Errorf("failed to calculate hash: %w", err)
 	}
