@@ -65,3 +65,29 @@ func TestRankAndLimit_FewerThanTopKReturnsAll(t *testing.T) {
 		t.Fatalf("expected 1 result when candidates < topK, got %d", len(got))
 	}
 }
+
+func TestFilterByThreshold(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: adrWithScope("above", ""), Score: 0.8},
+		{ADR: adrWithScope("at threshold", ""), Score: 0.5},
+		{ADR: adrWithScope("below", ""), Score: 0.2},
+	}
+
+	got := filterByThreshold(candidates, 0.5)
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 candidates at or above threshold, got %d: %+v", len(got), got)
+	}
+	for _, c := range got {
+		if c.ADR.Title == "below" {
+			t.Errorf("candidate below threshold should have been filtered out, got %+v", c)
+		}
+	}
+}
+
+func TestFilterByThreshold_EmptyInput(t *testing.T) {
+	got := filterByThreshold(nil, 0.5)
+	if len(got) != 0 {
+		t.Fatalf("expected no results from empty input, got %d", len(got))
+	}
+}
