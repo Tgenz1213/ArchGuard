@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -295,27 +296,36 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
+	var result BuildIndexResult
+	failed := make(map[int]bool)
+
 	if len(adrsToEmbed) > 0 {
 		concurrency := s.concurrency
 		if concurrency <= 0 {
 			concurrency = 5
 		}
 
-		g, gCtx := errgroup.WithContext(ctx)
+		var mu sync.Mutex
+		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
-				emb, err := provider.CreateEmbedding(gCtx, textToEmbed, llm.EmbeddingTaskDocument)
-				if err != nil {
-					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
+				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				if embErr != nil {
+					mu.Lock()
+					failed[idx] = true
+					result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: embErr})
+					mu.Unlock()
+					fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, embErr)
+					return nil
 				}
 				validADRs[idx].Embedding = emb
 
 				vec := pgvector.NewVector(emb)
-				_, err = s.pool.Exec(gCtx, `
+				_, upsertErr := s.pool.Exec(ctx, `
 					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope)
 					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 					ON CONFLICT (project_name, rel_path) DO UPDATE SET
@@ -326,17 +336,20 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 						adr_id = EXCLUDED.adr_id,
 						scope = EXCLUDED.scope
 				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
-				if err != nil {
-					return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[idx].RelPath, err)
+				if upsertErr != nil {
+					mu.Lock()
+					failed[idx] = true
+					result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: upsertErr})
+					mu.Unlock()
+					fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, upsertErr)
+					return nil
 				}
 				fmt.Printf(".")
 				return nil
 			})
 		}
 
-		if err := g.Wait(); err != nil {
-			return BuildIndexResult{}, err
-		}
+		_ = g.Wait()
 		fmt.Println()
 	}
 
@@ -391,7 +404,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	// Conditional HNSW maintenance routine
 	if s.reindexEnabled() {
-		modifiedCount := len(adrsToEmbed) + len(toDelete)
+		modifiedCount := (len(adrsToEmbed) - len(failed)) + len(toDelete)
 		totalCount := len(validADRs) + len(toDelete)
 		threshold := s.reindexThreshold()
 		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
@@ -406,7 +419,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	return BuildIndexResult{}, nil
+	return result, nil
 }
 
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
