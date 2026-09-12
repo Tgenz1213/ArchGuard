@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -246,20 +247,20 @@ func (s *PgStore) Save(path string) error {
 }
 
 // BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
-func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
+func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
 	if err := s.ensureSchema(ctx, dim); err != nil {
-		return fmt.Errorf("failed to ensure schema: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
 	}
 
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
-		return err
+		return BuildIndexResult{}, err
 	}
 
 	// Fetch existing ADRs from database for this project
 	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, '') FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
-		return fmt.Errorf("failed to query existing ADRs: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
 	defer rows.Close()
 
@@ -267,7 +268,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	for rows.Next() {
 		var relPath, title, status, content, adrID, scope string
 		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope); err != nil {
-			return fmt.Errorf("failed to scan existing ADR row: %w", err)
+			return BuildIndexResult{}, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 		existingMap[relPath] = ADR{
 			ID:      adrID,
@@ -278,7 +279,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to read existing ADRs: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to read existing ADRs: %w", err)
 	}
 
 	var adrsToEmbed []int
@@ -295,27 +296,40 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
+	var result BuildIndexResult
+	failed := make(map[int]bool)
+
 	if len(adrsToEmbed) > 0 {
 		concurrency := s.concurrency
 		if concurrency <= 0 {
 			concurrency = 5
 		}
 
-		g, gCtx := errgroup.WithContext(ctx)
+		var mu sync.Mutex
+		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
+
+		markFailed := func(idx int, err error) {
+			mu.Lock()
+			failed[idx] = true
+			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
+			mu.Unlock()
+			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+		}
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
-				emb, err := provider.CreateEmbedding(gCtx, textToEmbed, llm.EmbeddingTaskDocument)
-				if err != nil {
-					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
+				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				if embErr != nil {
+					markFailed(idx, fmt.Errorf("embed: %w", embErr))
+					return nil
 				}
 				validADRs[idx].Embedding = emb
 
 				vec := pgvector.NewVector(emb)
-				_, err = s.pool.Exec(gCtx, `
+				_, upsertErr := s.pool.Exec(ctx, `
 					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope)
 					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 					ON CONFLICT (project_name, rel_path) DO UPDATE SET
@@ -326,18 +340,27 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 						adr_id = EXCLUDED.adr_id,
 						scope = EXCLUDED.scope
 				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
-				if err != nil {
-					return fmt.Errorf("failed to upsert ADR %s: %w", validADRs[idx].RelPath, err)
+				if upsertErr != nil {
+					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
+					return nil
 				}
 				fmt.Printf(".")
 				return nil
 			})
 		}
 
-		if err := g.Wait(); err != nil {
-			return err
-		}
+		_ = g.Wait()
 		fmt.Println()
+	}
+
+	// Checked unconditionally: a ctx canceled before a no-embed run (every
+	// ADR unchanged) must still surface, not fall through as success.
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+
+	if len(validADRs) > 0 && len(failed) == len(validADRs) {
+		return result, fmt.Errorf("all %d ADR(s) failed to embed or persist; index not updated", len(validADRs))
 	}
 
 	if len(adrsToSync) > 0 {
@@ -355,14 +378,14 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			tag, err := br.Exec()
 			if err != nil {
 				_ = br.Close()
-				return fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
+				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
 			if tag.RowsAffected() == 0 {
 				fmt.Printf("Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
 			}
 		}
 		if err := br.Close(); err != nil {
-			return fmt.Errorf("failed to close sync batch: %w", err)
+			return result, fmt.Errorf("failed to close sync batch: %w", err)
 		}
 	}
 
@@ -384,14 +407,14 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		for _, relPath := range toDelete {
 			_, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath)
 			if err != nil {
-				return fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
+				return result, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
 			}
 		}
 	}
 
 	// Conditional HNSW maintenance routine
 	if s.reindexEnabled() {
-		modifiedCount := len(adrsToEmbed) + len(toDelete)
+		modifiedCount := (len(adrsToEmbed) - len(failed)) + len(toDelete)
 		totalCount := len(validADRs) + len(toDelete)
 		threshold := s.reindexThreshold()
 		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
@@ -406,7 +429,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -15,12 +16,24 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// SkippedADR records one ADR that BuildIndex could not embed or persist.
+type SkippedADR struct {
+	RelPath string
+	Err     error
+}
+
+// BuildIndexResult reports ADRs BuildIndex could not process. Skipped can be
+// non-empty whether or not BuildIndex also returns an error.
+type BuildIndexResult struct {
+	Skipped []SkippedADR
+}
+
 // VectorStore defines the interface for interacting with the index storage.
 type VectorStore interface {
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
-	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error
+	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error)
 	// Search filters candidates by scope, then by threshold, before
 	// ranking and cutting to topK -- see filterByScope, filterByThreshold, and rankAndLimit.
 	Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
@@ -110,12 +123,10 @@ func (s *LocalStore) Save(path string) error {
 	return atomicfile.Write(path, data)
 }
 
-// BuildIndex crawls the specified directory, parses ADRs, and generates embeddings in parallel.
-// Uses Delta Indexing to skip re-computing embeddings for unchanged ADRs.
-func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
+func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
-		return err
+		return BuildIndexResult{}, err
 	}
 
 	existingMap := make(map[string]ADR)
@@ -135,22 +146,35 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
+	var result BuildIndexResult
+	failed := make(map[int]bool)
+
 	if len(adrsToEmbed) > 0 {
 		concurrency := s.concurrency
 		if concurrency <= 0 {
 			concurrency = 5
 		}
 
-		g, gCtx := errgroup.WithContext(ctx)
+		var mu sync.Mutex
+		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
+
+		markFailed := func(idx int, err error) {
+			mu.Lock()
+			failed[idx] = true
+			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
+			mu.Unlock()
+			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+		}
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
-				emb, err := provider.CreateEmbedding(gCtx, textToEmbed, llm.EmbeddingTaskDocument)
-				if err != nil {
-					return fmt.Errorf("failed to embed ADR %s: %w", validADRs[idx].RelPath, err)
+				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				if embErr != nil {
+					markFailed(idx, embErr)
+					return nil
 				}
 				validADRs[idx].Embedding = emb
 				fmt.Printf(".")
@@ -158,25 +182,43 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			})
 		}
 
-		if err := g.Wait(); err != nil {
-			return err
-		}
+		_ = g.Wait()
 		fmt.Println()
 	}
 
-	s.ADRs = validADRs
+	// Checked unconditionally: a ctx canceled before a no-embed run (every
+	// ADR unchanged) must still surface, not fall through as success.
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
+
+	if len(validADRs) > 0 && len(failed) == len(validADRs) {
+		return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
+	}
+
+	finalADRs := make([]ADR, 0, len(validADRs))
+	for i, adr := range validADRs {
+		if failed[i] {
+			continue
+		}
+		finalADRs = append(finalADRs, adr)
+	}
+
+	s.ADRs = finalADRs
 	s.ModelName = modelName
 	if dim > 0 {
 		s.Dim = dim
-	} else if len(validADRs) > 0 && len(validADRs[0].Embedding) > 0 {
-		s.Dim = len(validADRs[0].Embedding)
+	} else if len(finalADRs) > 0 && len(finalADRs[0].Embedding) > 0 {
+		s.Dim = len(finalADRs[0].Embedding)
 	}
 
+	// Hash the full fetched set, not finalADRs: the hash answers "does this
+	// index match the ADR files on disk", and a skipped ADR is still on disk.
 	hash, err := s.CalculateHash(validADRs, modelName)
 	if err != nil {
-		return fmt.Errorf("failed to calculate hash: %w", err)
+		return result, fmt.Errorf("failed to calculate hash: %w", err)
 	}
 	s.Hash = hash
 
-	return nil
+	return result, nil
 }

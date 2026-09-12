@@ -39,6 +39,9 @@ func main() {
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Println(testutil.MockChatProviderMarker)
+			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
+				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
+			}
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 
@@ -54,6 +57,9 @@ func main() {
 		}
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Println(testutil.MockEmbedProviderMarker)
+			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
+				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
+			}
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 
