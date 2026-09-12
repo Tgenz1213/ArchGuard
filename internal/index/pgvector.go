@@ -478,3 +478,9 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
+
+// SearchRejected returns up to topK scope-matched ADRs that scored below
+// threshold, for --debug diagnostics only. Postgres implementation placeholder.
+func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	panic("SearchRejected not yet implemented for PgStore")
+}

@@ -27,6 +27,23 @@ func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK in
 	return rankAndLimit(candidates, topK)
 }
 
+// SearchRejected returns up to topK scope-matched ADRs that scored below
+// threshold, ranked by descending similarity -- for --debug diagnostics only.
+func (s *LocalStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	var candidates []SearchResult
+
+	for i := range s.ADRs {
+		candidates = append(candidates, SearchResult{
+			ADR:   &s.ADRs[i],
+			Score: cosineSimilarity(queryEmbedding, s.ADRs[i].Embedding),
+		})
+	}
+
+	candidates = filterByScope(candidates, filePath)
+	candidates = filterBelowThreshold(candidates, threshold)
+	return rankAndLimit(candidates, topK)
+}
+
 func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

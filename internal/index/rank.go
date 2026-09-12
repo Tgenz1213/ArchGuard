@@ -26,6 +26,18 @@ func filterByThreshold(candidates []SearchResult, threshold float64) []SearchRes
 	return filtered
 }
 
+// filterBelowThreshold keeps candidates whose Score is below threshold --
+// filterByThreshold's complement, for --debug diagnostics only.
+func filterBelowThreshold(candidates []SearchResult, threshold float64) []SearchResult {
+	filtered := candidates[:0]
+	for _, c := range candidates {
+		if c.Score < threshold {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
 // rankAndLimit sorts candidates by descending similarity score and
 // truncates to at most topK.
 func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
