@@ -11,8 +11,7 @@ type SearchResult struct {
 }
 
 // Search returns up to topK ADRs whose scope (if any) matches filePath and
-// whose similarity is at least threshold -- scope is filtered first, then
-// threshold, then the topK cut (see filterByScope, filterByThreshold, rankAndLimit).
+// whose similarity is at least threshold, before the topK cut.
 func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	var candidates []SearchResult
 

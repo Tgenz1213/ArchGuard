@@ -79,9 +79,7 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilari
 	}
 }
 
-// A scope-matching ADR that clears threshold must be returned even though
-// it would have been dropped by a pre-scope threshold cut applied to the
-// whole (unfiltered) candidate set in a different order.
+// A scope-matching ADR that also clears threshold must be returned.
 func TestLocalStore_Search_ScopeMatchingADRAboveThresholdSurvives(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
