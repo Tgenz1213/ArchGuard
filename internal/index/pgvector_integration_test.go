@@ -493,6 +493,76 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	assert.False(t, gotPaths["adr_1.md"], "adr_1.md must not appear -- its embed failed, so it was never inserted")
 }
 
+// A failed re-embed must leave the ADR's already-indexed row as it was --
+// not update it to the new content, and not delete it (#133).
+func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "reembed_failure_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrPath := filepath.Join(tmpDir, "0010-reembed.md")
+	originalBody := "Original indexed body."
+	originalContent := "---\ntitle: \"Re-embed ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\n" + originalBody
+	require.NoError(t, os.WriteFile(adrPath, []byte(originalContent), 0644))
+
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	require.NoError(t, err, "the first build must succeed and persist the row")
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
+	require.Len(t, results, 1)
+	require.Contains(t, results[0].ADR.Content, originalBody)
+
+	newBody := "Rewritten body that cannot be embedded."
+	editedContent := "---\ntitle: \"Re-embed ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\n" + newBody
+	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
+
+	failingProvider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return nil, fmt.Errorf("simulated re-embed failure")
+		},
+	}
+
+	var result index.BuildIndexResult
+	output := captureStdout(t, func() {
+		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
+	})
+	// This ADR is the whole corpus, so the all-embeds-failed guard fires --
+	// the point is that it fires WITHOUT having touched the existing row.
+	require.Error(t, err, "every ADR failing to embed must surface as a build-wide error")
+	assert.Contains(t, err.Error(), "index not updated")
+	assert.Contains(t, output, "Warning: skipping ADR 0010-reembed.md")
+	require.Len(t, result.Skipped, 1, "the guard must still report what it skipped")
+	assert.Equal(t, "0010-reembed.md", result.Skipped[0].RelPath)
+	assert.Contains(t, result.Skipped[0].Err.Error(), "embed: ")
+
+	var gotContent string
+	var gotEmbedding pgvector.Vector
+	err = store.Pool().QueryRow(ctx,
+		"SELECT content, embedding FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2",
+		"reembed_failure_project", "0010-reembed.md",
+	).Scan(&gotContent, &gotEmbedding)
+	require.NoError(t, err, "the pre-existing row must still be present, not deleted")
+	assert.Contains(t, gotContent, originalBody, "the row must keep its original content")
+	assert.NotContains(t, gotContent, newBody, "the failed re-embed must not have written the new content")
+	assert.Equal(t, []float32{0.1, 0.1}, gotEmbedding.Slice(), "the row must keep its original embedding")
+
+	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
+	require.Len(t, results, 1, "the original row must still be searchable")
+	assert.Contains(t, results[0].ADR.Content, originalBody)
+}
+
 // TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad reproduces
 // cli.runIndex's call pattern (BuildIndex with no preceding Load) against a
 // table created with the pre-migration schema, to prove BuildIndex can bring

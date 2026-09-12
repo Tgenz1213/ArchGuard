@@ -263,6 +263,71 @@ analysis:
 	})
 }
 
+// alwaysFailsToEmbedADRContent is a valid ADR whose body trips the mock
+// provider's embed failure, so it can never be indexed.
+var alwaysFailsToEmbedADRContent = fmt.Sprintf(`---
+title: "Always Fails To Embed"
+status: "Accepted"
+scope: "**"
+---
+
+## Decision
+This ADR is permanently unembeddable: %s`, testutil.MockEmbedFailureTrigger)
+
+// TestE2E_IndexSurvivesPersistentEmbedFailure guards the rebuild loop: a
+// permanently unembeddable ADR must not make every `check` exit 5 forever.
+func TestE2E_IndexSurvivesPersistentEmbedFailure(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	failingADRPath := filepath.Join(tempDir, "docs", "arch", "0001-always-fails.md")
+	if err := os.WriteFile(failingADRPath, []byte(alwaysFailsToEmbedADRContent), 0644); err != nil {
+		t.Fatalf("Failed to create failing ADR: %v", err)
+	}
+
+	cleanFixture := filepath.Join(tempDir, "clean.js")
+	if err := os.WriteFile(cleanFixture, []byte("function greet() {\n    console.log(\"hello\");\n}\n"), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	indexOutput := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	if strings.Contains(indexOutput, "ADR Index updated successfully") {
+		t.Errorf("index must not claim unqualified success when an ADR was skipped. Output: %s", indexOutput)
+	}
+	if !strings.Contains(indexOutput, "ADR Index updated with 1 ADR(s) skipped") {
+		t.Errorf("expected the skipped ADR to be reported. Output: %s", indexOutput)
+	}
+	if !strings.Contains(indexOutput, "0001-always-fails.md") {
+		t.Errorf("expected the skipped ADR to be named. Output: %s", indexOutput)
+	}
+
+	// Two separate invocations: pre-fix, the saved hash excluded the skipped
+	// ADR while check hashed the full set, so every run rebuilt and exited 5.
+	for i := 1; i <= 2; i++ {
+		output, exitCode := runCheckOnce(t, tempDir, binaryPath, "clean.js")
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("check run %d: expected exit code %d, got %d. Output: %s", i, cli.ExitSuccess, exitCode, output)
+		}
+		if strings.Contains(output, "failed to load rebuilt index") {
+			t.Fatalf("check run %d hit the rebuild loop. Output: %s", i, output)
+		}
+	}
+}
+
 // gitAdd stages path so AllProvider's `git ls-files` sees it.
 func gitAdd(t *testing.T, dir, path string) {
 	t.Helper()
