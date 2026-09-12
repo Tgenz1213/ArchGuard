@@ -1156,11 +1156,8 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 		_ = engine.Run(context.Background())
 	})
 
-	if !strings.Contains(output, "Near Miss ADR") {
-		t.Fatalf("expected debug output to name the below-threshold ADR, got: %q", output)
-	}
-	if !strings.Contains(output, "0.9") {
-		t.Fatalf("expected debug output to include the configured threshold, got: %q", output)
+	if !strings.Contains(output, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
+		t.Fatalf("expected the below-threshold debug line with title and score, got: %q", output)
 	}
 }
 

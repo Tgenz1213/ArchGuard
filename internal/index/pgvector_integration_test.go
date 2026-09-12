@@ -226,8 +226,7 @@ Far Content`
 	assert.Equal(t, "Far Miss ADR", rejected[1].ADR.Title)
 	assert.Greater(t, rejected[0].Score, rejected[1].Score)
 
-	// A threshold at 1.0 above both real hits from TestPgStore_Integration
-	// still means the accepted Search path returns nothing for this query.
+	// Search must be the exact complement: nothing at or above 0.9.
 	hits := store.Search([]float32{1, 0}, 0.9, 5, "main.go")
 	assert.Empty(t, hits, "both ADRs should be rejected, not returned by Search")
 }
