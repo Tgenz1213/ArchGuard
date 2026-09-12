@@ -694,3 +694,57 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 	require.Len(t, results, 1, "expected exactly 1 result (the scope-matching ADR): %+v", results)
 	assert.Equal(t, "Scope Match", results[0].ADR.Title)
 }
+
+// mirrors the topK-vs-scope regression above, but for threshold-vs-scope:
+// scope filtering must see every candidate before threshold is applied.
+func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "threshold_after_scope_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrs := map[string]string{
+		"0001-distractor-a.md": "---\ntitle: \"Distractor A\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor A body",
+		"0002-distractor-b.md": "---\ntitle: \"Distractor B\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor B body",
+		"0003-distractor-c.md": "---\ntitle: \"Distractor C\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor C body",
+		"0004-scope-match.md":  "---\ntitle: \"Scope Match\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nScope Match body",
+	}
+	for name, content := range adrs {
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
+	}
+
+	// "Scope Match" is orthogonal to the query (0.0 similarity, below the 0.5
+	// threshold), but it's the only ADR scoped to "service.go" -- a SQL-level threshold predicate would've dropped it before scope filtering ever ran.
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "Scope Match") {
+				return []float32{0, 1}, nil
+			}
+			return []float32{1, 0}, nil
+		},
+	}
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
+
+	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
+
+	require.Len(t, results, 0, "expected 0 results: Scope Match is a candidate (fetched, scope-matched) but still below threshold, got %+v", results)
+
+	distractorResults := store.Search([]float32{1, 0}, 0.5, 3, "app.ts")
+	require.Len(t, distractorResults, 3, "expected the 3 distractors (scoped to **/*.ts, similarity 1.0) for a matching file, got %+v", distractorResults)
+}
+
+func TestSearchQuery_HasNoDistanceThresholdPredicate(t *testing.T) {
+	if strings.Contains(index.SearchQuery, "<= $") {
+		t.Fatalf("SearchQuery still has a SQL-level distance-threshold predicate; scope/threshold filtering must happen in Go, not SQL -- query:\n%s", index.SearchQuery)
+	}
+}

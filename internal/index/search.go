@@ -10,22 +10,20 @@ type SearchResult struct {
 	Score float64
 }
 
-// Search returns up to topK ADRs above threshold whose scope (if any)
-// matches filePath, scope-filtered before the topK cut, not after.
+// Search returns up to topK ADRs whose scope (if any) matches filePath and
+// whose similarity is at least threshold, before the topK cut.
 func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	var candidates []SearchResult
 
 	for i := range s.ADRs {
-		score := cosineSimilarity(queryEmbedding, s.ADRs[i].Embedding)
-		if score >= threshold {
-			candidates = append(candidates, SearchResult{
-				ADR:   &s.ADRs[i],
-				Score: score,
-			})
-		}
+		candidates = append(candidates, SearchResult{
+			ADR:   &s.ADRs[i],
+			Score: cosineSimilarity(queryEmbedding, s.ADRs[i].Embedding),
+		})
 	}
 
 	candidates = filterByScope(candidates, filePath)
+	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
 

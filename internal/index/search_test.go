@@ -58,3 +58,40 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 		t.Errorf("expected the highest-similarity ADR within threshold, got %q", results[0].ADR.Title)
 	}
 }
+
+// documents the #140 ordering: filterByScope and filterByThreshold both
+// run before rankAndLimit, though a below-threshold ADR is excluded either way.
+func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
+		{Title: "Distractor B", Scope: "**/*.ts", Embedding: []float32{1, 0}},
+		{Title: "Distractor C", Scope: "**/*.ts", Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{0, 1}},
+	}
+
+	// "Scope Match" has 0.0 similarity to the query (below the 0.5
+	// threshold), but it's the only ADR scoped to "service.go".
+	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
+
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results: the scope-matching ADR is a candidate but still below threshold, got %d: %+v", len(results), results)
+	}
+}
+
+// A scope-matching ADR that also clears threshold must be returned.
+func TestLocalStore_Search_ScopeMatchingADRAboveThresholdSurvives(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
+	}
+
+	// "Scope Match" has ~0.707 similarity -- above a 0.5 threshold -- and
+	// is the only ADR scoped to "service.go".
+	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
+
+	if len(results) != 1 || results[0].ADR.Title != "Scope Match" {
+		t.Fatalf("expected exactly [Scope Match], got %+v", results)
+	}
+}
