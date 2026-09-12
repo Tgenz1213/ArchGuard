@@ -309,17 +309,21 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
 
+		markFailed := func(idx int, err error) {
+			mu.Lock()
+			failed[idx] = true
+			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
+			mu.Unlock()
+			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+		}
+
 		for _, idx := range adrsToEmbed {
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
-					mu.Lock()
-					failed[idx] = true
-					result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: embErr})
-					mu.Unlock()
-					fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, embErr)
+					markFailed(idx, embErr)
 					return nil
 				}
 				validADRs[idx].Embedding = emb
@@ -337,11 +341,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 						scope = EXCLUDED.scope
 				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope)
 				if upsertErr != nil {
-					mu.Lock()
-					failed[idx] = true
-					result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: upsertErr})
-					mu.Unlock()
-					fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, upsertErr)
+					markFailed(idx, upsertErr)
 					return nil
 				}
 				fmt.Printf(".")

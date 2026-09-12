@@ -444,10 +444,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
 }
 
-// TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
-// proves a single failing embed call no longer aborts the whole build (#133):
-// the other ADRs must still be embedded and queryable, and the failing ADR's
-// row must be left absent (it was never inserted) rather than partially written.
+// A single failing embed call must not abort the whole build (#133).
 func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
