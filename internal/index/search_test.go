@@ -59,8 +59,8 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 	}
 }
 
-// reproduces #140: a scope-matching ADR below the similarity threshold
-// must still be evaluated, not excluded before filterByScope runs.
+// documents the #140 ordering: filterByScope and filterByThreshold both
+// run before rankAndLimit, though a below-threshold ADR is excluded either way.
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{

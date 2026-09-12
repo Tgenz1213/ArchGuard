@@ -738,6 +738,9 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
 
 	require.Len(t, results, 0, "expected 0 results: Scope Match is a candidate (fetched, scope-matched) but still below threshold, got %+v", results)
+
+	distractorResults := store.Search([]float32{1, 0}, 0.5, 3, "app.ts")
+	require.Len(t, distractorResults, 3, "expected the 3 distractors (scoped to **/*.ts, similarity 1.0) for a matching file, got %+v", distractorResults)
 }
 
 func TestSearchQuery_HasNoDistanceThresholdPredicate(t *testing.T) {
