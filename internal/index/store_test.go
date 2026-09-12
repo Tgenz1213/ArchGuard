@@ -108,7 +108,7 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
@@ -148,10 +148,11 @@ func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	}
 }
 
-func TestLocalStore_BuildIndex_ReturnsErrorOnEmbedFailure(t *testing.T) {
+func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
 		{RelPath: "0002-fails.md", Title: "B", Status: "Accepted", Content: "content b"},
+		{RelPath: "0003-c.md", Title: "C", Status: "Accepted", Content: "content c"},
 	}
 	provider := &llm.MockProvider{
 		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
@@ -164,11 +165,30 @@ func TestLocalStore_BuildIndex_ReturnsErrorOnEmbedFailure(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	if err != nil {
+		t.Fatalf("BuildIndex must not return an error for a single ADR embed failure, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "0002-fails.md") {
-		t.Errorf("expected error to reference failing ADR path, got: %v", err)
+
+	if len(result.Skipped) != 1 {
+		t.Fatalf("expected 1 skipped ADR, got %d: %+v", len(result.Skipped), result.Skipped)
+	}
+	if result.Skipped[0].RelPath != "0002-fails.md" {
+		t.Errorf("expected skipped ADR to be 0002-fails.md, got %s", result.Skipped[0].RelPath)
+	}
+	if !strings.Contains(result.Skipped[0].Err.Error(), "simulated embedding failure") {
+		t.Errorf("expected skipped ADR error to reference the underlying failure, got: %v", result.Skipped[0].Err)
+	}
+
+	if len(store.ADRs) != 2 {
+		t.Fatalf("expected 2 ADRs to remain in the corpus (the failed one excluded), got %d", len(store.ADRs))
+	}
+	for _, adr := range store.ADRs {
+		if adr.RelPath == "0002-fails.md" {
+			t.Errorf("failed ADR 0002-fails.md must be excluded from the corpus, but it is present")
+		}
+		if len(adr.Embedding) == 0 {
+			t.Errorf("ADR %s: expected a non-empty embedding, got none", adr.RelPath)
+		}
 	}
 }

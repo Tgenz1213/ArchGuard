@@ -554,14 +554,23 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
 
-	if err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider); err != nil {
+	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
+	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 
 	if err := store.Save(indexFile); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
-	fmt.Println("ADR Index updated successfully.")
+
+	if len(result.Skipped) > 0 {
+		fmt.Printf("ADR Index updated with %d ADR(s) skipped:\n", len(result.Skipped))
+		for _, skipped := range result.Skipped {
+			fmt.Printf("  - %s: %v\n", skipped.RelPath, skipped.Err)
+		}
+	} else {
+		fmt.Println("ADR Index updated successfully.")
+	}
 	return ExitSuccess, nil
 }
 

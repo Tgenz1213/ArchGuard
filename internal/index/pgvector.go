@@ -246,20 +246,20 @@ func (s *PgStore) Save(path string) error {
 }
 
 // BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
-func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) error {
+func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
 	if err := s.ensureSchema(ctx, dim); err != nil {
-		return fmt.Errorf("failed to ensure schema: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
 	}
 
 	validADRs, err := adrProvider.GetADRs(ctx)
 	if err != nil {
-		return err
+		return BuildIndexResult{}, err
 	}
 
 	// Fetch existing ADRs from database for this project
 	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, '') FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
-		return fmt.Errorf("failed to query existing ADRs: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
 	defer rows.Close()
 
@@ -267,7 +267,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	for rows.Next() {
 		var relPath, title, status, content, adrID, scope string
 		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope); err != nil {
-			return fmt.Errorf("failed to scan existing ADR row: %w", err)
+			return BuildIndexResult{}, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 		existingMap[relPath] = ADR{
 			ID:      adrID,
@@ -278,7 +278,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to read existing ADRs: %w", err)
+		return BuildIndexResult{}, fmt.Errorf("failed to read existing ADRs: %w", err)
 	}
 
 	var adrsToEmbed []int
@@ -335,7 +335,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 
 		if err := g.Wait(); err != nil {
-			return err
+			return BuildIndexResult{}, err
 		}
 		fmt.Println()
 	}
@@ -355,14 +355,14 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			tag, err := br.Exec()
 			if err != nil {
 				_ = br.Close()
-				return fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
+				return BuildIndexResult{}, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
 			if tag.RowsAffected() == 0 {
 				fmt.Printf("Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
 			}
 		}
 		if err := br.Close(); err != nil {
-			return fmt.Errorf("failed to close sync batch: %w", err)
+			return BuildIndexResult{}, fmt.Errorf("failed to close sync batch: %w", err)
 		}
 	}
 
@@ -384,7 +384,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		for _, relPath := range toDelete {
 			_, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath)
 			if err != nil {
-				return fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
+				return BuildIndexResult{}, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
 			}
 		}
 	}
@@ -406,7 +406,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	return nil
+	return BuildIndexResult{}, nil
 }
 
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
