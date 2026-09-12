@@ -95,3 +95,57 @@ func TestLocalStore_Search_ScopeMatchingADRAboveThresholdSurvives(t *testing.T) 
 		t.Fatalf("expected exactly [Scope Match], got %+v", results)
 	}
 }
+
+func TestLocalStore_SearchRejected_ReturnsClosestBelowThreshold(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "high", Embedding: []float32{1, 0}},
+		{Title: "near miss", Embedding: []float32{1, 1}},
+		{Title: "far miss", Embedding: []float32{0, 1}},
+	}
+
+	// Query [1,0]: sim("high")=1.0 (passes 0.75), sim("near miss")=~0.707
+	// (rejected, closest reject), sim("far miss")=0.0 (rejected, furthest).
+	rejected := store.SearchRejected([]float32{1, 0}, 0.75, 3, "any.go")
+
+	if len(rejected) != 2 {
+		t.Fatalf("expected 2 rejected candidates, got %d: %+v", len(rejected), rejected)
+	}
+	if rejected[0].ADR.Title != "near miss" {
+		t.Errorf("expected closest reject first, got %q", rejected[0].ADR.Title)
+	}
+	if rejected[1].ADR.Title != "far miss" {
+		t.Errorf("expected furthest reject last, got %q", rejected[1].ADR.Title)
+	}
+}
+
+func TestLocalStore_SearchRejected_RespectsScopeAndTopK(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "wrong scope", Scope: "**/*.ts", Embedding: []float32{1, 1}},
+		{Title: "right scope", Scope: "**/*.go", Embedding: []float32{1, 1}},
+	}
+
+	// Both score ~0.707, below a 0.9 threshold; only "right scope" matches service.go.
+	rejected := store.SearchRejected([]float32{1, 0}, 0.9, 3, "service.go")
+
+	if len(rejected) != 1 {
+		t.Fatalf("expected exactly 1 rejected candidate (scope filters out the other), got %d: %+v", len(rejected), rejected)
+	}
+	if rejected[0].ADR.Title != "right scope" {
+		t.Errorf("expected the scope-matching ADR, got %q", rejected[0].ADR.Title)
+	}
+}
+
+func TestLocalStore_SearchRejected_EmptyWhenNothingBelowThreshold(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "high", Embedding: []float32{1, 0}},
+	}
+
+	rejected := store.SearchRejected([]float32{1, 0}, 0.5, 3, "any.go")
+
+	if len(rejected) != 0 {
+		t.Fatalf("expected no rejected candidates, got %d: %+v", len(rejected), rejected)
+	}
+}

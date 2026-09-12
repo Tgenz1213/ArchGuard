@@ -442,9 +442,25 @@ const SearchQuery = `
 	LIMIT $3
 `
 
-// MaxSearchCandidates bounds PgStore.Search's fetch (nearest rows by
-// distance, regardless of threshold) so Go-side scope/threshold filtering sees every candidate.
+// MaxSearchCandidates bounds PgStore.Search's and SearchRejected's fetch
+// (nearest rows by distance) so Go-side filtering sees every candidate.
 const MaxSearchCandidates = 1000
+
+// scanSearchResults drains rows into SearchResults, skipping any row that
+// fails to scan (logged, not fatal -- one bad row shouldn't drop the rest).
+func scanSearchResults(rows pgx.Rows) []SearchResult {
+	var candidates []SearchResult
+	for rows.Next() {
+		var adr ADR
+		var score float64
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &score); err != nil {
+			fmt.Printf("PgStore Row scan failed: %v\n", err)
+			continue
+		}
+		candidates = append(candidates, SearchResult{ADR: &adr, Score: score})
+	}
+	return candidates
+}
 
 // Search returns up to topK ADRs matching filePath's scope and at least
 // threshold similarity -- scope then threshold then topK (see filterByScope, filterByThreshold, rankAndLimit).
@@ -459,22 +475,27 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	}
 	defer rows.Close()
 
-	var candidates []SearchResult
-	for rows.Next() {
-		var adr ADR
-		var score float64
-		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &score); err != nil {
-			fmt.Printf("PgStore Row scan failed: %v\n", err)
-			continue
-		}
-
-		candidates = append(candidates, SearchResult{
-			ADR:   &adr,
-			Score: score,
-		})
-	}
-
+	candidates := scanSearchResults(rows)
 	candidates = filterByScope(candidates, filePath)
 	candidates = filterByThreshold(candidates, threshold)
+	return rankAndLimit(candidates, topK)
+}
+
+// SearchRejected returns up to topK scope-matched ADRs that scored below
+// threshold, ranked by descending similarity -- for --debug diagnostics only.
+func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	ctx := context.Background()
+	vec := pgvector.NewVector(queryEmbedding)
+
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
+	if err != nil {
+		fmt.Printf("PgStore SearchRejected query failed: %v\n", err)
+		return nil
+	}
+	defer rows.Close()
+
+	candidates := scanSearchResults(rows)
+	candidates = filterByScope(candidates, filePath)
+	candidates = filterBelowThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }

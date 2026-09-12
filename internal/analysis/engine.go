@@ -184,7 +184,16 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			hits := e.Store.Search(embedding, e.Config.VectorStore.SimilarityThreshold, 3, file)
+			const topKADRs = 3
+			threshold := e.Config.VectorStore.SimilarityThreshold
+			hits := e.Store.Search(embedding, threshold, topKADRs, file)
+
+			if e.Debug {
+				for _, r := range e.Store.SearchRejected(embedding, threshold, topKADRs, file) {
+					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, threshold)
+				}
+			}
+
 			if len(hits) == 0 {
 				if e.Debug {
 					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")

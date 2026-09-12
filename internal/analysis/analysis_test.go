@@ -1121,3 +1121,94 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 		t.Errorf("expected exactly 1 violation (from service.go only), got %d", driftErr.Count)
 	}
 }
+
+func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0002",
+			Title:     "Near Miss ADR",
+			Status:    "Accepted",
+			Content:   "Some rule.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.9},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if !strings.Contains(output, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
+		t.Fatalf("expected the below-threshold debug line with title and score, got: %q", output)
+	}
+}
+
+// countingStore wraps a VectorStore to record how many times SearchRejected
+// is called, so non-debug runs can be proven not to pay for it.
+type countingStore struct {
+	index.VectorStore
+	searchRejectedCalls int
+}
+
+func (c *countingStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []index.SearchResult {
+	c.searchRejectedCalls++
+	return c.VectorStore.SearchRejected(queryEmbedding, threshold, topK, filePath)
+}
+
+func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	base := index.NewLocalStore(5)
+	base.ADRs = []index.ADR{
+		{
+			ID:        "0002",
+			Title:     "Near Miss ADR",
+			Status:    "Accepted",
+			Content:   "Some rule.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+	store := &countingStore{VectorStore: base}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.9},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.searchRejectedCalls != 0 {
+		t.Fatalf("expected SearchRejected to never be called outside debug mode, got %d calls", store.searchRejectedCalls)
+	}
+}

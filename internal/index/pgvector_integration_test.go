@@ -168,6 +168,69 @@ Test Content`
 	}
 }
 
+func TestPgStore_Integration_SearchRejected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "rejected_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	err = store.Load("", "test-model", 2, "")
+	require.NoError(t, err)
+
+	tmpDir, err := os.MkdirTemp("", "archguard_rejected")
+	require.NoError(t, err)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
+
+	closeADR := `---
+title: "Close Miss ADR"
+status: "Accepted"
+---
+Close Content`
+	err = os.WriteFile(filepath.Join(tmpDir, "0001-close.md"), []byte(closeADR), 0644)
+	require.NoError(t, err)
+
+	farADR := `---
+title: "Far Miss ADR"
+status: "Accepted"
+---
+Far Content`
+	err = os.WriteFile(filepath.Join(tmpDir, "0002-far.md"), []byte(farADR), 0644)
+	require.NoError(t, err)
+
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "Close Content") {
+				return []float32{1, 1}, nil
+			}
+			return []float32{0, 1}, nil
+		},
+	}
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	// Query [1,0]: sim(close)=~0.707, sim(far)=0.0. threshold=0.9 rejects both.
+	rejected := store.SearchRejected([]float32{1, 0}, 0.9, 5, "main.go")
+
+	require.Len(t, rejected, 2)
+	assert.Equal(t, "Close Miss ADR", rejected[0].ADR.Title, "closer reject should rank first")
+	assert.Equal(t, "Far Miss ADR", rejected[1].ADR.Title)
+	assert.Greater(t, rejected[0].Score, rejected[1].Score)
+
+	// Search must be the exact complement: nothing at or above 0.9.
+	hits := store.Search([]float32{1, 0}, 0.9, 5, "main.go")
+	assert.Empty(t, hits, "both ADRs should be rejected, not returned by Search")
+}
+
 func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

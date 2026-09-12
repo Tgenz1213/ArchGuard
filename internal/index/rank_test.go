@@ -91,3 +91,27 @@ func TestFilterByThreshold_EmptyInput(t *testing.T) {
 		t.Fatalf("expected no results from empty input, got %d", len(got))
 	}
 }
+
+func TestFilterBelowThreshold_IsFilterByThresholdsComplement(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: adrWithScope("above", ""), Score: 0.8},
+		{ADR: adrWithScope("at threshold", ""), Score: 0.5},
+		{ADR: adrWithScope("below", ""), Score: 0.2},
+	}
+
+	got := filterBelowThreshold(candidates, 0.5)
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 candidate below threshold, got %d: %+v", len(got), got)
+	}
+	if got[0].ADR.Title != "below" {
+		t.Errorf("expected only the below-threshold candidate to survive, got %+v", got[0])
+	}
+}
+
+func TestFilterBelowThreshold_EmptyInput(t *testing.T) {
+	got := filterBelowThreshold(nil, 0.5)
+	if len(got) != 0 {
+		t.Fatalf("expected no results from empty input, got %d", len(got))
+	}
+}
