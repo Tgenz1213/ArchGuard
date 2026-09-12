@@ -15,7 +15,7 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 }
 
 // filterByThreshold keeps candidates whose Score is at least threshold,
-// applied after filterByScope so a scope match can't be excluded by a low score.
+// mirroring filterByScope's placement ahead of rankAndLimit.
 func filterByThreshold(candidates []SearchResult, threshold float64) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
