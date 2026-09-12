@@ -14,12 +14,18 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	return filtered
 }
 
+// meetsThreshold is the single predicate filterByThreshold and
+// filterBelowThreshold both key off, so the two can never drift apart.
+func meetsThreshold(c SearchResult, threshold float64) bool {
+	return c.Score >= threshold
+}
+
 // filterByThreshold keeps candidates whose Score is at least threshold,
 // mirroring filterByScope's placement ahead of rankAndLimit.
 func filterByThreshold(candidates []SearchResult, threshold float64) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
-		if c.Score >= threshold {
+		if meetsThreshold(c, threshold) {
 			filtered = append(filtered, c)
 		}
 	}
@@ -31,7 +37,7 @@ func filterByThreshold(candidates []SearchResult, threshold float64) []SearchRes
 func filterBelowThreshold(candidates []SearchResult, threshold float64) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
-		if c.Score < threshold {
+		if !meetsThreshold(c, threshold) {
 			filtered = append(filtered, c)
 		}
 	}
