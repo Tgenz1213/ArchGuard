@@ -403,7 +403,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	}
 
 	require.NoError(b, assertGroundTruthAvoidsIndexScan(ctx, pool, queries[0], benchTargetProject, benchThreshold, benchTopK))
-	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, index.MaxSearchCandidates))
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, index.MaxSearchCandidates))
 
 	b.Run("baseline", func(b *testing.B) {
 		disabled := false
@@ -425,7 +425,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 		_, _ = pool.Exec(ctx, "ALTER ROLE postgres RESET hnsw.iterative_scan")
 	}()
 
-	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, benchThreshold, index.MaxSearchCandidates))
+	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, index.MaxSearchCandidates))
 
 	b.Run("iterative_scan", func(b *testing.B) {
 		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{})
@@ -437,7 +437,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 
 // assertUsesHNSWIndex fails if the query plan doesn't use the HNSW index.
 // Opens a fresh connection with no GUC overrides, matching what Search sees.
-func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []float32, projectName string, threshold float64, topK int) error {
+func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []float32, projectName string, topK int) error {
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
 		return err
@@ -448,9 +448,8 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	}
 
 	vec := pgvector.NewVector(queryEmbedding)
-	distanceThreshold := 1.0 - threshold
 
-	rows, err := conn.Query(ctx, "EXPLAIN "+index.SearchQuery, vec, projectName, distanceThreshold, topK)
+	rows, err := conn.Query(ctx, "EXPLAIN "+index.SearchQuery, vec, projectName, topK)
 	if err != nil {
 		return err
 	}

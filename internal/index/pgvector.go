@@ -410,30 +410,26 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 }
 
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
-// query, instead of a copy that could drift.
+// query, instead of a copy that could drift; scope/threshold filtering happens in Go, not SQL.
 const SearchQuery = `
 	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, (1 - (embedding <=> $1)) as similarity
 	FROM archguard_adrs
-	WHERE project_name = $2 AND embedding <=> $1 <= $3
+	WHERE project_name = $2
 	ORDER BY embedding <=> $1
-	LIMIT $4
+	LIMIT $3
 `
 
-// MaxSearchCandidates bounds PgStore.Search's fetch so Go-side scope
-// filtering (SQL can't evaluate a doublestar glob) sees every candidate.
+// MaxSearchCandidates bounds PgStore.Search's fetch (nearest rows by
+// distance, regardless of threshold) so Go-side scope/threshold filtering sees every candidate.
 const MaxSearchCandidates = 1000
 
-// Search returns up to topK ADRs above threshold cosine similarity whose
-// scope (if any) matches filePath, scope-filtered before the topK cut.
+// Search returns up to topK ADRs matching filePath's scope and at least
+// threshold similarity -- scope then threshold then topK (see filterByScope, filterByThreshold, rankAndLimit).
 func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
 
-	// pgvector uses <=> for cosine distance. Similarity is 1 - distance.
-	// So similarity >= threshold means distance <= 1 - threshold.
-	distanceThreshold := 1.0 - threshold
-
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, distanceThreshold, MaxSearchCandidates)
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
 	if err != nil {
 		fmt.Printf("PgStore Search query failed: %v\n", err)
 		return nil
@@ -456,5 +452,6 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	}
 
 	candidates = filterByScope(candidates, filePath)
+	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
