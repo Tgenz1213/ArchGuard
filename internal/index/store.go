@@ -22,8 +22,8 @@ type SkippedADR struct {
 	Err     error
 }
 
-// BuildIndexResult reports ADRs BuildIndex could not process. A non-empty
-// Skipped does not make BuildIndex return an error.
+// BuildIndexResult reports ADRs BuildIndex could not process. Skipped can be
+// non-empty whether or not BuildIndex also returns an error.
 type BuildIndexResult struct {
 	Skipped []SkippedADR
 }

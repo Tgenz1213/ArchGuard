@@ -361,7 +361,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		// Nothing was written in this branch, so the sync/delete/reindex
 		// bookkeeping below has nothing to act on -- skip straight out.
 		if len(validADRs) > 0 && len(failed) == len(validADRs) {
-			return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
+			return result, fmt.Errorf("all %d ADR(s) failed to embed or persist; index not updated", len(validADRs))
 		}
 	}
 
