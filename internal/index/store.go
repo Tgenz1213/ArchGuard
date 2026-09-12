@@ -184,16 +184,16 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 		_ = g.Wait()
 		fmt.Println()
+	}
 
-		// A canceled ctx fails every in-flight embed at once; that's one
-		// build-wide failure, not N independently skippable ADRs.
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
+	// Checked unconditionally: a ctx canceled before a no-embed run (every
+	// ADR unchanged) must still surface, not fall through as success.
+	if ctx.Err() != nil {
+		return result, ctx.Err()
+	}
 
-		if len(validADRs) > 0 && len(failed) == len(validADRs) {
-			return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
-		}
+	if len(validADRs) > 0 && len(failed) == len(validADRs) {
+		return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
 	}
 
 	finalADRs := make([]ADR, 0, len(validADRs))

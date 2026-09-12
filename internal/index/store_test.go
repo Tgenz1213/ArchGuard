@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -190,5 +191,32 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 		if len(adr.Embedding) == 0 {
 			t.Errorf("ADR %s: expected a non-empty embedding, got none", adr.RelPath)
 		}
+	}
+}
+
+// A canceled ctx must surface as a build-wide error even when there was
+// nothing to embed this run (every ADR unchanged) -- the check can't be
+// gated on adrsToEmbed being non-empty (#133 review feedback).
+func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T) {
+	adrs := []ADR{
+		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
+	}
+	provider := &llm.MockProvider{EmbeddingDim: 2}
+	adrProvider := &mockADRProvider{adrs: adrs}
+
+	store := NewLocalStore(2)
+	if _, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider); err != nil {
+		t.Fatalf("initial BuildIndex failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := store.BuildIndex(ctx, "mock-model", 2, provider, adrProvider)
+	if err == nil {
+		t.Fatal("expected an error from a canceled context on a no-embed run, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected the error to wrap context.Canceled, got: %v", err)
 	}
 }
