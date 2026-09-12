@@ -857,7 +857,8 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 		},
 	}
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
-	require.NoError(t, store.BuildIndex(ctx, "test-model", 2, provider, localProvider))
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
 
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
 
