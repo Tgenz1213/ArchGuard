@@ -1113,9 +1113,14 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
 
+	// Already-cancelled context short-circuits AnalyzeDrift's ~14s real
+	// backoff retry; MockProvider ignores ctx otherwise.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	var runErr error
 	output := captureStdout(t, func() {
-		runErr = engine.Run(context.Background())
+		runErr = engine.Run(ctx)
 	})
 
 	if runErr != nil {

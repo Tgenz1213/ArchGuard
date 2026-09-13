@@ -504,11 +504,11 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to read/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
+		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
 	case engine.SkippedADRChecks > 0:
 		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
 	case engine.SkippedFiles > 0:
-		fmt.Printf("Check completed, but %d file(s) were skipped due to read/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
+		fmt.Printf("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
 	default:
 		fmt.Println("No new architectural violations found.")
 	}
