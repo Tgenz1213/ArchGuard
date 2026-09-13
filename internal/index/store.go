@@ -22,15 +22,13 @@ type SkippedADR struct {
 	Err     error
 }
 
-// BuildIndexResult reports the outcome of a BuildIndex run: corpus health
-// (IndexSummary) plus any ADRs that failed to embed or persist (Skipped).
-// Skipped can be non-empty whether or not BuildIndex also returns an error.
-// Attempted is false only when BuildIndex failed before fetching ADRs at
-// all (e.g. GetADRs or schema setup failed), so callers can tell that case
-// apart from a fetch that genuinely found nothing.
+// BuildIndexResult reports the outcome of a BuildIndex run. Skipped can be
+// non-empty whether or not BuildIndex also returns an error.
 type BuildIndexResult struct {
 	IndexSummary
-	Skipped   []SkippedADR
+	Skipped []SkippedADR
+	// Attempted is false only when BuildIndex failed before fetching ADRs,
+	// distinguishing that from a fetch that genuinely found nothing.
 	Attempted bool
 }
 
@@ -195,9 +193,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		fmt.Println()
 	}
 
-	// Valid means successfully indexed, not merely status-accepted: an ADR
-	// that failed to embed doesn't end up in the corpus, so it shouldn't
-	// count as valid in the health summary either.
+	// Valid means successfully indexed, not merely status-accepted.
 	result.Valid = len(validADRs) - len(failed)
 
 	// Checked unconditionally: a ctx canceled before a no-embed run (every

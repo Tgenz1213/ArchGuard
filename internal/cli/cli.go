@@ -563,9 +563,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 
-	// A misconfigured adr_path or accepted_statuses can silently zero out the
-	// corpus; treat that as a failure rather than a quiet no-op success, and
-	// leave the previous index on disk untouched rather than overwriting it.
+	// Checked before Save so a failed rebuild leaves the prior index intact.
 	if result.IsEmpty() {
 		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered; index not updated", result.Discovered)
 	}

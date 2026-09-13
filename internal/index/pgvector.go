@@ -353,9 +353,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		fmt.Println()
 	}
 
-	// Valid means successfully indexed, not merely status-accepted: an ADR
-	// that failed to embed or persist doesn't end up in the corpus, so it
-	// shouldn't count as valid in the health summary either.
+	// Valid means successfully indexed, not merely status-accepted.
 	result.Valid = len(validADRs) - len(failed)
 
 	// Checked unconditionally: a ctx canceled before a no-embed run (every

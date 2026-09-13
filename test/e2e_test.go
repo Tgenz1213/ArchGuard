@@ -328,9 +328,8 @@ analysis:
 	}
 }
 
-// TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed verifies the corpus health
-// summary still prints when BuildIndex returns an error (every ADR failed to
-// embed), not only on success -- the summary and the error are independent.
+// TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed verifies the summary
+// still prints when BuildIndex errors (every ADR failed to embed).
 func TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -367,9 +366,8 @@ analysis:
 	}
 }
 
-// TestE2E_IndexReportsFullCorpusHealthSummary exercises one corpus with a
-// valid ADR, a parse failure, a status rejection, and a duplicate ID at once,
-// to catch wiring/counting bugs that per-scenario tests could miss.
+// TestE2E_IndexReportsFullCorpusHealthSummary exercises a valid ADR, a parse
+// failure, a status rejection, and a duplicate ID together, in one corpus.
 func TestE2E_IndexReportsFullCorpusHealthSummary(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -534,8 +532,7 @@ analysis:
 }
 
 // TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched verifies a failed
-// (empty-corpus) rebuild does not overwrite a previously-healthy local index
-// file on disk with the empty result.
+// empty-corpus rebuild doesn't overwrite a previously-healthy local index.
 func TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
