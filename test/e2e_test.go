@@ -442,6 +442,60 @@ function sensitiveData() {
 	})
 }
 
+// TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout proves an index rebuild
+// triggered from inside `check --format json` doesn't leak text onto stdout (#163).
+func TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	// Modifying the ADR after indexing forces a hash mismatch on the next check;
+	// deleting index.json wouldn't -- LocalStore.Load treats a missing file as an empty, valid store.
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+	if err := os.WriteFile(adrPath, []byte(noSecretsADRContent+"\n\nUpdated.\n"), 0644); err != nil {
+		t.Fatalf("Failed to modify ADR to force a hash mismatch: %v", err)
+	}
+
+	stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+
+	if exitCode != int(cli.ExitDriftDetected) {
+		t.Fatalf("expected drift exit code %d, got %d. stdout: %s stderr: %s", cli.ExitDriftDetected, exitCode, stdout, stderr)
+	}
+
+	var report checkReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("stdout is not valid JSON after triggering an index rebuild: %v\nstdout: %q\nstderr: %q", err, stdout, stderr)
+	}
+	if report.Count != 1 || len(report.Violations) != 1 {
+		t.Fatalf("expected 1 violation, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
+	}
+
+	if !strings.Contains(stderr, "Found 1 valid ADRs") {
+		t.Errorf("expected BuildIndex's progress text on stderr (not silently dropped), got: %s", stderr)
+	}
+	if strings.Contains(stdout, "Found") || strings.Contains(stdout, "Generating embeddings") {
+		t.Errorf("BuildIndex progress text leaked onto stdout: %s", stdout)
+	}
+}
+
 // TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
 // LLM-call failure (as opposed to a file/embedding failure) suppresses the
 // unqualified "No new architectural violations found." message.

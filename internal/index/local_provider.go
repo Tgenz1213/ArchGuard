@@ -2,7 +2,7 @@ package index
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +14,7 @@ type LocalProvider struct {
 	dirPath          string
 	acceptedStatuses []string
 	idPattern        *regexp.Regexp
+	writer           io.Writer
 }
 
 // NewLocalProvider creates a new LocalProvider.
@@ -30,6 +31,12 @@ func (p *LocalProvider) SetIDPattern(re *regexp.Regexp) {
 	p.idPattern = re
 }
 
+// SetWriter routes GetADRs' parse-failure warnings to w instead of the
+// default os.Stdout. Passing nil restores the default.
+func (p *LocalProvider) SetWriter(w io.Writer) {
+	p.writer = w
+}
+
 // GetADRs walks the directory tree and returns ADRs matching accepted statuses.
 func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var validADRs []ADR
@@ -43,7 +50,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 			stats.Discovered++
 			adr, err := ParseADR(path, p.dirPath, p.idPattern)
 			if err != nil {
-				fmt.Printf("Warning: skipping %s: %v\n", path, err)
+				diagPrintf(p.writer, "Warning: skipping %s: %v\n", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)
 				return nil
 			}

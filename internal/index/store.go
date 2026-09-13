@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +16,32 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 	"golang.org/x/sync/errgroup"
 )
+
+// diagWriter resolves w to os.Stdout when nil, evaluated at each call rather
+// than cached, so tests that redirect os.Stdout after construction still work.
+func diagWriter(w io.Writer) io.Writer {
+	if w == nil {
+		return os.Stdout
+	}
+	return w
+}
+
+var diagMu sync.Mutex
+
+// diagPrintf and diagPrintln serialize diagnostic writes -- a caller-supplied
+// writer (unlike os.Stdout) isn't guaranteed safe for the concurrent writers
+// this package has (CompositeProvider's providers, PgStore's pooled AfterConnect).
+func diagPrintf(w io.Writer, format string, args ...any) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	_, _ = fmt.Fprintf(diagWriter(w), format, args...)
+}
+
+func diagPrintln(w io.Writer) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	_, _ = fmt.Fprintln(diagWriter(w))
+}
 
 // SkippedADR records one ADR that BuildIndex could not embed or persist.
 type SkippedADR struct {
@@ -48,11 +75,12 @@ type VectorStore interface {
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
 type LocalStore struct {
-	ADRs        []ADR  `json:"adrs"`
-	Hash        string `json:"hash"`
-	ModelName   string `json:"model_name"`
-	Dim         int    `json:"dim"`
-	concurrency int    `json:"-"`
+	ADRs        []ADR     `json:"adrs"`
+	Hash        string    `json:"hash"`
+	ModelName   string    `json:"model_name"`
+	Dim         int       `json:"dim"`
+	concurrency int       `json:"-"`
+	writer      io.Writer `json:"-"`
 }
 
 // NewLocalStore initializes a new LocalStore instance.
@@ -64,16 +92,19 @@ func NewLocalStore(concurrency int) *LocalStore {
 }
 
 // NewVectorStore creates the appropriate VectorStore based on the configuration.
-func NewVectorStore(cfg *config.Config) (VectorStore, error) {
+// A nil w defaults to os.Stdout, resolved dynamically at each write.
+func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
 		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
 			Enabled:       cfg.VectorStore.ReindexEnabled,
 			Threshold:     cfg.VectorStore.ReindexThreshold,
 			Concurrently:  cfg.VectorStore.ReindexConcurrently,
 			IterativeScan: cfg.VectorStore.IterativeScan,
-		})
+		}, w)
 	}
-	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
+	store := NewLocalStore(cfg.VectorStore.EmbeddingConcurrency)
+	store.writer = w
+	return store, nil
 }
 
 // CalculateHash hashes the model name plus each ADR's RelPath, Content, and ID
@@ -152,7 +183,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 	}
 
-	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	diagPrintf(s.writer, "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -171,8 +202,8 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
+			diagPrintf(s.writer, "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 			mu.Unlock()
-			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -185,13 +216,15 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 					return nil
 				}
 				validADRs[idx].Embedding = emb
-				fmt.Printf(".")
+				mu.Lock()
+				diagPrintf(s.writer, ".")
+				mu.Unlock()
 				return nil
 			})
 		}
 
 		_ = g.Wait()
-		fmt.Println()
+		diagPrintln(s.writer)
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.

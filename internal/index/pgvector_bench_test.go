@@ -76,7 +76,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -251,7 +251,7 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 8, ""))
 
@@ -273,7 +273,7 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -337,7 +337,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
 	connStr := setupPgContainer(b, ctx)
 
-	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.HNSWOptions{})
+	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.HNSWOptions{}, nil)
 	require.NoError(b, err)
 	require.NoError(b, initStore.Load("", "bench-model", benchEmbeddingDim, ""))
 	initStore.Close()
@@ -407,7 +407,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 
 	b.Run("baseline", func(b *testing.B) {
 		disabled := false
-		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{IterativeScan: &disabled})
+		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{IterativeScan: &disabled}, nil)
 		require.NoError(b, err)
 		defer store.Close()
 		reportRecallAndLatency(b, store, queries, groundTruth)
@@ -428,7 +428,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, index.MaxSearchCandidates))
 
 	b.Run("iterative_scan", func(b *testing.B) {
-		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{})
+		store, err := index.NewPgStore(connStr, benchTargetProject, 5, index.HNSWOptions{}, nil)
 		require.NoError(b, err)
 		defer store.Close()
 		reportRecallAndLatency(b, store, queries, groundTruth)

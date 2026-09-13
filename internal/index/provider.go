@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -37,6 +38,7 @@ type Provider interface {
 // CompositeProvider aggregates multiple providers and merges their results.
 type CompositeProvider struct {
 	providers []Provider
+	writer    io.Writer
 }
 
 // NewCompositeProvider creates a new CompositeProvider with the given providers.
@@ -44,6 +46,12 @@ func NewCompositeProvider(providers ...Provider) *CompositeProvider {
 	return &CompositeProvider{
 		providers: providers,
 	}
+}
+
+// SetWriter routes GetADRs' provider-fetch warnings to w instead of the
+// default os.Stdout. Passing nil restores the default.
+func (c *CompositeProvider) SetWriter(w io.Writer) {
+	c.writer = w
 }
 
 // GetADRs fetches ADRs from all configured providers concurrently and aggregates them into a single slice.
@@ -64,7 +72,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 
 			if err != nil {
 				// Do not crash the entire run if one remote provider drops connection.
-				fmt.Printf("Warning: failed to fetch ADRs from a provider: %v\n", err)
+				diagPrintf(c.writer, "Warning: failed to fetch ADRs from a provider: %v\n", err)
 				errs = append(errs, err)
 				return nil
 			}
