@@ -9,6 +9,10 @@ const (
 	// providers look for to simulate an embedding failure during E2E testing.
 	MockEmbedFailureTrigger = "TRIGGER_EMBED_FAILURE"
 
+	// MockChatFailureTrigger is the specific string that the mock chat LLM
+	// provider looks for to simulate a Chat-call failure during E2E testing.
+	MockChatFailureTrigger = "TRIGGER_CHAT_FAILURE"
+
 	// MockChatProviderMarker and MockEmbedProviderMarker are shared with archguard-e2e's mocks so assertions can't drift from what they print.
 	MockChatProviderMarker  = "Using Mock Chat LLM Provider (E2E)"
 	MockEmbedProviderMarker = "Using Mock Embed LLM Provider (E2E)"

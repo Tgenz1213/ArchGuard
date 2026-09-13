@@ -38,11 +38,11 @@ type Engine struct {
 	UpdateBaseline bool
 	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
 	CollectedBaseline *baseline.Baseline
-	// SkippedFiles is populated by Run when UpdateBaseline is true: the count
-	// of files skipped due to per-file errors (fetchContext/CreateEmbedding failures).
+	// SkippedFiles is populated by Run in every mode: the count of files
+	// skipped due to per-file errors (fetchContext/CreateEmbedding failures).
 	SkippedFiles int
-	// SkippedADRChecks is populated by Run when UpdateBaseline is true: the
-	// count of per-ADR checks skipped due to llm.AnalyzeDrift failures.
+	// SkippedADRChecks is populated by Run in every mode: the count of
+	// per-ADR checks skipped due to llm.AnalyzeDrift failures.
 	SkippedADRChecks int
 }
 
@@ -313,19 +313,20 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	_ = g.Wait()
 
+	e.SkippedFiles = skippedFiles
+	e.SkippedADRChecks = skippedADRChecks
+
 	if e.UpdateBaseline {
 		b := baseline.New()
 		for _, entry := range collectedEntries {
 			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
 		}
 		e.CollectedBaseline = b
-		e.SkippedFiles = skippedFiles
-		e.SkippedADRChecks = skippedADRChecks
 		return nil
 	}
 
-	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || skippedFiles > 0 {
-		e.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors.", violations, baselinedCount, skippedFiles)
+	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || skippedFiles > 0 || skippedADRChecks > 0 {
+		e.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, skippedFiles, skippedADRChecks)
 	}
 
 	if violations > 0 {
