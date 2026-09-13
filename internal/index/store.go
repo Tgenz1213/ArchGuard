@@ -85,6 +85,7 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 	for _, adr := range adrs {
 		hasher.Write([]byte(adr.RelPath))
 		hasher.Write([]byte(adr.Content))
+		hasher.Write([]byte(adr.ID))
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

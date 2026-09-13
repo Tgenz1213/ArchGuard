@@ -113,6 +113,7 @@ vector_store:
 
 analysis:
   adr_path: "./docs/arch"
+  # adr_id_pattern: '^adr-(\d+)-' # Optional: overrides default first-hyphen-split ADR ID extraction
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -144,6 +145,8 @@ ArchGuard can natively pull your ADRs from Atlassian Confluence using the Conflu
 ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is required.
 
 **Location:** Store your ADRs in the folder specified by `analysis.adr_path` (default `./docs/arch`).
+
+**ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex: capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
 
 ```markdown
 ---

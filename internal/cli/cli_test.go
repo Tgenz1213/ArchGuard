@@ -83,6 +83,38 @@ func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
 	}
 }
 
+func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
+	cfg := &config.Config{}
+	re, err := compileADRIDPattern(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if re != nil {
+		t.Errorf("re = %v, want nil", re)
+	}
+}
+
+func TestCompileADRIDPattern_ValidPatternCompiles(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.ADRIDPattern = `^adr-(\d+)-`
+	re, err := compileADRIDPattern(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if re == nil {
+		t.Fatal("re = nil, want compiled pattern")
+	}
+}
+
+func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.ADRIDPattern = `[unterminated`
+	_, err := compileADRIDPattern(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid regex, got nil")
+	}
+}
+
 func TestValidateProviderConfig_ClaudeRejectedAsEmbeddingProvider(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "gemini"},

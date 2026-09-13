@@ -13,6 +13,26 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
+func TestLocalStore_CalculateHash_ChangesWhenIDChanges(t *testing.T) {
+	s := NewLocalStore(1)
+
+	adrsBefore := []ADR{{ID: "0001", RelPath: "0001-foo.md", Content: "Body"}}
+	adrsAfter := []ADR{{ID: "1", RelPath: "0001-foo.md", Content: "Body"}}
+
+	hashBefore, err := s.CalculateHash(adrsBefore, "model")
+	if err != nil {
+		t.Fatalf("CalculateHash failed: %v", err)
+	}
+	hashAfter, err := s.CalculateHash(adrsAfter, "model")
+	if err != nil {
+		t.Fatalf("CalculateHash failed: %v", err)
+	}
+
+	if hashBefore == hashAfter {
+		t.Errorf("expected hash to change when ADR.ID changes with identical RelPath/Content, got same hash %q for both", hashBefore)
+	}
+}
+
 func TestStore_Save_Atomic(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "archguard_index_test")
 	if err != nil {

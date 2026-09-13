@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ import (
 type LocalProvider struct {
 	dirPath          string
 	acceptedStatuses []string
+	idPattern        *regexp.Regexp
 }
 
 // NewLocalProvider creates a new LocalProvider.
@@ -20,6 +22,12 @@ func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider 
 		dirPath:          dirPath,
 		acceptedStatuses: acceptedStatuses,
 	}
+}
+
+// SetIDPattern overrides the default filename-based ADR ID extraction (see
+// extractID in adr.go). Passing nil restores the default behavior.
+func (p *LocalProvider) SetIDPattern(re *regexp.Regexp) {
+	p.idPattern = re
 }
 
 // GetADRs walks the directory tree and returns ADRs matching accepted statuses.
@@ -33,7 +41,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
 			stats.Discovered++
-			adr, err := ParseADR(path, p.dirPath)
+			adr, err := ParseADR(path, p.dirPath, p.idPattern)
 			if err != nil {
 				fmt.Printf("Warning: skipping %s: %v\n", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)

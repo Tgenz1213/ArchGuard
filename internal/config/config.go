@@ -52,6 +52,9 @@ type Analysis struct {
 	ExcludePatterns  []string   `yaml:"exclude_patterns"`
 	MaxConcurrency   int        `yaml:"max_concurrency"`
 	Confluence       Confluence `yaml:"confluence"`
+	// ADRIDPattern, when set, is a regexp applied to an ADR's filename to derive
+	// its ID, overriding the default first-hyphen-split. See docs/arch/0012.
+	ADRIDPattern string `yaml:"adr_id_pattern"`
 }
 
 func LoadConfig(path string) (*Config, error) {
