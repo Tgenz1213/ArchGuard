@@ -76,9 +76,6 @@ File Path: %s
 %s
 </code_context>
 
-### TASK
-Determine whether the code_context violates the ADR's 'Decision' section.
-
 ### OUTPUT FORMAT (JSON ONLY)
 {
   "violation": bool,

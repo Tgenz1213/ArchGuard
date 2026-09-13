@@ -360,7 +360,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 	if capturedSystemPrompt != expectedSystemPrompt {
 		t.Errorf("Expected system prompt %q, got %q", expectedSystemPrompt, capturedSystemPrompt)
 	}
-	for _, leaked := range []string{"LOGICAL STEPS", "literal", "NO INFERENCE", "COMPLIANCE IS NOT A VIOLATION"} {
+	for _, leaked := range []string{"LOGICAL STEPS", "literal", "NO INFERENCE", "COMPLIANCE IS NOT A VIOLATION", "### TASK", "Determine whether"} {
 		if strings.Contains(capturedUserPrompt, leaked) {
 			t.Errorf("user prompt leaked ArchGuard judgment framing %q despite custom system_prompt:\n%s", leaked, capturedUserPrompt)
 		}
