@@ -1080,9 +1080,8 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsSkippedADRCheckCount asserts that a non-baseline, non-debug
-// Run surfaces per-ADR LLM failures in both the aggregate summary line and
-// Engine.SkippedADRChecks, even when there are zero violations to report.
+// TestRun_ReportsSkippedADRCheckCount asserts that per-ADR LLM failures are
+// surfaced in Engine.SkippedADRChecks even with zero violations to report.
 func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {

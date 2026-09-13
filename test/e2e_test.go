@@ -263,11 +263,9 @@ analysis:
 	})
 }
 
-// TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that
-// when an ADR check fails at the LLM call (not embedding, not file read),
-// `archguard check` does not print the unqualified "No new architectural
-// violations found." message -- it must instead surface that a check was
-// skipped, without --debug.
+// TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
+// LLM-call failure (as opposed to a file/embedding failure) suppresses the
+// unqualified "No new architectural violations found." message.
 func TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -297,19 +295,16 @@ function sensitiveData() {
 
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	checkCmd := exec.Command(binaryPath, "check", fixtureFilename)
-	checkCmd.Dir = tempDir
-	out, err := checkCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("check command failed: %v\nOutput: %s", err, out)
-	}
+	output := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
 
-	output := string(out)
 	if strings.Contains(output, "No new architectural violations found.") {
 		t.Errorf("check must not print the unqualified clean message when an ADR check was skipped due to an LLM error. Output: %s", output)
 	}
 	if !strings.Contains(output, "1 ADR check(s) skipped due to LLM errors") {
 		t.Errorf("expected the skipped ADR check count to be reported. Output: %s", output)
+	}
+	if !strings.Contains(output, "compliance was not fully verified") {
+		t.Errorf("expected the cli-level skipped-check message to be reported. Output: %s", output)
 	}
 }
 
