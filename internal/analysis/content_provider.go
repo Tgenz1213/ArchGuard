@@ -70,7 +70,16 @@ func (p *AllProvider) GetDiff(path string) (string, error) {
 type MultiFileProvider struct{ Paths []string }
 
 func (p *MultiFileProvider) GetFiles() ([]string, error) {
-	return p.Paths, nil
+	seen := make(map[string]struct{}, len(p.Paths))
+	files := make([]string, 0, len(p.Paths))
+	for _, path := range p.Paths {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		files = append(files, path)
+	}
+	return files, nil
 }
 
 func (p *MultiFileProvider) GetContent(path string) (string, error) {
