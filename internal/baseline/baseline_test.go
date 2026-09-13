@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -13,8 +14,8 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 	path := filepath.Join(tmpDir, "baseline.json")
 
 	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
-	baseline.Add("adr-002", "file2.go", "")
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
+	baseline.Add(Entry{ADRID: "adr-002", File: "file2.go", QuotedCode: ""})
 
 	if err := baseline.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -73,7 +74,7 @@ func TestSave_Atomic(t *testing.T) {
 	path := filepath.Join(tmpDir, "baseline.json")
 
 	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
 
 	if err := baseline.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -97,7 +98,7 @@ func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
 	}
 
 	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
 
 	if err := baseline.Save(path); err == nil {
 		t.Fatal("expected Save to fail when the destination is a directory")
@@ -110,7 +111,7 @@ func TestSave_RenameFailure_CleansUpTmpFile(t *testing.T) {
 
 func newBaselineWithEntry(adrID, file, quotedCode string) *Baseline {
 	b := New()
-	b.Add(adrID, file, quotedCode)
+	b.Add(Entry{ADRID: adrID, File: file, QuotedCode: quotedCode})
 	return b
 }
 
@@ -204,8 +205,8 @@ func TestSave_NilBaseline_ReturnsNilError(t *testing.T) {
 
 func TestAdd_OverwritesExistingEntryForSameKey(t *testing.T) {
 	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
-	baseline.Add("adr-001", "file1.go", "func foo()")
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func foo()"})
 
 	if len(baseline.Entries) != 1 {
 		t.Errorf("expected 1 entry after overwrite, got %d", len(baseline.Entries))
@@ -221,7 +222,7 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 	path := filepath.Join(tmpDir, "baseline.json")
 
 	baseline := New()
-	baseline.Add("adr-001", "file1.go", "func main()")
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
 
 	if err := baseline.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -257,10 +258,10 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 
 	baseline := New()
 	// Add in a deliberately shuffled (File, ADRID) order.
-	baseline.Add("adr-002", "b_file.go", "code b2")
-	baseline.Add("adr-001", "a_file.go", "code a1")
-	baseline.Add("adr-001", "b_file.go", "code b1")
-	baseline.Add("adr-002", "a_file.go", "code a2")
+	baseline.Add(Entry{ADRID: "adr-002", File: "b_file.go", QuotedCode: "code b2"})
+	baseline.Add(Entry{ADRID: "adr-001", File: "a_file.go", QuotedCode: "code a1"})
+	baseline.Add(Entry{ADRID: "adr-001", File: "b_file.go", QuotedCode: "code b1"})
+	baseline.Add(Entry{ADRID: "adr-002", File: "a_file.go", QuotedCode: "code a2"})
 
 	if err := baseline.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
@@ -289,5 +290,144 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 			t.Errorf("entry %d: got (File=%q, ADRID=%q), want (File=%q, ADRID=%q)",
 				i, loaded.Entries[i].File, loaded.Entries[i].ADRID, w.File, w.ADRID)
 		}
+	}
+}
+
+func TestEntry_ReasonField_RoundTripsThroughSaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "baseline.json")
+
+	b := New()
+	b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()", Reason: "accepted-debt"})
+
+	if err := b.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if loaded == nil || len(loaded.Entries) != 1 {
+		t.Fatalf("expected 1 loaded entry, got %+v", loaded)
+	}
+	if loaded.Entries[0].Reason != "accepted-debt" {
+		t.Errorf("expected Reason %q, got %q", "accepted-debt", loaded.Entries[0].Reason)
+	}
+}
+
+func TestEntry_ReasonField_OmittedWhenEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "baseline.json")
+
+	b := New()
+	b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
+
+	if err := b.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read saved file: %v", err)
+	}
+	if strings.Contains(string(data), `"reason"`) {
+		t.Errorf("expected no \"reason\" key in JSON when Reason is empty, got:\n%s", data)
+	}
+}
+
+func TestLoad_PreReasonFieldBaselineFile_LoadsWithEmptyReason(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "baseline.json")
+
+	legacyJSON := `{
+  "entries": [
+    {
+      "adr_id": "adr-001",
+      "file": "file1.go",
+      "quoted_code": "func main()"
+    }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(legacyJSON), 0644); err != nil {
+		t.Fatalf("failed to write legacy baseline fixture: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed on pre-reason-field file: %v", err)
+	}
+	if len(loaded.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(loaded.Entries))
+	}
+	if loaded.Entries[0].Reason != "" {
+		t.Errorf("expected empty Reason for legacy entry, got %q", loaded.Entries[0].Reason)
+	}
+	if loaded.Entries[0].QuotedCode != "func main()" {
+		t.Errorf("expected QuotedCode to still load correctly, got %q", loaded.Entries[0].QuotedCode)
+	}
+}
+
+func TestAdd_OverwriteReplacesReasonToo(t *testing.T) {
+	b := New()
+	b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()", Reason: "accepted-debt"})
+	b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func foo()"})
+
+	if len(b.Entries) != 1 {
+		t.Fatalf("expected 1 entry after overwrite, got %d", len(b.Entries))
+	}
+	if b.Entries[0].Reason != "" {
+		t.Errorf("expected overwrite to replace Reason with the new (empty) value, got %q", b.Entries[0].Reason)
+	}
+}
+
+func TestReasonFor(t *testing.T) {
+	tests := []struct {
+		name     string
+		baseline *Baseline
+		adrID    string
+		file     string
+		want     string
+	}{
+		{
+			name:     "matching entry with no reason set",
+			baseline: newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:    "adr-001",
+			file:     "file1.go",
+			want:     "",
+		},
+		{
+			name: "matching entry with an explicit reason",
+			baseline: func() *Baseline {
+				b := New()
+				b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()", Reason: "false-positive"})
+				return b
+			}(),
+			adrID: "adr-001",
+			file:  "file1.go",
+			want:  "false-positive",
+		},
+		{
+			name:     "non-matching ADR ID returns empty",
+			baseline: newBaselineWithEntry("adr-001", "file1.go", "func main()"),
+			adrID:    "adr-002",
+			file:     "file1.go",
+			want:     "",
+		},
+		{
+			name:     "nil baseline returns empty",
+			baseline: nil,
+			adrID:    "adr-001",
+			file:     "file1.go",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.baseline.ReasonFor(tt.adrID, tt.file); got != tt.want {
+				t.Errorf("ReasonFor() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

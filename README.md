@@ -203,6 +203,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
+  - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
 
 ### Automation & Exit Codes
 

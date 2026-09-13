@@ -157,18 +157,40 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 
 // Must run unconditionally, not just when cwd != repoRoot -- a Windows
 // backslash-style arg typed from the repo root needs this too (see #80).
+// valueFlagsBySubcommand lists, per subcommand, flags that consume a
+// following argument as their value rather than being boolean switches.
+// normalizePositionalArgPaths must skip that following argument instead of
+// rewriting it as a file path.
+var valueFlagsBySubcommand = map[string]map[string]bool{
+	"check": {"baseline-reason": true},
+}
+
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
+	var subcommand string
+	if len(args) > 1 {
+		subcommand = args[1]
+	}
+	valueFlagNames := valueFlagsBySubcommand[subcommand]
+
 	for i := 2; i < len(args); i++ {
 		arg := args[i]
-		if arg != "" && !strings.HasPrefix(arg, "-") {
-			target := arg
-			if !filepath.IsAbs(arg) {
-				target = filepath.Join(cwd, arg)
+		if arg == "" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			name := strings.TrimLeft(arg, "-")
+			if !strings.Contains(name, "=") && valueFlagNames[name] && i+1 < len(args) {
+				i++ // the next argument is this flag's value, not a path
 			}
-			relPath, err := filepath.Rel(repoRoot, target)
-			if err == nil {
-				args[i] = filepath.ToSlash(relPath)
-			}
+			continue
+		}
+		target := arg
+		if !filepath.IsAbs(arg) {
+			target = filepath.Join(cwd, arg)
+		}
+		relPath, err := filepath.Rel(repoRoot, target)
+		if err == nil {
+			args[i] = filepath.ToSlash(relPath)
 		}
 	}
 }
@@ -435,6 +457,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
+	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
 
 	if err := checkFlags.Parse(args); err != nil {
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
@@ -492,6 +515,9 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	if *updateBaseline && (len(files) > 0 || *staged) {
 		fmt.Println("Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
+	if *baselineReason != "" && !*updateBaseline {
+		fmt.Println("Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
+	}
 	contentProvider := resolveContentProvider(files, *staged, *all, *updateBaseline)
 
 	if *debug {
@@ -499,17 +525,19 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	var loadedBaseline *baseline.Baseline
-	if !*updateBaseline {
-		loadedBaseline, err = baseline.Load(baseline.Path)
-		if err != nil {
+	loadedBaseline, err = baseline.Load(baseline.Path)
+	if err != nil {
+		if !*updateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
+		fmt.Printf("Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
 	}
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
 	engine.EmbedProvider = embedProvider
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = *updateBaseline
+	engine.BaselineReason = *baselineReason
 	if err := engine.Run(context.Background()); err != nil {
 		return exitCodeForAnalysisError(err), fmt.Errorf("analysis failed: %v", err)
 	}

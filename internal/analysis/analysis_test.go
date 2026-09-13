@@ -455,7 +455,7 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	}
 
 	b := baseline.New()
-	b.Add("0001", "service.py", "import python_library")
+	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
@@ -501,7 +501,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	}
 
 	b := baseline.New()
-	b.Add("0001", "service.py", "import python_library")
+	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
@@ -575,6 +575,170 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	}
 }
 
+// TestRun_UpdateBaselineMode_CarriesForwardPreviousReason asserts that a
+// re-run of --update-baseline preserves a human-set Reason for an
+// (ADR, file) pair that was already baselined, instead of wiping it.
+func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	priorBaseline := baseline.New()
+	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+	engine.Baseline = priorBaseline
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	if got.Reason != "accepted-debt" {
+		t.Errorf("expected carried-forward Reason %q, got %q", "accepted-debt", got.Reason)
+	}
+}
+
+// TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward
+// asserts --baseline-reason wins over whatever reason a previous entry had.
+func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	priorBaseline := baseline.New()
+	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+	engine.Baseline = priorBaseline
+	engine.BaselineReason = "false-positive"
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	if got.Reason != "false-positive" {
+		t.Errorf("expected explicit BaselineReason %q to override carry-forward, got %q", "false-positive", got.Reason)
+	}
+}
+
+// TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason asserts
+// a brand-new entry (no matching prior baseline entry, no --baseline-reason)
+// gets an empty Reason rather than erroring or inventing one.
+func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "import python_library"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.UpdateBaseline = true
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+	}
+
+	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
+		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
+	}
+	got := engine.CollectedBaseline.Entries[0]
+	if got.Reason != "" {
+		t.Errorf("expected empty Reason for a brand-new entry, got %q", got.Reason)
+	}
+}
+
 // TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression asserts
 // UpdateBaseline records a violation even if a pre-existing Baseline would suppress it.
 func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
@@ -610,7 +774,7 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	}
 
 	b := baseline.New()
-	b.Add("0001", "service.py", "import python_library")
+	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
@@ -1029,7 +1193,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 	t.Run("baselined", func(t *testing.T) {
 		b := baseline.New()
-		b.Add("0001", "service.py", "import python_library")
+		b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
 		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
 		engine.Cache = nil
@@ -1043,7 +1207,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
-		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
@@ -1063,6 +1227,26 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
+		}
+	})
+
+	t.Run("update baseline with explicit reason", func(t *testing.T) {
+		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine.Cache = nil
+		engine.UpdateBaseline = true
+		engine.BaselineReason = "accepted-debt"
+
+		var runErr error
+		output := captureStdout(t, func() {
+			runErr = engine.Run(context.Background())
+		})
+
+		if runErr != nil {
+			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
+		}
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
