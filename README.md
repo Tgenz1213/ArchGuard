@@ -221,7 +221,7 @@ Intentionally ignore a violation for a specific file using a comment:
 // archguard-ignore: 0001
 ```
 
-- The ignore token must match the **ADR ID** (the numeric prefix of the filename).
+- The ignore token must match the **ADR ID** — by default the numeric prefix of the filename, or whatever `analysis.adr_id_pattern` extracts if configured.
 
 ### Continuous Integration (CI)
 

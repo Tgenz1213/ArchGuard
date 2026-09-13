@@ -616,10 +616,7 @@ analysis:
 	}
 }
 
-// TestE2E_IndexADRIDPatternAvoidsCollision verifies analysis.adr_id_pattern
-// is actually threaded through cli.Execute to LocalProvider.SetIDPattern:
-// two files that collide under the default filename split get distinct IDs
-// and no duplicate-ID warning once the pattern is configured.
+// Verifies analysis.adr_id_pattern is threaded through cli.Execute to LocalProvider.SetIDPattern.
 func TestE2E_IndexADRIDPatternAvoidsCollision(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
