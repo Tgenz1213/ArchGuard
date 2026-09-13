@@ -1,7 +1,7 @@
 ---
 title: Per-ADR similarity_threshold override in frontmatter
 status: Accepted
-scope: "internal/index/**"
+scope: "internal/**"
 ---
 
 # Per-ADR similarity_threshold override in frontmatter
@@ -18,7 +18,7 @@ scope: "internal/index/**"
 
 `Engine`'s `--debug` "Below threshold" log line is updated to print `EffectiveThreshold(r.ADR, threshold)` instead of the raw global `threshold`, so debug output reflects the value that was actually applied.
 
-`PgStore` gains a `similarity_threshold DOUBLE PRECISION` column, added via the same ALTER-if-missing mechanism `ensureSchema` already uses for `adr_id`/`scope` (see #82's fix, referenced throughout `pgvector.go`). It's selected in `BuildIndex`'s existing-row fetch and in `SearchQuery`, written on insert/upsert, and folded into the existing `adrsToSync` metadata-only sync path (`existing.ID != valid.ID || existing.Scope != valid.Scope`) via a new `thresholdsEqual(*float64, *float64) bool` helper, so a similarity_threshold-only frontmatter edit — like a scope-only edit — is picked up without a re-embed.
+`PgStore` gains a `similarity_threshold DOUBLE PRECISION` column, added via the same ALTER-if-missing mechanism `ensureSchema` already uses for `adr_id`/`scope` (see #82's fix, referenced throughout `pgvector.go`). It's selected in `BuildIndex`'s existing-row fetch and in `SearchQuery`, written on insert/upsert, and folded into the existing `adrsToSync` metadata-only sync path (`existing.ID != valid.ID || existing.Scope != valid.Scope || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold)`) via a new `thresholdsEqual(*float64, *float64) bool` helper, so a similarity_threshold-only frontmatter edit — like a scope-only edit — is picked up without a re-embed.
 
 `LocalStore` needed no production code change: its `BuildIndex` already assigns `finalADRs` directly from the freshly-parsed ADR slice regardless of which fields changed, and JSON marshaling already round-trips every `ADR` field via struct tags.
 
