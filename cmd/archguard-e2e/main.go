@@ -21,6 +21,9 @@ func main() {
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 			fmt.Println(testutil.MockChatProviderMarker)
+			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
+				return "", fmt.Errorf("mock chat failure (E2E trigger)")
+			}
 			result := llm.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
 			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
 				result = llm.AnalysisResult{

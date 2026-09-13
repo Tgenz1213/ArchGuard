@@ -263,6 +263,56 @@ analysis:
 	})
 }
 
+// TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that
+// when an ADR check fails at the LLM call (not embedding, not file read),
+// `archguard check` does not print the unqualified "No new architectural
+// violations found." message -- it must instead surface that a check was
+// skipped, without --debug.
+func TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	fixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    console.log("%s");
+}
+`, testutil.MockChatFailureTrigger)
+	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	checkCmd := exec.Command(binaryPath, "check", fixtureFilename)
+	checkCmd.Dir = tempDir
+	out, err := checkCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("check command failed: %v\nOutput: %s", err, out)
+	}
+
+	output := string(out)
+	if strings.Contains(output, "No new architectural violations found.") {
+		t.Errorf("check must not print the unqualified clean message when an ADR check was skipped due to an LLM error. Output: %s", output)
+	}
+	if !strings.Contains(output, "1 ADR check(s) skipped due to LLM errors") {
+		t.Errorf("expected the skipped ADR check count to be reported. Output: %s", output)
+	}
+}
+
 // TestE2E_CheckMultipleFileArgs verifies that `check` analyzes every file
 // argument, not just the first (regression test for #132).
 func TestE2E_CheckMultipleFileArgs(t *testing.T) {

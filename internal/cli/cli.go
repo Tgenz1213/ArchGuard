@@ -502,7 +502,11 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return ExitSuccess, nil
 	}
 
-	fmt.Println("No new architectural violations found.")
+	if engine.SkippedADRChecks > 0 {
+		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
+	} else {
+		fmt.Println("No new architectural violations found.")
+	}
 	return ExitSuccess, nil
 }
 
