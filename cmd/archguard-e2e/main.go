@@ -21,6 +21,9 @@ func main() {
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
+			if strings.Contains(system, "Remediation Advisor") {
+				return `{"suggestion": "Mock suggestion: move this logic into a Go service."}`, nil
+			}
 			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
 				return "", fmt.Errorf("mock chat failure (E2E trigger)")
 			}
