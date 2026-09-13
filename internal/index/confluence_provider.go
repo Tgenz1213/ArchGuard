@@ -21,6 +21,7 @@ type ConfluenceProvider struct {
 	username         string
 	token            string
 	acceptedStatuses []string
+	writer           io.Writer
 }
 
 // NewConfluenceProvider creates a new ConfluenceProvider.
@@ -32,6 +33,12 @@ func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStat
 		token:            token,
 		acceptedStatuses: acceptedStatuses,
 	}
+}
+
+// SetWriter routes GetADRs' parse-failure warnings to w instead of the
+// default os.Stdout. Passing nil restores the default.
+func (p *ConfluenceProvider) SetWriter(w io.Writer) {
+	p.writer = w
 }
 
 // ConfluenceSearchResponse represents the REST API response from Confluence.
@@ -116,7 +123,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
 			adr, err := ParseADRContent([]byte(rawText), adrID, relPath)
 			if err != nil {
-				fmt.Printf("Warning: skipping Confluence page %s: %v\n", relPath, err)
+				fmt.Fprintf(diagWriter(p.writer), "Warning: skipping Confluence page %s: %v\n", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)
 				continue
 			}

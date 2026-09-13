@@ -1,10 +1,12 @@
 package index
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +86,23 @@ func TestLocalProvider_CustomIDPatternAvoidsCollision(t *testing.T) {
 	}
 	if len(ids) != 2 {
 		t.Errorf("got %d distinct IDs (%v), want 2", len(ids), ids)
+	}
+}
+
+func TestLocalProvider_SetWriter_RoutesParseWarningsThere(t *testing.T) {
+	dir := t.TempDir()
+	writeADRFile(t, dir, "0001-bad.md", "not frontmatter at all")
+
+	var buf bytes.Buffer
+	provider := NewLocalProvider(dir, []string{"Accepted"})
+	provider.SetWriter(&buf)
+
+	_, _, err := provider.GetADRs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "Warning: skipping") {
+		t.Errorf("expected the parse-failure warning on the configured writer, got %q", buf.String())
 	}
 }

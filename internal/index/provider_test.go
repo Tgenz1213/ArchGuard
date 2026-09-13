@@ -1,8 +1,10 @@
 package index
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +75,23 @@ func TestCompositeProvider_GetADRs_AllProvidersFail(t *testing.T) {
 	_, _, err := composite.GetADRs(context.Background())
 	if err == nil {
 		t.Fatal("expected an error when every provider fails")
+	}
+}
+
+func TestCompositeProvider_SetWriter_RoutesFetchWarningThere(t *testing.T) {
+	ok := &fakeProvider{adrs: []ADR{{RelPath: "a.md"}}}
+	failing := &fakeProvider{err: errors.New("connection dropped")}
+
+	var buf bytes.Buffer
+	composite := NewCompositeProvider(ok, failing)
+	composite.SetWriter(&buf)
+
+	_, _, err := composite.GetADRs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error (only one of two providers failed): %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "Warning: failed to fetch ADRs from a provider") {
+		t.Errorf("expected the fetch warning on the configured writer, got %q", buf.String())
 	}
 }
