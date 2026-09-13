@@ -1301,3 +1301,125 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 		t.Fatalf("expected the debug line to print the ADR's own override (0.95), not the global 0.50, got: %q", output)
 	}
 }
+
+func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			t.Fatal("LLM should not be called for an excluded file")
+			return "", nil
+		},
+	}
+
+	cfg := &config.Config{
+		Analysis: config.Analysis{ExcludePatterns: []string{"**/*.pb.go"}},
+	}
+
+	content := &analysis.MultiFileProvider{Paths: []string{"generated.pb.go"}}
+
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		if err := engine.Run(context.Background()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Skipping generated.pb.go: explicitly requested but matches exclude_patterns") {
+		t.Fatalf("expected a debug line naming the excluded explicit file, got: %q", output)
+	}
+}
+
+// TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage
+// guards against a misleading message: the baseline file is always excluded
+// regardless of exclude_patterns, so it must not be reported as such.
+func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			t.Fatal("LLM should not be called for an excluded file")
+			return "", nil
+		},
+	}
+
+	cfg := &config.Config{
+		Analysis: config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &analysis.MultiFileProvider{Paths: []string{baseline.Path}}
+
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		if err := engine.Run(context.Background()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "matches exclude_patterns") {
+		t.Fatalf("expected no exclude_patterns message for the always-excluded baseline file, got: %q", output)
+	}
+}
+
+// TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage guards the
+// false branch of the explicitFiles check: a broad scan (AllProvider,
+// UncommittedProvider, StagedProvider, or any other non-MultiFileProvider)
+// must stay silent about excluded files even in --debug mode, since that
+// noise is only warranted for a file the user explicitly named.
+func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			t.Fatal("LLM should not be called for an excluded file")
+			return "", nil
+		},
+	}
+
+	cfg := &config.Config{
+		Analysis: config.Analysis{ExcludePatterns: []string{"**/*.pb.go"}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"generated.pb.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		if err := engine.Run(context.Background()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "Skipping") || strings.Contains(output, "matches exclude_patterns") {
+		t.Fatalf("expected no skip message for a non-explicit (non-MultiFileProvider) scan, got: %q", output)
+	}
+}
+
+func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			t.Fatal("LLM should not be called for an excluded file")
+			return "", nil
+		},
+	}
+
+	cfg := &config.Config{
+		Analysis: config.Analysis{ExcludePatterns: []string{"**/*.pb.go"}},
+	}
+
+	content := &analysis.MultiFileProvider{Paths: []string{"generated.pb.go"}}
+
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, false, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		if err := engine.Run(context.Background()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if output != "" {
+		t.Fatalf("expected no output in non-debug mode for an excluded file, got: %q", output)
+	}
+}
