@@ -23,37 +23,34 @@ func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider 
 }
 
 // GetADRs walks the directory tree and returns ADRs matching accepted statuses.
-func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, error) {
+func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var validADRs []ADR
+	var stats FetchStats
 
 	err := filepath.Walk(p.dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+			stats.Discovered++
 			adr, err := ParseADR(path, p.dirPath)
 			if err != nil {
 				fmt.Printf("Warning: skipping %s: %v\n", path, err)
+				stats.ParseFailed = append(stats.ParseFailed, path)
 				return nil
 			}
 
-			// Filter by status
-			accept := false
-			for _, status := range p.acceptedStatuses {
-				if status == "*" || strings.EqualFold(strings.TrimSpace(adr.Status), strings.TrimSpace(status)) {
-					accept = true
-					break
-				}
-			}
-			if accept {
+			if isAcceptedStatus(adr.Status, p.acceptedStatuses) {
 				validADRs = append(validADRs, *adr)
+			} else {
+				stats.StatusRejected++
 			}
 		}
 		return nil
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, FetchStats{}, err
 	}
-	return validADRs, nil
+	return validADRs, stats, nil
 }

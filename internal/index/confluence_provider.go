@@ -54,13 +54,14 @@ type ConfluenceSearchResponse struct {
 }
 
 // GetADRs fetches and parses all matching ADRs from Confluence using the CQL query.
-func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
+func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var allADRs []ADR
+	var stats FetchStats
 
 	// Use Confluence v2 API to get pages in a space
 	baseURL, err := url.Parse(p.domain)
 	if err != nil {
-		return nil, fmt.Errorf("invalid confluence domain: %w", err)
+		return nil, FetchStats{}, fmt.Errorf("invalid confluence domain: %w", err)
 	}
 
 	u := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", p.domain, p.spaceID)
@@ -73,7 +74,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 	for u != "" {
 		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, FetchStats{}, fmt.Errorf("failed to create request: %w", err)
 		}
 
 		// Authenticate with Atlassian Cloud
@@ -82,23 +83,24 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("confluence request failed: %w", err)
+			return nil, FetchStats{}, fmt.Errorf("confluence request failed: %w", err)
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("confluence returned %d: %s", resp.StatusCode, string(body))
+			return nil, FetchStats{}, fmt.Errorf("confluence returned %d: %s", resp.StatusCode, string(body))
 		}
 
 		var searchResp ConfluenceSearchResponse
 		if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
 			_ = resp.Body.Close()
-			return nil, fmt.Errorf("failed to decode confluence response: %w", err)
+			return nil, FetchStats{}, fmt.Errorf("failed to decode confluence response: %w", err)
 		}
 		_ = resp.Body.Close()
 
 		for _, result := range searchResp.Results {
+			stats.Discovered++
 			// Extract raw text for metadata parsing (frontmatter)
 			rawText := extractRawText(result.Body.Storage.Value)
 			// Resolve the WebUI link to an absolute URL for clickable logging
@@ -115,6 +117,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 			adr, err := ParseADRContent([]byte(rawText), adrID, relPath)
 			if err != nil {
 				fmt.Printf("Warning: skipping Confluence page %s: %v\n", relPath, err)
+				stats.ParseFailed = append(stats.ParseFailed, relPath)
 				continue
 			}
 
@@ -122,23 +125,17 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
 			adr.Content = markdown
 
-			// Filter by status
-			accept := false
-			for _, status := range p.acceptedStatuses {
-				if status == "*" || strings.EqualFold(strings.TrimSpace(adr.Status), strings.TrimSpace(status)) {
-					accept = true
-					break
-				}
-			}
-			if accept {
+			if isAcceptedStatus(adr.Status, p.acceptedStatuses) {
 				allADRs = append(allADRs, *adr)
+			} else {
+				stats.StatusRejected++
 			}
 		}
 
 		if searchResp.Links.Next != "" {
 			nextURL, err := url.Parse(searchResp.Links.Next)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse pagination URL: %w", err)
+				return nil, FetchStats{}, fmt.Errorf("failed to parse pagination URL: %w", err)
 			}
 			resolvedURL := baseURL.ResolveReference(nextURL)
 			u = resolvedURL.String()
@@ -147,7 +144,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, error) {
 		}
 	}
 
-	return allADRs, nil
+	return allADRs, stats, nil
 }
 
 // extractRawText strips HTML tags via goquery, inserting a newline after

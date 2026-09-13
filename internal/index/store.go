@@ -22,9 +22,11 @@ type SkippedADR struct {
 	Err     error
 }
 
-// BuildIndexResult reports ADRs BuildIndex could not process. Skipped can be
-// non-empty whether or not BuildIndex also returns an error.
+// BuildIndexResult reports the outcome of a BuildIndex run: corpus health
+// (IndexSummary) plus any ADRs that failed to embed or persist (Skipped).
+// Skipped can be non-empty whether or not BuildIndex also returns an error.
 type BuildIndexResult struct {
+	IndexSummary
 	Skipped []SkippedADR
 }
 
@@ -127,7 +129,7 @@ func (s *LocalStore) Save(path string) error {
 }
 
 func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
-	validADRs, err := adrProvider.GetADRs(ctx)
+	validADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
@@ -149,7 +151,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
-	var result BuildIndexResult
+	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats)}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {

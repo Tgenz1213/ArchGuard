@@ -91,12 +91,13 @@ func TestStore_Save_RenameFailure_CleansUpTmpFile(t *testing.T) {
 }
 
 type mockADRProvider struct {
-	adrs []ADR
-	err  error
+	adrs  []ADR
+	stats FetchStats
+	err   error
 }
 
-func (m *mockADRProvider) GetADRs(ctx context.Context) ([]ADR, error) {
-	return m.adrs, m.err
+func (m *mockADRProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
+	return m.adrs, m.stats, m.err
 }
 
 func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {

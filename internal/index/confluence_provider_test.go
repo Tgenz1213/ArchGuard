@@ -75,7 +75,7 @@ We will use Python.</p>`
 	// we can just pass the full URL.
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
-	adrs, err := provider.GetADRs(context.Background())
+	adrs, _, err := provider.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +131,7 @@ Content 2</p>`
 	defer ts.Close()
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
-	adrs, err := provider.GetADRs(context.Background())
+	adrs, _, err := provider.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 	defer ts.Close()
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
-	_, err := provider.GetADRs(context.Background())
+	_, _, err := provider.GetADRs(context.Background())
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}

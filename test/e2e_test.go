@@ -308,7 +308,7 @@ analysis:
 	if strings.Contains(indexOutput, "ADR Index updated successfully") {
 		t.Errorf("index must not claim unqualified success when an ADR was skipped. Output: %s", indexOutput)
 	}
-	if !strings.Contains(indexOutput, "ADR Index updated with 1 ADR(s) skipped") {
+	if !strings.Contains(indexOutput, "Failed to embed: 1") {
 		t.Errorf("expected the skipped ADR to be reported. Output: %s", indexOutput)
 	}
 	if !strings.Contains(indexOutput, "0001-always-fails.md") {
@@ -325,6 +325,113 @@ analysis:
 		if strings.Contains(output, "failed to load rebuilt index") {
 			t.Fatalf("check run %d hit the rebuild loop. Output: %s", i, output)
 		}
+	}
+}
+
+// TestE2E_IndexReportsDuplicateADRIDs verifies the summary flags two ADRs
+// sharing an ID, since a duplicate breaks archguard-ignore/baseline scoping.
+func TestE2E_IndexReportsDuplicateADRIDs(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	// Both files parse their ADR ID from the leading "-"-delimited filename
+	// segment, so these two collide on ID "0001" despite different paths.
+	dup1 := "---\ntitle: \"First\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent A"
+	dup2 := "---\ntitle: \"Second\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent B"
+	if err := os.WriteFile(filepath.Join(adrDir, "0001-first.md"), []byte(dup1), 0644); err != nil {
+		t.Fatalf("Failed to write first ADR: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adrDir, "0001-second.md"), []byte(dup2), 0644); err != nil {
+		t.Fatalf("Failed to write second ADR: %v", err)
+	}
+
+	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	if !strings.Contains(output, "Duplicate ADR IDs: 1") {
+		t.Errorf("expected duplicate ADR IDs to be reported. Output: %s", output)
+	}
+	if !strings.Contains(output, "0001-first.md") || !strings.Contains(output, "0001-second.md") {
+		t.Errorf("expected both colliding paths to be named. Output: %s", output)
+	}
+}
+
+// TestE2E_IndexNoValidADRsExitsWithError verifies a corpus where every
+// discovered ADR was excluded (accepted_statuses) exits non-zero, not success.
+func TestE2E_IndexNoValidADRsExitsWithError(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	rejected := "---\ntitle: \"Draft Only\"\nstatus: \"Proposed\"\nscope: \"**\"\n---\nNot yet accepted."
+	if err := os.WriteFile(filepath.Join(adrDir, "0001-draft.md"), []byte(rejected), 0644); err != nil {
+		t.Fatalf("Failed to write ADR: %v", err)
+	}
+
+	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitIndexError))
+
+	if !strings.Contains(output, "1 discovered, 0 valid") {
+		t.Errorf("expected the summary to show 1 discovered, 0 valid. Output: %s", output)
+	}
+}
+
+// TestE2E_IndexEmptyADRDirectoryExitsWithError verifies discovering nothing
+// (e.g. a misconfigured adr_path) fails loudly rather than reporting success.
+func TestE2E_IndexEmptyADRDirectoryExitsWithError(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+
+	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitIndexError))
+
+	if !strings.Contains(output, "0 discovered, 0 valid") {
+		t.Errorf("expected the summary to show 0 discovered, 0 valid. Output: %s", output)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -443,7 +444,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
 
-	validADRs, err := adrProvider.GetADRs(context.Background())
+	validADRs, _, err := adrProvider.GetADRs(context.Background())
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
 	}
@@ -563,15 +564,49 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
 
-	if len(result.Skipped) > 0 {
-		fmt.Printf("ADR Index updated with %d ADR(s) skipped:\n", len(result.Skipped))
-		for _, skipped := range result.Skipped {
-			fmt.Printf("  - %s: %v\n", skipped.RelPath, skipped.Err)
-		}
-	} else {
-		fmt.Println("ADR Index updated successfully.")
+	printIndexSummary(result)
+
+	// A misconfigured adr_path or accepted_statuses can silently zero out the
+	// corpus; treat that as a failure rather than a quiet no-op success.
+	if result.IsEmpty() {
+		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered", result.Discovered)
 	}
 	return ExitSuccess, nil
+}
+
+// printIndexSummary prints what archguard index found: counts, exclusions, and structural problems.
+func printIndexSummary(result index.BuildIndexResult) {
+	fmt.Printf("ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
+
+	if len(result.ParseFailed) > 0 {
+		fmt.Printf("  Skipped (parse failure): %d\n", len(result.ParseFailed))
+		for _, path := range result.ParseFailed {
+			fmt.Printf("    - %s\n", path)
+		}
+	}
+	if result.StatusRejected > 0 {
+		fmt.Printf("  Skipped (status not accepted): %d\n", result.StatusRejected)
+	}
+	if len(result.Skipped) > 0 {
+		fmt.Printf("  Failed to embed: %d\n", len(result.Skipped))
+		for _, skipped := range result.Skipped {
+			fmt.Printf("    - %s: %v\n", skipped.RelPath, skipped.Err)
+		}
+	}
+	if len(result.DuplicateIDs) > 0 {
+		ids := make([]string, 0, len(result.DuplicateIDs))
+		for id := range result.DuplicateIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		fmt.Printf("  Duplicate ADR IDs: %d\n", len(ids))
+		for _, id := range ids {
+			fmt.Printf("    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
+		}
+	}
+	if len(result.NoScope) > 0 {
+		fmt.Printf("  No scope set (applies to every file): %d\n", len(result.NoScope))
+	}
 }
 
 func printUsage() {
