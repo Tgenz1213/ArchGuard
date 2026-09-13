@@ -507,6 +507,89 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
 }
 
+func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "similarity_threshold_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	overrideContent := "---\ntitle: \"Strict ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.6\n---\nStrict body"
+	defaultContent := "---\ntitle: \"Default ADR\"\nstatus: \"Accepted\"\n---\nDefault body"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0001-strict.md"), []byte(overrideContent), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0002-default.md"), []byte(defaultContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	results := store.Search([]float32{0.1, 0.1}, 0.0, 5, "main.go")
+	require.Len(t, results, 2)
+
+	byTitle := make(map[string]index.SearchResult)
+	for _, r := range results {
+		byTitle[r.ADR.Title] = r
+	}
+	require.NotNil(t, byTitle["Strict ADR"].ADR.SimilarityThreshold, "override should round-trip through PgStore")
+	assert.Equal(t, 0.6, *byTitle["Strict ADR"].ADR.SimilarityThreshold)
+	assert.Nil(t, byTitle["Default ADR"].ADR.SimilarityThreshold, "ADR without an override should round-trip as nil, not zero")
+}
+
+// mirrors TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit's adrsToSync
+// trigger, but for a similarity_threshold-only edit.
+func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "threshold_only_edit_project", 5, index.HNSWOptions{})
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrPath := filepath.Join(tmpDir, "0010-threshold-edit.md")
+	initialContent := "---\ntitle: \"Threshold Edit ADR\"\nstatus: \"Accepted\"\n---\nBody unchanged."
+	require.NoError(t, os.WriteFile(adrPath, []byte(initialContent), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
+	require.Len(t, results, 1)
+	assert.Nil(t, results[0].ADR.SimilarityThreshold, "initial index should have no override")
+
+	// Same title/status/body -- only the similarity_threshold: frontmatter value changes.
+	editedContent := "---\ntitle: \"Threshold Edit ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.3\n---\nBody unchanged."
+	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
+
+	output := captureStdout(t, func() {
+		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
+
+	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].ADR.SimilarityThreshold, "sync path must pick up the new threshold value")
+	assert.Equal(t, 0.3, *results[0].ADR.SimilarityThreshold)
+}
+
 // A single failing embed call must not abort the whole build (#133).
 func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	if testing.Short() {

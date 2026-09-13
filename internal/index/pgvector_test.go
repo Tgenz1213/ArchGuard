@@ -132,3 +132,24 @@ func TestIterativeScanSupportedVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestThresholdsEqual(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b *float64
+		want bool
+	}{
+		{"both nil", nil, nil, true},
+		{"a nil b set", nil, float64Ptr(0.5), false},
+		{"a set b nil", float64Ptr(0.5), nil, false},
+		{"equal values", float64Ptr(0.5), float64Ptr(0.5), true},
+		{"different values", float64Ptr(0.5), float64Ptr(0.6), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := thresholdsEqual(tt.a, tt.b); got != tt.want {
+				t.Errorf("thresholdsEqual(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
