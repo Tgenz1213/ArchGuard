@@ -263,6 +263,69 @@ analysis:
 	})
 }
 
+// TestE2E_CheckMultipleFileArgs verifies that `check` analyzes every file
+// argument, not just the first (regression test for #132).
+func TestE2E_CheckMultipleFileArgs(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	fileA := filepath.Join(tempDir, "a.js")
+	fileB := filepath.Join(tempDir, "b.js")
+	if err := os.WriteFile(fileA, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture a.js: %v", err)
+	}
+	if err := os.WriteFile(fileB, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture b.js: %v", err)
+	}
+
+	writeNoSecretsADR(t, tempDir)
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	// --debug is required for the CLI to print per-file "Analyzing <path>..."
+	// lines; the normal violation output has no filename in it at all.
+	cmd := exec.Command(binaryPath, "check", "--debug", "a.js", "b.js")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+	exitCode := 0
+	if err != nil {
+		exitError, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("Binary failed to execute: %v", err)
+		}
+		exitCode = exitError.ExitCode()
+	}
+
+	if exitCode != int(cli.ExitDriftDetected) {
+		t.Fatalf("expected exit code %d (drift detected), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
+	}
+	if !strings.Contains(output, "Analyzing a.js") {
+		t.Errorf("expected output to mention a.js's violation, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Analyzing b.js") {
+		t.Errorf("expected output to mention b.js's violation, got:\n%s", output)
+	}
+	if strings.Count(output, "[VIOLATION]") != 2 {
+		t.Errorf("expected 2 violations (one per file), got:\n%s", output)
+	}
+}
+
 // alwaysFailsToEmbedADRContent is a valid ADR whose body trips the mock
 // provider's embed failure, so it can never be indexed.
 var alwaysFailsToEmbedADRContent = fmt.Sprintf(`---
