@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -46,7 +48,11 @@ type ProviderFactories struct {
 
 // Execute parses arguments and runs the requested command.
 func Execute(factories ProviderFactories) (ExitCode, error) {
-	fmt.Println("ArchGuard - Architectural Drift Detector")
+	// --format json must be the only thing on stdout, so the startup banner
+	// is skipped here, before checkFlags.Parse runs inside runCheck.
+	if !checkWantsJSON(os.Args) {
+		fmt.Println("ArchGuard - Architectural Drift Detector")
+	}
 
 	repoRoot, err := git.GetRepoRoot()
 	if err != nil {
@@ -162,7 +168,49 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 // normalizePositionalArgPaths must skip that following argument instead of
 // rewriting it as a file path.
 var valueFlagsBySubcommand = map[string]map[string]bool{
-	"check": {"baseline-reason": true},
+	"check": {"baseline-reason": true, "format": true},
+}
+
+// checkWantsJSON reports whether args requests `check --format json` without
+// `--update-baseline` (which ignores --format, see runCheck). It mirrors
+// normalizePositionalArgPaths' value-flag handling closely enough to read
+// --format's value before checkFlags.Parse runs, so Execute can decide
+// whether to suppress the startup banner (see docs/arch/0014-json-check-output.md).
+func checkWantsJSON(args []string) bool {
+	if len(args) < 2 || args[1] != "check" {
+		return false
+	}
+	valueFlagNames := valueFlagsBySubcommand["check"]
+	format := "text"
+	updateBaseline := false
+	for i := 2; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			break // flag.Package stops parsing at the first positional arg
+		}
+		name := strings.TrimLeft(arg, "-")
+		if flagName, value, ok := strings.Cut(name, "="); ok {
+			if flagName == "format" {
+				format = value
+			}
+			continue
+		}
+		if name == "format" {
+			if i+1 < len(args) {
+				format = args[i+1]
+				i++
+			}
+			continue
+		}
+		if name == "update-baseline" {
+			updateBaseline = true
+			continue
+		}
+		if valueFlagNames[name] && i+1 < len(args) {
+			i++ // this flag's value, not another flag name
+		}
+	}
+	return format == "json" && !updateBaseline
 }
 
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
@@ -458,6 +506,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
 	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
+	format := checkFlags.String("format", "text", `Output format: "text" (default) or "json"`)
 
 	if err := checkFlags.Parse(args); err != nil {
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
@@ -466,7 +515,24 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
+	if *format != "text" && *format != "json" {
+		return ExitUsage, fmt.Errorf(`invalid --format value %q: must be "text" or "json"`, *format)
+	}
+
 	files := checkFlags.Args()
+
+	// --update-baseline ignores --format: its output is a maintenance
+	// summary, not the machine-readable violation report --format targets.
+	jsonOutput := *format == "json" && !*updateBaseline
+	// human receives progress/info text; stderr in JSON mode keeps stdout
+	// carrying only the JSON document (see docs/arch/0014-json-check-output.md).
+	human := io.Writer(os.Stdout)
+	if jsonOutput {
+		human = os.Stderr
+	}
+	if *format == "json" && *updateBaseline {
+		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
+	}
 
 	store, err := index.NewVectorStore(cfg)
 	if err != nil {
@@ -500,7 +566,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
-		fmt.Printf("Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
+		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
 		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
@@ -513,15 +579,15 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	if *updateBaseline && (len(files) > 0 || *staged) {
-		fmt.Println("Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
+		_, _ = fmt.Fprintln(human, "Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 	if *baselineReason != "" && !*updateBaseline {
-		fmt.Println("Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
+		_, _ = fmt.Fprintln(human, "Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
-	contentProvider := resolveContentProvider(files, *staged, *all, *updateBaseline)
+	contentProvider := resolveContentProvider(human, files, *staged, *all, *updateBaseline)
 
 	if *debug {
-		fmt.Println("[DEBUG] Mode Enabled")
+		_, _ = fmt.Fprintln(human, "[DEBUG] Mode Enabled")
 	}
 
 	var loadedBaseline *baseline.Baseline
@@ -530,7 +596,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		if !*updateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
-		fmt.Printf("Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
+		_, _ = fmt.Fprintf(human, "Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
 	}
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
@@ -538,17 +604,34 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = *updateBaseline
 	engine.BaselineReason = *baselineReason
-	if err := engine.Run(context.Background()); err != nil {
-		return exitCodeForAnalysisError(err), fmt.Errorf("analysis failed: %v", err)
-	}
+	engine.JSONOutput = jsonOutput
+	engine.Writer = human
+	runErr := engine.Run(context.Background())
 
 	if *updateBaseline {
+		if runErr != nil {
+			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+		}
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
 		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
+	}
+
+	if jsonOutput {
+		if err := writeCheckReport(os.Stdout, engine.CollectedViolations); err != nil {
+			return ExitError, fmt.Errorf("failed to write json report: %v", err)
+		}
+		if runErr != nil {
+			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+		}
+		return ExitSuccess, nil
+	}
+
+	if runErr != nil {
+		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 	}
 
 	switch {
@@ -564,9 +647,25 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	return ExitSuccess, nil
 }
 
+// checkReport is the --format json document shape for `archguard check`.
+type checkReport struct {
+	Violations []analysis.Violation `json:"violations"`
+	Count      int                  `json:"count"`
+}
+
+// writeCheckReport writes the single JSON document --format json produces.
+func writeCheckReport(w io.Writer, violations []analysis.Violation) error {
+	if violations == nil {
+		violations = []analysis.Violation{}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(checkReport{Violations: violations, Count: len(violations)})
+}
+
 // resolveContentProvider picks the ContentProvider for a check run.
 // updateBaseline forces a full-repo scan, overriding any other flag.
-func resolveContentProvider(files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
+func resolveContentProvider(human io.Writer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
 	if updateBaseline {
 		return &analysis.AllProvider{}
 	}
@@ -579,7 +678,7 @@ func resolveContentProvider(files []string, staged, all, updateBaseline bool) an
 				}
 			}
 			if len(extras) > 0 {
-				fmt.Printf("Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
+				_, _ = fmt.Fprintf(human, "Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
 			}
 			return &analysis.AllProvider{}
 		}

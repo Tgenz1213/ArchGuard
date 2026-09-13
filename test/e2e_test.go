@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -260,6 +261,150 @@ analysis:
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
+	})
+}
+
+// checkReport mirrors internal/cli's --format json document shape.
+type checkReport struct {
+	Violations []struct {
+		File       string `json:"file"`
+		ADRID      string `json:"adr_id"`
+		ADRTitle   string `json:"adr_title"`
+		Line       int    `json:"line"`
+		Reasoning  string `json:"reasoning"`
+		QuotedCode string `json:"quoted_code"`
+	} `json:"violations"`
+	Count int `json:"count"`
+}
+
+// runCheckJSON runs `archguard check --format json [target]`, capturing
+// stdout and stderr separately -- stdout purity is exactly what this
+// format exists to guarantee (see issue #70).
+func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+
+	args := []string{"check", "--format", "json"}
+	if target != "" {
+		args = append(args, target)
+	}
+
+	cmd := exec.Command(binaryPath, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return outBuf.String(), errBuf.String(), exitError.ExitCode()
+		}
+		t.Fatalf("Binary failed to execute: %v", err)
+	}
+	return outBuf.String(), errBuf.String(), 0
+}
+
+// TestE2E_CheckFormatJSON verifies --format json: stdout carries only a
+// single valid JSON document (no banner, no debug/progress text), the
+// violation count matches the exit-code-driving DriftDetectedError.Count,
+// and exit codes are unaffected by the flag.
+func TestE2E_CheckFormatJSON(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	t.Run("violations found: valid JSON on stdout only, drift exit code", func(t *testing.T) {
+		stdout, _, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
+		}
+
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if report.Count != 1 || len(report.Violations) != 1 {
+			t.Fatalf("expected 1 violation, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
+		}
+		v := report.Violations[0]
+		if v.File != fixtureFilename {
+			t.Errorf("expected file %q, got %q", fixtureFilename, v.File)
+		}
+		if v.ADRID == "" || v.ADRTitle == "" || v.Reasoning == "" {
+			t.Errorf("expected populated adr_id/adr_title/reasoning, got %+v", v)
+		}
+	})
+
+	t.Run("clean run: valid JSON with zero violations, success exit code", func(t *testing.T) {
+		if err := os.Remove(fixturePath); err != nil {
+			t.Fatalf("Failed to remove fixture: %v", err)
+		}
+		defer func() {
+			if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+				t.Fatalf("Failed to restore fixture: %v", err)
+			}
+		}()
+
+		stdout, _, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("expected success exit code %d, got %d. stdout: %s", cli.ExitSuccess, exitCode, stdout)
+		}
+
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if report.Count != 0 || len(report.Violations) != 0 {
+			t.Fatalf("expected 0 violations, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
+		}
+	})
+
+	t.Run("debug mode routes progress text to stderr, keeping stdout JSON-only", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "check", "--format", "json", "--debug", fixtureFilename)
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		var outBuf, errBuf bytes.Buffer
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
+		_ = cmd.Run()
+
+		stdout := outBuf.String()
+		stderr := errBuf.String()
+
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON with --debug: %v\nstdout: %q", err, stdout)
+		}
+		if strings.Contains(stdout, "ArchGuard - Architectural Drift Detector") {
+			t.Errorf("banner must not appear on stdout in --format json mode. stdout: %s", stdout)
+		}
+		if !strings.Contains(stderr, "[DEBUG]") {
+			t.Errorf("expected debug output on stderr, got: %s", stderr)
+		}
 	})
 }
 
