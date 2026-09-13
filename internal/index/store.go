@@ -17,14 +17,30 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// diagWriter resolves w to os.Stdout when nil, evaluated at each call site
-// (never cached) so tests that redirect the global os.Stdout after
-// construction still see output land where they expect.
+// diagWriter resolves w to os.Stdout when nil, evaluated at each call rather
+// than cached, so tests that redirect os.Stdout after construction still work.
 func diagWriter(w io.Writer) io.Writer {
 	if w == nil {
 		return os.Stdout
 	}
 	return w
+}
+
+var diagMu sync.Mutex
+
+// diagPrintf and diagPrintln serialize diagnostic writes -- a caller-supplied
+// writer (unlike os.Stdout) isn't guaranteed safe for the concurrent writers
+// this package has (CompositeProvider's providers, PgStore's pooled AfterConnect).
+func diagPrintf(w io.Writer, format string, args ...any) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	_, _ = fmt.Fprintf(diagWriter(w), format, args...)
+}
+
+func diagPrintln(w io.Writer) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	_, _ = fmt.Fprintln(diagWriter(w))
 }
 
 // SkippedADR records one ADR that BuildIndex could not embed or persist.
@@ -167,7 +183,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 	}
 
-	_, _ = fmt.Fprintf(diagWriter(s.writer), "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	diagPrintf(s.writer, "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -186,7 +202,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			_, _ = fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			diagPrintf(s.writer, "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 			mu.Unlock()
 		}
 
@@ -201,14 +217,14 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 				}
 				validADRs[idx].Embedding = emb
 				mu.Lock()
-				_, _ = fmt.Fprintf(diagWriter(s.writer), ".")
+				diagPrintf(s.writer, ".")
 				mu.Unlock()
 				return nil
 			})
 		}
 
 		_ = g.Wait()
-		_, _ = fmt.Fprintln(diagWriter(s.writer))
+		diagPrintln(s.writer)
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.

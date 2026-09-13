@@ -442,9 +442,8 @@ function sensitiveData() {
 	})
 }
 
-// TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout proves the #163 fix:
-// an index-hash-mismatch rebuild triggered from inside `check --format json`
-// must not leak BuildIndex's progress/warning text onto stdout.
+// TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout proves an index rebuild
+// triggered from inside `check --format json` doesn't leak text onto stdout (#163).
 func TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 

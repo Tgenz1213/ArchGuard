@@ -123,7 +123,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
 			adr, err := ParseADRContent([]byte(rawText), adrID, relPath)
 			if err != nil {
-				_, _ = fmt.Fprintf(diagWriter(p.writer), "Warning: skipping Confluence page %s: %v\n", relPath, err)
+				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)
 				continue
 			}

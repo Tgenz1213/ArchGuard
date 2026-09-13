@@ -94,12 +94,12 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	switch {
 	case versionErr != nil:
 		if iterativeScanWanted {
-			_, _ = fmt.Fprintf(diagWriter(w), "Warning: failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.\n", versionErr)
+			diagPrintf(w, "Warning: failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.\n", versionErr)
 		}
 	case iterativeScanWanted && IterativeScanSupportedVersion(pgvectorVersion):
 		applyIterativeScan = true
 	case iterativeScanWanted:
-		_, _ = fmt.Fprintf(diagWriter(w), "Warning: pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.\n", pgvectorVersion)
+		diagPrintf(w, "Warning: pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.\n", pgvectorVersion)
 	}
 
 	config, err := pgxpool.ParseConfig(connStr)
@@ -113,7 +113,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		}
 		if applyIterativeScan {
 			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
-				_, _ = fmt.Fprintf(diagWriter(w), "Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.\n", err)
+				diagPrintf(w, "Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.\n", err)
 			}
 		}
 		return nil
@@ -312,7 +312,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	_, _ = fmt.Fprintf(diagWriter(s.writer), "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	diagPrintf(s.writer, "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -331,7 +331,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			_, _ = fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			diagPrintf(s.writer, "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 			mu.Unlock()
 		}
 
@@ -364,14 +364,14 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 					return nil
 				}
 				mu.Lock()
-				_, _ = fmt.Fprintf(diagWriter(s.writer), ".")
+				diagPrintf(s.writer, ".")
 				mu.Unlock()
 				return nil
 			})
 		}
 
 		_ = g.Wait()
-		_, _ = fmt.Fprintln(diagWriter(s.writer))
+		diagPrintln(s.writer)
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.
@@ -388,7 +388,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	if len(adrsToSync) > 0 {
-		_, _ = fmt.Fprintf(diagWriter(s.writer), "Syncing ID/scope/threshold metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
+		diagPrintf(s.writer, "Syncing ID/scope/threshold metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
 		batch := &pgx.Batch{}
 		for _, idx := range adrsToSync {
 			batch.Queue(`
@@ -405,7 +405,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
 			if tag.RowsAffected() == 0 {
-				_, _ = fmt.Fprintf(diagWriter(s.writer), "Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
+				diagPrintf(s.writer, "Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
 			}
 		}
 		if err := br.Close(); err != nil {
@@ -427,7 +427,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	if len(toDelete) > 0 {
-		_, _ = fmt.Fprintf(diagWriter(s.writer), "Deleting %d removed ADRs from database...\n", len(toDelete))
+		diagPrintf(s.writer, "Deleting %d removed ADRs from database...\n", len(toDelete))
 		for _, relPath := range toDelete {
 			_, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath)
 			if err != nil {
@@ -446,9 +446,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			if s.reindexConcurrently() {
 				mode = "concurrently"
 			}
-			_, _ = fmt.Fprintf(diagWriter(s.writer), "Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...\n", threshold*100, mode)
+			diagPrintf(s.writer, "Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...\n", threshold*100, mode)
 			if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
-				_, _ = fmt.Fprintf(diagWriter(s.writer), "Warning: failed to reindex HNSW graph: %v\n", err)
+				diagPrintf(s.writer, "Warning: failed to reindex HNSW graph: %v\n", err)
 			}
 		}
 	}
@@ -478,7 +478,7 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 		var adr ADR
 		var score float64
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &score); err != nil {
-			_, _ = fmt.Fprintf(diagWriter(w), "PgStore Row scan failed: %v\n", err)
+			diagPrintf(w, "PgStore Row scan failed: %v\n", err)
 			continue
 		}
 		candidates = append(candidates, SearchResult{ADR: &adr, Score: score})
@@ -494,7 +494,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 
 	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
 	if err != nil {
-		_, _ = fmt.Fprintf(diagWriter(s.writer), "PgStore Search query failed: %v\n", err)
+		diagPrintf(s.writer, "PgStore Search query failed: %v\n", err)
 		return nil
 	}
 	defer rows.Close()
@@ -513,7 +513,7 @@ func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, to
 
 	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
 	if err != nil {
-		_, _ = fmt.Fprintf(diagWriter(s.writer), "PgStore SearchRejected query failed: %v\n", err)
+		diagPrintf(s.writer, "PgStore SearchRejected query failed: %v\n", err)
 		return nil
 	}
 	defer rows.Close()
