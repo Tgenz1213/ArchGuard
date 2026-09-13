@@ -76,16 +76,19 @@ func NewLocalStore(concurrency int) *LocalStore {
 }
 
 // NewVectorStore creates the appropriate VectorStore based on the configuration.
-func NewVectorStore(cfg *config.Config) (VectorStore, error) {
+// A nil w defaults to os.Stdout, resolved dynamically at each write.
+func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
 		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
 			Enabled:       cfg.VectorStore.ReindexEnabled,
 			Threshold:     cfg.VectorStore.ReindexThreshold,
 			Concurrently:  cfg.VectorStore.ReindexConcurrently,
 			IterativeScan: cfg.VectorStore.IterativeScan,
-		}, nil)
+		}, w)
 	}
-	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
+	store := NewLocalStore(cfg.VectorStore.EmbeddingConcurrency)
+	store.writer = w
+	return store, nil
 }
 
 // CalculateHash hashes the model name plus each ADR's RelPath, Content, and ID

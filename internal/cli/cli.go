@@ -153,7 +153,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	if command == "check" {
 		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, os.Args[2:])
 	}
-	return runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern)
+	return runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, os.Stdout)
 }
 
 // compileADRIDPattern compiles once at startup so a bad regex fails fast
@@ -547,26 +547,30 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg)
+	store, err := index.NewVectorStore(cfg, human)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
+	localProvider.SetWriter(human)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
 	if cfg.Analysis.Confluence.Enabled {
-		providers = append(providers, index.NewConfluenceProvider(
+		confluenceProvider := index.NewConfluenceProvider(
 			cfg.Analysis.Confluence.Domain,
 			cfg.Analysis.Confluence.SpaceID,
 			cfg.Analysis.Confluence.Username,
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
-		))
+		)
+		confluenceProvider.SetWriter(human)
+		providers = append(providers, confluenceProvider)
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
+	adrProvider.SetWriter(human)
 
 	validADRs, _, err := adrProvider.GetADRs(context.Background())
 	if err != nil {
@@ -580,7 +584,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern); err != nil {
+		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, human); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -714,31 +718,35 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp) (ExitCode, error) {
-	store, err := index.NewVectorStore(cfg)
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, w io.Writer) (ExitCode, error) {
+	store, err := index.NewVectorStore(cfg, w)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
+	localProvider.SetWriter(w)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
 	if cfg.Analysis.Confluence.Enabled {
-		providers = append(providers, index.NewConfluenceProvider(
+		confluenceProvider := index.NewConfluenceProvider(
 			cfg.Analysis.Confluence.Domain,
 			cfg.Analysis.Confluence.SpaceID,
 			cfg.Analysis.Confluence.Username,
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
-		))
+		)
+		confluenceProvider.SetWriter(w)
+		providers = append(providers, confluenceProvider)
 	}
 	adrProvider := index.NewCompositeProvider(providers...)
+	adrProvider.SetWriter(w)
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
 	if result.Attempted {
-		printIndexSummary(result)
+		printIndexSummary(result, w)
 	}
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
@@ -756,22 +764,22 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 }
 
 // printIndexSummary prints what archguard index found: counts, exclusions, and structural problems.
-func printIndexSummary(result index.BuildIndexResult) {
-	fmt.Printf("ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
+func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
+	_, _ = fmt.Fprintf(w, "ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
 
 	if len(result.ParseFailed) > 0 {
-		fmt.Printf("  Skipped (parse failure): %d\n", len(result.ParseFailed))
+		_, _ = fmt.Fprintf(w, "  Skipped (parse failure): %d\n", len(result.ParseFailed))
 		for _, path := range result.ParseFailed {
-			fmt.Printf("    - %s\n", path)
+			_, _ = fmt.Fprintf(w, "    - %s\n", path)
 		}
 	}
 	if result.StatusRejected > 0 {
-		fmt.Printf("  Skipped (status not accepted): %d\n", result.StatusRejected)
+		_, _ = fmt.Fprintf(w, "  Skipped (status not accepted): %d\n", result.StatusRejected)
 	}
 	if len(result.Skipped) > 0 {
-		fmt.Printf("  Failed to embed or persist: %d\n", len(result.Skipped))
+		_, _ = fmt.Fprintf(w, "  Failed to embed or persist: %d\n", len(result.Skipped))
 		for _, skipped := range result.Skipped {
-			fmt.Printf("    - %s: %v\n", skipped.RelPath, skipped.Err)
+			_, _ = fmt.Fprintf(w, "    - %s: %v\n", skipped.RelPath, skipped.Err)
 		}
 	}
 	if len(result.DuplicateIDs) > 0 {
@@ -780,15 +788,15 @@ func printIndexSummary(result index.BuildIndexResult) {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		fmt.Printf("  Duplicate ADR IDs: %d\n", len(ids))
+		_, _ = fmt.Fprintf(w, "  Duplicate ADR IDs: %d\n", len(ids))
 		for _, id := range ids {
-			fmt.Printf("    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
+			_, _ = fmt.Fprintf(w, "    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
 	if len(result.NoScope) > 0 {
-		fmt.Printf("  No scope set (applies to every file): %d\n", len(result.NoScope))
+		_, _ = fmt.Fprintf(w, "  No scope set (applies to every file): %d\n", len(result.NoScope))
 		for _, path := range result.NoScope {
-			fmt.Printf("    - %s\n", path)
+			_, _ = fmt.Fprintf(w, "    - %s\n", path)
 		}
 	}
 }
