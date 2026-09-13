@@ -99,6 +99,9 @@ llm:
   base_url: "http://localhost:11434"
   max_tokens: 8000
   temperature: 0.0
+  # system_prompt: "..." # optional; fully replaces ArchGuard's default judgment
+  #   instructions (literal-contradiction, no-inference rules). When set, it is
+  #   the only source of judgment behavior sent to the LLM.
 
 vector_store:
   provider: "ollama"

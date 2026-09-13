@@ -76,14 +76,6 @@ File Path: %s
 %s
 </code_context>
 
-### TASK
-Does the code_context literally violate the 'Decision' section of the ADR?
-
-### LOGICAL STEPS:
-1. Identify the literal requirement in the ADR.
-2. Identify the actual implementation in the code_context.
-3. If they match or don't explicitly contradict, violation is false.
-
 ### OUTPUT FORMAT (JSON ONLY)
 {
   "violation": bool,
