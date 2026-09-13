@@ -382,7 +382,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	}
 
 	if len(adrsToSync) > 0 {
-		fmt.Printf("Syncing ID/scope metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
+		fmt.Printf("Syncing ID/scope/threshold metadata for %d unchanged ADR(s)...\n", len(adrsToSync))
 		batch := &pgx.Batch{}
 		for _, idx := range adrsToSync {
 			batch.Queue(`

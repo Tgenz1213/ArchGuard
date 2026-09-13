@@ -453,7 +453,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
+	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
@@ -500,7 +500,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
+	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "app.ts")
 	require.Len(t, results, 1)
@@ -582,7 +582,7 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
+	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
