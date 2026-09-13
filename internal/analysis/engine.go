@@ -121,8 +121,13 @@ func (e *Engine) Run(ctx context.Context) error {
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 
+	_, explicitFiles := e.Content.(*MultiFileProvider)
+
 	for _, file := range files {
 		if e.shouldExclude(file) {
+			if explicitFiles && file != baseline.Path {
+				e.Log("Skipping %s: explicitly requested but matches exclude_patterns", file)
+			}
 			continue
 		}
 

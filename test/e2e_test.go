@@ -326,6 +326,81 @@ analysis:
 	}
 }
 
+// TestE2E_CheckExplicitExcludedFile verifies that an explicitly-named file
+// matching exclude_patterns is silently skipped outside --debug, but named
+// in a debug-mode skip line (issue #150).
+func TestE2E_CheckExplicitExcludedFile(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+  exclude_patterns: ["excluded.js"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	excludedFile := filepath.Join(tempDir, "excluded.js")
+	violatingFile := filepath.Join(tempDir, "b.js")
+	if err := os.WriteFile(excludedFile, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture excluded.js: %v", err)
+	}
+	if err := os.WriteFile(violatingFile, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture b.js: %v", err)
+	}
+
+	writeNoSecretsADR(t, tempDir)
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	t.Run("debug mode names the skipped file", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "check", "--debug", "excluded.js", "b.js")
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		out, _ := cmd.CombinedOutput()
+		output := string(out)
+
+		if !strings.Contains(output, "Skipping excluded.js: explicitly requested but matches exclude_patterns") {
+			t.Errorf("expected a debug line naming the skipped excluded file, got:\n%s", output)
+		}
+		if !strings.Contains(output, "Analyzing b.js") {
+			t.Errorf("expected b.js to still be analyzed, got:\n%s", output)
+		}
+	})
+
+	t.Run("non-debug mode stays silent about the skip", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "check", "excluded.js", "b.js")
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		out, err := cmd.CombinedOutput()
+		output := string(out)
+		exitCode := 0
+		if err != nil {
+			exitError, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+			exitCode = exitError.ExitCode()
+		}
+
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected exit code %d (drift detected from b.js), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
+		}
+		if strings.Contains(output, "excluded.js") {
+			t.Errorf("expected no mention of the excluded file outside --debug, got:\n%s", output)
+		}
+	})
+}
+
 // alwaysFailsToEmbedADRContent is a valid ADR whose body trips the mock
 // provider's embed failure, so it can never be indexed.
 var alwaysFailsToEmbedADRContent = fmt.Sprintf(`---
