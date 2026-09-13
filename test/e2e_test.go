@@ -994,6 +994,147 @@ analysis:
 	}
 }
 
+// TestE2E_BaselineMode_BaselineReasonFlagIsRecorded asserts --baseline-reason
+// is written onto every entry --update-baseline collects in that run.
+func TestE2E_BaselineMode_BaselineReasonFlagIsRecorded(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixtureFilename := "reason_fixture.js"
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+	fixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    %s
+}
+`, violatingLine)
+	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	gitAdd(t, tempDir, fixtureFilename)
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	cmd := exec.Command(binaryPath, "check", "--update-baseline", "--baseline-reason", "accepted-debt")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			exitCode = exitError.ExitCode()
+		} else {
+			t.Fatalf("Binary failed to execute: %v", err)
+		}
+	}
+	if exitCode != int(cli.ExitSuccess) {
+		t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
+	}
+
+	baselinePath := filepath.Join(tempDir, baseline.Path)
+	data, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("Failed to read baseline file %s: %v", baselinePath, err)
+	}
+
+	var b baseline.Baseline
+	if err := json.Unmarshal(data, &b); err != nil {
+		t.Fatalf("Failed to unmarshal baseline file: %v\nContent: %s", err, data)
+	}
+	if len(b.Entries) != 1 {
+		t.Fatalf("expected exactly 1 baseline entry, got %d: %+v", len(b.Entries), b.Entries)
+	}
+	if b.Entries[0].Reason != "accepted-debt" {
+		t.Errorf("expected Reason %q, got %q", "accepted-debt", b.Entries[0].Reason)
+	}
+}
+
+// TestE2E_BaselineMode_UpdateBaselineRecoversFromCorruptBaselineFile asserts
+// --update-baseline still succeeds when the existing baseline file is
+// corrupt, since it's the documented recovery path for that situation.
+func TestE2E_BaselineMode_UpdateBaselineRecoversFromCorruptBaselineFile(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixtureFilename := "corrupt_recovery_fixture.js"
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+	fixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    %s
+}
+`, violatingLine)
+	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	gitAdd(t, tempDir, fixtureFilename)
+
+	baselinePath := filepath.Join(tempDir, baseline.Path)
+	if err := os.WriteFile(baselinePath, []byte("{ not valid json"), 0644); err != nil {
+		t.Fatalf("Failed to write corrupt baseline fixture: %v", err)
+	}
+
+	t.Log("Indexing ADRs for E2E test...")
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			exitCode = exitError.ExitCode()
+		} else {
+			t.Fatalf("Binary failed to execute: %v", err)
+		}
+	}
+	if exitCode != int(cli.ExitSuccess) {
+		t.Fatalf("expected --update-baseline to recover from a corrupt baseline file with exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
+	}
+
+	data, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatalf("Failed to read regenerated baseline file %s: %v", baselinePath, err)
+	}
+	var b baseline.Baseline
+	if err := json.Unmarshal(data, &b); err != nil {
+		t.Fatalf("Regenerated baseline file is not valid JSON: %v\nContent: %s", err, data)
+	}
+	if len(b.Entries) != 1 {
+		t.Fatalf("expected exactly 1 regenerated baseline entry, got %d: %+v", len(b.Entries), b.Entries)
+	}
+}
+
 // runIndexOnce executes `archguard index` once and returns its output
 // alongside the exit code actually observed.
 func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {

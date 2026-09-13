@@ -432,7 +432,7 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 	normalizePositionalArgPaths(args, cwd, repoRoot)
 
 	b := baseline.New()
-	b.Add("0001", "internal/analysis/engine.go", "quoted violating code")
+	b.Add(baseline.Entry{ADRID: "0001", File: "internal/analysis/engine.go", QuotedCode: "quoted violating code"})
 
 	if !b.IsSuppressed("0001", args[2], "some context\nquoted violating code\nmore context") {
 		t.Errorf("expected the normalized path %q to match a baseline entry recorded with forward slashes, but IsSuppressed returned false", args[2])
