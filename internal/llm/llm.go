@@ -18,6 +18,9 @@ type AnalysisResult struct {
 	Violation  bool   `json:"violation"`
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
+	// Suggestion is populated only when Violation is true, via a separate
+	// call (SuggestRemediation) gated by the caller -- never by this prompt.
+	Suggestion string `json:"suggestion,omitempty"`
 }
 
 // EmbeddingTaskType distinguishes why an embedding is being created, so an
@@ -99,9 +102,64 @@ func GetAnalyzeDriftPrompt(adrContent, codeContext, filename string) string {
 	return fmt.Sprintf(ChatPrompt, filename, safeADR, safeCode)
 }
 
+const SuggestionSystemPrompt = `You are an Architectural Remediation Advisor.
+An Architectural Compliance Auditor has already confirmed a real violation between the provided Code and the ADR's 'Decision' section. Your ONLY task is to suggest a short, actionable remediation pointer for a human to follow.
+
+CRITICAL GUIDELINES:
+1. NOT A PATCH: Describe the change in prose. Do not write a code diff or claim the fix is complete or verified.
+2. BE SPECIFIC: Reference the ADR's actual rule, not generic advice.
+3. BE BRIEF: One or two sentences.`
+
+const SuggestionPrompt = `### INPUT DATA
+File Path: %s
+
+<adr_content>
+%s
+</adr_content>
+
+<code_context>
+%s
+</code_context>
+
+### CONFIRMED VIOLATION
+Reasoning: %s
+Quoted Code: %s
+
+### OUTPUT FORMAT (JSON ONLY)
+{
+  "suggestion": "A short remediation pointer, one or two sentences. Not a code patch."
+}`
+
+func GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode string) string {
+	safeADR := EscapePromptDelimiter(adrContent)
+	safeCode := EscapePromptDelimiter(codeContext)
+	safeReasoning := EscapePromptDelimiter(reasoning)
+	safeQuoted := EscapePromptDelimiter(quotedCode)
+
+	return fmt.Sprintf(SuggestionPrompt, filename, safeADR, safeCode, safeReasoning, safeQuoted)
+}
+
 func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
 	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
+	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt)
+}
 
+type suggestionResult struct {
+	Suggestion string `json:"suggestion"`
+}
+
+// SuggestRemediation should only be called after AnalyzeDrift has returned
+// Violation == true.
+func SuggestRemediation(ctx context.Context, p Provider, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
+	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
+	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt)
+	if err != nil {
+		return "", err
+	}
+	return result.Suggestion, nil
+}
+
+func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt string) (*T, error) {
 	const maxRetries = 3
 
 	bo := backoff.NewExponentialBackOff()
@@ -111,19 +169,18 @@ func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, file
 	bo.MaxElapsedTime = 0 // no overall deadline; ctx handles cancellation
 
 	var lastErr error
-	var final AnalysisResult
+	var final T
 
 	operation := func() error {
-		raw, err := p.Chat(ctx, systemPrompt, prompt)
+		raw, err := p.Chat(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			lastErr = err
 			return err
 		}
 
 		cleaned := CleanJSON(raw)
-		var res AnalysisResult
+		var res T
 		if err := json.Unmarshal([]byte(cleaned), &res); err != nil {
-			// Second attempt at unmarshaling raw output
 			if err2 := json.Unmarshal([]byte(raw), &res); err2 != nil {
 				lastErr = fmt.Errorf("invalid json from provider: %w", err2)
 				return lastErr
