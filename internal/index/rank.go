@@ -14,10 +14,19 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	return filtered
 }
 
+// EffectiveThreshold returns an ADR's own similarity_threshold override
+// when set, otherwise the global vector_store.similarity_threshold value.
+func EffectiveThreshold(adr *ADR, global float64) float64 {
+	if adr.SimilarityThreshold != nil {
+		return *adr.SimilarityThreshold
+	}
+	return global
+}
+
 // meetsThreshold is the single predicate filterByThreshold and
 // filterBelowThreshold both key off, so the two can never drift apart.
-func meetsThreshold(c SearchResult, threshold float64) bool {
-	return c.Score >= threshold
+func meetsThreshold(c SearchResult, global float64) bool {
+	return c.Score >= EffectiveThreshold(c.ADR, global)
 }
 
 // filterByThreshold keeps candidates whose Score is at least threshold,

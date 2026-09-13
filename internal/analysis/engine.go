@@ -190,7 +190,8 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			if e.Debug {
 				for _, r := range e.Store.SearchRejected(embedding, threshold, topKADRs, file) {
-					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, threshold)
+					effective := index.EffectiveThreshold(r.ADR, threshold)
+					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, effective)
 				}
 			}
 

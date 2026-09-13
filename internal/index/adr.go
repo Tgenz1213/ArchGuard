@@ -11,19 +11,23 @@ import (
 )
 
 type ADR struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Status    string    `json:"status"`
-	Scope     string    `json:"scope"` // Optional glob pattern from frontmatter
-	Content   string    `json:"content"`
-	Embedding []float32 `json:"embedding"`
-	RelPath   string    `json:"rel_path"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Scope  string `json:"scope"` // Optional glob pattern from frontmatter
+	// SimilarityThreshold overrides vector_store.similarity_threshold for
+	// this ADR only; nil means "use the global value" (see EffectiveThreshold).
+	SimilarityThreshold *float64  `json:"similarity_threshold,omitempty"`
+	Content             string    `json:"content"`
+	Embedding           []float32 `json:"embedding"`
+	RelPath             string    `json:"rel_path"`
 }
 
 type FrontMatter struct {
-	Title  string `yaml:"title"`
-	Status string `yaml:"status"`
-	Scope  string `yaml:"scope"`
+	Title               string   `yaml:"title"`
+	Status              string   `yaml:"status"`
+	Scope               string   `yaml:"scope"`
+	SimilarityThreshold *float64 `yaml:"similarity_threshold"`
 }
 
 func ParseADR(path string, rootDir string) (*ADR, error) {
@@ -55,11 +59,12 @@ func ParseADRContent(data []byte, id string, relPath string) (*ADR, error) {
 	}
 
 	return &ADR{
-		ID:      id,
-		Title:   fm.Title,
-		Status:  fm.Status,
-		Scope:   fm.Scope,
-		Content: string(parts[2]),
-		RelPath: relPath,
+		ID:                  id,
+		Title:               fm.Title,
+		Status:              fm.Status,
+		Scope:               fm.Scope,
+		SimilarityThreshold: fm.SimilarityThreshold,
+		Content:             string(parts[2]),
+		RelPath:             relPath,
 	}, nil
 }
