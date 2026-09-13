@@ -513,9 +513,12 @@ func resolveContentProvider(files []string, staged, all, updateBaseline bool) an
 	}
 	if len(files) > 0 {
 		if files[0] == "." {
+			if len(files) > 1 {
+				fmt.Printf("Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", files[1:])
+			}
 			return &analysis.AllProvider{}
 		}
-		return &analysis.SingleFileProvider{Path: files[0]}
+		return &analysis.MultiFileProvider{Paths: files}
 	}
 	if staged {
 		return &analysis.StagedProvider{}
