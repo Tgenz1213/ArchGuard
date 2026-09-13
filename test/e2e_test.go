@@ -1121,6 +1121,9 @@ function sensitiveData() {
 	if exitCode != int(cli.ExitSuccess) {
 		t.Fatalf("expected --update-baseline to recover from a corrupt baseline file with exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
 	}
+	if !strings.Contains(string(out), "baseline reasons will not carry forward") {
+		t.Errorf("expected output to warn that baseline reasons will not carry forward, got: %s", out)
+	}
 
 	data, err := os.ReadFile(baselinePath)
 	if err != nil {

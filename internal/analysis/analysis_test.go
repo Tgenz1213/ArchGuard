@@ -1081,7 +1081,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 	t.Run("baselined", func(t *testing.T) {
 		b := baseline.New()
-		b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
+		b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
 		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
 		engine.Cache = nil
@@ -1095,7 +1095,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
-		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}

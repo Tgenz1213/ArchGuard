@@ -435,7 +435,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	debug := checkFlags.Bool("debug", false, "Enable debug logging")
 	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
 	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
-	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); when omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
+	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
 
 	if err := checkFlags.Parse(args); err != nil {
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
@@ -493,6 +493,9 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	if *updateBaseline && (len(files) > 0 || *staged) {
 		fmt.Println("Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
+	if *baselineReason != "" && !*updateBaseline {
+		fmt.Println("Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
+	}
 	contentProvider := resolveContentProvider(files, *staged, *all, *updateBaseline)
 
 	if *debug {
@@ -500,17 +503,12 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	var loadedBaseline *baseline.Baseline
-	if *updateBaseline {
-		loadedBaseline, err = baseline.Load(baseline.Path)
-		if err != nil {
-			fmt.Printf("Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
-			loadedBaseline = nil
-		}
-	} else {
-		loadedBaseline, err = baseline.Load(baseline.Path)
-		if err != nil {
+	loadedBaseline, err = baseline.Load(baseline.Path)
+	if err != nil {
+		if !*updateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
+		fmt.Printf("Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
 	}
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)

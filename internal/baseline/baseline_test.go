@@ -390,7 +390,7 @@ func TestReasonFor(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "matching entry with a reason",
+			name:     "matching entry with no reason set",
 			baseline: newBaselineWithEntry("adr-001", "file1.go", "func main()"),
 			adrID:    "adr-001",
 			file:     "file1.go",

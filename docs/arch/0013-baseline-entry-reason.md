@@ -1,6 +1,7 @@
 ---
 title: "Baseline entry suppression reason"
 status: "Accepted"
+scope: "internal/baseline/**"
 ---
 
 # Baseline entry suppression reason
@@ -15,7 +16,7 @@ status: "Accepted"
 
 `--update-baseline` accepts a new `--baseline-reason <text>` flag, applied to every entry the run collects. When the flag is omitted, an entry re-collected for an `(ADR ID, file)` pair that already existed in the previous baseline file keeps that entry's prior `Reason` rather than losing it -- otherwise 0006's "always a full snapshot, never a merge" semantics would silently erase a reason a human had manually curated on every routine re-run. A brand-new entry (no matching prior entry, no `--baseline-reason`) gets an empty `Reason`; nothing invents one.
 
-Loading the previous baseline file for this reason lookup is best-effort: if the file is missing or corrupt, `--update-baseline` prints a warning and proceeds with no carried-forward reasons, rather than failing. `--update-baseline` remains the documented recovery path for a corrupt baseline file (0006 established this implicitly by never loading the old file for suppression purposes during an update run); making the *reason* lookup non-fatal preserves that property instead of accidentally coupling a new opt-in feature to an existing recovery guarantee.
+Loading the previous baseline file for this reason lookup is best-effort: if the file is corrupt or otherwise unreadable, `--update-baseline` prints a warning and proceeds with no carried-forward reasons, rather than failing. `--update-baseline` remains the documented recovery path for a corrupt baseline file (0006 established this implicitly by never loading the old file for suppression purposes during an update run); making the *reason* lookup non-fatal preserves that property instead of accidentally coupling a new opt-in feature to an existing recovery guarantee.
 
 `Reason` is surfaced in `check`'s human-readable output (a `Baseline Reason: <text>` line under `[BASELINED]`, and under `[VIOLATION]` during `--update-baseline`) whenever it's non-empty, so a reviewer scanning `check` output can see why a suppressed violation is suppressed without opening the baseline file.
 
