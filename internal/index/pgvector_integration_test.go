@@ -1013,7 +1013,7 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	defer store.Close()
 
 	b := baseline.New()
-	b.Add("0001", "service.go", "")
+	b.Add(baseline.Entry{ADRID: "0001", File: "service.go"})
 	engine.Baseline = b
 
 	err := engine.Run(ctx)

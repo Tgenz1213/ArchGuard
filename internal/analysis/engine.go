@@ -36,6 +36,10 @@ type Engine struct {
 	// UpdateBaseline, when true, bypasses Baseline and collects a fresh
 	// snapshot into CollectedBaseline instead.
 	UpdateBaseline bool
+	// BaselineReason, when non-empty, is recorded as the Reason on every
+	// entry collected this run, overriding any reason carried forward from
+	// a matching (ADR ID, file) entry in the previous Baseline.
+	BaselineReason string
 	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
 	CollectedBaseline *baseline.Baseline
 	// SkippedFiles is populated by Run in every mode: the count of files
@@ -276,7 +280,11 @@ func (e *Engine) Run(ctx context.Context) error {
 					lineNum := e.findLineNumber(content, res.QuotedCode)
 					switch {
 					case e.UpdateBaseline:
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						reason := e.BaselineReason
+						if reason == "" {
+							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
+						}
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode, reason)
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -284,15 +292,16 @@ func (e *Engine) Run(ctx context.Context) error {
 								ADRID:      hit.ADR.ID,
 								File:       file,
 								QuotedCode: res.QuotedCode,
+								Reason:     reason,
 							})
 						} else {
 							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode, e.Baseline.ReasonFor(hit.ADR.ID, file))
 						localBaselined++
 					default:
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode, "")
 						localViolations++
 					}
 				}
@@ -319,7 +328,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	if e.UpdateBaseline {
 		b := baseline.New()
 		for _, entry := range collectedEntries {
-			b.Add(entry.ADRID, entry.File, entry.QuotedCode)
+			b.Add(entry)
 		}
 		e.CollectedBaseline = b
 		return nil
@@ -517,10 +526,13 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, reasoning, quotedCode string) {
+func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, reasoning, quotedCode, baselineReason string) {
 	fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
 	fmt.Fprintf(sb, "    Reasoning: %s\n", reasoning)
 	if quotedCode != "" {
 		fmt.Fprintf(sb, "    Code: %s\n", quotedCode)
+	}
+	if baselineReason != "" {
+		fmt.Fprintf(sb, "    Baseline Reason: %s\n", baselineReason)
 	}
 }
