@@ -365,9 +365,20 @@ analysis:
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
-		out, _ := cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
 		output := string(out)
+		exitCode := 0
+		if err != nil {
+			exitError, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+			exitCode = exitError.ExitCode()
+		}
 
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected exit code %d (drift detected from b.js), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
+		}
 		if !strings.Contains(output, "Skipping excluded.js: explicitly requested but matches exclude_patterns") {
 			t.Errorf("expected a debug line naming the skipped excluded file, got:\n%s", output)
 		}
