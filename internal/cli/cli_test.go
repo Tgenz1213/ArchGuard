@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -219,7 +220,17 @@ func TestResolveContentProvider(t *testing.T) {
 		{
 			name:  "specific file arg scans just that file",
 			files: []string{"internal/foo.go"},
-			want:  &analysis.SingleFileProvider{Path: "internal/foo.go"},
+			want:  &analysis.MultiFileProvider{Paths: []string{"internal/foo.go"}},
+		},
+		{
+			name:  "multiple file args scan all of them",
+			files: []string{"internal/foo.go", "internal/bar.go"},
+			want:  &analysis.MultiFileProvider{Paths: []string{"internal/foo.go", "internal/bar.go"}},
+		},
+		{
+			name:  "dot mixed with other file args still scans everything",
+			files: []string{".", "internal/foo.go"},
+			want:  &analysis.AllProvider{},
 		},
 		{
 			name:   "staged flag scans staged files",
@@ -256,10 +267,10 @@ func TestResolveContentProvider(t *testing.T) {
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
-			if sfp, ok := got.(*analysis.SingleFileProvider); ok {
-				wantSFP := tt.want.(*analysis.SingleFileProvider)
-				if sfp.Path != wantSFP.Path {
-					t.Errorf("expected path %q, got %q", wantSFP.Path, sfp.Path)
+			if mfp, ok := got.(*analysis.MultiFileProvider); ok {
+				wantMFP := tt.want.(*analysis.MultiFileProvider)
+				if !slices.Equal(mfp.Paths, wantMFP.Paths) {
+					t.Errorf("expected paths %v, got %v", wantMFP.Paths, mfp.Paths)
 				}
 			}
 		})
