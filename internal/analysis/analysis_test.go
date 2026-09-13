@@ -1218,3 +1218,86 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 		t.Fatalf("expected SearchRejected to never be called outside debug mode, got %d calls", store.searchRejectedCalls)
 	}
 }
+
+func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": true, "reasoning": "matched", "quoted_code": "package main"}`, nil
+		},
+	}
+
+	lenientThreshold := 0.5
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:                  "0011",
+			Title:               "Lenient Override ADR",
+			Status:              "Accepted",
+			Content:             "Some rule.",
+			SimilarityThreshold: &lenientThreshold,
+			Embedding:           func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.9},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	err := engine.Run(context.Background())
+
+	var driftErr *analysis.DriftDetectedError
+	if !errors.As(err, &driftErr) {
+		t.Fatalf("expected a DriftDetectedError: the ADR's own 0.5 threshold should admit the ~0.71-similarity match the global 0.9 would reject, got %v", err)
+	}
+	if driftErr.Count != 1 {
+		t.Errorf("expected exactly 1 violation, got %d", driftErr.Count)
+	}
+}
+
+func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	strictThreshold := 0.95
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:                  "0012",
+			Title:               "Strict Override ADR",
+			Status:              "Accepted",
+			Content:             "Some rule.",
+			SimilarityThreshold: &strictThreshold,
+			Embedding:           func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.5},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine.Cache = nil
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if !strings.Contains(output, "Below threshold: Strict Override ADR (score 0.71 < threshold 0.95)") {
+		t.Fatalf("expected the debug line to print the ADR's own override (0.95), not the global 0.50, got: %q", output)
+	}
+}
