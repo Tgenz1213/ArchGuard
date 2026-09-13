@@ -107,7 +107,7 @@ vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
   embedding_dim: 768
-  similarity_threshold: 0.75
+  similarity_threshold: 0.75 # Global default; an ADR's own frontmatter similarity_threshold overrides this per-ADR
   connection_string: "" # e.g. postgres://user:pass@localhost:5432/archguard
   embedding_concurrency: 5
 
