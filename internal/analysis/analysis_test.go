@@ -1231,6 +1231,26 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
 	})
+
+	t.Run("update baseline with explicit reason", func(t *testing.T) {
+		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine.Cache = nil
+		engine.UpdateBaseline = true
+		engine.BaselineReason = "accepted-debt"
+
+		var runErr error
+		output := captureStdout(t, func() {
+			runErr = engine.Run(context.Background())
+		})
+
+		if runErr != nil {
+			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
+		}
+		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
+		if !strings.Contains(output, want) {
+			t.Errorf("expected exact block %q, got: %q", want, output)
+		}
+	})
 }
 
 // TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount asserts a failed

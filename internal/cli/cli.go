@@ -157,18 +157,40 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 
 // Must run unconditionally, not just when cwd != repoRoot -- a Windows
 // backslash-style arg typed from the repo root needs this too (see #80).
+// valueFlagsBySubcommand lists, per subcommand, flags that consume a
+// following argument as their value rather than being boolean switches.
+// normalizePositionalArgPaths must skip that following argument instead of
+// rewriting it as a file path.
+var valueFlagsBySubcommand = map[string]map[string]bool{
+	"check": {"baseline-reason": true},
+}
+
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
+	var subcommand string
+	if len(args) > 1 {
+		subcommand = args[1]
+	}
+	valueFlagNames := valueFlagsBySubcommand[subcommand]
+
 	for i := 2; i < len(args); i++ {
 		arg := args[i]
-		if arg != "" && !strings.HasPrefix(arg, "-") {
-			target := arg
-			if !filepath.IsAbs(arg) {
-				target = filepath.Join(cwd, arg)
+		if arg == "" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			name := strings.TrimLeft(arg, "-")
+			if !strings.Contains(name, "=") && valueFlagNames[name] && i+1 < len(args) {
+				i++ // the next argument is this flag's value, not a path
 			}
-			relPath, err := filepath.Rel(repoRoot, target)
-			if err == nil {
-				args[i] = filepath.ToSlash(relPath)
-			}
+			continue
+		}
+		target := arg
+		if !filepath.IsAbs(arg) {
+			target = filepath.Join(cwd, arg)
+		}
+		relPath, err := filepath.Rel(repoRoot, target)
+		if err == nil {
+			args[i] = filepath.ToSlash(relPath)
 		}
 	}
 }

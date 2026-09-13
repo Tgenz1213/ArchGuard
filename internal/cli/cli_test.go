@@ -392,6 +392,21 @@ func TestNormalizePositionalArgPaths_HandlesAbsolutePathArg(t *testing.T) {
 	}
 }
 
+func TestNormalizePositionalArgPaths_LeavesValueFlagArgumentUntouched(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
+	cwd := filepath.Join(repoRoot, "internal", "cli")
+	if err := os.MkdirAll(cwd, 0755); err != nil {
+		t.Fatalf("failed to create subdirectory: %v", err)
+	}
+
+	args := []string{"archguard", "check", "--update-baseline", "--baseline-reason", "accepted-debt"}
+	normalizePositionalArgPaths(args, cwd, repoRoot)
+
+	if args[4] != "accepted-debt" {
+		t.Errorf("expected --baseline-reason's value to be left untouched when run from a subdirectory, got %q (it was being mangled into a bogus repo-relative path derived from cwd, since it doesn't start with \"-\" and the rewrite couldn't tell a flag value from a positional file path)", args[4])
+	}
+}
+
 func TestNormalizePositionalArgPaths_LeavesEmptyArgUntouched(t *testing.T) {
 	repoRoot := filepath.Clean(t.TempDir())
 	cwd := repoRoot
