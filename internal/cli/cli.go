@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -104,6 +105,11 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		return ExitConfig, err
 	}
 
+	adrIDPattern, err := compileADRIDPattern(cfg)
+	if err != nil {
+		return ExitConfig, err
+	}
+
 	var chatProvider, embedProvider llm.Provider
 	if factories.Chat != nil {
 		chatProvider = factories.Chat(cfg)
@@ -131,9 +137,22 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	}
 
 	if command == "check" {
-		return runCheck(cfg, chatProvider, embedProvider, indexFile, os.Args[2:])
+		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, os.Args[2:])
 	}
-	return runIndex(context.Background(), cfg, embedProvider, indexFile)
+	return runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern)
+}
+
+// compileADRIDPattern compiles once at startup so a bad regex fails fast
+// (ExitConfig) instead of surfacing per-file later.
+func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
+	if cfg.Analysis.ADRIDPattern == "" {
+		return nil, nil
+	}
+	re, err := regexp.Compile(cfg.Analysis.ADRIDPattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid analysis.adr_id_pattern %q: %w", cfg.Analysis.ADRIDPattern, err)
+	}
+	return re, nil
 }
 
 // Must run unconditionally, not just when cwd != repoRoot -- a Windows
@@ -407,7 +426,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go]"
 
 // runCheck executes the architectural drift analysis against a set of files
 // based on the provided flags and ADR index.
-func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, args []string) (ExitCode, error) {
+func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
@@ -431,8 +450,10 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
+	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
+	localProvider.SetIDPattern(adrIDPattern)
 	var providers []index.Provider
-	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+	providers = append(providers, localProvider)
 
 	if cfg.Analysis.Confluence.Enabled {
 		providers = append(providers, index.NewConfluenceProvider(
@@ -457,7 +478,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 		fmt.Printf("Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile); err != nil {
+		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -545,14 +566,16 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string) (ExitCode, error) {
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
+	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
+	localProvider.SetIDPattern(adrIDPattern)
 	var providers []index.Provider
-	providers = append(providers, index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses))
+	providers = append(providers, localProvider)
 
 	if cfg.Analysis.Confluence.Enabled {
 		providers = append(providers, index.NewConfluenceProvider(

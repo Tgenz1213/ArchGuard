@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -30,7 +31,7 @@ type FrontMatter struct {
 	SimilarityThreshold *float64 `yaml:"similarity_threshold"`
 }
 
-func ParseADR(path string, rootDir string) (*ADR, error) {
+func ParseADR(path string, rootDir string, idPattern *regexp.Regexp) (*ADR, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -38,9 +39,26 @@ func ParseADR(path string, rootDir string) (*ADR, error) {
 
 	relPath, _ := filepath.Rel(rootDir, path)
 	filename := filepath.Base(path)
-	id := strings.Split(filename, "-")[0]
+	id := extractID(filename, idPattern)
 
 	return ParseADRContent(data, id, relPath)
+}
+
+// extractID uses idPattern's capture group 1 (or whole match) when it matches;
+// otherwise falls back to the first-hyphen split.
+func extractID(filename string, idPattern *regexp.Regexp) string {
+	if idPattern != nil {
+		if m := idPattern.FindStringSubmatch(filename); m != nil {
+			id := m[0]
+			if len(m) > 1 {
+				id = m[1]
+			}
+			if id != "" {
+				return id
+			}
+		}
+	}
+	return strings.Split(filename, "-")[0]
 }
 
 func ParseADRContent(data []byte, id string, relPath string) (*ADR, error) {

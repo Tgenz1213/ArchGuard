@@ -76,7 +76,7 @@ func NewVectorStore(cfg *config.Config) (VectorStore, error) {
 	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
 }
 
-// CalculateHash generates a hash of all ADR file contents and the model name
+// CalculateHash hashes the model name plus each ADR's RelPath, Content, and ID
 // to detect if the index needs a rebuild.
 func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	hasher := sha256.New()
@@ -85,6 +85,7 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 	for _, adr := range adrs {
 		hasher.Write([]byte(adr.RelPath))
 		hasher.Write([]byte(adr.Content))
+		hasher.Write([]byte(adr.ID))
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

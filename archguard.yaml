@@ -27,6 +27,7 @@ vector_store:
 
 analysis:
   adr_path: "./docs/arch"
+  # adr_id_pattern: '^adr-(\d+)-'  # Optional: overrides default first-hyphen-split ADR ID extraction
   accepted_statuses: ["Accepted", "Active"]
   exclude_patterns:
     - "**/*_test.go"

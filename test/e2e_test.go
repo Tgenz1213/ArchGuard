@@ -616,6 +616,48 @@ analysis:
 	}
 }
 
+// Verifies analysis.adr_id_pattern is threaded through cli.Execute to LocalProvider.SetIDPattern.
+func TestE2E_IndexADRIDPatternAvoidsCollision(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+  adr_id_pattern: "^adr-(\\d+)-"
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	// Both files collapse to ID "adr" under the default first-hyphen split.
+	dup1 := "---\ntitle: \"First\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent A"
+	dup2 := "---\ntitle: \"Second\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent B"
+	if err := os.WriteFile(filepath.Join(adrDir, "adr-1-first.md"), []byte(dup1), 0644); err != nil {
+		t.Fatalf("Failed to write first ADR: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adrDir, "adr-2-second.md"), []byte(dup2), 0644); err != nil {
+		t.Fatalf("Failed to write second ADR: %v", err)
+	}
+
+	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	if !strings.Contains(output, "2 discovered, 2 valid") {
+		t.Errorf("expected 2 discovered, 2 valid. Output: %s", output)
+	}
+	if strings.Contains(output, "Duplicate ADR IDs") {
+		t.Errorf("expected no duplicate ADR IDs once adr_id_pattern distinguishes them. Output: %s", output)
+	}
+}
+
 // TestE2E_IndexNoValidADRsExitsWithError verifies a corpus where every
 // discovered ADR was excluded (accepted_statuses) exits non-zero, not success.
 func TestE2E_IndexNoValidADRsExitsWithError(t *testing.T) {

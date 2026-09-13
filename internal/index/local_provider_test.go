@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -51,5 +52,37 @@ func TestLocalProvider_GetADRs_EmptyDirectory(t *testing.T) {
 	}
 	if len(adrs) != 0 || stats.Discovered != 0 {
 		t.Errorf("expected no ADRs and 0 discovered for an empty directory, got adrs=%+v stats=%+v", adrs, stats)
+	}
+}
+
+func TestLocalProvider_CustomIDPatternAvoidsCollision(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"adr-1-use-postgres.md": "---\ntitle: Use Postgres\nstatus: Accepted\n---\nBody",
+		"adr-2-use-kafka.md":    "---\ntitle: Use Kafka\nstatus: Accepted\n---\nBody",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	provider := NewLocalProvider(dir, []string{"Accepted"})
+	provider.SetIDPattern(regexp.MustCompile(`^adr-(\d+)-`))
+
+	adrs, stats, err := provider.GetADRs(context.Background())
+	if err != nil {
+		t.Fatalf("GetADRs failed: %v", err)
+	}
+	if stats.Discovered != 2 {
+		t.Errorf("Discovered = %d, want 2", stats.Discovered)
+	}
+
+	ids := map[string]bool{}
+	for _, adr := range adrs {
+		ids[adr.ID] = true
+	}
+	if len(ids) != 2 {
+		t.Errorf("got %d distinct IDs (%v), want 2", len(ids), ids)
 	}
 }
