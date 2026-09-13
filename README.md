@@ -150,6 +150,7 @@ ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is requir
 title: "No Secrets in Logs"
 status: "Accepted"
 scope: "**/*.go" # Glob pattern matching file paths to apply this ADR to
+similarity_threshold: 0.65 # Optional: overrides vector_store.similarity_threshold for this ADR only
 ---
 
 ## Context
@@ -166,6 +167,7 @@ Do not print passwords or secrets to console logs.
 - `title` (Required): Human friendly title.
 - `status` (Required): Must match a value in `analysis.accepted_statuses`.
 - `scope` (Optional): Glob pattern (e.g., `src/**/*.ts`). Supports standard Go globbing and recursive `**` patterns.
+- `similarity_threshold` (Optional): Float overriding the global `vector_store.similarity_threshold` for matching against this ADR only. Falls back to the global value when unset.
 
 ### Remote Vector Databases (pgvector)
 By default, ArchGuard stores your ADR embeddings in a local `.archguard/index.json` file. For large teams or CI environments, you can centralize this index using PostgreSQL and the `pgvector` extension.
