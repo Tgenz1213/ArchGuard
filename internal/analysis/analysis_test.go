@@ -308,12 +308,13 @@ func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 
 func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
-	var capturedSystemPrompt string
+	var capturedSystemPrompt, capturedUserPrompt string
 
 	// 1. Setup Mock Provider
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			capturedSystemPrompt = system
+			capturedUserPrompt = user
 			return `{"violation": false, "reasoning": "none", "quoted_code": ""}`, nil
 		},
 	}
@@ -355,9 +356,14 @@ func TestCustomSystemPrompt(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	// 6. Verify captured system prompt
+	// 6. Verify captured system prompt, and that it fully replaces judgment framing
 	if capturedSystemPrompt != expectedSystemPrompt {
 		t.Errorf("Expected system prompt %q, got %q", expectedSystemPrompt, capturedSystemPrompt)
+	}
+	for _, leaked := range []string{"LOGICAL STEPS", "literal", "NO INFERENCE", "COMPLIANCE IS NOT A VIOLATION"} {
+		if strings.Contains(capturedUserPrompt, leaked) {
+			t.Errorf("user prompt leaked ArchGuard judgment framing %q despite custom system_prompt:\n%s", leaked, capturedUserPrompt)
+		}
 	}
 }
 
