@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +16,16 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 	"golang.org/x/sync/errgroup"
 )
+
+// diagWriter resolves w to os.Stdout when nil, evaluated at each call site
+// (never cached) so tests that redirect the global os.Stdout after
+// construction still see output land where they expect.
+func diagWriter(w io.Writer) io.Writer {
+	if w == nil {
+		return os.Stdout
+	}
+	return w
+}
 
 // SkippedADR records one ADR that BuildIndex could not embed or persist.
 type SkippedADR struct {
@@ -48,11 +59,12 @@ type VectorStore interface {
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
 type LocalStore struct {
-	ADRs        []ADR  `json:"adrs"`
-	Hash        string `json:"hash"`
-	ModelName   string `json:"model_name"`
-	Dim         int    `json:"dim"`
-	concurrency int    `json:"-"`
+	ADRs        []ADR     `json:"adrs"`
+	Hash        string    `json:"hash"`
+	ModelName   string    `json:"model_name"`
+	Dim         int       `json:"dim"`
+	concurrency int       `json:"-"`
+	writer      io.Writer `json:"-"`
 }
 
 // NewLocalStore initializes a new LocalStore instance.
@@ -152,7 +164,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 	}
 
-	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	fmt.Fprintf(diagWriter(s.writer), "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -172,7 +184,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
 			mu.Unlock()
-			fmt.Printf("\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -185,13 +197,13 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 					return nil
 				}
 				validADRs[idx].Embedding = emb
-				fmt.Printf(".")
+				fmt.Fprintf(diagWriter(s.writer), ".")
 				return nil
 			})
 		}
 
 		_ = g.Wait()
-		fmt.Println()
+		fmt.Fprintln(diagWriter(s.writer))
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.

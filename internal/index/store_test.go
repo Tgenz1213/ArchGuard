@@ -1,6 +1,7 @@
 package index
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -299,5 +300,31 @@ func TestLocalStore_BuildIndex_PreservesSimilarityThresholdOverride(t *testing.T
 	}
 	if got := byPath["0002-b.md"].SimilarityThreshold; got != nil {
 		t.Errorf("expected 0002-b.md to have no override, got %v", *got)
+	}
+}
+
+func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
+	dir := t.TempDir()
+	writeADRFile(t, dir, "0001-a.md", "---\ntitle: A\nstatus: Accepted\n---\nBody")
+
+	provider := NewLocalProvider(dir, []string{"Accepted"})
+	embedProvider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{0.1, 0.2}, nil
+		},
+	}
+
+	var buf bytes.Buffer
+	store := NewLocalStore(1)
+	store.writer = &buf
+
+	_, err := store.BuildIndex(context.Background(), "model", 2, embedProvider, provider)
+	if err != nil {
+		t.Fatalf("BuildIndex failed: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "Found 1 valid ADRs") {
+		t.Errorf("expected progress text on the configured writer, got %q", buf.String())
 	}
 }
