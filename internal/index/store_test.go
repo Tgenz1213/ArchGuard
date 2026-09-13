@@ -255,3 +255,29 @@ func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T)
 		t.Errorf("expected the error to wrap context.Canceled, got: %v", err)
 	}
 }
+
+func TestLocalStore_BuildIndex_PreservesSimilarityThresholdOverride(t *testing.T) {
+	override := 0.6
+	adrs := []ADR{
+		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a", SimilarityThreshold: &override},
+		{RelPath: "0002-b.md", Title: "B", Status: "Accepted", Content: "content b"},
+	}
+	provider := &llm.MockProvider{EmbeddingDim: 4}
+	adrProvider := &mockADRProvider{adrs: adrs}
+
+	store := NewLocalStore(2)
+	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+		t.Fatalf("BuildIndex failed: %v", err)
+	}
+
+	byPath := make(map[string]ADR)
+	for _, adr := range store.ADRs {
+		byPath[adr.RelPath] = adr
+	}
+	if got := byPath["0001-a.md"].SimilarityThreshold; got == nil || *got != 0.6 {
+		t.Errorf("expected 0001-a.md to keep its similarity_threshold override, got %v", got)
+	}
+	if got := byPath["0002-b.md"].SimilarityThreshold; got != nil {
+		t.Errorf("expected 0002-b.md to have no override, got %v", *got)
+	}
+}
