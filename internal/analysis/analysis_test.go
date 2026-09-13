@@ -690,6 +690,62 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	}
 }
 
+// TestRun_ViolationOutputVerifiesAgainstEscapedContent asserts a legitimate
+// quote containing a prompt delimiter (e.g. triple backticks) is verified
+// correctly: the LLM sees content run through llm.EscapePromptDelimiter, so
+// its quote reflects the escaped form, not the raw file's.
+func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Fenced code block found.",
+            "quoted_code": "'''python\nimport python_library\n'''"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"README.md": "```python\nimport python_library\n```\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, analysis.ErrDriftDetected) {
+		t.Fatalf("expected a drift-detected error, got: %v", runErr)
+	}
+	if strings.Contains(output, "UNVERIFIED") {
+		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
+	}
+	want := "    [VIOLATION] Use Golang [Line 1]\n"
+	if !strings.Contains(output, want) {
+		t.Errorf("expected exact block %q, got: %q", want, output)
+	}
+}
+
 // TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts a
 // quoted_code that doesn't match the file verbatim is skipped, not baselined.
 func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {

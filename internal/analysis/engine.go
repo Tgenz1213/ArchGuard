@@ -273,10 +273,11 @@ func (e *Engine) Run(ctx context.Context) error {
 				}
 
 				if res.Violation {
-					lineNum := e.findLineNumber(content, res.QuotedCode)
-					// Verified against content (what the LLM saw), not the full file --
-					// a diff/truncated view can omit code the LLM never had a chance to quote.
-					verified := res.QuotedCode == "" || strings.Contains(content, res.QuotedCode)
+					// Verified against the escaped form of content -- what the LLM
+					// actually saw (llm.EscapePromptDelimiter), not the raw file.
+					escapedContent := llm.EscapePromptDelimiter(content)
+					lineNum := e.findLineNumber(escapedContent, res.QuotedCode)
+					verified := res.QuotedCode == "" || strings.Contains(escapedContent, res.QuotedCode)
 					switch {
 					case e.UpdateBaseline:
 						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode)
