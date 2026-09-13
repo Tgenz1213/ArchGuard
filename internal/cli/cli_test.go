@@ -300,7 +300,7 @@ func TestResolveContentProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveContentProvider(tt.files, tt.staged, tt.all, tt.updateBaseline)
+			got := resolveContentProvider(os.Stdout, tt.files, tt.staged, tt.all, tt.updateBaseline)
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
@@ -327,7 +327,7 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got analysis.ContentProvider
 			output := captureStdout(t, func() {
-				got = resolveContentProvider(tt.files, false, false, false)
+				got = resolveContentProvider(os.Stdout, tt.files, false, false, false)
 			})
 
 			if _, ok := got.(*analysis.AllProvider); !ok {
@@ -346,7 +346,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 		VectorStore: config.VectorStore{Model: "voyage-4"},
 	}
 
-	claude, err := buildProvider("claude", "test-key", cfg)
+	claude, err := buildProvider(os.Stdout, "claude", "test-key", cfg)
 	if err != nil {
 		t.Fatalf("buildProvider(claude) failed: %v", err)
 	}
@@ -354,12 +354,55 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
 	}
 
-	voyage, err := buildProvider("voyage", "test-key", cfg)
+	voyage, err := buildProvider(os.Stdout, "voyage", "test-key", cfg)
 	if err != nil {
 		t.Fatalf("buildProvider(voyage) failed: %v", err)
 	}
 	if _, ok := voyage.(*llm.VoyageProvider); !ok {
 		t.Errorf("expected *llm.VoyageProvider, got %T", voyage)
+	}
+}
+
+// TestBuildProvider_MissingAPIKeyWarningRespectsWriter guards --format
+// json's stdout purity: a missing-API-key warning must go wherever the
+// caller points it (stderr in JSON mode), not always to stdout.
+func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
+	cfg := &config.Config{LLM: config.LLMConfig{Model: "gpt-4"}}
+
+	var buf bytes.Buffer
+	if _, err := buildProvider(&buf, "openai", "", cfg); err != nil {
+		t.Fatalf("buildProvider failed: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "no API key set") {
+		t.Errorf("expected the missing-API-key warning on the given writer, got: %q", buf.String())
+	}
+}
+
+func TestCheckWantsJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "not check", args: []string{"archguard", "index", "--format", "json"}, want: false},
+		{name: "text default", args: []string{"archguard", "check"}, want: false},
+		{name: "format json space-separated", args: []string{"archguard", "check", "--format", "json"}, want: true},
+		{name: "format=json", args: []string{"archguard", "check", "--format=json"}, want: true},
+		{name: "format json with update-baseline", args: []string{"archguard", "check", "--format", "json", "--update-baseline"}, want: false},
+		{name: "format=json with update-baseline=true", args: []string{"archguard", "check", "--format=json", "--update-baseline=true"}, want: false},
+		{name: "format=json with update-baseline=false", args: []string{"archguard", "check", "--format=json", "--update-baseline=false"}, want: true},
+		{name: "format text with update-baseline", args: []string{"archguard", "check", "--format", "text", "--update-baseline"}, want: false},
+		{name: "baseline-reason value not mistaken for a flag", args: []string{"archguard", "check", "--baseline-reason", "--format", "--format", "json"}, want: true},
+		{name: "format after positional stops parsing", args: []string{"archguard", "check", "a.go", "--format", "json"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := checkWantsJSON(tt.args); got != tt.want {
+				t.Errorf("checkWantsJSON(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
 	}
 }
 

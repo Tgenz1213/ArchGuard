@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -48,6 +50,27 @@ type Engine struct {
 	// SkippedADRChecks is populated by Run in every mode: the count of
 	// per-ADR checks skipped due to llm.AnalyzeDrift failures.
 	SkippedADRChecks int
+	// JSONOutput, when true, routes Info/Log and per-file progress text to
+	// Writer (cli.go points it at stderr) instead of stdout, and populates
+	// CollectedViolations so the caller can emit a JSON report on stdout.
+	JSONOutput bool
+	// Writer receives human-readable Info/Log/progress output. Defaults to
+	// os.Stdout when nil.
+	Writer io.Writer
+	// CollectedViolations is populated by Run when JSONOutput is true: the
+	// same new (non-baselined) violations counted in DriftDetectedError.Count.
+	CollectedViolations []Violation
+}
+
+// Violation is the structured, machine-readable form of a single reported
+// violation, used for --format json.
+type Violation struct {
+	File       string `json:"file"`
+	ADRID      string `json:"adr_id"`
+	ADRTitle   string `json:"adr_title"`
+	Line       int    `json:"line"`
+	Reasoning  string `json:"reasoning"`
+	QuotedCode string `json:"quoted_code"`
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.
@@ -92,13 +115,21 @@ func (e *Engine) embedProvider() llm.Provider {
 // Log prints debug information if the engine is in debug mode.
 func (e *Engine) Log(format string, args ...interface{}) {
 	if e.Debug {
-		fmt.Printf("[DEBUG] "+format+"\n", args...)
+		_, _ = fmt.Fprintf(e.writer(), "[DEBUG] "+format+"\n", args...)
 	}
 }
 
 // Info prints standard informational messages.
 func (e *Engine) Info(format string, args ...interface{}) {
-	fmt.Printf(format+"\n", args...)
+	_, _ = fmt.Fprintf(e.writer(), format+"\n", args...)
+}
+
+// writer returns Writer, defaulting to os.Stdout.
+func (e *Engine) writer() io.Writer {
+	if e.Writer != nil {
+		return e.Writer
+	}
+	return os.Stdout
 }
 
 // Run executes the analysis pipeline across all files provided by the ContentProvider.
@@ -109,12 +140,13 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	var (
-		violations       int
-		baselinedCount   int
-		skippedFiles     int
-		skippedADRChecks int
-		collectedEntries []baseline.Entry
-		mu               sync.Mutex
+		violations          int
+		baselinedCount      int
+		skippedFiles        int
+		skippedADRChecks    int
+		collectedEntries    []baseline.Entry
+		collectedViolations []Violation
+		mu                  sync.Mutex
 	)
 
 	concurrency := e.Config.Analysis.MaxConcurrency
@@ -148,7 +180,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if err != nil {
 				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
 				mu.Lock()
-				fmt.Print(sb.String())
+				_, _ = fmt.Fprint(e.writer(), sb.String())
 				skippedFiles++
 				mu.Unlock()
 				return nil
@@ -161,7 +193,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
 				fmt.Fprintf(&sb, "  [WARN-OPEN] File %s was truncated for analysis. In CI mode this is treated as a warning (no failure).\n", file)
 				mu.Lock()
-				fmt.Print(sb.String())
+				_, _ = fmt.Fprint(e.writer(), sb.String())
 				mu.Unlock()
 				return nil
 			}
@@ -187,7 +219,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if err != nil {
 				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
 				mu.Lock()
-				fmt.Print(sb.String())
+				_, _ = fmt.Fprint(e.writer(), sb.String())
 				skippedFiles++
 				mu.Unlock()
 				return nil
@@ -209,7 +241,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")
 				}
 				mu.Lock()
-				fmt.Print(sb.String())
+				_, _ = fmt.Fprint(e.writer(), sb.String())
 				mu.Unlock()
 				return nil
 			}
@@ -222,6 +254,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			localBaselined := 0
 			localSkippedADRChecks := 0
 			var localBaselineEntries []baseline.Entry
+			var localViolationRecords []Violation
 			for _, hit := range hits {
 				// Check for ignore directive (optimization: only check header)
 				header := content
@@ -307,18 +340,29 @@ func (e *Engine) Run(ctx context.Context) error {
 					default:
 						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode, "")
 						localViolations++
+						if e.JSONOutput {
+							localViolationRecords = append(localViolationRecords, Violation{
+								File:       file,
+								ADRID:      hit.ADR.ID,
+								ADRTitle:   hit.ADR.Title,
+								Line:       lineNum,
+								Reasoning:  res.Reasoning,
+								QuotedCode: res.QuotedCode,
+							})
+						}
 					}
 				}
 			}
 
 			mu.Lock()
-			fmt.Print(sb.String())
+			_, _ = fmt.Fprint(e.writer(), sb.String())
 			violations += localViolations
 			baselinedCount += localBaselined
 			skippedADRChecks += localSkippedADRChecks
 			if e.UpdateBaseline {
 				collectedEntries = append(collectedEntries, localBaselineEntries...)
 			}
+			collectedViolations = append(collectedViolations, localViolationRecords...)
 			mu.Unlock()
 			return nil
 		})
@@ -328,6 +372,12 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	e.SkippedFiles = skippedFiles
 	e.SkippedADRChecks = skippedADRChecks
+	if e.JSONOutput {
+		if collectedViolations == nil {
+			collectedViolations = []Violation{}
+		}
+		e.CollectedViolations = collectedViolations
+	}
 
 	if e.UpdateBaseline {
 		b := baseline.New()

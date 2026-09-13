@@ -204,6 +204,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--ci`: Enable CI-safe mode.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
+  - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its own text summary.
 
 ### Automation & Exit Codes
 
@@ -213,6 +214,30 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected.
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
+
+### Machine-Readable Output
+
+`archguard check --format json` prints a single JSON document to stdout (all progress/debug/error text moves to stderr) so it can be piped into another tool:
+
+```json
+{
+  "violations": [
+    {
+      "file": "internal/api/handler.go",
+      "adr_id": "0003",
+      "adr_title": "Repository Pattern for Data Access",
+      "line": 42,
+      "reasoning": "Handler queries the database directly instead of going through a repository.",
+      "quoted_code": "db.Query(\"SELECT * FROM users WHERE id = ?\", id)"
+    }
+  ],
+  "count": 1
+}
+```
+
+`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above.
+
+> **Note:** run `archguard index` before a `--format json` check. If the index needs an automatic rebuild during `check` (e.g. a stale/missing index, or an ADR provider warning), that rebuild's own progress text currently still prints to stdout ahead of the JSON document (tracked in [#163](https://github.com/Tgenz1213/ArchGuard/issues/163)). With an up-to-date index this doesn't happen.
 
 ### Suppression
 

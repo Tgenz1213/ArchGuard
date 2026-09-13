@@ -20,7 +20,7 @@ func main() {
 		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			fmt.Println(testutil.MockChatProviderMarker)
+			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
 			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
 				return "", fmt.Errorf("mock chat failure (E2E trigger)")
 			}
@@ -41,7 +41,7 @@ func main() {
 
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
-			fmt.Println(testutil.MockChatProviderMarker)
+			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
@@ -59,7 +59,7 @@ func main() {
 			return "", fmt.Errorf("mock embed-only provider does not support chat")
 		}
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
-			fmt.Println(testutil.MockEmbedProviderMarker)
+			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
