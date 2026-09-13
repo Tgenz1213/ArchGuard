@@ -115,3 +115,34 @@ func TestFilterBelowThreshold_EmptyInput(t *testing.T) {
 		t.Fatalf("expected no results from empty input, got %d", len(got))
 	}
 }
+
+func TestEffectiveThreshold_OverridePresent(t *testing.T) {
+	adr := &ADR{Title: "override", SimilarityThreshold: float64Ptr(0.3)}
+	if got := EffectiveThreshold(adr, 0.75); got != 0.3 {
+		t.Errorf("expected override 0.3, got %v", got)
+	}
+}
+
+func TestEffectiveThreshold_FallsBackToGlobal(t *testing.T) {
+	adr := &ADR{Title: "no override"}
+	if got := EffectiveThreshold(adr, 0.75); got != 0.75 {
+		t.Errorf("expected global fallback 0.75, got %v", got)
+	}
+}
+
+func TestFilterByThreshold_PerADROverrideAppliesInsteadOfGlobal(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: &ADR{Title: "strict override excluded", SimilarityThreshold: float64Ptr(0.9)}, Score: 0.8},
+		{ADR: &ADR{Title: "lenient override included", SimilarityThreshold: float64Ptr(0.5)}, Score: 0.6},
+		{ADR: adrWithScope("no override uses global", ""), Score: 0.6},
+	}
+
+	got := filterByThreshold(candidates, 0.75)
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 candidate to survive (only the lenient override), got %d: %+v", len(got), got)
+	}
+	if got[0].ADR.Title != "lenient override included" {
+		t.Errorf("expected the per-ADR override to be used instead of the global threshold, got %q", got[0].ADR.Title)
+	}
+}
