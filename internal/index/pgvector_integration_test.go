@@ -117,7 +117,7 @@ func TestPgStore_Integration(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	// 2. Initialize PgStore
-	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 
 	// 3. Load Store
@@ -149,7 +149,7 @@ Test Content`
 	require.NoError(t, err)
 
 	// Insert into a second project to test isolation
-	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{})
+	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	_, err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestPgStore_Integration_SearchRejected(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "rejected_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "rejected_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	disabled := false
-	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.HNSWOptions{Enabled: &disabled})
+	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.HNSWOptions{Enabled: &disabled}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -272,7 +272,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	highLocalProvider := index.NewLocalProvider(highTmpDir, []string{"Accepted"})
 
 	highThreshold := 0.5
-	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.HNSWOptions{Threshold: &highThreshold})
+	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.HNSWOptions{Threshold: &highThreshold}, nil)
 	require.NoError(t, err)
 	require.NoError(t, storeHigh.Load("", "test-model", 2, ""))
 	// Baseline build: 100% churn (first build), ignored -- only sets up the
@@ -294,7 +294,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	lowLocalProvider := index.NewLocalProvider(lowTmpDir, []string{"Accepted"})
 
 	lowThreshold := 0.05
-	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.HNSWOptions{Threshold: &lowThreshold})
+	storeLow, err := index.NewPgStore(connStr, "reindex_threshold_low", 5, index.HNSWOptions{Threshold: &lowThreshold}, nil)
 	require.NoError(t, err)
 	require.NoError(t, storeLow.Load("", "test-model", 2, ""))
 	_, err = storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider)
@@ -324,7 +324,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, defaultTmpDir, 3)
 	defaultLocalProvider := index.NewLocalProvider(defaultTmpDir, []string{"Accepted"})
 
-	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.HNSWOptions{})
+	storeDefault, err := index.NewPgStore(connStr, "reindex_concurrently_default", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, storeDefault.Load("", "test-model", 2, ""))
 
@@ -341,7 +341,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	writeADRFiles(t, blockingTmpDir, 3)
 	blockingLocalProvider := index.NewLocalProvider(blockingTmpDir, []string{"Accepted"})
 
-	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.HNSWOptions{Concurrently: &blocking})
+	storeBlocking, err := index.NewPgStore(connStr, "reindex_concurrently_blocking", 5, index.HNSWOptions{Concurrently: &blocking}, nil)
 	require.NoError(t, err)
 	require.NoError(t, storeBlocking.Load("", "test-model", 2, ""))
 
@@ -376,7 +376,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -406,7 +406,7 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 	connStr := setupPgContainer(t, ctx)
 
 	disabled := false
-	store, err := index.NewPgStore(connStr, "iterative_scan_disabled_project", 5, index.HNSWOptions{IterativeScan: &disabled})
+	store, err := index.NewPgStore(connStr, "iterative_scan_disabled_project", 5, index.HNSWOptions{IterativeScan: &disabled}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -424,7 +424,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -471,7 +471,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "scope_only_edit_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "scope_only_edit_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -515,7 +515,7 @@ func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "similarity_threshold_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "similarity_threshold_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -553,7 +553,7 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "threshold_only_edit_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "threshold_only_edit_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -599,7 +599,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "embed_failure_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "embed_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -649,7 +649,7 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "reembed_failure_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "reembed_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -720,7 +720,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "upsert_failure_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "upsert_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -774,7 +774,7 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "partial_delta_failure_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "partial_delta_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -826,7 +826,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "legacy_no_load_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "legacy_no_load_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 
@@ -877,7 +877,7 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "scan_failure_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "scan_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -938,7 +938,7 @@ func (f *fakeContentProvider) GetDiff(path string) (string, error) {
 func buildTwoADREngineFixture(t *testing.T, ctx context.Context, connStr, projectName, fileContent string) (*analysis.Engine, *index.PgStore) {
 	t.Helper()
 
-	store, err := index.NewPgStore(connStr, projectName, 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, projectName, 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -1033,7 +1033,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "scope_before_topk_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "scope_before_topk_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -1080,7 +1080,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	store, err := index.NewPgStore(connStr, "threshold_after_scope_project", 5, index.HNSWOptions{})
+	store, err := index.NewPgStore(connStr, "threshold_after_scope_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
@@ -1123,4 +1123,30 @@ func TestSearchQuery_HasNoDistanceThresholdPredicate(t *testing.T) {
 	if strings.Contains(index.SearchQuery, "<= $") {
 		t.Fatalf("SearchQuery still has a SQL-level distance-threshold predicate; scope/threshold filtering must happen in Go, not SQL -- query:\n%s", index.SearchQuery)
 	}
+}
+
+func TestPgStore_Integration_ExplicitWriterReceivesProgressNotStdout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	var buf bytes.Buffer
+	store, err := index.NewPgStore(connStr, "explicit_writer_project", 5, index.HNSWOptions{}, &buf)
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	writeADRFiles(t, tmpDir, 1)
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	stdoutDuring := captureStdout(t, func() {
+		_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, buf.String(), "Found 1 valid ADRs", "progress text should land on the explicit writer")
+	assert.NotContains(t, stdoutDuring, "Found 1 valid ADRs", "progress text must not also leak to the real stdout")
 }

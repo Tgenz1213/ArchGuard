@@ -83,7 +83,7 @@ func NewVectorStore(cfg *config.Config) (VectorStore, error) {
 			Threshold:     cfg.VectorStore.ReindexThreshold,
 			Concurrently:  cfg.VectorStore.ReindexConcurrently,
 			IterativeScan: cfg.VectorStore.IterativeScan,
-		})
+		}, nil)
 	}
 	return NewLocalStore(cfg.VectorStore.EmbeddingConcurrency), nil
 }
@@ -164,7 +164,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 	}
 
-	fmt.Fprintf(diagWriter(s.writer), "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	_, _ = fmt.Fprintf(diagWriter(s.writer), "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -184,7 +184,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
 			mu.Unlock()
-			fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			_, _ = fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -197,13 +197,13 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 					return nil
 				}
 				validADRs[idx].Embedding = emb
-				fmt.Fprintf(diagWriter(s.writer), ".")
+				_, _ = fmt.Fprintf(diagWriter(s.writer), ".")
 				return nil
 			})
 		}
 
 		_ = g.Wait()
-		fmt.Fprintln(diagWriter(s.writer))
+		_, _ = fmt.Fprintln(diagWriter(s.writer))
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.
