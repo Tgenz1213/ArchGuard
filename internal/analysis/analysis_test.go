@@ -634,6 +634,118 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	}
 }
 
+// TestRun_ViolationOutputFlagsUnverifiedQuotedCode asserts a VIOLATION whose
+// QuotedCode isn't actually present in the analyzed content (i.e. a
+// hallucinated LLM quote) is surfaced with a visible warning marker instead
+// of a fabricated-looking "Line 0".
+func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Python is not allowed.",
+            "quoted_code": "this snippet was never in the file"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"service.py": "import python_library\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, analysis.ErrDriftDetected) {
+		t.Fatalf("expected a drift-detected error, got: %v", runErr)
+	}
+	if strings.Contains(output, "Line 0") {
+		t.Errorf("expected no fabricated Line 0, got: %q", output)
+	}
+	want := "    [VIOLATION] Use Golang [UNVERIFIED: quoted code not found in analyzed content]\n    Reasoning: Python is not allowed.\n    Code: this snippet was never in the file\n"
+	if !strings.Contains(output, want) {
+		t.Errorf("expected exact block %q, got: %q", want, output)
+	}
+}
+
+// TestRun_ViolationOutputVerifiesAgainstEscapedContent asserts a legitimate
+// quote containing a prompt delimiter (e.g. triple backticks) is verified
+// correctly: the LLM sees content run through llm.EscapePromptDelimiter, so
+// its quote reflects the escaped form, not the raw file's.
+func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{
+            "violation": true,
+            "reasoning": "Fenced code block found.",
+            "quoted_code": "'''python\nimport python_library\n'''"
+        }`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{
+		Files: map[string]string{
+			"README.md": "```python\nimport python_library\n```\n// content ignored by mock",
+		},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if !errors.Is(runErr, analysis.ErrDriftDetected) {
+		t.Fatalf("expected a drift-detected error, got: %v", runErr)
+	}
+	if strings.Contains(output, "UNVERIFIED") {
+		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
+	}
+	want := "    [VIOLATION] Use Golang [Line 1]\n"
+	if !strings.Contains(output, want) {
+		t.Errorf("expected exact block %q, got: %q", want, output)
+	}
+}
+
 // TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts a
 // quoted_code that doesn't match the file verbatim is skipped, not baselined.
 func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {

@@ -273,10 +273,14 @@ func (e *Engine) Run(ctx context.Context) error {
 				}
 
 				if res.Violation {
-					lineNum := e.findLineNumber(content, res.QuotedCode)
+					// Verified against the escaped form of content -- what the LLM
+					// actually saw (llm.EscapePromptDelimiter), not the raw file.
+					escapedContent := llm.EscapePromptDelimiter(content)
+					lineNum := e.findLineNumber(escapedContent, res.QuotedCode)
+					verified := res.QuotedCode == "" || strings.Contains(escapedContent, res.QuotedCode)
 					switch {
 					case e.UpdateBaseline:
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode)
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -289,10 +293,10 @@ func (e *Engine) Run(ctx context.Context) error {
 							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode)
 						localBaselined++
 					default:
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, res.Reasoning, res.QuotedCode)
+						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode)
 						localViolations++
 					}
 				}
@@ -517,8 +521,12 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, reasoning, quotedCode string) {
-	fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
+func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, verified bool, reasoning, quotedCode string) {
+	if verified {
+		fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
+	} else {
+		fmt.Fprintf(sb, "    [%s] %s [UNVERIFIED: quoted code not found in analyzed content]\n", label, title)
+	}
 	fmt.Fprintf(sb, "    Reasoning: %s\n", reasoning)
 	if quotedCode != "" {
 		fmt.Fprintf(sb, "    Code: %s\n", quotedCode)
