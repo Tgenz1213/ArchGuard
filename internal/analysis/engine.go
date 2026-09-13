@@ -326,7 +326,14 @@ func (e *Engine) Run(ctx context.Context) error {
 						if reason == "" {
 							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
 						}
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode, "", reason)
+						writeViolationOutput(&sb, violationOutput{
+							Label:          "VIOLATION",
+							Title:          hit.ADR.Title,
+							LineNum:        lineNum,
+							Reasoning:      res.Reasoning,
+							QuotedCode:     res.QuotedCode,
+							BaselineReason: reason,
+						}, verified)
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -340,7 +347,14 @@ func (e *Engine) Run(ctx context.Context) error {
 							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						writeViolationOutput(&sb, "BASELINED", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode, "", e.Baseline.ReasonFor(hit.ADR.ID, file))
+						writeViolationOutput(&sb, violationOutput{
+							Label:          "BASELINED",
+							Title:          hit.ADR.Title,
+							LineNum:        lineNum,
+							Reasoning:      res.Reasoning,
+							QuotedCode:     res.QuotedCode,
+							BaselineReason: e.Baseline.ReasonFor(hit.ADR.ID, file),
+						}, verified)
 						localBaselined++
 					default:
 						suggestion := res.Suggestion
@@ -358,7 +372,14 @@ func (e *Engine) Run(ctx context.Context) error {
 								}
 							}
 						}
-						writeViolationOutput(&sb, "VIOLATION", hit.ADR.Title, lineNum, verified, res.Reasoning, res.QuotedCode, suggestion, "")
+						writeViolationOutput(&sb, violationOutput{
+							Label:      "VIOLATION",
+							Title:      hit.ADR.Title,
+							LineNum:    lineNum,
+							Reasoning:  res.Reasoning,
+							QuotedCode: res.QuotedCode,
+							Suggestion: suggestion,
+						}, verified)
 						localViolations++
 						if e.JSONOutput {
 							localViolationRecords = append(localViolationRecords, Violation{
@@ -601,20 +622,30 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-func writeViolationOutput(sb *strings.Builder, label, title string, lineNum int, verified bool, reasoning, quotedCode, suggestion, baselineReason string) {
+type violationOutput struct {
+	Label          string
+	Title          string
+	LineNum        int
+	Reasoning      string
+	QuotedCode     string
+	Suggestion     string
+	BaselineReason string
+}
+
+func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool) {
 	if verified {
-		fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", label, title, lineNum)
+		fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", v.Label, v.Title, v.LineNum)
 	} else {
-		fmt.Fprintf(sb, "    [%s] %s [UNVERIFIED: quoted code not found in analyzed content]\n", label, title)
+		fmt.Fprintf(sb, "    [%s] %s [UNVERIFIED: quoted code not found in analyzed content]\n", v.Label, v.Title)
 	}
-	fmt.Fprintf(sb, "    Reasoning: %s\n", reasoning)
-	if quotedCode != "" {
-		fmt.Fprintf(sb, "    Code: %s\n", quotedCode)
+	fmt.Fprintf(sb, "    Reasoning: %s\n", v.Reasoning)
+	if v.QuotedCode != "" {
+		fmt.Fprintf(sb, "    Code: %s\n", v.QuotedCode)
 	}
-	if suggestion != "" {
-		fmt.Fprintf(sb, "    Suggestion (unverified): %s\n", suggestion)
+	if v.Suggestion != "" {
+		fmt.Fprintf(sb, "    Suggestion (unverified): %s\n", v.Suggestion)
 	}
-	if baselineReason != "" {
-		fmt.Fprintf(sb, "    Baseline Reason: %s\n", baselineReason)
+	if v.BaselineReason != "" {
+		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
 	}
 }
