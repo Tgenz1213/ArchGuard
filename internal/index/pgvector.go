@@ -252,7 +252,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
 	}
 
-	validADRs, err := adrProvider.GetADRs(ctx)
+	validADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
@@ -296,7 +296,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
-	var result BuildIndexResult
+	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -352,6 +352,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		_ = g.Wait()
 		fmt.Println()
 	}
+
+	// Valid means successfully indexed, not merely status-accepted.
+	result.Valid = len(validADRs) - len(failed)
 
 	// Checked unconditionally: a ctx canceled before a no-embed run (every
 	// ADR unchanged) must still surface, not fall through as success.

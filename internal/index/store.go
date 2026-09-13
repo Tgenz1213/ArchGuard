@@ -22,10 +22,14 @@ type SkippedADR struct {
 	Err     error
 }
 
-// BuildIndexResult reports ADRs BuildIndex could not process. Skipped can be
+// BuildIndexResult reports the outcome of a BuildIndex run. Skipped can be
 // non-empty whether or not BuildIndex also returns an error.
 type BuildIndexResult struct {
+	IndexSummary
 	Skipped []SkippedADR
+	// Attempted is false only when BuildIndex failed before fetching ADRs,
+	// distinguishing that from a fetch that genuinely found nothing.
+	Attempted bool
 }
 
 // VectorStore defines the interface for interacting with the index storage.
@@ -127,7 +131,7 @@ func (s *LocalStore) Save(path string) error {
 }
 
 func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
-	validADRs, err := adrProvider.GetADRs(ctx)
+	validADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
@@ -149,7 +153,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
-	var result BuildIndexResult
+	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -188,6 +192,9 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		_ = g.Wait()
 		fmt.Println()
 	}
+
+	// Valid means successfully indexed, not merely status-accepted.
+	result.Valid = len(validADRs) - len(failed)
 
 	// Checked unconditionally: a ctx canceled before a no-embed run (every
 	// ADR unchanged) must still surface, not fall through as success.
