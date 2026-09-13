@@ -181,6 +181,9 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 	if !strings.Contains(result.Skipped[0].Err.Error(), "simulated embedding failure") {
 		t.Errorf("expected skipped ADR error to reference the underlying failure, got: %v", result.Skipped[0].Err)
 	}
+	if result.Valid != 2 {
+		t.Errorf("expected Valid to count only successfully-indexed ADRs (2), got %d", result.Valid)
+	}
 
 	if len(store.ADRs) != 2 {
 		t.Fatalf("expected 2 ADRs to remain in the corpus (the failed one excluded), got %d", len(store.ADRs))
@@ -192,6 +195,37 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 		if len(adr.Embedding) == 0 {
 			t.Errorf("ADR %s: expected a non-empty embedding, got none", adr.RelPath)
 		}
+	}
+}
+
+// Attempted lets a caller tell "fetch never happened" apart from "fetch
+// happened and found nothing," which look identical from zero counts alone.
+func TestLocalStore_BuildIndex_AttemptedFalseWhenFetchFails(t *testing.T) {
+	provider := &llm.MockProvider{EmbeddingDim: 2}
+	adrProvider := &mockADRProvider{err: fmt.Errorf("boom")}
+
+	store := NewLocalStore(2)
+	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	if err == nil {
+		t.Fatal("expected an error when the ADR provider fails")
+	}
+	if result.Attempted {
+		t.Error("expected Attempted to be false when GetADRs itself failed")
+	}
+}
+
+func TestLocalStore_BuildIndex_AttemptedTrueOnSuccess(t *testing.T) {
+	adrs := []ADR{{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"}}
+	provider := &llm.MockProvider{EmbeddingDim: 2}
+	adrProvider := &mockADRProvider{adrs: adrs}
+
+	store := NewLocalStore(2)
+	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	if err != nil {
+		t.Fatalf("BuildIndex failed: %v", err)
+	}
+	if !result.Attempted {
+		t.Error("expected Attempted to be true once GetADRs succeeded")
 	}
 }
 

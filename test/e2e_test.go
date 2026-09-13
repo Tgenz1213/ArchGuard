@@ -308,7 +308,7 @@ analysis:
 	if strings.Contains(indexOutput, "ADR Index updated successfully") {
 		t.Errorf("index must not claim unqualified success when an ADR was skipped. Output: %s", indexOutput)
 	}
-	if !strings.Contains(indexOutput, "Failed to embed: 1") {
+	if !strings.Contains(indexOutput, "Failed to embed or persist: 1") {
 		t.Errorf("expected the skipped ADR to be reported. Output: %s", indexOutput)
 	}
 	if !strings.Contains(indexOutput, "0001-always-fails.md") {
@@ -325,6 +325,45 @@ analysis:
 		if strings.Contains(output, "failed to load rebuilt index") {
 			t.Fatalf("check run %d hit the rebuild loop. Output: %s", i, output)
 		}
+	}
+}
+
+// TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed verifies the corpus health
+// summary still prints when BuildIndex returns an error (every ADR failed to
+// embed), not only on success -- the summary and the error are independent.
+func TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adrDir, "0001-always-fails.md"), []byte(alwaysFailsToEmbedADRContent), 0644); err != nil {
+		t.Fatalf("Failed to write ADR: %v", err)
+	}
+
+	output, exitCode := runIndexOnce(t, tempDir, binaryPath)
+	if exitCode != int(cli.ExitIndexError) {
+		t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitIndexError, exitCode, output)
+	}
+	if !strings.Contains(output, "1 discovered, 0 valid") {
+		t.Errorf("expected the summary to print even though BuildIndex returned an error. Output: %s", output)
+	}
+	if !strings.Contains(output, "Failed to embed or persist: 1") {
+		t.Errorf("expected the failed ADR to be reported in the summary. Output: %s", output)
 	}
 }
 
@@ -491,6 +530,61 @@ analysis:
 
 	if !strings.Contains(output, "0 discovered, 0 valid") {
 		t.Errorf("expected the summary to show 0 discovered, 0 valid. Output: %s", output)
+	}
+}
+
+// TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched verifies a failed
+// (empty-corpus) rebuild does not overwrite a previously-healthy local index
+// file on disk with the empty result.
+func TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	adrPath := filepath.Join(adrDir, "0001-valid.md")
+	valid := "---\ntitle: \"Valid\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+	if err := os.WriteFile(adrPath, []byte(valid), 0644); err != nil {
+		t.Fatalf("Failed to write ADR: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	indexPath := filepath.Join(tempDir, ".archguard", "index.json")
+	before, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("Failed to read index.json after the healthy build: %v", err)
+	}
+
+	// Flip the ADR's status so this run discovers it but rejects it, forcing
+	// Valid to 0 without deleting or renaming the file.
+	rejected := "---\ntitle: \"Valid\"\nstatus: \"Proposed\"\nscope: \"**\"\n---\nContent"
+	if err := os.WriteFile(adrPath, []byte(rejected), 0644); err != nil {
+		t.Fatalf("Failed to rewrite ADR: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitIndexError))
+
+	after, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("Failed to read index.json after the failed rebuild: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("expected index.json to be left untouched by the failed rebuild.\nBefore: %s\nAfter: %s", before, after)
 	}
 }
 

@@ -1,7 +1,7 @@
 ---
 title: Index corpus health reporting
 status: Accepted
-scope: "internal/index/**,internal/cli/**"
+scope: "internal/**"
 ---
 
 # Index corpus health reporting
@@ -14,9 +14,9 @@ scope: "internal/index/**,internal/cli/**"
 
 `index.Provider.GetADRs` now returns `([]ADR, FetchStats, error)` instead of `([]ADR, error)`. `FetchStats` (`internal/index/provider.go`) carries what a provider found beyond the valid ADRs themselves: `Discovered` (total files/pages seen), `ParseFailed` (paths), and `StatusRejected` (count). `LocalProvider` and `ConfluenceProvider` populate it as they walk/paginate; `CompositeProvider` sums it across providers the same way it already merges `[]ADR`. The duplicated "filter by status" loop in both providers was extracted into a shared `isAcceptedStatus` helper in `provider.go`.
 
-Duplicate-ID and no-scope detection have no per-provider signal — a collision can span providers (a local file and a Confluence page sharing an ID) — so they're computed once, post-merge, in a new `internal/index/health.go`. `summarizeCorpus(validADRs, stats) IndexSummary` builds `IndexSummary{Discovered, Valid, ParseFailed, StatusRejected, DuplicateIDs, NoScope}` from the final valid-ADR slice plus the merged `FetchStats`. `BuildIndexResult` (`internal/index/store.go`) now embeds `IndexSummary` alongside its existing `Skipped []SkippedADR` (embed failures); both `LocalStore.BuildIndex` and `PgStore.BuildIndex` populate it identically via `summarizeCorpus`.
+Duplicate-ID and no-scope detection have no per-provider signal — a collision can span providers (a local file and a Confluence page sharing an ID) — so they're computed once, post-merge, in a new `internal/index/health.go`. `summarizeCorpus(validADRs, stats) IndexSummary` builds `IndexSummary{Discovered, Valid, ParseFailed, StatusRejected, DuplicateIDs, NoScope}` from the final valid-ADR slice plus the merged `FetchStats`; `Valid` starts as `len(validADRs)` here but both `BuildIndex` implementations overwrite it to `len(validADRs) - len(failed)` once embedding/persistence finishes, since "valid" means successfully indexed, not merely status-accepted. `BuildIndexResult` (`internal/index/store.go`) now embeds `IndexSummary` alongside its existing `Skipped []SkippedADR` (embed/persist failures) and a new `Attempted bool`, true only once `GetADRs` (and, for `PgStore`, schema setup) has succeeded -- it's how `runIndex` tells "fetch never happened" apart from "fetch happened and found nothing," which look identical from the zero-value counts alone.
 
-`internal/cli.runIndex` prints a structured summary (`printIndexSummary`) instead of the old pass/fail line, and calls the new `IndexSummary.IsEmpty()` (`Valid == 0`) to decide the exit code: `ExitIndexError` when nothing survived to be indexed, `ExitSuccess` otherwise (skips/rejections/duplicates are reported but don't fail the run). `IsEmpty` checks `Valid == 0` regardless of `Discovered`, not just "discovered something but all of it got rejected" — a `Discovered == 0` corpus (e.g. a misconfigured `adr_path`) is exactly the case where `PgStore.BuildIndex`'s existing delete-missing-ADRs step would otherwise wipe out a previously-healthy index while still reporting success.
+`internal/cli.runIndex` prints a structured summary (`printIndexSummary`) whenever `result.Attempted`, including on a `BuildIndex` error, then uses the new `IndexSummary.IsEmpty()` (`Valid == 0`) to decide the exit code: `ExitIndexError` when nothing survived to be indexed, `ExitSuccess` otherwise (skips/rejections/duplicates are reported but don't fail the run). `IsEmpty` checks `Valid == 0` regardless of `Discovered` -- a `Discovered == 0` corpus (e.g. a misconfigured `adr_path`) is exactly the case where `PgStore.BuildIndex`'s existing delete-missing-ADRs step would otherwise wipe out a previously-healthy index while still reporting success. The `IsEmpty` check runs *before* `store.Save`, so `LocalStore`'s on-disk index is left untouched on an empty/failed rebuild rather than being overwritten with an empty corpus just before `runIndex` returns its error.
 
 ## Consequences
 

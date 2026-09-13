@@ -296,7 +296,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 
 	fmt.Printf("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
 
-	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats)}
+	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -352,6 +352,11 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		_ = g.Wait()
 		fmt.Println()
 	}
+
+	// Valid means successfully indexed, not merely status-accepted: an ADR
+	// that failed to embed or persist doesn't end up in the corpus, so it
+	// shouldn't count as valid in the health summary either.
+	result.Valid = len(validADRs) - len(failed)
 
 	// Checked unconditionally: a ctx canceled before a no-embed run (every
 	// ADR unchanged) must still surface, not fall through as success.

@@ -556,20 +556,22 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	adrProvider := index.NewCompositeProvider(providers...)
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
+	if result.Attempted {
+		printIndexSummary(result)
+	}
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
 
-	if err := store.Save(indexFile); err != nil {
-		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
+	// A misconfigured adr_path or accepted_statuses can silently zero out the
+	// corpus; treat that as a failure rather than a quiet no-op success, and
+	// leave the previous index on disk untouched rather than overwriting it.
+	if result.IsEmpty() {
+		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered; index not updated", result.Discovered)
 	}
 
-	printIndexSummary(result)
-
-	// A misconfigured adr_path or accepted_statuses can silently zero out the
-	// corpus; treat that as a failure rather than a quiet no-op success.
-	if result.IsEmpty() {
-		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered", result.Discovered)
+	if err := store.Save(indexFile); err != nil {
+		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
 	return ExitSuccess, nil
 }
@@ -588,7 +590,7 @@ func printIndexSummary(result index.BuildIndexResult) {
 		fmt.Printf("  Skipped (status not accepted): %d\n", result.StatusRejected)
 	}
 	if len(result.Skipped) > 0 {
-		fmt.Printf("  Failed to embed: %d\n", len(result.Skipped))
+		fmt.Printf("  Failed to embed or persist: %d\n", len(result.Skipped))
 		for _, skipped := range result.Skipped {
 			fmt.Printf("    - %s: %v\n", skipped.RelPath, skipped.Err)
 		}
