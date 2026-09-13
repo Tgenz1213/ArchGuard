@@ -15,6 +15,9 @@ type Entry struct {
 	ADRID      string `json:"adr_id"`
 	File       string `json:"file"`
 	QuotedCode string `json:"quoted_code"`
+	// Reason is informational only -- it does not affect IsSuppressed.
+	// Typical values: "accepted-debt", "false-positive", or free text.
+	Reason string `json:"reason,omitempty"`
 }
 
 type Baseline struct {
@@ -69,27 +72,35 @@ func (b *Baseline) Save(path string) error {
 	return atomicfile.Write(path, data)
 }
 
-func (b *Baseline) Add(adrID, file, quotedCode string) {
+func (b *Baseline) Add(entry Entry) {
 	if b == nil {
 		return
 	}
 
-	for i, entry := range b.Entries {
-		if entry.ADRID == adrID && entry.File == file {
-			b.Entries[i] = Entry{
-				ADRID:      adrID,
-				File:       file,
-				QuotedCode: quotedCode,
-			}
+	for i, existing := range b.Entries {
+		if existing.ADRID == entry.ADRID && existing.File == entry.File {
+			b.Entries[i] = entry
 			return
 		}
 	}
 
-	b.Entries = append(b.Entries, Entry{
-		ADRID:      adrID,
-		File:       file,
-		QuotedCode: quotedCode,
-	})
+	b.Entries = append(b.Entries, entry)
+}
+
+// ReasonFor returns the Reason of the entry matching (adrID, file), or ""
+// if there is no such entry or b is nil.
+func (b *Baseline) ReasonFor(adrID, file string) string {
+	if b == nil {
+		return ""
+	}
+
+	for _, entry := range b.Entries {
+		if entry.ADRID == adrID && entry.File == file {
+			return entry.Reason
+		}
+	}
+
+	return ""
 }
 
 func (b *Baseline) IsSuppressed(adrID, file, currentFileContent string) bool {
