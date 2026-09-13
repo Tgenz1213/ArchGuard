@@ -1075,8 +1075,58 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
 		t.Fatalf("expected a drift-detected error from the one real violation, got: %v", runErr)
 	}
-	if !strings.Contains(output, "1 new violation(s), 0 baselined, 1 file(s) skipped due to errors.") {
+	if !strings.Contains(output, "1 new violation(s), 0 baselined, 1 file(s) skipped due to errors, 0 ADR check(s) skipped due to LLM errors.") {
 		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
+	}
+}
+
+// TestRun_ReportsSkippedADRCheckCount asserts that a non-baseline, non-debug
+// Run surfaces per-ADR LLM failures in both the aggregate summary line and
+// Engine.SkippedADRChecks, even when there are zero violations to report.
+func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return "", fmt.Errorf("mock LLM failure")
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{
+			ID:        "0001",
+			Title:     "Use Golang",
+			Status:    "Accepted",
+			Content:   "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &partialErrorContentProvider{
+		files:   []string{"good.go"},
+		content: map[string]string{"good.go": "package good"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = engine.Run(context.Background())
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error (zero violations), got: %v", runErr)
+	}
+	if engine.SkippedADRChecks != 1 {
+		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	}
+	if !strings.Contains(output, "0 new violation(s), 0 baselined, 0 file(s) skipped due to errors, 1 ADR check(s) skipped due to LLM errors.") {
+		t.Fatalf("expected summary to report the skipped ADR check, got output: %q", output)
 	}
 }
 
