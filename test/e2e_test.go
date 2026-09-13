@@ -406,6 +406,40 @@ analysis:
 			t.Errorf("expected debug output on stderr, got: %s", stderr)
 		}
 	})
+
+	t.Run("skipped ADR checks: JSON still valid, skip summary lands on stderr", func(t *testing.T) {
+		skipFixturePath := filepath.Join(tempDir, "skipped.js")
+		skipFixtureContent := fmt.Sprintf(`
+function sensitiveData() {
+    console.log("%s");
+}
+`, testutil.MockChatFailureTrigger)
+		if err := os.WriteFile(skipFixturePath, []byte(skipFixtureContent), 0644); err != nil {
+			t.Fatalf("Failed to create fixture: %v", err)
+		}
+		defer func() {
+			if err := os.Remove(skipFixturePath); err != nil {
+				t.Fatalf("Failed to remove fixture: %v", err)
+			}
+		}()
+
+		stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "skipped.js")
+
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("expected success exit code %d (skips don't drive drift), got %d. stdout: %s stderr: %s", cli.ExitSuccess, exitCode, stdout, stderr)
+		}
+
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if report.Count != 0 {
+			t.Fatalf("expected 0 violations for a skipped ADR check, got count=%d. stdout: %s", report.Count, stdout)
+		}
+		if !strings.Contains(stderr, "1 ADR check(s) were skipped due to LLM errors") {
+			t.Errorf("expected the skip-count summary on stderr (not silently dropped by --format json), got: %s", stderr)
+		}
+	})
 }
 
 // TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an

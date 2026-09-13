@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -489,5 +490,27 @@ func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
 	}
 	if len(got) > limit {
 		t.Fatalf("result exceeds limit: %d bytes > %d", len(got), limit)
+	}
+}
+
+// TestViolation_QuotedCodeAlwaysPresentInJSON guards the --format json
+// schema: an empty QuotedCode is a valid violation (Engine treats "" as
+// trivially verified), so the key must survive marshaling, not be dropped
+// via `omitempty` -- consumers shouldn't see the object shape change based
+// on whether the LLM happened to quote code.
+func TestViolation_QuotedCodeAlwaysPresentInJSON(t *testing.T) {
+	v := Violation{File: "a.go", ADRID: "0001", ADRTitle: "Some ADR", Line: 1, Reasoning: "why", QuotedCode: ""}
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if _, ok := decoded["quoted_code"]; !ok {
+		t.Fatalf("expected \"quoted_code\" key to be present even when empty, got: %s", data)
 	}
 }

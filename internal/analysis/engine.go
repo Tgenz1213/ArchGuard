@@ -70,7 +70,7 @@ type Violation struct {
 	ADRTitle   string `json:"adr_title"`
 	Line       int    `json:"line"`
 	Reasoning  string `json:"reasoning"`
-	QuotedCode string `json:"quoted_code,omitempty"`
+	QuotedCode string `json:"quoted_code"`
 }
 
 // ErrDriftDetected identifies analysis results that contain architectural violations.

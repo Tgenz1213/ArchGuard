@@ -237,6 +237,8 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above.
 
+> **Note:** run `archguard index` before a `--format json` check. If the index needs an automatic rebuild during `check` (e.g. a stale/missing index, or an ADR provider warning), that rebuild's own progress text currently still prints to stdout ahead of the JSON document (tracked in [#163](https://github.com/Tgenz1213/ArchGuard/issues/163)). With an up-to-date index this doesn't happen.
+
 ### Suppression
 
 Intentionally ignore a violation for a specific file using a comment:

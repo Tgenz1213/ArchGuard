@@ -48,9 +48,12 @@ type ProviderFactories struct {
 
 // Execute parses arguments and runs the requested command.
 func Execute(factories ProviderFactories) (ExitCode, error) {
-	// --format json must be the only thing on stdout, so the startup banner
-	// is skipped here, before checkFlags.Parse runs inside runCheck.
-	if !checkWantsJSON(os.Args) {
+	// --format json must be the only thing on stdout, computed once here
+	// (before checkFlags.Parse runs inside runCheck) since it also gates the
+	// startup banner and buildProvider's missing-API-key warnings below,
+	// both printed before runCheck's own format handling exists.
+	jsonOutput := checkWantsJSON(os.Args)
+	if !jsonOutput {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
 	}
 
@@ -125,8 +128,13 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 			return ExitConfig, err
 		}
 	} else {
+		providerWarnings := io.Writer(os.Stdout)
+		if jsonOutput {
+			providerWarnings = os.Stderr
+		}
+
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
-		chatProvider, err = buildProvider(cfg.LLM.Provider, chatAPIKey, cfg)
+		chatProvider, err = buildProvider(providerWarnings, cfg.LLM.Provider, chatAPIKey, cfg)
 		if err != nil {
 			return ExitConfig, err
 		}
@@ -135,7 +143,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		if reuseChatProvider {
 			embedProvider = chatProvider
 		} else {
-			embedProvider, err = buildProvider(embedProviderName, embedAPIKey, cfg)
+			embedProvider, err = buildProvider(providerWarnings, embedProviderName, embedAPIKey, cfg)
 			if err != nil {
 				return ExitConfig, err
 			}
@@ -190,8 +198,13 @@ func checkWantsJSON(args []string) bool {
 		}
 		name := strings.TrimLeft(arg, "-")
 		if flagName, value, ok := strings.Cut(name, "="); ok {
-			if flagName == "format" {
+			switch flagName {
+			case "format":
 				format = value
+			case "update-baseline":
+				// bool flags accept -flag=<value>; anything but an explicit
+				// falsy value counts as set, matching flag.Bool's own parsing.
+				updateBaseline = value != "false" && value != "0"
 			}
 			continue
 		}
@@ -287,28 +300,28 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 
 // buildProvider constructs the llm.Provider named by name, using apiKey
 // for providers that need one.
-func buildProvider(name, apiKey string, cfg *config.Config) (llm.Provider, error) {
+func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
 	switch name {
 	case "openai":
 		if apiKey == "" {
-			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
 		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "ollama":
 		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
 	case "gemini":
 		if apiKey == "" {
-			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "claude":
 		if apiKey == "" {
-			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
 		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
 	case "voyage":
 		if apiKey == "" {
-			fmt.Printf("Warning: no API key set for %s provider. Requests may fail.\n", name)
+			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
 		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 	default:
@@ -624,25 +637,24 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		if err := writeCheckReport(os.Stdout, engine.CollectedViolations); err != nil {
 			return ExitError, fmt.Errorf("failed to write json report: %v", err)
 		}
-		if runErr != nil {
-			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
-		}
-		return ExitSuccess, nil
 	}
 
 	if runErr != nil {
 		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 	}
 
+	// Reached only when runErr == nil (no violations), matching --format
+	// text's pre-existing behavior of skipping this summary on drift --
+	// unaffected by jsonOutput, which only changes human's destination.
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
+		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
 	case engine.SkippedADRChecks > 0:
-		fmt.Printf("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
+		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
 	case engine.SkippedFiles > 0:
-		fmt.Printf("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
+		_, _ = fmt.Fprintf(human, "Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
 	default:
-		fmt.Println("No new architectural violations found.")
+		_, _ = fmt.Fprintln(human, "No new architectural violations found.")
 	}
 	return ExitSuccess, nil
 }
