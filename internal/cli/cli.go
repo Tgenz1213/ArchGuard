@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -512,9 +513,15 @@ func resolveContentProvider(files []string, staged, all, updateBaseline bool) an
 		return &analysis.AllProvider{}
 	}
 	if len(files) > 0 {
-		if files[0] == "." {
-			if len(files) > 1 {
-				fmt.Printf("Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", files[1:])
+		if slices.Contains(files, ".") {
+			var extras []string
+			for _, f := range files {
+				if f != "." {
+					extras = append(extras, f)
+				}
+			}
+			if len(extras) > 0 {
+				fmt.Printf("Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
 			}
 			return &analysis.AllProvider{}
 		}

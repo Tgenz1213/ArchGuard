@@ -233,6 +233,11 @@ func TestResolveContentProvider(t *testing.T) {
 			want:  &analysis.AllProvider{},
 		},
 		{
+			name:  "dot as a non-first arg still scans everything",
+			files: []string{"internal/foo.go", "."},
+			want:  &analysis.AllProvider{},
+		},
+		{
 			name:   "staged flag scans staged files",
 			staged: true,
 			want:   &analysis.StagedProvider{},
@@ -278,18 +283,28 @@ func TestResolveContentProvider(t *testing.T) {
 }
 
 func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
-	files := []string{".", "internal/foo.go"}
-
-	var got analysis.ContentProvider
-	output := captureStdout(t, func() {
-		got = resolveContentProvider(files, false, false, false)
-	})
-
-	if _, ok := got.(*analysis.AllProvider); !ok {
-		t.Fatalf("expected *analysis.AllProvider, got %T", got)
+	tests := []struct {
+		name  string
+		files []string
+	}{
+		{name: "dot first", files: []string{".", "internal/foo.go"}},
+		{name: "dot not first", files: []string{"internal/foo.go", "."}},
 	}
-	if !strings.Contains(output, "internal/foo.go") {
-		t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", output)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got analysis.ContentProvider
+			output := captureStdout(t, func() {
+				got = resolveContentProvider(tt.files, false, false, false)
+			})
+
+			if _, ok := got.(*analysis.AllProvider); !ok {
+				t.Fatalf("expected *analysis.AllProvider, got %T", got)
+			}
+			if !strings.Contains(output, "internal/foo.go") {
+				t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", output)
+			}
+		})
 	}
 }
 
