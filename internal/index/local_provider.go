@@ -51,7 +51,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 			stats.Discovered++
 			adr, err := ParseADR(path, p.dirPath, p.idPattern)
 			if err != nil {
-				fmt.Fprintf(diagWriter(p.writer), "Warning: skipping %s: %v\n", path, err)
+				_, _ = fmt.Fprintf(diagWriter(p.writer), "Warning: skipping %s: %v\n", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)
 				return nil
 			}
