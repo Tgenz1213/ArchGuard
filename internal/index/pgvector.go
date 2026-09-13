@@ -331,8 +331,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			mu.Unlock()
 			_, _ = fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			mu.Unlock()
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -363,7 +363,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
 					return nil
 				}
+				mu.Lock()
 				_, _ = fmt.Fprintf(diagWriter(s.writer), ".")
+				mu.Unlock()
 				return nil
 			})
 		}
@@ -476,7 +478,7 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 		var adr ADR
 		var score float64
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &score); err != nil {
-			_, _ = fmt.Fprintf(w, "PgStore Row scan failed: %v\n", err)
+			_, _ = fmt.Fprintf(diagWriter(w), "PgStore Row scan failed: %v\n", err)
 			continue
 		}
 		candidates = append(candidates, SearchResult{ADR: &adr, Score: score})
@@ -497,7 +499,7 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	}
 	defer rows.Close()
 
-	candidates := scanSearchResults(rows, diagWriter(s.writer))
+	candidates := scanSearchResults(rows, s.writer)
 	candidates = filterByScope(candidates, filePath)
 	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
@@ -516,7 +518,7 @@ func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, to
 	}
 	defer rows.Close()
 
-	candidates := scanSearchResults(rows, diagWriter(s.writer))
+	candidates := scanSearchResults(rows, s.writer)
 	candidates = filterByScope(candidates, filePath)
 	candidates = filterBelowThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)

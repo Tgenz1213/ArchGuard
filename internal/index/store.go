@@ -186,8 +186,8 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			mu.Unlock()
 			_, _ = fmt.Fprintf(diagWriter(s.writer), "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
+			mu.Unlock()
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -200,7 +200,9 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 					return nil
 				}
 				validADRs[idx].Embedding = emb
+				mu.Lock()
 				_, _ = fmt.Fprintf(diagWriter(s.writer), ".")
+				mu.Unlock()
 				return nil
 			})
 		}

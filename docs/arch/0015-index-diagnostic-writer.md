@@ -23,6 +23,7 @@ scope: "internal/**"
 ## Consequences
 
 - Any future diagnostic print added to `internal/index` must go through `diagWriter(s.writer)` / `diagWriter(p.writer)`, not a bare `fmt.Print*`, or it reintroduces the stdout leak this ADR closes.
+- `BuildIndex`'s embed worker pool writes progress/failure text to the configured writer from multiple goroutines. Production always passes `*os.File` (safe for concurrent writes), but an arbitrary caller-supplied `io.Writer` is not guaranteed to be -- `BuildIndex` serializes these writes under its existing failure-tracking mutex rather than assuming writer safety.
 - `NewPgStore`'s signature changed (a new required trailing parameter); every direct caller -- including `internal/index/pgvector_bench_test.go` and `internal/index/pgvector_integration_test.go`'s ~29 call sites -- was updated to pass `nil` (meaning "use the live stdout, resolved dynamically"), preserving prior behavior exactly.
 - `internal/index.NewVectorStore`'s signature changed to take a writer; its only callers, both in `internal/cli.go`, were updated. No other package calls it.
 - This closes the "Known gap" `docs/arch/0014-json-check-output.md` documented and tracked as #163: `archguard check --format json` now stays valid JSON on stdout even when it triggers an index rebuild or hits a provider-fetch warning.
