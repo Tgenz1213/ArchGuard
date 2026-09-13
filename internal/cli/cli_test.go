@@ -277,6 +277,22 @@ func TestResolveContentProvider(t *testing.T) {
 	}
 }
 
+func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
+	files := []string{".", "internal/foo.go"}
+
+	var got analysis.ContentProvider
+	output := captureStdout(t, func() {
+		got = resolveContentProvider(files, false, false, false)
+	})
+
+	if _, ok := got.(*analysis.AllProvider); !ok {
+		t.Fatalf("expected *analysis.AllProvider, got %T", got)
+	}
+	if !strings.Contains(output, "internal/foo.go") {
+		t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", output)
+	}
+}
+
 func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},
