@@ -75,13 +75,22 @@ We will use Python.</p>`
 	// we can just pass the full URL.
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
-	adrs, _, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if len(adrs) != 1 || adrs[0].ID != "confluence-1" || adrs[0].Title != "Use Go" {
 		t.Errorf("unexpected ADR contents: %+v", adrs[0])
+	}
+	if stats.Discovered != 3 {
+		t.Errorf("expected 3 discovered pages, got %d", stats.Discovered)
+	}
+	if stats.StatusRejected != 1 {
+		t.Errorf("expected 1 status-rejected page, got %d", stats.StatusRejected)
+	}
+	if len(stats.ParseFailed) != 1 {
+		t.Errorf("expected 1 parse-failed page, got %v", stats.ParseFailed)
 	}
 }
 

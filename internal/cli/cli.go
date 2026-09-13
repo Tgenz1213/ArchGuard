@@ -606,6 +606,9 @@ func printIndexSummary(result index.BuildIndexResult) {
 	}
 	if len(result.NoScope) > 0 {
 		fmt.Printf("  No scope set (applies to every file): %d\n", len(result.NoScope))
+		for _, path := range result.NoScope {
+			fmt.Printf("    - %s\n", path)
+		}
 	}
 }
 

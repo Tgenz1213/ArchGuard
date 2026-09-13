@@ -328,6 +328,65 @@ analysis:
 	}
 }
 
+// TestE2E_IndexReportsFullCorpusHealthSummary exercises one corpus with a
+// valid ADR, a parse failure, a status rejection, and a duplicate ID at once,
+// to catch wiring/counting bugs that per-scenario tests could miss.
+func TestE2E_IndexReportsFullCorpusHealthSummary(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+
+	valid := "---\ntitle: \"Valid\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+	rejected := "---\ntitle: \"Draft\"\nstatus: \"Proposed\"\nscope: \"**\"\n---\nContent"
+	unparseable := "not frontmatter at all"
+	dup1 := "---\ntitle: \"Dup A\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+	dup2 := "---\ntitle: \"Dup B\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+
+	files := map[string]string{
+		"0001-valid.md":       valid,
+		"0002-rejected.md":    rejected,
+		"0003-unparseable.md": unparseable,
+		"0004-first.md":       dup1,
+		"0004-second.md":      dup2,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(adrDir, name), []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write %s: %v", name, err)
+		}
+	}
+
+	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	if !strings.Contains(output, "5 discovered, 3 valid") {
+		t.Errorf("expected 5 discovered, 3 valid. Output: %s", output)
+	}
+	if !strings.Contains(output, "Skipped (parse failure): 1") || !strings.Contains(output, "0003-unparseable.md") {
+		t.Errorf("expected the parse failure to be named. Output: %s", output)
+	}
+	if !strings.Contains(output, "Skipped (status not accepted): 1") {
+		t.Errorf("expected the status rejection to be counted. Output: %s", output)
+	}
+	if !strings.Contains(output, "Duplicate ADR IDs: 1") || !strings.Contains(output, "0004-first.md") || !strings.Contains(output, "0004-second.md") {
+		t.Errorf("expected the duplicate ID collision to be reported. Output: %s", output)
+	}
+}
+
 // TestE2E_IndexReportsDuplicateADRIDs verifies the summary flags two ADRs
 // sharing an ID, since a duplicate breaks archguard-ignore/baseline scoping.
 func TestE2E_IndexReportsDuplicateADRIDs(t *testing.T) {
