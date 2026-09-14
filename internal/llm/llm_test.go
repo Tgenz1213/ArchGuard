@@ -174,13 +174,13 @@ func TestGetSuggestionPrompt_OrdinaryFilenameUnchanged(t *testing.T) {
 	}
 }
 
-func TestAnalysisResult_SuggestionOmittedWhenEmpty(t *testing.T) {
+func TestAnalysisResult_HasNoSuggestionField(t *testing.T) {
 	res := AnalysisResult{Violation: false, Reasoning: "no violation", QuotedCode: ""}
 	data, err := json.Marshal(res)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 	if strings.Contains(string(data), "suggestion") {
-		t.Errorf("expected suggestion field to be omitted when empty, got: %s", data)
+		t.Errorf("expected no suggestion field on AnalysisResult (suggestions are cached separately, see cache.ComputeSuggestionKey), got: %s", data)
 	}
 }

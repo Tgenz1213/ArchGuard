@@ -2,6 +2,7 @@ package cache
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -63,4 +64,49 @@ func ComputeAnalysisKey(modelName, adrContent, fileContent, systemPrompt, userPr
 	h.Write([]byte(userPromptTemplate))
 	sum := h.Sum(nil)
 	return hex.EncodeToString(sum)
+}
+
+// ComputeSuggestionKey is a separate namespace from ComputeAnalysisKey, keyed
+// on the suggestion prompt so changing it invalidates only suggestions.
+func ComputeSuggestionKey(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
+	h := sha256.New()
+	for _, part := range []string{modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate} {
+		// Length-prefixed so e.g. ("a||b","c") can't hash the same as ("a","b||c").
+		var lenBuf [8]byte
+		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(part)))
+		h.Write(lenBuf[:])
+		h.Write([]byte(part))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (c *Cache) suggestionPath(key string) string {
+	return filepath.Join(c.Dir, "suggestions", key+".json")
+}
+
+func (c *Cache) GetSuggestion(key string) (string, bool, error) {
+	data, err := os.ReadFile(c.suggestionPath(key))
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	var suggestion string
+	if err := json.Unmarshal(data, &suggestion); err != nil {
+		return "", false, err // Corrupt cache? Treat as miss.
+	}
+	return suggestion, true, nil
+}
+
+func (c *Cache) PutSuggestion(key, suggestion string) error {
+	dir := filepath.Join(c.Dir, "suggestions")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(suggestion)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0644)
 }

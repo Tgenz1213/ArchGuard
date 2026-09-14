@@ -1982,6 +1982,155 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	}
 }
 
+func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
+	c, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.NewCache failed: %v", err)
+	}
+
+	// Seeds a suggestion under a key computed with different prompt text,
+	// simulating a suggestion cached before a suggestion-prompt edit.
+	staleKey := cache.ComputeSuggestionKey("", "All services must be Go.", "import python_library\n", "service.py",
+		"Python is not allowed.", "import python_library", "an old suggestion system prompt", "an old suggestion template")
+	if err := c.PutSuggestion(staleKey, "OLD STALE SUGGESTION"); err != nil {
+		t.Fatalf("PutSuggestion failed: %v", err)
+	}
+
+	suggestionCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(system, "Remediation Advisor") {
+				suggestionCalls++
+				return `{"suggestion": "NEW FRESH SUGGESTION"}`, nil
+			}
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = c
+	engine.SuggestFixes = true
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if suggestionCalls != 1 {
+		t.Errorf("expected a fresh suggestion call when the cached entry's key doesn't match, got %d calls", suggestionCalls)
+	}
+	if !strings.Contains(output, "NEW FRESH SUGGESTION") {
+		t.Errorf("expected the fresh suggestion in output, got: %s", output)
+	}
+	if strings.Contains(output, "OLD STALE SUGGESTION") {
+		t.Errorf("expected the stale suggestion to never surface, got: %s", output)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *testing.T) {
+	c, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.NewCache failed: %v", err)
+	}
+
+	suggestionCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(system, "Remediation Advisor") {
+				suggestionCalls++
+				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
+			}
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	firstEngine.Cache = c
+	firstEngine.SuggestFixes = true
+	_ = captureStdout(t, func() { _ = firstEngine.Run(context.Background()) })
+
+	// Debug toggles between runs but isn't part of the suggestion key, so
+	// the cached suggestion should still be reused.
+	secondEngine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	secondEngine.Cache = c
+	secondEngine.SuggestFixes = true
+	output := captureStdout(t, func() { _ = secondEngine.Run(context.Background()) })
+
+	if suggestionCalls != 1 {
+		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
+	}
+	if !strings.Contains(output, "Rewrite this in Go, not Python.") {
+		t.Errorf("expected the cached suggestion to appear in the second run's output, got: %s", output)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSuggestion(t *testing.T) {
+	c, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.NewCache failed: %v", err)
+	}
+
+	suggestionCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(system, "Remediation Advisor") {
+				suggestionCalls++
+				if strings.Contains(user, "File Path: a/service.py") {
+					return `{"suggestion": "Suggestion for a/service.py"}`, nil
+				}
+				return `{"suggestion": "Suggestion for b/service.py"}`, nil
+			}
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	// Same content under two different paths -- the rendered suggestion
+	// prompt differs by File Path, so each must get its own suggestion.
+	content := &MockContentProvider{Files: map[string]string{
+		"a/service.py": "import python_library\n",
+		"b/service.py": "import python_library\n",
+	}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = c
+	engine.SuggestFixes = true
+	output := captureStdout(t, func() { _ = engine.Run(context.Background()) })
+
+	if suggestionCalls != 2 {
+		t.Errorf("expected 2 independent suggestion calls for identical content under different paths, got %d", suggestionCalls)
+	}
+	if !strings.Contains(output, "Suggestion for a/service.py") || !strings.Contains(output, "Suggestion for b/service.py") {
+		t.Errorf("expected each file to surface its own path-specific suggestion, got: %s", output)
+	}
+}
+
 func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *testing.T) {
 	chatCalls := 0
 	provider := &llm.MockProvider{
