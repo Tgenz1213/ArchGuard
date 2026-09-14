@@ -1446,7 +1446,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 			ID:        "0001",
 			Title:     "Go-only rule",
 			Status:    "Accepted",
-			Scope:     "**/*.go",
+			Scope:     index.ScopePatterns{"**/*.go"},
 			Content:   "Go files must do X.",
 			Embedding: func() []float32 { v := make([]float32, 4); v[0] = 1.0; return v }(),
 		},

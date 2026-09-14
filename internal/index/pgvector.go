@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -292,7 +293,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			Title:               title,
 			Status:              status,
 			Content:             content,
-			Scope:               scope,
+			Scope:               ParseScopePatterns(scope),
 			SimilarityThreshold: similarityThreshold,
 		}
 	}
@@ -307,7 +308,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		switch {
 		case !ok || existing.Content != valid.Content || existing.Title != valid.Title || existing.Status != valid.Status:
 			adrsToEmbed = append(adrsToEmbed, i)
-		case existing.ID != valid.ID || existing.Scope != valid.Scope || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold):
+		case existing.ID != valid.ID || !slices.Equal(existing.Scope, valid.Scope) || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold):
 			adrsToSync = append(adrsToSync, i)
 		}
 	}
