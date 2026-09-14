@@ -141,7 +141,7 @@ func GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCod
 
 func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
 	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
-	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt)
+	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt, "analysis")
 }
 
 type suggestionResult struct {
@@ -152,14 +152,14 @@ type suggestionResult struct {
 // Violation == true.
 func SuggestRemediation(ctx context.Context, p Provider, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
 	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
-	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt)
+	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt, "suggestion generation")
 	if err != nil {
 		return "", err
 	}
 	return result.Suggestion, nil
 }
 
-func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt string) (*T, error) {
+func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt, operationLabel string) (*T, error) {
 	const maxRetries = 3
 
 	bo := backoff.NewExponentialBackOff()
@@ -195,7 +195,7 @@ func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt s
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
-		return nil, fmt.Errorf("analysis failed after %d retries: %w", maxRetries, lastErr)
+		return nil, fmt.Errorf("%s failed after %d retries: %w", operationLabel, maxRetries, lastErr)
 	}
 
 	return &final, nil

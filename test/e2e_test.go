@@ -521,6 +521,23 @@ analysis:
 			t.Errorf("expected suggestion %q, got %q", want, report.Violations[0].Suggestion)
 		}
 	})
+
+	t.Run("off after a warm cache: no suggestion leaks from the earlier flagged run", func(t *testing.T) {
+		stdout, _, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
+		}
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if len(report.Violations) != 1 {
+			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), stdout)
+		}
+		if report.Violations[0].Suggestion != "" {
+			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, even with a warm cache from the earlier flagged run, got %q", report.Violations[0].Suggestion)
+		}
+	})
 }
 
 // TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout proves an index rebuild

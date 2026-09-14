@@ -357,17 +357,23 @@ func (e *Engine) Run(ctx context.Context) error {
 						}, verified)
 						localBaselined++
 					default:
-						suggestion := res.Suggestion
-						if e.SuggestFixes && suggestion == "" {
-							s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
-							if sErr != nil {
-								fmt.Fprintf(&sb, "    Warning: suggestion generation failed: %v\n", sErr)
-							} else {
-								suggestion = s
-								res.Suggestion = s
-								if e.Cache != nil {
-									if err := e.Cache.Put(cacheKey, res); err != nil {
-										e.Log("Failed to cache analysis result: %v", err)
+						var suggestion string
+						if e.SuggestFixes {
+							suggestion = res.Suggestion
+							if suggestion == "" && verified {
+								s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
+								switch {
+								case sErr != nil:
+									fmt.Fprintf(&sb, "    Warning: suggestion generation failed: %v\n", sErr)
+								case s == "":
+									fmt.Fprintf(&sb, "    Warning: suggestion generation returned an empty suggestion\n")
+								default:
+									suggestion = s
+									res.Suggestion = s
+									if e.Cache != nil {
+										if err := e.Cache.Put(cacheKey, res); err != nil {
+											e.Log("Failed to cache analysis result: %v", err)
+										}
 									}
 								}
 							}

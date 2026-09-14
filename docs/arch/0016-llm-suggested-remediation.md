@@ -1,6 +1,7 @@
 ---
 title: "LLM-suggested remediation is a second, opt-in call"
 status: "Accepted"
+scope: "internal/**"
 ---
 
 # LLM-suggested remediation is a second, opt-in call
