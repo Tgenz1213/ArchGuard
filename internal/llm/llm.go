@@ -18,9 +18,6 @@ type AnalysisResult struct {
 	Violation  bool   `json:"violation"`
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
-	// Suggestion is populated only when Violation is true, via a separate
-	// call (SuggestRemediation) gated by the caller -- never by this prompt.
-	Suggestion string `json:"suggestion,omitempty"`
 }
 
 // EmbeddingTaskType distinguishes why an embedding is being created, so an

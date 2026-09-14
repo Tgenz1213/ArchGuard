@@ -358,9 +358,14 @@ func (e *Engine) Run(ctx context.Context) error {
 						localBaselined++
 					default:
 						var suggestion string
-						if e.SuggestFixes {
-							suggestion = res.Suggestion
-							if suggestion == "" && verified {
+						if e.SuggestFixes && verified {
+							suggestionKey := cache.ComputeSuggestionKey(e.Config.LLM.Model, hit.ADR.Content, content, res.Reasoning, res.QuotedCode, llm.SuggestionSystemPrompt, llm.SuggestionPrompt)
+							if e.Cache != nil {
+								if cached, found, err := e.Cache.GetSuggestion(suggestionKey); err == nil && found {
+									suggestion = cached
+								}
+							}
+							if suggestion == "" {
 								s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
 								switch {
 								case sErr != nil:
@@ -369,10 +374,9 @@ func (e *Engine) Run(ctx context.Context) error {
 									fmt.Fprintf(&sb, "    Warning: suggestion generation returned an empty suggestion\n")
 								default:
 									suggestion = s
-									res.Suggestion = s
 									if e.Cache != nil {
-										if err := e.Cache.Put(cacheKey, res); err != nil {
-											e.Log("Failed to cache analysis result: %v", err)
+										if err := e.Cache.PutSuggestion(suggestionKey, s); err != nil {
+											e.Log("Failed to cache suggestion: %v", err)
 										}
 									}
 								}
