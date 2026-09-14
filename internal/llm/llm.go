@@ -98,8 +98,9 @@ func GetAnalyzeDriftPrompt(adrContent, codeContext, filename string) string {
 	// Sanitize inputs before formatting into the template
 	safeADR := EscapePromptDelimiter(adrContent)
 	safeCode := EscapePromptDelimiter(codeContext)
+	safeFilename := EscapePromptDelimiter(filename)
 
-	return fmt.Sprintf(ChatPrompt, filename, safeADR, safeCode)
+	return fmt.Sprintf(ChatPrompt, safeFilename, safeADR, safeCode)
 }
 
 const SuggestionSystemPrompt = `You are an Architectural Remediation Advisor.
@@ -135,8 +136,9 @@ func GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCod
 	safeCode := EscapePromptDelimiter(codeContext)
 	safeReasoning := EscapePromptDelimiter(reasoning)
 	safeQuoted := EscapePromptDelimiter(quotedCode)
+	safeFilename := EscapePromptDelimiter(filename)
 
-	return fmt.Sprintf(SuggestionPrompt, filename, safeADR, safeCode, safeReasoning, safeQuoted)
+	return fmt.Sprintf(SuggestionPrompt, safeFilename, safeADR, safeCode, safeReasoning, safeQuoted)
 }
 
 func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
