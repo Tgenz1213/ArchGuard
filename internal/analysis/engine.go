@@ -359,7 +359,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					default:
 						var suggestion string
 						if e.SuggestFixes && verified {
-							suggestionKey := cache.ComputeSuggestionKey(e.Config.LLM.Model, hit.ADR.Content, content, res.Reasoning, res.QuotedCode, llm.SuggestionSystemPrompt, llm.SuggestionPrompt)
+							suggestionKey := cache.ComputeSuggestionKey(e.Config.LLM.Model, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode, llm.SuggestionSystemPrompt, llm.SuggestionPrompt)
 							if e.Cache != nil {
 								if cached, found, err := e.Cache.GetSuggestion(suggestionKey); err == nil && found {
 									suggestion = cached

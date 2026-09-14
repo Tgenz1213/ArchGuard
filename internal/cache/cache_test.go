@@ -7,29 +7,45 @@ import (
 )
 
 func TestComputeSuggestionKey_StableForSameInputs(t *testing.T) {
-	a := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "sys", "tmpl")
-	b := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "sys", "tmpl")
+	a := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
+	b := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
 	if a != b {
 		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
 	}
 }
 
 func TestComputeSuggestionKey_ChangesWithSuggestionPrompt(t *testing.T) {
-	a := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "old system prompt", "old template")
-	b := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "new system prompt", "old template")
+	a := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "old system prompt", "old template")
+	b := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "new system prompt", "old template")
 	if a == b {
 		t.Error("expected a changed suggestion system prompt to change the key")
 	}
 
-	c := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "old system prompt", "new template")
+	c := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "old system prompt", "new template")
 	if a == c {
 		t.Error("expected a changed suggestion prompt template to change the key")
 	}
 }
 
+func TestComputeSuggestionKey_ChangesWithFilename(t *testing.T) {
+	a := ComputeSuggestionKey("gpt-4", "adr", "code", "old/path.go", "reasoning", "quoted", "sys", "tmpl")
+	b := ComputeSuggestionKey("gpt-4", "adr", "code", "new/path.go", "reasoning", "quoted", "sys", "tmpl")
+	if a == b {
+		t.Error("expected identical content under a different file path to change the key, since the rendered suggestion prompt includes the file path")
+	}
+}
+
+func TestComputeSuggestionKey_NoAmbiguousFieldBoundaries(t *testing.T) {
+	a := ComputeSuggestionKey("m", "a||b", "c", "f", "r", "q", "s", "t")
+	b := ComputeSuggestionKey("m", "a", "b||c", "f", "r", "q", "s", "t")
+	if a == b {
+		t.Error("expected differently-split fields around a literal delimiter-like substring to produce different keys")
+	}
+}
+
 func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 	analysisKey := ComputeAnalysisKey("gpt-4", "adr", "code", "judgment system prompt", "judgment template")
-	suggestionKey := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "suggestion system prompt", "suggestion template")
+	suggestionKey := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "suggestion system prompt", "suggestion template")
 	if analysisKey == suggestionKey {
 		t.Error("expected analysis and suggestion keys to live in independent namespaces")
 	}
@@ -41,7 +57,7 @@ func TestCache_SuggestionRoundTrip(t *testing.T) {
 		t.Fatalf("NewCache failed: %v", err)
 	}
 
-	key := ComputeSuggestionKey("gpt-4", "adr", "code", "reasoning", "quoted", "sys", "tmpl")
+	key := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
 
 	if _, found, err := c.GetSuggestion(key); err != nil || found {
 		t.Fatalf("expected cache miss before Put, found=%v err=%v", found, err)

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -67,11 +68,14 @@ func ComputeAnalysisKey(modelName, adrContent, fileContent, systemPrompt, userPr
 
 // ComputeSuggestionKey is a separate namespace from ComputeAnalysisKey, keyed
 // on the suggestion prompt so changing it invalidates only suggestions.
-func ComputeSuggestionKey(modelName, adrContent, fileContent, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
+func ComputeSuggestionKey(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
 	h := sha256.New()
-	for _, part := range []string{modelName, adrContent, fileContent, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate} {
+	for _, part := range []string{modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate} {
+		// Length-prefixed so e.g. ("a||b","c") can't hash the same as ("a","b||c").
+		var lenBuf [8]byte
+		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(part)))
+		h.Write(lenBuf[:])
 		h.Write([]byte(part))
-		h.Write([]byte("||"))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
