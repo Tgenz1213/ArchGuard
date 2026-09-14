@@ -7,7 +7,7 @@ import "sort"
 func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
-		if c.ADR.Scope == "" || MatchGlob(c.ADR.Scope, filePath) {
+		if c.ADR.Scope.Matches(filePath) {
 			filtered = append(filtered, c)
 		}
 	}

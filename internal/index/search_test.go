@@ -7,10 +7,10 @@ import "testing"
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor B", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor C", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor B", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor C", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// "Scope Match" has lower similarity (~0.707) than the distractors
@@ -28,8 +28,8 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 func TestLocalStore_Search_ZeroCandidatesAfterScopeFilter(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "TS only", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "JS only", Scope: "**/*.js", Embedding: []float32{1, 0}},
+		{Title: "TS only", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "JS only", Scope: ScopePatterns{"**/*.js"}, Embedding: []float32{1, 0}},
 	}
 
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
@@ -64,10 +64,10 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor B", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor C", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{0, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor B", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor C", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{0, 1}},
 	}
 
 	// "Scope Match" has 0.0 similarity to the query (below the 0.5
@@ -83,8 +83,8 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilari
 func TestLocalStore_Search_ScopeMatchingADRAboveThresholdSurvives(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// "Scope Match" has ~0.707 similarity -- above a 0.5 threshold -- and
@@ -122,8 +122,8 @@ func TestLocalStore_SearchRejected_ReturnsClosestBelowThreshold(t *testing.T) {
 func TestLocalStore_SearchRejected_RespectsScopeAndTopK(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "wrong scope", Scope: "**/*.ts", Embedding: []float32{1, 1}},
-		{Title: "right scope", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "wrong scope", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 1}},
+		{Title: "right scope", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// Both score ~0.707, below a 0.9 threshold; only "right scope" matches service.go.
