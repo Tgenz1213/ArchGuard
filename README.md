@@ -165,11 +165,19 @@ Logging sensitive data is a security risk.
 Do not print passwords or secrets to console logs.
 ```
 
+`scope` can also be a YAML list of globs, matched with OR semantics (the ADR applies if *any* pattern matches):
+
+```yaml
+scope:
+  - "internal/api/**"
+  - "internal/handlers/**"
+```
+
 **Frontmatter Fields:**
 
 - `title` (Required): Human friendly title.
 - `status` (Required): Must match a value in `analysis.accepted_statuses`.
-- `scope` (Optional): Glob pattern (e.g., `src/**/*.ts`). Supports standard Go globbing and recursive `**` patterns.
+- `scope` (Optional): A glob pattern (e.g., `src/**/*.ts`) or a YAML list of glob patterns matched with OR semantics. Supports standard Go globbing and recursive `**` patterns.
 - `similarity_threshold` (Optional): Float overriding the global `vector_store.similarity_threshold` for matching against this ADR only. Falls back to the global value when unset.
 
 ### Remote Vector Databases (pgvector)

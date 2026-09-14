@@ -33,9 +33,8 @@ type FrontMatter struct {
 	SimilarityThreshold *float64      `yaml:"similarity_threshold"`
 }
 
-// ScopePatterns is one or more glob patterns an ADR's scope frontmatter can
-// hold -- either a single string or a YAML/JSON list, matched with OR
-// semantics. A nil/empty value means "unrestricted" (matches every file).
+// ScopePatterns holds one or more glob patterns from an ADR's scope
+// frontmatter, matched with OR semantics; nil/empty means unrestricted.
 type ScopePatterns []string
 
 // Matches reports whether filePath matches any pattern, or true if sp is empty.
@@ -51,9 +50,8 @@ func (sp ScopePatterns) Matches(filePath string) bool {
 	return false
 }
 
-// Serialize renders sp for TEXT-column storage: a lone pattern round-trips
-// as raw text (matching pre-existing PgStore rows), multiple patterns as a
-// JSON array string.
+// Serialize renders sp for TEXT-column storage: a lone pattern as raw text
+// (matching pre-existing PgStore rows), multiple patterns as a JSON array.
 func (sp ScopePatterns) Serialize() string {
 	switch len(sp) {
 	case 0:
@@ -107,7 +105,11 @@ func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
 		if err := node.Decode(&s); err != nil {
 			return err
 		}
-		*sp = ParseScopePatterns(s)
+		if s == "" {
+			*sp = nil
+		} else {
+			*sp = ScopePatterns{s}
+		}
 		return nil
 	case yaml.SequenceNode:
 		var list []string
