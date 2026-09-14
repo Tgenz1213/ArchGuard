@@ -520,6 +520,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
 	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
 	format := checkFlags.String("format", "text", `Output format: "text" (default) or "json"`)
+	suggestFixes := checkFlags.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
 
 	if err := checkFlags.Parse(args); err != nil {
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
@@ -623,6 +624,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	engine.BaselineReason = *baselineReason
 	engine.JSONOutput = jsonOutput
 	engine.Writer = human
+	engine.SuggestFixes = *suggestFixes
 	runErr := engine.Run(context.Background())
 
 	if *updateBaseline {

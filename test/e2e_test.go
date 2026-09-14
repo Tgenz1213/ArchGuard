@@ -273,6 +273,7 @@ type checkReport struct {
 		Line       int    `json:"line"`
 		Reasoning  string `json:"reasoning"`
 		QuotedCode string `json:"quoted_code"`
+		Suggestion string `json:"suggestion,omitempty"`
 	} `json:"violations"`
 	Count int `json:"count"`
 }
@@ -438,6 +439,109 @@ function sensitiveData() {
 		}
 		if !strings.Contains(stderr, "1 ADR check(s) were skipped due to LLM errors") {
 			t.Errorf("expected the skip-count summary on stderr (not silently dropped by --format json), got: %s", stderr)
+		}
+	})
+}
+
+// TestE2E_SuggestFixes verifies --suggest-fixes: off by default (no second
+// LLM call, no suggestion text/field), on when passed (adds the Suggestion
+// text line and the JSON suggestion field for a new violation only).
+func TestE2E_SuggestFixes(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	t.Run("off by default: no suggestion in JSON output", func(t *testing.T) {
+		stdout, _, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
+		}
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if len(report.Violations) != 1 {
+			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), stdout)
+		}
+		if report.Violations[0].Suggestion != "" {
+			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, got %q", report.Violations[0].Suggestion)
+		}
+		if strings.Contains(stdout, `"suggestion"`) {
+			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
+		}
+	})
+
+	t.Run("enabled: suggestion appears in JSON output", func(t *testing.T) {
+		args := []string{"check", "--format", "json", "--suggest-fixes", fixtureFilename}
+		cmd := exec.Command(binaryPath, args...)
+		cmd.Dir = tempDir
+		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+		var outBuf, errBuf bytes.Buffer
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
+		err := cmd.Run()
+		exitCode := 0
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				exitCode = exitError.ExitCode()
+			} else {
+				t.Fatalf("Binary failed to execute: %v", err)
+			}
+		}
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected drift exit code %d, got %d. stdout: %s stderr: %s", cli.ExitDriftDetected, exitCode, outBuf.String(), errBuf.String())
+		}
+
+		var report checkReport
+		if err := json.Unmarshal(outBuf.Bytes(), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, outBuf.String())
+		}
+		if len(report.Violations) != 1 {
+			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), outBuf.String())
+		}
+		want := "Mock suggestion: move this logic into a Go service."
+		if report.Violations[0].Suggestion != want {
+			t.Errorf("expected suggestion %q, got %q", want, report.Violations[0].Suggestion)
+		}
+	})
+
+	t.Run("off after a warm cache: no suggestion leaks from the earlier flagged run", func(t *testing.T) {
+		stdout, _, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
+		}
+		var report checkReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+		if len(report.Violations) != 1 {
+			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), stdout)
+		}
+		if report.Violations[0].Suggestion != "" {
+			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, even with a warm cache from the earlier flagged run, got %q", report.Violations[0].Suggestion)
+		}
+		if strings.Contains(stdout, `"suggestion"`) {
+			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
 		}
 	})
 }

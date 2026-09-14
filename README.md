@@ -205,6 +205,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
   - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its own text summary.
+  - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
 
 ### Automation & Exit Codes
 
@@ -228,14 +229,15 @@ This will automatically create the `archguard_adrs` table and safely scope all A
       "adr_title": "Repository Pattern for Data Access",
       "line": 42,
       "reasoning": "Handler queries the database directly instead of going through a repository.",
-      "quoted_code": "db.Query(\"SELECT * FROM users WHERE id = ?\", id)"
+      "quoted_code": "db.Query(\"SELECT * FROM users WHERE id = ?\", id)",
+      "suggestion": "Move the query into a repository method and call that from the handler instead."
     }
   ],
   "count": 1
 }
 ```
 
-`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above.
+`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 
 > **Note:** run `archguard index` before a `--format json` check. If the index needs an automatic rebuild during `check` (e.g. a stale/missing index, or an ADR provider warning), that rebuild's own progress text currently still prints to stdout ahead of the JSON document (tracked in [#163](https://github.com/Tgenz1213/ArchGuard/issues/163)). With an up-to-date index this doesn't happen.
 

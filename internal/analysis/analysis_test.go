@@ -14,6 +14,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/baseline"
+	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
@@ -1771,5 +1772,247 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 
 	if output != "" {
 		t.Fatalf("expected no output in non-debug mode for an excluded file, got: %q", output)
+	}
+}
+
+func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalls++
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	// engine.SuggestFixes left at its zero value (false) -- this is the default-off assertion.
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if chatCalls != 1 {
+		t.Errorf("expected exactly 1 chat call (no suggestion call) when SuggestFixes is off, got %d", chatCalls)
+	}
+	if strings.Contains(output, "Suggestion") {
+		t.Errorf("expected no Suggestion line in output when SuggestFixes is off, got: %s", output)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalls++
+			if strings.Contains(system, "Remediation Advisor") {
+				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
+			}
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.SuggestFixes = true
+	engine.JSONOutput = true
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if chatCalls != 2 {
+		t.Fatalf("expected 2 chat calls (violation judgment + suggestion), got %d", chatCalls)
+	}
+	wantLine := "    Suggestion (unverified): Rewrite this in Go, not Python.\n"
+	if !strings.Contains(output, wantLine) {
+		t.Errorf("expected suggestion line %q in output, got: %s", wantLine, output)
+	}
+	if len(engine.CollectedViolations) != 1 {
+		t.Fatalf("expected 1 collected violation, got %d", len(engine.CollectedViolations))
+	}
+	if got := engine.CollectedViolations[0].Suggestion; got != "Rewrite this in Go, not Python." {
+		t.Errorf("expected Violation.Suggestion to be populated, got %q", got)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) {
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalls++
+			return `{"violation": false, "reasoning": "no violation", "quoted_code": ""}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "print('ok')\n"}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.SuggestFixes = true
+
+	_ = captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if chatCalls != 1 {
+		t.Errorf("expected exactly 1 chat call when there is no violation, got %d", chatCalls)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.T) {
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalls++
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	b := baseline.New()
+	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.SuggestFixes = true
+	engine.Baseline = b
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if chatCalls != 1 {
+		t.Errorf("expected exactly 1 chat call for an already-baselined violation, got %d", chatCalls)
+	}
+	if strings.Contains(output, "Suggestion") {
+		t.Errorf("expected no Suggestion line for a baselined violation, got: %s", output)
+	}
+}
+
+func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlaggedRun(t *testing.T) {
+	c, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.NewCache failed: %v", err)
+	}
+
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(system, "Remediation Advisor") {
+				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
+			}
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	firstEngine.Cache = c
+	firstEngine.SuggestFixes = true
+
+	firstOutput := captureStdout(t, func() {
+		_ = firstEngine.Run(context.Background())
+	})
+	if !strings.Contains(firstOutput, "Suggestion") {
+		t.Fatalf("expected first (flagged) run to surface a suggestion, got: %s", firstOutput)
+	}
+
+	secondEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	secondEngine.Cache = c
+	secondEngine.SuggestFixes = false
+	secondEngine.JSONOutput = true
+
+	secondOutput := captureStdout(t, func() {
+		_ = secondEngine.Run(context.Background())
+	})
+	if strings.Contains(secondOutput, "Suggestion") {
+		t.Errorf("expected no Suggestion line when SuggestFixes is off, even with a warm cache, got: %s", secondOutput)
+	}
+	if len(secondEngine.CollectedViolations) != 1 {
+		t.Fatalf("expected 1 collected violation, got %d", len(secondEngine.CollectedViolations))
+	}
+	if got := secondEngine.CollectedViolations[0].Suggestion; got != "" {
+		t.Errorf("expected empty Violation.Suggestion when SuggestFixes is off, got %q", got)
+	}
+}
+
+func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *testing.T) {
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			chatCalls++
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "this snippet was never in the file"}`, nil
+		},
+	}
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{
+		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+	engine.SuggestFixes = true
+
+	output := captureStdout(t, func() {
+		_ = engine.Run(context.Background())
+	})
+
+	if chatCalls != 1 {
+		t.Errorf("expected exactly 1 chat call (no suggestion call) for an unverified violation, got %d", chatCalls)
+	}
+	if strings.Contains(output, "Suggestion") {
+		t.Errorf("expected no Suggestion line for an unverified violation, got: %s", output)
 	}
 }
