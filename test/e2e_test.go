@@ -485,6 +485,9 @@ analysis:
 		if report.Violations[0].Suggestion != "" {
 			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, got %q", report.Violations[0].Suggestion)
 		}
+		if strings.Contains(stdout, `"suggestion"`) {
+			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
+		}
 	})
 
 	t.Run("enabled: suggestion appears in JSON output", func(t *testing.T) {
@@ -536,6 +539,9 @@ analysis:
 		}
 		if report.Violations[0].Suggestion != "" {
 			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, even with a warm cache from the earlier flagged run, got %q", report.Violations[0].Suggestion)
+		}
+		if strings.Contains(stdout, `"suggestion"`) {
+			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
 		}
 	})
 }
