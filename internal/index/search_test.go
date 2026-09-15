@@ -1,16 +1,19 @@
 package index
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // reproduces #134: a lower-similarity scope-matching ADR must still be
 // evaluated over 3+ higher-similarity non-matching-scope ADRs.
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor B", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor C", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor B", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor C", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// "Scope Match" has lower similarity (~0.707) than the distractors
@@ -28,8 +31,8 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 func TestLocalStore_Search_ZeroCandidatesAfterScopeFilter(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "TS only", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "JS only", Scope: "**/*.js", Embedding: []float32{1, 0}},
+		{Title: "TS only", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "JS only", Scope: ScopePatterns{"**/*.js"}, Embedding: []float32{1, 0}},
 	}
 
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
@@ -64,10 +67,10 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor B", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Distractor C", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{0, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor B", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Distractor C", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{0, 1}},
 	}
 
 	// "Scope Match" has 0.0 similarity to the query (below the 0.5
@@ -83,8 +86,8 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilari
 func TestLocalStore_Search_ScopeMatchingADRAboveThresholdSurvives(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "Distractor A", Scope: "**/*.ts", Embedding: []float32{1, 0}},
-		{Title: "Scope Match", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "Distractor A", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// "Scope Match" has ~0.707 similarity -- above a 0.5 threshold -- and
@@ -122,8 +125,8 @@ func TestLocalStore_SearchRejected_ReturnsClosestBelowThreshold(t *testing.T) {
 func TestLocalStore_SearchRejected_RespectsScopeAndTopK(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
-		{Title: "wrong scope", Scope: "**/*.ts", Embedding: []float32{1, 1}},
-		{Title: "right scope", Scope: "**/*.go", Embedding: []float32{1, 1}},
+		{Title: "wrong scope", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 1}},
+		{Title: "right scope", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
 	// Both score ~0.707, below a 0.9 threshold; only "right scope" matches service.go.
@@ -134,6 +137,38 @@ func TestLocalStore_SearchRejected_RespectsScopeAndTopK(t *testing.T) {
 	}
 	if rejected[0].ADR.Title != "right scope" {
 		t.Errorf("expected the scope-matching ADR, got %q", rejected[0].ADR.Title)
+	}
+}
+
+func TestLocalStore_Search_MultiPatternScopeSurvivesSaveLoadRoundTrip(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ModelName = "test-model"
+	store.Dim = 2
+	store.Hash = "test-hash"
+	store.ADRs = []ADR{
+		{Title: "Multi Scope", Scope: ScopePatterns{"internal/api/**", "internal/handlers/**"}, Embedding: []float32{1, 1}},
+	}
+
+	path := filepath.Join(t.TempDir(), "index.json")
+	if err := store.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded := NewLocalStore(1)
+	if err := loaded.Load(path, "test-model", 2, "test-hash"); err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	results := loaded.Search([]float32{1, 0}, 0.5, 3, "internal/handlers/foo.go")
+
+	if len(results) != 1 {
+		t.Fatalf("expected exactly 1 result, got %d: %+v", len(results), results)
+	}
+	if results[0].ADR.Title != "Multi Scope" {
+		t.Errorf("expected 'Multi Scope' ADR, got %q", results[0].ADR.Title)
+	}
+	if len(results[0].ADR.Scope) != 2 || results[0].ADR.Scope[0] != "internal/api/**" || results[0].ADR.Scope[1] != "internal/handlers/**" {
+		t.Errorf("expected both scope patterns to survive save/load round-trip, got %+v", results[0].ADR.Scope)
 	}
 }
 

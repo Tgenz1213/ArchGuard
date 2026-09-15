@@ -162,10 +162,48 @@ Test Content`
 		assert.Equal(t, "Accepted", results[0].ADR.Status)
 		assert.Contains(t, results[0].ADR.Content, "Test Content")
 		assert.Equal(t, "0001", results[0].ADR.ID, "ADR ID (derived from the 0001- filename prefix) should round-trip through PgStore")
-		assert.Equal(t, "**/*.go", results[0].ADR.Scope, "ADR scope glob should round-trip through PgStore")
+		assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope, "ADR scope glob should round-trip through PgStore")
 		// Similarity score should be very high
 		assert.Greater(t, results[0].Score, 0.9)
 	}
+}
+
+func TestPgStore_Integration_MultiPatternScopeRoundTrips(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "multi_scope_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	err = store.Load("", "test-model", 2, "")
+	require.NoError(t, err)
+
+	tmpDir, err := os.MkdirTemp("", "archguard_multi_scope")
+	require.NoError(t, err)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
+
+	adrContent := "---\ntitle: \"Multi Scope ADR\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody."
+	err = os.WriteFile(filepath.Join(tmpDir, "0001-multi-scope.md"), []byte(adrContent), 0644)
+	require.NoError(t, err)
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
+	require.NoError(t, err)
+
+	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "internal/handlers/foo.go")
+	require.Len(t, results, 1)
+	assert.Equal(t, index.ScopePatterns{"internal/api/**", "internal/handlers/**"}, results[0].ADR.Scope)
+
+	noMatch := store.Search([]float32{0.1, 0.1}, 0.5, 5, "internal/other/foo.go")
+	assert.Len(t, noMatch, 0)
 }
 
 func TestPgStore_Integration_SearchRejected(t *testing.T) {
@@ -439,7 +477,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, preSyncResults, 1, "Search must still find a row with NULL adr_id/scope columns, not fail the scan")
 	assert.Equal(t, "", preSyncResults[0].ADR.ID, "NULL adr_id should degrade to empty string via COALESCE, not break the scan")
-	assert.Equal(t, "", preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
+	assert.Equal(t, index.ScopePatterns(nil), preSyncResults[0].ADR.Scope, "NULL scope should degrade to empty string via COALESCE, not break the scan")
 
 	tmpDir := t.TempDir()
 	adrContent := "---\ntitle: \"Legacy ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Content"
@@ -458,7 +496,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
 	assert.Equal(t, "0007", results[0].ADR.ID, "adr_id should be backfilled from NULL by the sync path")
-	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
+	assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
 }
 
 // TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit covers the other
@@ -489,7 +527,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
-	assert.Equal(t, "**/*.go", results[0].ADR.Scope, "initial index should embed the original scope")
+	assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope, "initial index should embed the original scope")
 
 	// Same title/status/body -- only the scope: frontmatter value changes.
 	editedContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nBody unchanged."
@@ -504,7 +542,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "app.ts")
 	require.Len(t, results, 1)
-	assert.Equal(t, "**/*.ts", results[0].ADR.Scope, "sync path must pick up the new scope value")
+	assert.Equal(t, index.ScopePatterns{"**/*.ts"}, results[0].ADR.Scope, "sync path must pick up the new scope value")
 }
 
 func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
@@ -866,7 +904,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
 	assert.Equal(t, "0009", results[0].ADR.ID)
-	assert.Equal(t, "**/*.go", results[0].ADR.Scope)
+	assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope)
 }
 
 func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {

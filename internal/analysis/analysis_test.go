@@ -1446,7 +1446,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 			ID:        "0001",
 			Title:     "Go-only rule",
 			Status:    "Accepted",
-			Scope:     "**/*.go",
+			Scope:     index.ScopePatterns{"**/*.go"},
 			Content:   "Go files must do X.",
 			Embedding: func() []float32 { v := make([]float32, 4); v[0] = 1.0; return v }(),
 		},
@@ -2089,11 +2089,14 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 		t.Fatalf("cache.NewCache failed: %v", err)
 	}
 
+	var mu sync.Mutex
 	suggestionCalls := 0
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(system, "Remediation Advisor") {
+				mu.Lock()
 				suggestionCalls++
+				mu.Unlock()
 				if strings.Contains(user, "File Path: a/service.py") {
 					return `{"suggestion": "Suggestion for a/service.py"}`, nil
 				}
@@ -2123,8 +2126,11 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	engine.SuggestFixes = true
 	output := captureStdout(t, func() { _ = engine.Run(context.Background()) })
 
-	if suggestionCalls != 2 {
-		t.Errorf("expected 2 independent suggestion calls for identical content under different paths, got %d", suggestionCalls)
+	mu.Lock()
+	calls := suggestionCalls
+	mu.Unlock()
+	if calls != 2 {
+		t.Errorf("expected 2 independent suggestion calls for identical content under different paths, got %d", calls)
 	}
 	if !strings.Contains(output, "Suggestion for a/service.py") || !strings.Contains(output, "Suggestion for b/service.py") {
 		t.Errorf("expected each file to surface its own path-specific suggestion, got: %s", output)

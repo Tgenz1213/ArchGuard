@@ -23,7 +23,7 @@ func summarizeCorpus(validADRs []ADR, stats FetchStats) IndexSummary {
 	var noScope []string
 	for _, adr := range validADRs {
 		byID[adr.ID] = append(byID[adr.ID], adr.RelPath)
-		if adr.Scope == "" {
+		if len(adr.Scope) == 0 {
 			noScope = append(noScope, adr.RelPath)
 		}
 	}

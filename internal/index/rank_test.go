@@ -2,13 +2,13 @@ package index
 
 import "testing"
 
-func adrWithScope(title, scope string) *ADR {
-	return &ADR{Title: title, Scope: scope}
+func adrWithScope(title string, scope ...string) *ADR {
+	return &ADR{Title: title, Scope: ScopePatterns(scope)}
 }
 
 func TestFilterByScope(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("no scope", ""), Score: 0.5},
+		{ADR: adrWithScope("no scope"), Score: 0.5},
 		{ADR: adrWithScope("matching scope", "**/*.go"), Score: 0.4},
 		{ADR: adrWithScope("non-matching scope", "**/*.ts"), Score: 0.9},
 	}
@@ -27,7 +27,7 @@ func TestFilterByScope(t *testing.T) {
 
 func TestFilterByScope_EmptyScopeAlwaysMatches(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("global ADR", ""), Score: 0.1},
+		{ADR: adrWithScope("global ADR"), Score: 0.1},
 	}
 
 	got := filterByScope(candidates, "anything/at/all.rb")
@@ -39,9 +39,9 @@ func TestFilterByScope_EmptyScopeAlwaysMatches(t *testing.T) {
 
 func TestRankAndLimit_SortsDescendingAndCuts(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("low", ""), Score: 0.2},
-		{ADR: adrWithScope("high", ""), Score: 0.9},
-		{ADR: adrWithScope("mid", ""), Score: 0.5},
+		{ADR: adrWithScope("low"), Score: 0.2},
+		{ADR: adrWithScope("high"), Score: 0.9},
+		{ADR: adrWithScope("mid"), Score: 0.5},
 	}
 
 	got := rankAndLimit(candidates, 2)
@@ -56,7 +56,7 @@ func TestRankAndLimit_SortsDescendingAndCuts(t *testing.T) {
 
 func TestRankAndLimit_FewerThanTopKReturnsAll(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("only", ""), Score: 0.5},
+		{ADR: adrWithScope("only"), Score: 0.5},
 	}
 
 	got := rankAndLimit(candidates, 5)
@@ -68,9 +68,9 @@ func TestRankAndLimit_FewerThanTopKReturnsAll(t *testing.T) {
 
 func TestFilterByThreshold(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("above", ""), Score: 0.8},
-		{ADR: adrWithScope("at threshold", ""), Score: 0.5},
-		{ADR: adrWithScope("below", ""), Score: 0.2},
+		{ADR: adrWithScope("above"), Score: 0.8},
+		{ADR: adrWithScope("at threshold"), Score: 0.5},
+		{ADR: adrWithScope("below"), Score: 0.2},
 	}
 
 	got := filterByThreshold(candidates, 0.5)
@@ -94,9 +94,9 @@ func TestFilterByThreshold_EmptyInput(t *testing.T) {
 
 func TestFilterBelowThreshold_IsFilterByThresholdsComplement(t *testing.T) {
 	candidates := []SearchResult{
-		{ADR: adrWithScope("above", ""), Score: 0.8},
-		{ADR: adrWithScope("at threshold", ""), Score: 0.5},
-		{ADR: adrWithScope("below", ""), Score: 0.2},
+		{ADR: adrWithScope("above"), Score: 0.8},
+		{ADR: adrWithScope("at threshold"), Score: 0.5},
+		{ADR: adrWithScope("below"), Score: 0.2},
 	}
 
 	got := filterBelowThreshold(candidates, 0.5)
@@ -134,7 +134,7 @@ func TestFilterByThreshold_PerADROverrideAppliesInsteadOfGlobal(t *testing.T) {
 	candidates := []SearchResult{
 		{ADR: &ADR{Title: "strict override excluded", SimilarityThreshold: float64Ptr(0.9)}, Score: 0.8},
 		{ADR: &ADR{Title: "lenient override included", SimilarityThreshold: float64Ptr(0.5)}, Score: 0.6},
-		{ADR: adrWithScope("no override uses global", ""), Score: 0.6},
+		{ADR: adrWithScope("no override uses global"), Score: 0.6},
 	}
 
 	got := filterByThreshold(candidates, 0.75)

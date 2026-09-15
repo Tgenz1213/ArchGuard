@@ -2,6 +2,8 @@ package index
 
 import (
 	"bytes"
+	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,10 +14,10 @@ import (
 )
 
 type ADR struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Status string `json:"status"`
-	Scope  string `json:"scope"` // Optional glob pattern from frontmatter
+	ID     string        `json:"id"`
+	Title  string        `json:"title"`
+	Status string        `json:"status"`
+	Scope  ScopePatterns `json:"scope"` // Optional glob pattern(s) from frontmatter
 	// SimilarityThreshold overrides vector_store.similarity_threshold for
 	// this ADR only; nil means "use the global value" (see EffectiveThreshold).
 	SimilarityThreshold *float64  `json:"similarity_threshold,omitempty"`
@@ -25,10 +27,127 @@ type ADR struct {
 }
 
 type FrontMatter struct {
-	Title               string   `yaml:"title"`
-	Status              string   `yaml:"status"`
-	Scope               string   `yaml:"scope"`
-	SimilarityThreshold *float64 `yaml:"similarity_threshold"`
+	Title               string        `yaml:"title"`
+	Status              string        `yaml:"status"`
+	Scope               ScopePatterns `yaml:"scope"`
+	SimilarityThreshold *float64      `yaml:"similarity_threshold"`
+}
+
+// ScopePatterns holds one or more glob patterns from an ADR's scope
+// frontmatter, matched with OR semantics; nil/empty means unrestricted.
+type ScopePatterns []string
+
+// Matches reports whether filePath matches any pattern, or true if sp is empty.
+func (sp ScopePatterns) Matches(filePath string) bool {
+	if len(sp) == 0 {
+		return true
+	}
+	for _, pattern := range sp {
+		if MatchGlob(pattern, filePath) {
+			return true
+		}
+	}
+	return false
+}
+
+// Serialize renders sp for TEXT-column storage: a lone pattern as raw text
+// (matching pre-existing PgStore rows), multiple patterns as a JSON array.
+func (sp ScopePatterns) Serialize() string {
+	switch len(sp) {
+	case 0:
+		return ""
+	case 1:
+		return sp[0]
+	default:
+		data, _ := json.Marshal([]string(sp))
+		return string(data)
+	}
+}
+
+// ParseScopePatterns is Serialize's inverse: a JSON array parses as
+// multiple patterns, anything else (including legacy raw text) as one.
+// Only a "["-prefixed value is treated as JSON -- Serialize never emits any
+// other JSON shape, so a literal pattern like "null" isn't misread as one.
+func ParseScopePatterns(s string) ScopePatterns {
+	if s == "" {
+		return nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(s), "[") {
+		var patterns []string
+		if err := json.Unmarshal([]byte(s), &patterns); err == nil {
+			return ScopePatterns(patterns)
+		}
+	}
+	return ScopePatterns{s}
+}
+
+func (sp ScopePatterns) MarshalJSON() ([]byte, error) {
+	if len(sp) <= 1 {
+		return json.Marshal(sp.Serialize())
+	}
+	return json.Marshal([]string(sp))
+}
+
+func (sp *ScopePatterns) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*sp = ParseScopePatterns(single)
+		return nil
+	}
+	var multi []string
+	if err := json.Unmarshal(data, &multi); err != nil {
+		return err
+	}
+	*sp = ScopePatterns(multi)
+	return nil
+}
+
+func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := node.Decode(&s); err != nil {
+			return err
+		}
+		if s == "" {
+			*sp = nil
+		} else {
+			*sp = ScopePatterns{s}
+		}
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := node.Decode(&list); err != nil {
+			return err
+		}
+		*sp = ScopePatterns(list)
+		return nil
+	case 0:
+		*sp = nil
+		return nil
+	default:
+		return fmt.Errorf("scope must be a string or a list of strings")
+	}
+}
+
+// Value and Scan let ScopePatterns act as a pgx/database-sql query
+// parameter and scan destination directly against a TEXT column.
+func (sp ScopePatterns) Value() (driver.Value, error) {
+	return sp.Serialize(), nil
+}
+
+func (sp *ScopePatterns) Scan(src any) error {
+	switch v := src.(type) {
+	case nil:
+		*sp = nil
+	case string:
+		*sp = ParseScopePatterns(v)
+	case []byte:
+		*sp = ParseScopePatterns(string(v))
+	default:
+		return fmt.Errorf("unsupported scan type %T for ScopePatterns", src)
+	}
+	return nil
 }
 
 func ParseADR(path string, rootDir string, idPattern *regexp.Regexp) (*ADR, error) {

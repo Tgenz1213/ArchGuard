@@ -31,6 +31,18 @@ func TestParseADRContent_SimilarityThresholdUnsetIsNil(t *testing.T) {
 	}
 }
 
+func TestParseADRContent_MultiPatternScope(t *testing.T) {
+	data := []byte("---\ntitle: \"Multi Scope\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody")
+
+	adr, err := ParseADRContent(data, "0001", "0001-multi-scope.md")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(adr.Scope) != 2 || adr.Scope[0] != "internal/api/**" || adr.Scope[1] != "internal/handlers/**" {
+		t.Fatalf("expected two scope patterns, got %+v", adr.Scope)
+	}
+}
+
 func TestParseADR_DefaultSplitBehaviorUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "0001-use-postgres.md")

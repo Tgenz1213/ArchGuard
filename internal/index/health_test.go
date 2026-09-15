@@ -22,8 +22,8 @@ func TestSummarizeCorpus_DetectsDuplicateIDs(t *testing.T) {
 
 func TestSummarizeCorpus_ReportsUnscopedADRs(t *testing.T) {
 	adrs := []ADR{
-		{ID: "0001", RelPath: "0001-a.md", Scope: "**/*.go"},
-		{ID: "0002", RelPath: "0002-b.md", Scope: ""},
+		{ID: "0001", RelPath: "0001-a.md", Scope: ScopePatterns{"**/*.go"}},
+		{ID: "0002", RelPath: "0002-b.md"},
 	}
 
 	summary := summarizeCorpus(adrs, FetchStats{Discovered: 2})
