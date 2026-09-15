@@ -571,8 +571,8 @@ analysis:
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
 
-	// Modifying the ADR after indexing forces a hash mismatch on the next check;
-	// deleting index.json wouldn't -- LocalStore.Load treats a missing file as an empty, valid store.
+	// Modifying the ADR after indexing forces a hash mismatch on the next check --
+	// deleting index.json instead is covered by TestE2E_CheckRebuildsIndexWhenIndexFileMissing.
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 	if err := os.WriteFile(adrPath, []byte(noSecretsADRContent+"\n\nUpdated.\n"), 0644); err != nil {
 		t.Fatalf("Failed to modify ADR to force a hash mismatch: %v", err)
@@ -597,6 +597,46 @@ analysis:
 	}
 	if strings.Contains(stdout, "Found") || strings.Contains(stdout, "Generating embeddings") {
 		t.Errorf("BuildIndex progress text leaked onto stdout: %s", stdout)
+	}
+}
+
+// TestE2E_CheckRebuildsIndexWhenIndexFileMissing regresses issue #174:
+// a missing index.json used to silently pass with zero ADRs loaded.
+func TestE2E_CheckRebuildsIndexWhenIndexFileMissing(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	fixturePath := filepath.Join(tempDir, fixtureFilename)
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	indexPath := filepath.Join(tempDir, ".archguard", "index.json")
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatalf("Failed to delete index.json: %v", err)
+	}
+
+	// Before the fix: this silently exited 0 with zero ADRs loaded. After the
+	// fix: the missing file triggers a rebuild, and the violation is caught.
+	runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Fatalf("expected index.json to be rebuilt on disk after check, but it's missing: %v", err)
 	}
 }
 
