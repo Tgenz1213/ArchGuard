@@ -66,13 +66,17 @@ func (sp ScopePatterns) Serialize() string {
 
 // ParseScopePatterns is Serialize's inverse: a JSON array parses as
 // multiple patterns, anything else (including legacy raw text) as one.
+// Only a "["-prefixed value is treated as JSON -- Serialize never emits any
+// other JSON shape, so a literal pattern like "null" isn't misread as one.
 func ParseScopePatterns(s string) ScopePatterns {
 	if s == "" {
 		return nil
 	}
-	var patterns []string
-	if err := json.Unmarshal([]byte(s), &patterns); err == nil {
-		return ScopePatterns(patterns)
+	if strings.HasPrefix(strings.TrimSpace(s), "[") {
+		var patterns []string
+		if err := json.Unmarshal([]byte(s), &patterns); err == nil {
+			return ScopePatterns(patterns)
+		}
 	}
 	return ScopePatterns{s}
 }

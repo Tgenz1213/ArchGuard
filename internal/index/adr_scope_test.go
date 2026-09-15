@@ -134,3 +134,15 @@ func TestScopePatterns_Parse_LegacyRawText(t *testing.T) {
 		t.Errorf("expected legacy raw-text scope to parse as a single pattern, got %+v", got)
 	}
 }
+
+func TestScopePatterns_Parse_LiteralJSONScalarIsNotMisreadAsArray(t *testing.T) {
+	// A glob literally named "null" (or any bare JSON scalar) must survive
+	// as a single pattern, not be JSON-sniffed into an empty/nil result.
+	cases := []string{"null", "true", "false", "0"}
+	for _, s := range cases {
+		got := ParseScopePatterns(s)
+		if len(got) != 1 || got[0] != s {
+			t.Errorf("ParseScopePatterns(%q): expected single literal pattern, got %+v", s, got)
+		}
+	}
+}

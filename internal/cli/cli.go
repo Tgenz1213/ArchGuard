@@ -489,7 +489,7 @@ func ensureGitignore() error {
 const adrTemplateContent = `---
 title: "[Short, Descriptive Title]"
 status: "[Accepted | Proposed | Superseded]"
-scope: "[Optional: glob pattern, e.g., **/*.go]"
+scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, matched with OR semantics]"
 ---
 
 # [ADR Title]
