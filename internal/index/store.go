@@ -126,7 +126,7 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return fmt.Errorf("index file not found: %s", path)
 		}
 		return err
 	}

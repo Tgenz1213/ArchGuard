@@ -328,3 +328,18 @@ func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
 		t.Errorf("expected progress text on the configured writer, got %q", buf.String())
 	}
 }
+
+func TestLocalStore_Load_MissingFileReturnsError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s := NewLocalStore(1)
+	missingPath := filepath.Join(tmpDir, "does-not-exist.json")
+
+	err := s.Load(missingPath, "model", 768, "somehash")
+	if err == nil {
+		t.Fatal("expected Load to return a non-nil error when the index file does not exist, got nil")
+	}
+	if len(s.ADRs) != 0 {
+		t.Fatalf("expected ADRs to remain empty on a missing-file Load, got %d", len(s.ADRs))
+	}
+}
