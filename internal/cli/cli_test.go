@@ -525,6 +525,117 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+// captureStderr redirects os.Stderr for the duration of fn and returns
+// everything written to it. Mirrors captureStdout.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close pipe writer: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("failed to read pipe: %v", err)
+	}
+	return buf.String()
+}
+
+// setupExecuteTestRepo creates a temp git repo, chdirs into it, and returns its resolved root.
+func setupExecuteTestRepo(t *testing.T) string {
+	t.Helper()
+	repoRoot := t.TempDir()
+	gitInit := exec.Command("git", "init")
+	gitInit.Dir = repoRoot
+	if out, err := gitInit.CombinedOutput(); err != nil {
+		t.Fatalf("failed to init git repo: %v\n%s", err, out)
+	}
+
+	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Fatalf("failed to resolve repo root: %v", err)
+	}
+	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
+
+	if err := os.Chdir(cleanRoot); err != nil {
+		t.Fatalf("failed to chdir into repo root: %v", err)
+	}
+	return cleanRoot
+}
+
+func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
+	origArgs := os.Args
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get original working directory: %v", err)
+	}
+	defer func() {
+		os.Args = origArgs
+		if err := os.Chdir(origWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	}()
+
+	setupExecuteTestRepo(t)
+
+	os.Args = []string{"archguard", "check"}
+
+	var stderr string
+	captureStdout(t, func() {
+		stderr = captureStderr(t, func() {
+			_, _ = Execute(ProviderFactories{})
+		})
+	})
+
+	if stderr != "" {
+		t.Errorf("expected empty stderr when .env is simply absent, got: %q", stderr)
+	}
+}
+
+func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
+	origArgs := os.Args
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get original working directory: %v", err)
+	}
+	defer func() {
+		os.Args = origArgs
+		if err := os.Chdir(origWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	}()
+
+	cleanRoot := setupExecuteTestRepo(t)
+
+	if err := os.WriteFile(filepath.Join(cleanRoot, ".env"), []byte(`KEY="unterminated`), 0644); err != nil {
+		t.Fatalf("failed to write malformed .env: %v", err)
+	}
+
+	os.Args = []string{"archguard", "check"}
+
+	var stderr string
+	captureStdout(t, func() {
+		stderr = captureStderr(t, func() {
+			_, _ = Execute(ProviderFactories{})
+		})
+	})
+
+	if !strings.Contains(stderr, "failed to load .env") {
+		t.Errorf("expected a .env parse-failure warning on stderr, got: %q", stderr)
+	}
+}
+
 func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
 	cfg := &config.Config{}
 	var exitCode ExitCode
