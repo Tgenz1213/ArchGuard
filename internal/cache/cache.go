@@ -51,33 +51,27 @@ func (c *Cache) Put(key string, res *llm.AnalysisResult) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func ComputeAnalysisKey(modelName, adrContent, fileContent, systemPrompt, userPromptTemplate string) string {
+// hashParts length-prefixes each part before hashing so e.g. ("a||b","c")
+// can't hash the same as ("a","b||c").
+func hashParts(parts ...string) string {
 	h := sha256.New()
-	h.Write([]byte(modelName))
-	h.Write([]byte("||"))
-	h.Write([]byte(adrContent))
-	h.Write([]byte("||"))
-	h.Write([]byte(fileContent))
-	h.Write([]byte("||"))
-	h.Write([]byte(systemPrompt))
-	h.Write([]byte("||"))
-	h.Write([]byte(userPromptTemplate))
-	sum := h.Sum(nil)
-	return hex.EncodeToString(sum)
-}
-
-// ComputeSuggestionKey is a separate namespace from ComputeAnalysisKey, keyed
-// on the suggestion prompt so changing it invalidates only suggestions.
-func ComputeSuggestionKey(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
-	h := sha256.New()
-	for _, part := range []string{modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate} {
-		// Length-prefixed so e.g. ("a||b","c") can't hash the same as ("a","b||c").
+	for _, part := range parts {
 		var lenBuf [8]byte
 		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(part)))
 		h.Write(lenBuf[:])
 		h.Write([]byte(part))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func ComputeAnalysisKey(modelName, adrContent, fileContent, systemPrompt, userPromptTemplate string) string {
+	return hashParts(modelName, adrContent, fileContent, systemPrompt, userPromptTemplate)
+}
+
+// ComputeSuggestionKey is a separate namespace from ComputeAnalysisKey, keyed
+// on the suggestion prompt so changing it invalidates only suggestions.
+func ComputeSuggestionKey(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
+	return hashParts(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate)
 }
 
 func (c *Cache) suggestionPath(key string) string {

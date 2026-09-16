@@ -51,6 +51,22 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 	}
 }
 
+func TestComputeAnalysisKey_StableForSameInputs(t *testing.T) {
+	a := ComputeAnalysisKey("gpt-4", "adr", "code", "sys", "tmpl")
+	b := ComputeAnalysisKey("gpt-4", "adr", "code", "sys", "tmpl")
+	if a != b {
+		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
+	}
+}
+
+func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
+	a := ComputeAnalysisKey("m", "rule-A", "||package main", "s", "t")
+	b := ComputeAnalysisKey("m", "rule-A||", "package main", "s", "t")
+	if a == b {
+		t.Error("expected differently-split adrContent/fileContent around a literal delimiter-like substring to produce different keys")
+	}
+}
+
 func TestCache_SuggestionRoundTrip(t *testing.T) {
 	c, err := NewCache(t.TempDir())
 	if err != nil {
