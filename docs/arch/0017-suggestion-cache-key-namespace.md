@@ -14,7 +14,7 @@ Folding the suggestion prompt into the shared judgment key was rejected: it woul
 
 ## Decision
 
-- Suggestions are cached under a distinct, content-addressed key computed by `cache.ComputeSuggestionKey(modelName, adrContent, fileContent, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate)` -- separate from `cache.ComputeAnalysisKey`.
+- Suggestions are cached under a distinct, content-addressed key computed by `cache.ComputeSuggestionKey(cache.SuggestionKeyInput{ModelName, ADRContent, FileContent, Filename, Reasoning, QuotedCode, SuggestionSystemPrompt, SuggestionPromptTemplate})` -- separate from `cache.ComputeAnalysisKey`. `Filename` is included because the rendered suggestion prompt embeds the file path (see #167); both functions took positional `string` args before #183 made them named struct fields to prevent transposing same-typed inputs at the call site.
 - Suggestion entries are stored via new `Cache.GetSuggestion`/`Cache.PutSuggestion` methods, under `.archguard/cache/suggestions/`, never inside the judgment `AnalysisResult` JSON file.
 - `AnalysisResult.Suggestion` is no longer written to by `Engine.Run`; suggestions flow through the separate cache only.
 - Because the key is content-addressed (not versioned), a suggestion-prompt change automatically produces a new key -- a suggestion cached under the old prompt simply becomes an unreachable cache miss under the new key, with no explicit invalidation step, version bump, or cache wipe required.

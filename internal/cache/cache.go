@@ -64,14 +64,33 @@ func hashParts(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func ComputeAnalysisKey(modelName, adrContent, fileContent, systemPrompt, userPromptTemplate string) string {
-	return hashParts(modelName, adrContent, fileContent, systemPrompt, userPromptTemplate)
+type AnalysisKeyInput struct {
+	ModelName          string
+	ADRContent         string
+	FileContent        string
+	SystemPrompt       string
+	UserPromptTemplate string
 }
 
-// ComputeSuggestionKey is a separate namespace from ComputeAnalysisKey, keyed
+func ComputeAnalysisKey(in AnalysisKeyInput) string {
+	return hashParts(in.ModelName, in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
+}
+
+// SuggestionKeyInput is a separate namespace from AnalysisKeyInput, keyed
 // on the suggestion prompt so changing it invalidates only suggestions.
-func ComputeSuggestionKey(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate string) string {
-	return hashParts(modelName, adrContent, fileContent, filename, reasoning, quotedCode, suggestionSystemPrompt, suggestionPromptTemplate)
+type SuggestionKeyInput struct {
+	ModelName                string
+	ADRContent               string
+	FileContent              string
+	Filename                 string
+	Reasoning                string
+	QuotedCode               string
+	SuggestionSystemPrompt   string
+	SuggestionPromptTemplate string
+}
+
+func ComputeSuggestionKey(in SuggestionKeyInput) string {
+	return hashParts(in.ModelName, in.ADRContent, in.FileContent, in.Filename, in.Reasoning, in.QuotedCode, in.SuggestionSystemPrompt, in.SuggestionPromptTemplate)
 }
 
 func (c *Cache) suggestionPath(key string) string {

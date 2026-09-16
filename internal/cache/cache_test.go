@@ -7,63 +7,81 @@ import (
 )
 
 func TestComputeSuggestionKey_StableForSameInputs(t *testing.T) {
-	a := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
-	b := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
+	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 	if a != b {
 		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
 	}
 }
 
 func TestComputeSuggestionKey_ChangesWithSuggestionPrompt(t *testing.T) {
-	a := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "old system prompt", "old template")
-	b := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "new system prompt", "old template")
+	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "old template"})
+	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "new system prompt", SuggestionPromptTemplate: "old template"})
 	if a == b {
 		t.Error("expected a changed suggestion system prompt to change the key")
 	}
 
-	c := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "old system prompt", "new template")
+	c := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "new template"})
 	if a == c {
 		t.Error("expected a changed suggestion prompt template to change the key")
 	}
 }
 
 func TestComputeSuggestionKey_ChangesWithFilename(t *testing.T) {
-	a := ComputeSuggestionKey("gpt-4", "adr", "code", "old/path.go", "reasoning", "quoted", "sys", "tmpl")
-	b := ComputeSuggestionKey("gpt-4", "adr", "code", "new/path.go", "reasoning", "quoted", "sys", "tmpl")
+	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "old/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "new/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 	if a == b {
 		t.Error("expected identical content under a different file path to change the key, since the rendered suggestion prompt includes the file path")
 	}
 }
 
 func TestComputeSuggestionKey_NoAmbiguousFieldBoundaries(t *testing.T) {
-	a := ComputeSuggestionKey("m", "a||b", "c", "f", "r", "q", "s", "t")
-	b := ComputeSuggestionKey("m", "a", "b||c", "f", "r", "q", "s", "t")
+	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a||b", FileContent: "c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
+	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a", FileContent: "b||c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
 	if a == b {
 		t.Error("expected differently-split fields around a literal delimiter-like substring to produce different keys")
 	}
 }
 
 func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
-	analysisKey := ComputeAnalysisKey("gpt-4", "adr", "code", "judgment system prompt", "judgment template")
-	suggestionKey := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "suggestion system prompt", "suggestion template")
+	analysisKey := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "judgment system prompt", UserPromptTemplate: "judgment template"})
+	suggestionKey := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "suggestion system prompt", SuggestionPromptTemplate: "suggestion template"})
 	if analysisKey == suggestionKey {
 		t.Error("expected analysis and suggestion keys to live in independent namespaces")
 	}
 }
 
+// Fixed digests computed from the pre-#183 positional-argument implementation,
+// pinning field order so a future field reorder can't slip past self-consistency checks alone.
+func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
+	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	want := "3bbf79ea1021fe4efcbefa734d4fc80131eab86457b8b19af4560f798408b413"
+	if got != want {
+		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+	}
+}
+
 func TestComputeAnalysisKey_StableForSameInputs(t *testing.T) {
-	a := ComputeAnalysisKey("gpt-4", "adr", "code", "sys", "tmpl")
-	b := ComputeAnalysisKey("gpt-4", "adr", "code", "sys", "tmpl")
+	a := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 	if a != b {
 		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
 	}
 }
 
 func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
-	a := ComputeAnalysisKey("m", "rule-A", "||package main", "s", "t")
-	b := ComputeAnalysisKey("m", "rule-A||", "package main", "s", "t")
+	a := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A", FileContent: "||package main", SystemPrompt: "s", UserPromptTemplate: "t"})
+	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A||", FileContent: "package main", SystemPrompt: "s", UserPromptTemplate: "t"})
 	if a == b {
 		t.Error("expected differently-split adrContent/fileContent around a literal delimiter-like substring to produce different keys")
+	}
+}
+
+func TestComputeAnalysisKey_MatchesPreRefactorDigest(t *testing.T) {
+	got := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+	want := "4cb31f140f7789067d939c2ec91ce1a41028c3bdc51df3c9b8466c30c0a62ab3"
+	if got != want {
+		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
 	}
 }
 
@@ -73,7 +91,7 @@ func TestCache_AnalysisRoundTrip(t *testing.T) {
 		t.Fatalf("NewCache failed: %v", err)
 	}
 
-	key := ComputeAnalysisKey("gpt-4", "adr", "code", "sys", "tmpl")
+	key := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 
 	if _, found, err := c.Get(key); err != nil || found {
 		t.Fatalf("expected cache miss before Put, found=%v err=%v", found, err)
@@ -99,7 +117,7 @@ func TestCache_SuggestionRoundTrip(t *testing.T) {
 		t.Fatalf("NewCache failed: %v", err)
 	}
 
-	key := ComputeSuggestionKey("gpt-4", "adr", "code", "file.go", "reasoning", "quoted", "sys", "tmpl")
+	key := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
 	if _, found, err := c.GetSuggestion(key); err != nil || found {
 		t.Fatalf("expected cache miss before Put, found=%v err=%v", found, err)

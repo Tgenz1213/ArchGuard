@@ -282,7 +282,13 @@ func (e *Engine) Run(ctx context.Context) error {
 					systemPrompt = llm.DefaultSystemPrompt
 				}
 
-				cacheKey := cache.ComputeAnalysisKey(e.Config.LLM.Model, hit.ADR.Content, content, systemPrompt, llm.ChatPrompt)
+				cacheKey := cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
+					ModelName:          e.Config.LLM.Model,
+					ADRContent:         hit.ADR.Content,
+					FileContent:        content,
+					SystemPrompt:       systemPrompt,
+					UserPromptTemplate: llm.ChatPrompt,
+				})
 
 				var res *llm.AnalysisResult
 				if e.Cache != nil {
@@ -359,7 +365,16 @@ func (e *Engine) Run(ctx context.Context) error {
 					default:
 						var suggestion string
 						if e.SuggestFixes && verified {
-							suggestionKey := cache.ComputeSuggestionKey(e.Config.LLM.Model, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode, llm.SuggestionSystemPrompt, llm.SuggestionPrompt)
+							suggestionKey := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
+								ModelName:                e.Config.LLM.Model,
+								ADRContent:               hit.ADR.Content,
+								FileContent:              content,
+								Filename:                 file,
+								Reasoning:                res.Reasoning,
+								QuotedCode:               res.QuotedCode,
+								SuggestionSystemPrompt:   llm.SuggestionSystemPrompt,
+								SuggestionPromptTemplate: llm.SuggestionPrompt,
+							})
 							if e.Cache != nil {
 								if cached, found, err := e.Cache.GetSuggestion(suggestionKey); err == nil && found {
 									suggestion = cached
