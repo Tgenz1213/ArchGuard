@@ -1990,8 +1990,15 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 
 	// Seeds a suggestion under a key computed with different prompt text,
 	// simulating a suggestion cached before a suggestion-prompt edit.
-	staleKey := cache.ComputeSuggestionKey("", "All services must be Go.", "import python_library\n", "service.py",
-		"Python is not allowed.", "import python_library", "an old suggestion system prompt", "an old suggestion template")
+	staleKey := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
+		ADRContent:               "All services must be Go.",
+		FileContent:              "import python_library\n",
+		Filename:                 "service.py",
+		Reasoning:                "Python is not allowed.",
+		QuotedCode:               "import python_library",
+		SuggestionSystemPrompt:   "an old suggestion system prompt",
+		SuggestionPromptTemplate: "an old suggestion template",
+	})
 	if err := c.PutSuggestion(staleKey, "OLD STALE SUGGESTION"); err != nil {
 		t.Fatalf("PutSuggestion failed: %v", err)
 	}
