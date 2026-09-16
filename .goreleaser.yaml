@@ -3,6 +3,8 @@ project_name: archguard
 builds:
   - env:
       - CGO_ENABLED=0
+    ldflags:
+      - -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
     goos:
       - linux
       - windows
