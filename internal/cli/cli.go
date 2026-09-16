@@ -53,6 +53,16 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		return ExitSuccess, nil
 	}
 
+	if subcommand, ok := subcommandHelpRequest(os.Args); ok {
+		switch subcommand {
+		case "check":
+			printCheckUsage(os.Stdout, newCheckFlagSet())
+		case "index":
+			printIndexUsage(os.Stdout, newIndexFlagSet())
+		}
+		return ExitSuccess, nil
+	}
+
 	// --format json must be the only thing on stdout, computed once here
 	// (before checkFlags.Parse runs inside runCheck) since it also gates the
 	// startup banner and buildProvider's missing-API-key warnings below,
@@ -518,14 +528,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
-	staged := checkFlags.Bool("staged", false, "Scan staged files only")
-	all := checkFlags.Bool("all", false, "Scan all tracked files")
-	debug := checkFlags.Bool("debug", false, "Enable debug logging")
-	ci := checkFlags.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
-	updateBaseline := checkFlags.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
-	baselineReason := checkFlags.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
-	format := checkFlags.String("format", "text", `Output format: "text" (default) or "json"`)
-	suggestFixes := checkFlags.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
+	staged, all, debug, ci, updateBaseline, baselineReason, format, suggestFixes := registerCheckFlags(checkFlags)
 
 	if err := checkFlags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -674,6 +677,33 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	return ExitSuccess, nil
 }
 
+// registerCheckFlags registers check's flags on fs, the single source of
+// truth both runCheck and the --help-only path (newCheckFlagSet) build from.
+func registerCheckFlags(fs *flag.FlagSet) (staged, all, debug, ci, updateBaseline *bool, baselineReason, format *string, suggestFixes *bool) {
+	staged = fs.Bool("staged", false, "Scan staged files only")
+	all = fs.Bool("all", false, "Scan all tracked files")
+	debug = fs.Bool("debug", false, "Enable debug logging")
+	ci = fs.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
+	updateBaseline = fs.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
+	baselineReason = fs.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
+	format = fs.String("format", "text", `Output format: "text" (default) or "json"`)
+	suggestFixes = fs.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
+	return
+}
+
+// newCheckFlagSet builds a check FlagSet for usage printing only (e.g. the
+// early --help path in Execute); its flags are identical to runCheck's.
+func newCheckFlagSet() *flag.FlagSet {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	registerCheckFlags(fs)
+	return fs
+}
+
+// newIndexFlagSet builds an index FlagSet; index has no flags of its own yet.
+func newIndexFlagSet() *flag.FlagSet {
+	return flag.NewFlagSet("index", flag.ContinueOnError)
+}
+
 // checkReport is the --format json document shape for `archguard check`.
 type checkReport struct {
 	Violations []analysis.Violation `json:"violations"`
@@ -731,7 +761,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 // Separate from runIndex so runCheck's internal auto-rebuild call to
 // runIndex never goes through CLI-arg/help parsing.
 func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
-	indexFlags := flag.NewFlagSet("index", flag.ContinueOnError)
+	indexFlags := newIndexFlagSet()
 	var flagParseOutput bytes.Buffer
 	indexFlags.SetOutput(&flagParseOutput)
 
@@ -868,9 +898,28 @@ func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
 	})
 }
 
-// isTopLevelHelpRequest reports whether args asks for top-level help
-// (archguard --help / -h / help) as opposed to a subcommand's own --help
-// (e.g. archguard check --help), which flag.FlagSet handles instead.
+// Subcommand help (archguard check --help) is flag.FlagSet's job, not this.
 func isTopLevelHelpRequest(args []string) bool {
 	return len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
+}
+
+// subcommandHelpRequest reports whether args asks for check/index's own
+// --help/-h, so Execute can print usage before repo/config setup runs.
+func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
+	if len(args) < 2 {
+		return "", false
+	}
+	subcommand = args[1]
+	if subcommand != "check" && subcommand != "index" {
+		return "", false
+	}
+	for _, a := range args[2:] {
+		if a == "-h" || a == "--help" {
+			return subcommand, true
+		}
+		if !strings.HasPrefix(a, "-") {
+			break // flag.Package stops parsing flags at the first positional arg
+		}
+	}
+	return "", false
 }

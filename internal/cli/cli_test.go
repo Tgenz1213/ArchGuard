@@ -567,6 +567,34 @@ func TestIsTopLevelHelpRequest(t *testing.T) {
 	}
 }
 
+func TestSubcommandHelpRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantSubcmd string
+		wantOK     bool
+	}{
+		{name: "check --help", args: []string{"archguard", "check", "--help"}, wantSubcmd: "check", wantOK: true},
+		{name: "check -h", args: []string{"archguard", "check", "-h"}, wantSubcmd: "check", wantOK: true},
+		{name: "index --help", args: []string{"archguard", "index", "--help"}, wantSubcmd: "index", wantOK: true},
+		{name: "index -h", args: []string{"archguard", "index", "-h"}, wantSubcmd: "index", wantOK: true},
+		{name: "check --help after other flags", args: []string{"archguard", "check", "--debug", "--help"}, wantSubcmd: "check", wantOK: true},
+		{name: "check with no help", args: []string{"archguard", "check", "--debug"}, wantSubcmd: "", wantOK: false},
+		{name: "help stops at first positional arg", args: []string{"archguard", "check", "foo.go", "--help"}, wantSubcmd: "", wantOK: false},
+		{name: "init is not a help-eligible subcommand", args: []string{"archguard", "init", "--help"}, wantSubcmd: "", wantOK: false},
+		{name: "no args", args: []string{"archguard"}, wantSubcmd: "", wantOK: false},
+		{name: "top-level help is not subcommand help", args: []string{"archguard", "--help"}, wantSubcmd: "", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotSubcmd, gotOK := subcommandHelpRequest(tt.args)
+			if gotSubcmd != tt.wantSubcmd || gotOK != tt.wantOK {
+				t.Errorf("subcommandHelpRequest(%v) = (%q, %v), want (%q, %v)", tt.args, gotSubcmd, gotOK, tt.wantSubcmd, tt.wantOK)
+			}
+		})
+	}
+}
+
 // TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
 // Execute's call site, not just the extracted function, to running unconditionally.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
