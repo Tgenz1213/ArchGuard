@@ -8,11 +8,7 @@ import (
 	"testing"
 )
 
-// initTestRepo creates a temp git repo, chdirs the test into it (restoring
-// the original working directory on cleanup), and forces core.quotepath=true
-// -- git's actual out-of-the-box default -- so the fix is verified against
-// real default behavior rather than an environment where it might already
-// be disabled.
+// quotepath=true is git's real default; the fix must work against it, not an environment where it's off.
 func initTestRepo(t *testing.T) string {
 	t.Helper()
 
