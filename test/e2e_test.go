@@ -1595,10 +1595,7 @@ function sensitiveData() {
 	}
 }
 
-// TestE2E_ScanNonASCIIFilename regresses issue #186: git's default
-// core.quotepath C-quotes non-ASCII filenames in `ls-files`/`diff
-// --name-only` output, which used to flow straight through as a garbled,
-// unresolvable "path" and silently drop the file from every scan mode.
+// TestE2E_ScanNonASCIIFilename regresses issue #186's silent file drop under git's default core.quotepath.
 func TestE2E_ScanNonASCIIFilename(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
