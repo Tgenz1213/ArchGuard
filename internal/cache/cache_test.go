@@ -51,6 +51,16 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 	}
 }
 
+// Fixed digests computed from the pre-#183 positional-argument implementation,
+// pinning field order so a future field reorder can't slip past self-consistency checks alone.
+func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
+	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	want := "3bbf79ea1021fe4efcbefa734d4fc80131eab86457b8b19af4560f798408b413"
+	if got != want {
+		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+	}
+}
+
 func TestComputeAnalysisKey_StableForSameInputs(t *testing.T) {
 	a := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
@@ -64,6 +74,14 @@ func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
 	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A||", FileContent: "package main", SystemPrompt: "s", UserPromptTemplate: "t"})
 	if a == b {
 		t.Error("expected differently-split adrContent/fileContent around a literal delimiter-like substring to produce different keys")
+	}
+}
+
+func TestComputeAnalysisKey_MatchesPreRefactorDigest(t *testing.T) {
+	got := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+	want := "4cb31f140f7789067d939c2ec91ce1a41028c3bdc51df3c9b8466c30c0a62ab3"
+	if got != want {
+		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
 	}
 }
 
