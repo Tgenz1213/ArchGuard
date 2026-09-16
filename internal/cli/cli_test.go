@@ -597,8 +597,8 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 		})
 	})
 
-	if strings.Contains(stderr, ".env") {
-		t.Errorf("expected no .env warning on stderr when .env is simply absent, got: %q", stderr)
+	if stderr != "" {
+		t.Errorf("expected empty stderr when .env is simply absent, got: %q", stderr)
 	}
 }
 
