@@ -48,6 +48,11 @@ type ProviderFactories struct {
 
 // Execute parses arguments and runs the requested command.
 func Execute(factories ProviderFactories) (ExitCode, error) {
+	if isTopLevelHelpRequest(os.Args) {
+		printUsage()
+		return ExitSuccess, nil
+	}
+
 	// --format json must be the only thing on stdout, computed once here
 	// (before checkFlags.Parse runs inside runCheck) since it also gates the
 	// startup banner and buildProvider's missing-API-key warnings below,
@@ -811,4 +816,11 @@ func printUsage() {
 	fmt.Println("  index    Rebuild the ADR index")
 	fmt.Println("\nGlobal Flags:")
 	fmt.Println("  -v, --version  Print version information")
+}
+
+// isTopLevelHelpRequest reports whether args asks for top-level help
+// (archguard --help / -h / help) as opposed to a subcommand's own --help
+// (e.g. archguard check --help), which flag.FlagSet handles instead.
+func isTopLevelHelpRequest(args []string) bool {
+	return len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
 }

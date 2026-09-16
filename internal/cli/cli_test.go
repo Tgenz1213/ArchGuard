@@ -524,6 +524,29 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+func TestIsTopLevelHelpRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "--help", args: []string{"archguard", "--help"}, want: true},
+		{name: "-h", args: []string{"archguard", "-h"}, want: true},
+		{name: "help", args: []string{"archguard", "help"}, want: true},
+		{name: "no args", args: []string{"archguard"}, want: false},
+		{name: "check subcommand", args: []string{"archguard", "check"}, want: false},
+		{name: "check --help is not top-level help", args: []string{"archguard", "check", "--help"}, want: false},
+		{name: "unknown command", args: []string{"archguard", "typo"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTopLevelHelpRequest(tt.args); got != tt.want {
+				t.Errorf("isTopLevelHelpRequest(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
 // Execute's call site, not just the extracted function, to running unconditionally.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
@@ -585,5 +608,30 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 
 	if os.Args[2] != "file.go" {
 		t.Errorf("expected the uncleaned positional path to be normalized to %q by Execute itself even though cwd == repoRoot, got %q", "file.go", os.Args[2])
+	}
+}
+
+func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+
+	for _, help := range []string{"--help", "-h", "help"} {
+		t.Run(help, func(t *testing.T) {
+			os.Args = []string{"archguard", help}
+			var exitCode ExitCode
+			var err error
+			output := captureStdout(t, func() {
+				exitCode, err = Execute(ProviderFactories{})
+			})
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if exitCode != ExitSuccess {
+				t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+			}
+			if !strings.Contains(output, "Usage: archguard") {
+				t.Fatalf("expected usage output, got %q", output)
+			}
+		})
 	}
 }
