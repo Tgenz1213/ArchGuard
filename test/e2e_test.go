@@ -194,6 +194,42 @@ analysis:
 		}
 	})
 
+	t.Run("Help flags exit success at every level", func(t *testing.T) {
+		cases := [][]string{
+			{"--help"},
+			{"-h"},
+			{"help"},
+			{"check", "--help"},
+			{"check", "-h"},
+			{"index", "--help"},
+			{"index", "-h"},
+		}
+		for _, args := range cases {
+			args := args
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				cmd := exec.Command(binaryPath, args...)
+				cmd.Dir = tempDir
+				cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+				out, err := cmd.CombinedOutput()
+				exitCode := 0
+				if err != nil {
+					if exitError, ok := err.(*exec.ExitError); ok {
+						exitCode = exitError.ExitCode()
+					} else {
+						t.Fatalf("Binary failed to execute: %v", err)
+					}
+				}
+				if exitCode != int(cli.ExitSuccess) {
+					t.Fatalf("expected success exit code %d for %v, got %d (output: %s)", cli.ExitSuccess, args, exitCode, out)
+				}
+				if !strings.Contains(string(out), "Usage") {
+					t.Fatalf("expected usage text in output for %v, got %q", args, out)
+				}
+			})
+		}
+	})
+
 	t.Run("Check command invalid flag returns usage exit code", func(t *testing.T) {
 		cmd := exec.Command(binaryPath, "check", "--not-a-real-flag")
 		cmd.Dir = tempDir
