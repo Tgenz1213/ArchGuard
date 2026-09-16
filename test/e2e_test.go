@@ -194,6 +194,42 @@ analysis:
 		}
 	})
 
+	t.Run("Help flags exit success at every level", func(t *testing.T) {
+		cases := [][]string{
+			{"--help"},
+			{"-h"},
+			{"help"},
+			{"check", "--help"},
+			{"check", "-h"},
+			{"index", "--help"},
+			{"index", "-h"},
+		}
+		for _, args := range cases {
+			args := args
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				cmd := exec.Command(binaryPath, args...)
+				cmd.Dir = tempDir
+				cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+
+				out, err := cmd.CombinedOutput()
+				exitCode := 0
+				if err != nil {
+					if exitError, ok := err.(*exec.ExitError); ok {
+						exitCode = exitError.ExitCode()
+					} else {
+						t.Fatalf("Binary failed to execute: %v", err)
+					}
+				}
+				if exitCode != int(cli.ExitSuccess) {
+					t.Fatalf("expected success exit code %d for %v, got %d (output: %s)", cli.ExitSuccess, args, exitCode, out)
+				}
+				if !strings.Contains(string(out), "Usage") {
+					t.Fatalf("expected usage text in output for %v, got %q", args, out)
+				}
+			})
+		}
+	})
+
 	t.Run("Check command invalid flag returns usage exit code", func(t *testing.T) {
 		cmd := exec.Command(binaryPath, "check", "--not-a-real-flag")
 		cmd.Dir = tempDir
@@ -262,6 +298,50 @@ analysis:
 		}
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
 	})
+}
+
+// TestE2E_SubcommandHelpWorksWithoutConfig verifies check/index --help exit
+// success even with no archguard.yaml, ADRs, or API key -- unlike
+// TestE2E_ScanJS's "Help flags" subtest, this fixture is never configured.
+func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd.Dir = tempDir
+	if out, err := gitInitCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
+	}
+	binaryPath := buildSharedE2EBinary(t)
+
+	cases := [][]string{
+		{"check", "--help"},
+		{"check", "-h"},
+		{"index", "--help"},
+		{"index", "-h"},
+	}
+	for _, args := range cases {
+		args := args
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			cmd := exec.Command(binaryPath, args...)
+			cmd.Dir = tempDir
+			cmd.Env = os.Environ()
+
+			out, err := cmd.CombinedOutput()
+			exitCode := 0
+			if err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					exitCode = exitError.ExitCode()
+				} else {
+					t.Fatalf("Binary failed to execute: %v", err)
+				}
+			}
+			if exitCode != int(cli.ExitSuccess) {
+				t.Fatalf("expected success exit code %d for %v, got %d (output: %s)", cli.ExitSuccess, args, exitCode, out)
+			}
+			if !strings.Contains(string(out), "Usage") {
+				t.Fatalf("expected usage text in output for %v, got %q", args, out)
+			}
+		})
+	}
 }
 
 // checkReport mirrors internal/cli's --format json document shape.
