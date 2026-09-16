@@ -158,7 +158,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	if command == "check" {
 		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, os.Args[2:])
 	}
-	return runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, os.Stdout)
+	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, os.Args[2:])
 }
 
 // compileADRIDPattern compiles once at startup so a bad regex fails fast
@@ -726,6 +726,44 @@ func exitCodeForAnalysisError(err error) ExitCode {
 		return ExitDriftDetected
 	}
 	return ExitError
+}
+
+// runIndexCommand parses index's own CLI args (currently only -h/--help)
+// before delegating to runIndex, kept separate so runCheck's internal
+// auto-rebuild call to runIndex never goes through CLI-arg/help parsing.
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
+	indexFlags := flag.NewFlagSet("index", flag.ContinueOnError)
+	var flagParseOutput bytes.Buffer
+	indexFlags.SetOutput(&flagParseOutput)
+
+	if err := indexFlags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printIndexUsage(os.Stdout, indexFlags)
+			return ExitSuccess, nil
+		}
+		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
+			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
+		}
+		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
+	}
+
+	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, os.Stdout)
+}
+
+// printIndexUsage mirrors printCheckUsage; index has no flags of its own yet,
+// so the Flags section only prints once one is added.
+func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
+	fmt.Fprintln(w, "Usage: archguard index")
+	fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
+	hasFlags := false
+	fs.VisitAll(func(*flag.Flag) { hasFlags = true })
+	if !hasFlags {
+		return
+	}
+	fmt.Fprintln(w, "\nFlags:")
+	fs.VisitAll(func(f *flag.Flag) {
+		fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
+	})
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.

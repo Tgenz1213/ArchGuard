@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -522,6 +523,25 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
 	return buf.String()
+}
+
+func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
+	cfg := &config.Config{}
+	var exitCode ExitCode
+	var runErr error
+	output := captureStdout(t, func() {
+		exitCode, runErr = runIndexCommand(context.Background(), cfg, nil, "", nil, []string{"--help"})
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error, got %v", runErr)
+	}
+	if exitCode != ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+	}
+	if !strings.Contains(output, "Usage: archguard index") {
+		t.Fatalf("expected index usage output, got %q", output)
+	}
 }
 
 func TestIsTopLevelHelpRequest(t *testing.T) {
