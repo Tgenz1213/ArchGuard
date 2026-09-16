@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -635,6 +636,77 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	}
 }
 
+func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
+	cfg := &config.Config{}
+	var exitCode ExitCode
+	var runErr error
+	output := captureStdout(t, func() {
+		exitCode, runErr = runIndexCommand(context.Background(), cfg, nil, "", nil, []string{"--help"})
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error, got %v", runErr)
+	}
+	if exitCode != ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+	}
+	if !strings.Contains(output, "Usage: archguard index") {
+		t.Fatalf("expected index usage output, got %q", output)
+	}
+}
+
+func TestIsTopLevelHelpRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "--help", args: []string{"archguard", "--help"}, want: true},
+		{name: "-h", args: []string{"archguard", "-h"}, want: true},
+		{name: "help", args: []string{"archguard", "help"}, want: true},
+		{name: "no args", args: []string{"archguard"}, want: false},
+		{name: "check subcommand", args: []string{"archguard", "check"}, want: false},
+		{name: "check --help is not top-level help", args: []string{"archguard", "check", "--help"}, want: false},
+		{name: "unknown command", args: []string{"archguard", "typo"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTopLevelHelpRequest(tt.args); got != tt.want {
+				t.Errorf("isTopLevelHelpRequest(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubcommandHelpRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantSubcmd string
+		wantOK     bool
+	}{
+		{name: "check --help", args: []string{"archguard", "check", "--help"}, wantSubcmd: "check", wantOK: true},
+		{name: "check -h", args: []string{"archguard", "check", "-h"}, wantSubcmd: "check", wantOK: true},
+		{name: "index --help", args: []string{"archguard", "index", "--help"}, wantSubcmd: "index", wantOK: true},
+		{name: "index -h", args: []string{"archguard", "index", "-h"}, wantSubcmd: "index", wantOK: true},
+		{name: "check --help after other flags", args: []string{"archguard", "check", "--debug", "--help"}, wantSubcmd: "check", wantOK: true},
+		{name: "check with no help", args: []string{"archguard", "check", "--debug"}, wantSubcmd: "", wantOK: false},
+		{name: "help stops at first positional arg", args: []string{"archguard", "check", "foo.go", "--help"}, wantSubcmd: "", wantOK: false},
+		{name: "help detected after a value-taking flag", args: []string{"archguard", "check", "--format", "json", "--help"}, wantSubcmd: "check", wantOK: true},
+		{name: "init is not a help-eligible subcommand", args: []string{"archguard", "init", "--help"}, wantSubcmd: "", wantOK: false},
+		{name: "no args", args: []string{"archguard"}, wantSubcmd: "", wantOK: false},
+		{name: "top-level help is not subcommand help", args: []string{"archguard", "--help"}, wantSubcmd: "", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotSubcmd, gotOK := subcommandHelpRequest(tt.args)
+			if gotSubcmd != tt.wantSubcmd || gotOK != tt.wantOK {
+				t.Errorf("subcommandHelpRequest(%v) = (%q, %v), want (%q, %v)", tt.args, gotSubcmd, gotOK, tt.wantSubcmd, tt.wantOK)
+			}
+		})
+	}
+}
+
 // TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
 // Execute's call site, not just the extracted function, to running unconditionally.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
@@ -696,5 +768,66 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 
 	if os.Args[2] != "file.go" {
 		t.Errorf("expected the uncleaned positional path to be normalized to %q by Execute itself even though cwd == repoRoot, got %q", "file.go", os.Args[2])
+	}
+}
+
+func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+
+	for _, help := range []string{"--help", "-h", "help"} {
+		t.Run(help, func(t *testing.T) {
+			os.Args = []string{"archguard", help}
+			var exitCode ExitCode
+			var err error
+			output := captureStdout(t, func() {
+				exitCode, err = Execute(ProviderFactories{})
+			})
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if exitCode != ExitSuccess {
+				t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+			}
+			if !strings.Contains(output, "Usage: archguard") {
+				t.Fatalf("expected usage output, got %q", output)
+			}
+		})
+	}
+}
+
+func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
+	tempDir := t.TempDir()
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("failed to chdir to temp dir: %v", err)
+	}
+
+	cfg := &config.Config{}
+	var exitCode ExitCode
+	var runErr error
+	output := captureStdout(t, func() {
+		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, []string{"--help"})
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error, got %v", runErr)
+	}
+	if exitCode != ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+	}
+	if !strings.Contains(output, "--staged") || !strings.Contains(output, "Scan staged files only") {
+		t.Fatalf("expected flag descriptions in help output, got %q", output)
+	}
+	if strings.Contains(output, "Usage of check:") {
+		t.Fatalf("expected custom usage, not Go's default flag.PrintDefaults() output; got %q", output)
 	}
 }
