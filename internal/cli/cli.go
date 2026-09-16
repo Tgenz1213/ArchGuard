@@ -528,6 +528,10 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	suggestFixes := checkFlags.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
 
 	if err := checkFlags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printCheckUsage(os.Stdout, checkFlags)
+			return ExitSuccess, nil
+		}
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
 			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
 		}
@@ -816,6 +820,15 @@ func printUsage() {
 	fmt.Println("  index    Rebuild the ADR index")
 	fmt.Println("\nGlobal Flags:")
 	fmt.Println("  -v, --version  Print version information")
+}
+
+func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
+	fmt.Fprintln(w, "Usage: archguard check [flags] [path...]")
+	fmt.Fprintln(w, "\nScans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.")
+	fmt.Fprintln(w, "\nFlags:")
+	fs.VisitAll(func(f *flag.Flag) {
+		fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
+	})
 }
 
 // isTopLevelHelpRequest reports whether args asks for top-level help

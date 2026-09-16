@@ -635,3 +635,39 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
+	tempDir := t.TempDir()
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("failed to chdir to temp dir: %v", err)
+	}
+
+	cfg := &config.Config{}
+	var exitCode ExitCode
+	var runErr error
+	output := captureStdout(t, func() {
+		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, []string{"--help"})
+	})
+
+	if runErr != nil {
+		t.Fatalf("expected no error, got %v", runErr)
+	}
+	if exitCode != ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+	}
+	if !strings.Contains(output, "--staged") || !strings.Contains(output, "Scan staged files only") {
+		t.Fatalf("expected flag descriptions in help output, got %q", output)
+	}
+	if strings.Contains(output, "Usage of check:") {
+		t.Fatalf("expected custom usage, not Go's default flag.PrintDefaults() output; got %q", output)
+	}
+}
