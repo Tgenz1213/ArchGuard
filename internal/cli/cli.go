@@ -74,7 +74,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		}
 	}
 
-	if err := godotenv.Load(); err != nil {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
 	}
 
