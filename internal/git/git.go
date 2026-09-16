@@ -61,16 +61,14 @@ func GetRepoRoot() (string, error) {
 }
 
 func runGitLines(args ...string) ([]string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append(args, "-z")...)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git command failed %v: %w", args, err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var result []string
-	for _, l := range lines {
-		l = strings.TrimSpace(l)
+	for _, l := range strings.Split(string(out), "\x00") {
 		if l != "" {
 			result = append(result, l)
 		}

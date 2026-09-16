@@ -1595,6 +1595,38 @@ function sensitiveData() {
 	}
 }
 
+// TestE2E_ScanNonASCIIFilename regresses issue #186's silent file drop under git's default core.quotepath.
+func TestE2E_ScanNonASCIIFilename(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	const nonASCIIFilename = "café_日本語.js"
+	fixturePath := filepath.Join(tempDir, nonASCIIFilename)
+	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	gitAdd(t, tempDir, nonASCIIFilename)
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	// "." triggers AllProvider, which lists files via `git ls-files` --
+	// exactly the code path issue #186 fixed.
+	runCheck(t, tempDir, binaryPath, ".", int(cli.ExitDriftDetected))
+}
+
 // runIndexOnce executes `archguard index` once and returns its output
 // alongside the exit code actually observed.
 func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {
