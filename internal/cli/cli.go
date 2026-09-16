@@ -728,9 +728,8 @@ func exitCodeForAnalysisError(err error) ExitCode {
 	return ExitError
 }
 
-// runIndexCommand parses index's own CLI args (currently only -h/--help)
-// before delegating to runIndex, kept separate so runCheck's internal
-// auto-rebuild call to runIndex never goes through CLI-arg/help parsing.
+// Separate from runIndex so runCheck's internal auto-rebuild call to
+// runIndex never goes through CLI-arg/help parsing.
 func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
 	indexFlags := flag.NewFlagSet("index", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
