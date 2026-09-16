@@ -782,16 +782,16 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 // printIndexUsage mirrors printCheckUsage; index has no flags of its own yet,
 // so the Flags section only prints once one is added.
 func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprintln(w, "Usage: archguard index")
-	fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
+	_, _ = fmt.Fprintln(w, "Usage: archguard index")
+	_, _ = fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
 	hasFlags := false
 	fs.VisitAll(func(*flag.Flag) { hasFlags = true })
 	if !hasFlags {
 		return
 	}
-	fmt.Fprintln(w, "\nFlags:")
+	_, _ = fmt.Fprintln(w, "\nFlags:")
 	fs.VisitAll(func(f *flag.Flag) {
-		fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
+		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
 	})
 }
 
@@ -890,11 +890,11 @@ func printUsage() {
 }
 
 func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprintln(w, "Usage: archguard check [flags] [path...]")
-	fmt.Fprintln(w, "\nScans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.")
-	fmt.Fprintln(w, "\nFlags:")
+	_, _ = fmt.Fprintln(w, "Usage: archguard check [flags] [path...]")
+	_, _ = fmt.Fprintln(w, "\nScans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.")
+	_, _ = fmt.Fprintln(w, "\nFlags:")
 	fs.VisitAll(func(f *flag.Flag) {
-		fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
+		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
 	})
 }
 
