@@ -581,6 +581,7 @@ func TestSubcommandHelpRequest(t *testing.T) {
 		{name: "check --help after other flags", args: []string{"archguard", "check", "--debug", "--help"}, wantSubcmd: "check", wantOK: true},
 		{name: "check with no help", args: []string{"archguard", "check", "--debug"}, wantSubcmd: "", wantOK: false},
 		{name: "help stops at first positional arg", args: []string{"archguard", "check", "foo.go", "--help"}, wantSubcmd: "", wantOK: false},
+		{name: "help detected after a value-taking flag", args: []string{"archguard", "check", "--format", "json", "--help"}, wantSubcmd: "check", wantOK: true},
 		{name: "init is not a help-eligible subcommand", args: []string{"archguard", "init", "--help"}, wantSubcmd: "", wantOK: false},
 		{name: "no args", args: []string{"archguard"}, wantSubcmd: "", wantOK: false},
 		{name: "top-level help is not subcommand help", args: []string{"archguard", "--help"}, wantSubcmd: "", wantOK: false},

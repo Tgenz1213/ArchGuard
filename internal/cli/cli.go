@@ -905,21 +905,25 @@ func isTopLevelHelpRequest(args []string) bool {
 
 // subcommandHelpRequest reports whether args asks for check/index's own
 // --help/-h, so Execute can print usage before repo/config setup runs.
+// Delegates to the real FlagSet rather than scanning prefixes, so a
+// value-taking flag like --format ahead of --help is consumed correctly.
 func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
 	if len(args) < 2 {
 		return "", false
 	}
 	subcommand = args[1]
-	if subcommand != "check" && subcommand != "index" {
+	var fs *flag.FlagSet
+	switch subcommand {
+	case "check":
+		fs = newCheckFlagSet()
+	case "index":
+		fs = newIndexFlagSet()
+	default:
 		return "", false
 	}
-	for _, a := range args[2:] {
-		if a == "-h" || a == "--help" {
-			return subcommand, true
-		}
-		if !strings.HasPrefix(a, "-") {
-			break // flag.Package stops parsing flags at the first positional arg
-		}
+	fs.SetOutput(io.Discard)
+	if errors.Is(fs.Parse(args[2:]), flag.ErrHelp) {
+		return subcommand, true
 	}
 	return "", false
 }
