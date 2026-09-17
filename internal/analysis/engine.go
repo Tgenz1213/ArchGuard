@@ -159,6 +159,11 @@ func (e *Engine) Run(ctx context.Context) error {
 		concurrency = 5
 	}
 
+	topKADRs := e.Config.Analysis.MaxRelevantADRs
+	if topKADRs <= 0 {
+		topKADRs = 3
+	}
+
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 
@@ -230,7 +235,6 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			const topKADRs = 3
 			threshold := e.Config.VectorStore.SimilarityThreshold
 
 			var hits []index.SearchResult
