@@ -146,3 +146,41 @@ func TestFilterByThreshold_PerADROverrideAppliesInsteadOfGlobal(t *testing.T) {
 		t.Errorf("expected the per-ADR override to be used instead of the global threshold, got %q", got[0].ADR.Title)
 	}
 }
+
+func TestTruncatedByTopK_ReturnsNilWhenWithinLimit(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: &ADR{Title: "a"}, Score: 0.9},
+		{ADR: &ADR{Title: "b"}, Score: 0.8},
+	}
+	result := truncatedByTopK(candidates, 3)
+	if result != nil {
+		t.Fatalf("expected nil when candidates fit within topK, got %+v", result)
+	}
+}
+
+func TestTruncatedByTopK_ReturnsComplementOfRankAndLimit(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: &ADR{Title: "third"}, Score: 0.7},
+		{ADR: &ADR{Title: "first"}, Score: 0.9},
+		{ADR: &ADR{Title: "second"}, Score: 0.8},
+		{ADR: &ADR{Title: "fourth"}, Score: 0.6},
+		{ADR: &ADR{Title: "fifth"}, Score: 0.5},
+	}
+	result := truncatedByTopK(candidates, 3)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 truncated candidates, got %d: %+v", len(result), result)
+	}
+	if result[0].ADR.Title != "fourth" || result[1].ADR.Title != "fifth" {
+		t.Errorf("expected [fourth, fifth] in descending score order, got %+v", result)
+	}
+}
+
+func TestTruncatedByTopK_NegativeTopKTreatedAsZero(t *testing.T) {
+	candidates := []SearchResult{
+		{ADR: &ADR{Title: "only"}, Score: 0.9},
+	}
+	result := truncatedByTopK(candidates, -1)
+	if len(result) != 1 {
+		t.Fatalf("expected topK<0 to behave like topK=0, got %d: %+v", len(result), result)
+	}
+}
