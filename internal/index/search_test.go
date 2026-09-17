@@ -184,3 +184,67 @@ func TestLocalStore_SearchRejected_EmptyWhenNothingBelowThreshold(t *testing.T) 
 		t.Fatalf("expected no rejected candidates, got %d: %+v", len(rejected), rejected)
 	}
 }
+
+func TestLocalStore_SearchTruncated_ReturnsAboveThresholdCandidatesCutByTopK(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "first", Embedding: []float32{1, 0}},
+		{Title: "second", Embedding: []float32{1, 1}},
+		{Title: "third", Embedding: []float32{2, 1}},
+		{Title: "fourth", Embedding: []float32{3, 1}},
+	}
+
+	// Query [1,0]: all four clear a 0.1 threshold; topK=2 keeps the top 2
+	// and should truncate the other 2.
+	truncated := store.SearchTruncated([]float32{1, 0}, 0.1, 2, "any.go")
+
+	if len(truncated) != 2 {
+		t.Fatalf("expected 2 truncated candidates, got %d: %+v", len(truncated), truncated)
+	}
+	hits := store.Search([]float32{1, 0}, 0.1, 2, "any.go")
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 hits from Search, got %d: %+v", len(hits), hits)
+	}
+	for _, h := range hits {
+		for _, tr := range truncated {
+			if h.ADR.Title == tr.ADR.Title {
+				t.Errorf("ADR %q returned by both Search and SearchTruncated", h.ADR.Title)
+			}
+		}
+	}
+}
+
+func TestLocalStore_SearchTruncated_EmptyWhenFewerThanTopKQualify(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "only", Embedding: []float32{1, 0}},
+	}
+
+	truncated := store.SearchTruncated([]float32{1, 0}, 0.1, 3, "any.go")
+
+	if len(truncated) != 0 {
+		t.Fatalf("expected no truncated candidates when fewer than topK qualify, got %d: %+v", len(truncated), truncated)
+	}
+}
+
+func TestLocalStore_SearchTruncated_RespectsScopeAndThreshold(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "wrong scope", Scope: ScopePatterns{"**/*.ts"}, Embedding: []float32{1, 0}},
+		{Title: "below threshold", Embedding: []float32{0, 1}},
+		{Title: "qualifies 1", Embedding: []float32{1, 0}},
+		{Title: "qualifies 2", Embedding: []float32{1, 0.1}},
+	}
+
+	// Query [1,0], threshold 0.5, topK 1: "wrong scope" filtered by scope,
+	// "below threshold" filtered by threshold -- neither should ever appear
+	// in SearchTruncated even though topK=1 would otherwise leave room.
+	truncated := store.SearchTruncated([]float32{1, 0}, 0.5, 1, "service.go")
+
+	if len(truncated) != 1 {
+		t.Fatalf("expected exactly 1 truncated candidate, got %d: %+v", len(truncated), truncated)
+	}
+	if truncated[0].ADR.Title != "qualifies 2" {
+		t.Errorf("expected the lower-scoring qualifying ADR to be the truncated one, got %q", truncated[0].ADR.Title)
+	}
+}

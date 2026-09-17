@@ -44,6 +44,24 @@ func (s *LocalStore) SearchRejected(queryEmbedding []float32, threshold float64,
 	return rankAndLimit(candidates, topK)
 }
 
+// SearchTruncated returns scope-matched, threshold-passing candidates that
+// rankAndLimit cut purely for exceeding topK -- Search's other complement,
+// alongside SearchRejected, for --debug diagnostics only.
+func (s *LocalStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	var candidates []SearchResult
+
+	for i := range s.ADRs {
+		candidates = append(candidates, SearchResult{
+			ADR:   &s.ADRs[i],
+			Score: cosineSimilarity(queryEmbedding, s.ADRs[i].Embedding),
+		})
+	}
+
+	candidates = filterByScope(candidates, filePath)
+	candidates = filterByThreshold(candidates, threshold)
+	return truncatedByTopK(candidates, topK)
+}
+
 func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

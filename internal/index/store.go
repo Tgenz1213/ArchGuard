@@ -71,6 +71,10 @@ type VectorStore interface {
 	// SearchRejected returns scope-matched candidates scoring below threshold.
 	// Debug diagnostics only -- call it only inside an `if debug` branch.
 	SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
+	// SearchTruncated returns scope-matched, threshold-passing candidates cut
+	// by the topK limit. Debug diagnostics only -- call it only inside an
+	// `if debug` branch.
+	SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
 }
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
