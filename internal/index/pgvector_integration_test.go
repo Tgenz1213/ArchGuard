@@ -328,6 +328,77 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 	}
 }
 
+func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "debug_info_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	err = store.Load("", "test-model", 2, "")
+	require.NoError(t, err)
+
+	tmpDir, err := os.MkdirTemp("", "archguard_debug_info")
+	require.NoError(t, err)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
+
+	adrDefs := []struct {
+		filename string
+		title    string
+		content  string
+	}{
+		{"0001-first.md", "First ADR", "First Content"},
+		{"0002-second.md", "Second ADR", "Second Content"},
+		{"0003-third.md", "Third ADR", "Third Content"},
+		{"0004-far.md", "Far ADR", "Far Content"},
+	}
+	for _, def := range adrDefs {
+		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s", def.title, def.content)
+		err = os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644)
+		require.NoError(t, err)
+	}
+
+	// First/Second/Third embed to [1,0] (clear a 0.5 threshold); Far embeds
+	// to [0,1] (rejected). topK=2 leaves 2 hits, 1 truncated, 1 rejected --
+	// all derived from ONE query via SearchWithDebugInfo.
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "Far Content") {
+				return []float32{0, 1}, nil
+			}
+			return []float32{1, 0}, nil
+		},
+	}
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	hits, rejected, truncated := store.SearchWithDebugInfo([]float32{1, 0}, 0.5, 2, "main.go")
+
+	require.Len(t, hits, 2, "topK=2 should cap hits")
+	require.Len(t, rejected, 1, "Far ADR should be the sole rejected candidate")
+	require.Len(t, truncated, 1, "the third qualifying ADR should be truncated")
+	assert.Equal(t, "Far ADR", rejected[0].ADR.Title)
+
+	seen := map[string]int{}
+	for _, group := range [][]index.SearchResult{hits, rejected, truncated} {
+		for _, r := range group {
+			seen[r.ADR.Title]++
+		}
+	}
+	for title, count := range seen {
+		assert.Equal(t, 1, count, "ADR %q should appear in exactly one of hits/rejected/truncated", title)
+	}
+}
+
 func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

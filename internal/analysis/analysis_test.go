@@ -1712,6 +1712,126 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 	}
 }
 
+// countingDebugInfoStore wraps a VectorStore to record how many times each of
+// Search, SearchRejected, SearchTruncated, and SearchWithDebugInfo is called,
+// so debug-mode runs can be proven to use the single consolidated call
+// instead of three independent queries that could disagree with each other
+// (see the VectorStore interface doc on SearchWithDebugInfo).
+type countingDebugInfoStore struct {
+	index.VectorStore
+	searchCalls              int
+	searchRejectedCalls      int
+	searchTruncatedCalls     int
+	searchWithDebugInfoCalls int
+}
+
+func (c *countingDebugInfoStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []index.SearchResult {
+	c.searchCalls++
+	return c.VectorStore.Search(queryEmbedding, threshold, topK, filePath)
+}
+
+func (c *countingDebugInfoStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []index.SearchResult {
+	c.searchRejectedCalls++
+	return c.VectorStore.SearchRejected(queryEmbedding, threshold, topK, filePath)
+}
+
+func (c *countingDebugInfoStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []index.SearchResult {
+	c.searchTruncatedCalls++
+	return c.VectorStore.SearchTruncated(queryEmbedding, threshold, topK, filePath)
+}
+
+func (c *countingDebugInfoStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []index.SearchResult) {
+	c.searchWithDebugInfoCalls++
+	return c.VectorStore.SearchWithDebugInfo(queryEmbedding, threshold, topK, filePath)
+}
+
+func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	base := index.NewLocalStore(5)
+	base.ADRs = []index.ADR{
+		{
+			ID:        "0002",
+			Title:     "Near Miss ADR",
+			Status:    "Accepted",
+			Content:   "Some rule.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+	store := &countingDebugInfoStore{VectorStore: base}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.9},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine.Cache = nil
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.searchWithDebugInfoCalls != 1 {
+		t.Fatalf("expected SearchWithDebugInfo to be called exactly once in debug mode, got %d calls", store.searchWithDebugInfoCalls)
+	}
+	if store.searchCalls != 0 || store.searchRejectedCalls != 0 || store.searchTruncatedCalls != 0 {
+		t.Fatalf("expected debug mode to derive hits/rejected/truncated from the single SearchWithDebugInfo call, not independent Search/SearchRejected/SearchTruncated calls (got Search=%d, SearchRejected=%d, SearchTruncated=%d)",
+			store.searchCalls, store.searchRejectedCalls, store.searchTruncatedCalls)
+	}
+}
+
+func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	base := index.NewLocalStore(5)
+	base.ADRs = []index.ADR{
+		{
+			ID:        "0002",
+			Title:     "Near Miss ADR",
+			Status:    "Accepted",
+			Content:   "Some rule.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 0.7; v[1] = 0.7; return v }(),
+		},
+	}
+	store := &countingDebugInfoStore{VectorStore: base}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.9},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+
+	content := &MockContentProvider{
+		Files: map[string]string{"service.go": "package main"},
+	}
+
+	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine.Cache = nil
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if store.searchWithDebugInfoCalls != 0 {
+		t.Fatalf("expected SearchWithDebugInfo to never be called outside debug mode, got %d calls", store.searchWithDebugInfoCalls)
+	}
+	if store.searchCalls != 1 {
+		t.Fatalf("expected exactly one plain Search call outside debug mode, got %d", store.searchCalls)
+	}
+}
+
 func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
