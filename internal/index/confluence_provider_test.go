@@ -94,6 +94,55 @@ We will use Python.</p>`
 	}
 }
 
+func TestConfluenceProvider_GetADRs_RespectsFrontmatterMappings(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := ConfluenceSearchResponse{}
+
+		page := struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			Body  struct {
+				Storage struct {
+					Value string `json:"value"`
+				} `json:"storage"`
+			} `json:"body"`
+			Links struct {
+				WebUI string `json:"webui"`
+			} `json:"_links"`
+		}{}
+		page.ID = "1"
+		page.Title = "Use Go"
+		page.Body.Storage.Value = `<p>---
+title: Use Go
+status: Accepted
+applies_to: "**/*.go"
+---
+We will use Go.</p>`
+		page.Links.WebUI = "/spaces/ARCH/pages/1/Use+Go"
+
+		response.Results = append(response.Results, page)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer ts.Close()
+
+	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
+	provider.SetFrontmatterMappings(map[string]string{"scope": "applies_to"})
+
+	adrs, _, err := provider.GetADRs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(adrs) != 1 {
+		t.Fatalf("expected 1 ADR, got %d", len(adrs))
+	}
+	if len(adrs[0].Scope) != 1 || adrs[0].Scope[0] != "**/*.go" {
+		t.Errorf("expected scope [\"**/*.go\"] read via mapped applies_to key, got %+v", adrs[0].Scope)
+	}
+}
+
 func TestConfluenceProvider_GetADRs_Pagination(t *testing.T) {
 	requests := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +208,7 @@ func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
 
 	raw := extractRawText(html)
 
-	adr, err := ParseADRContent([]byte(raw), "confluence-test", "test/path")
+	adr, err := ParseADRContent([]byte(raw), "confluence-test", "test/path", nil)
 	if err != nil {
 		t.Fatalf("ParseADRContent failed on extracted text (got: %q): %v", raw, err)
 	}

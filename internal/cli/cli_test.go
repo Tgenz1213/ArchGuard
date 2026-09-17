@@ -116,6 +116,53 @@ func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	}
 }
 
+func TestValidateFrontmatterMappings_EmptyIsNil(t *testing.T) {
+	cfg := &config.Config{}
+	mappings, err := validateFrontmatterMappings(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mappings != nil {
+		t.Errorf("mappings = %v, want nil", mappings)
+	}
+}
+
+func TestValidateFrontmatterMappings_ValidMappingPassesThrough(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "applies_to"}
+	mappings, err := validateFrontmatterMappings(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mappings["scope"] != "applies_to" {
+		t.Errorf("mappings[scope] = %q, want %q", mappings["scope"], "applies_to")
+	}
+}
+
+func TestValidateFrontmatterMappings_UnknownCanonicalFieldErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scop": "applies_to"}
+	if _, err := validateFrontmatterMappings(cfg); err == nil {
+		t.Fatal("expected error for unknown canonical field name, got nil")
+	}
+}
+
+func TestValidateFrontmatterMappings_TwoFieldsMappedToSameKeyErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "x", "title": "x"}
+	if _, err := validateFrontmatterMappings(cfg); err == nil {
+		t.Fatal("expected collision error when two canonical fields map to the same YAML key, got nil")
+	}
+}
+
+func TestValidateFrontmatterMappings_MappedKeyCollidesWithUnmappedDefaultErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "title"}
+	if _, err := validateFrontmatterMappings(cfg); err == nil {
+		t.Fatal("expected collision error when a mapped key matches an unmapped field's own default key, got nil")
+	}
+}
+
 func TestValidateProviderConfig_ClaudeRejectedAsEmbeddingProvider(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "gemini"},
@@ -641,7 +688,7 @@ func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
 	var exitCode ExitCode
 	var runErr error
 	output := captureStdout(t, func() {
-		exitCode, runErr = runIndexCommand(context.Background(), cfg, nil, "", nil, []string{"--help"})
+		exitCode, runErr = runIndexCommand(context.Background(), cfg, nil, "", nil, nil, []string{"--help"})
 	})
 
 	if runErr != nil {
@@ -815,7 +862,7 @@ func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 	var exitCode ExitCode
 	var runErr error
 	output := captureStdout(t, func() {
-		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, []string{"--help"})
+		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, nil, []string{"--help"})
 	})
 
 	if runErr != nil {

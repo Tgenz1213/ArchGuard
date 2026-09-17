@@ -58,6 +58,9 @@ type Analysis struct {
 	// ADRIDPattern, when set, is a regexp applied to an ADR's filename to derive
 	// its ID, overriding the default first-hyphen-split. See docs/arch/0012.
 	ADRIDPattern string `yaml:"adr_id_pattern"`
+	// FrontmatterMappings remaps a canonical frontmatter field name to the
+	// YAML key an existing ADR corpus actually uses. See docs/arch/0021.
+	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
 }
 
 func LoadConfig(path string) (*Config, error) {

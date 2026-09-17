@@ -33,6 +33,10 @@ type FrontMatter struct {
 	SimilarityThreshold *float64      `yaml:"similarity_threshold"`
 }
 
+// CanonicalFrontMatterFields lists the FrontMatter fields that
+// analysis.frontmatter_mappings may remap to a different YAML key.
+var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold"}
+
 // ScopePatterns holds one or more glob patterns from an ADR's scope
 // frontmatter, matched with OR semantics; nil/empty means unrestricted.
 type ScopePatterns []string
@@ -150,7 +154,7 @@ func (sp *ScopePatterns) Scan(src any) error {
 	return nil
 }
 
-func ParseADR(path string, rootDir string, idPattern *regexp.Regexp) (*ADR, error) {
+func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, frontmatterMappings map[string]string) (*ADR, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -160,7 +164,7 @@ func ParseADR(path string, rootDir string, idPattern *regexp.Regexp) (*ADR, erro
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
-	return ParseADRContent(data, id, relPath)
+	return ParseADRContent(data, id, relPath, frontmatterMappings)
 }
 
 // extractID uses idPattern's capture group 1 (or whole match) when it matches;
@@ -180,7 +184,7 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 	return strings.Split(filename, "-")[0]
 }
 
-func ParseADRContent(data []byte, id string, relPath string) (*ADR, error) {
+func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings map[string]string) (*ADR, error) {
 	if !bytes.HasPrefix(data, []byte("---")) {
 		return nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
@@ -190,8 +194,8 @@ func ParseADRContent(data []byte, id string, relPath string) (*ADR, error) {
 		return nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}
 
-	var fm FrontMatter
-	if err := yaml.Unmarshal(parts[1], &fm); err != nil {
+	fm, err := decodeFrontMatter(parts[1], frontmatterMappings)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
 	}
 
@@ -204,4 +208,50 @@ func ParseADRContent(data []byte, id string, relPath string) (*ADR, error) {
 		Content:             string(parts[2]),
 		RelPath:             relPath,
 	}, nil
+}
+
+// decodeFrontMatter reads each canonical field from its mapped source key,
+// falling back to the canonical key itself when unmapped.
+func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (FrontMatter, error) {
+	var fm FrontMatter
+	if len(frontmatterMappings) == 0 {
+		if err := yaml.Unmarshal(raw, &fm); err != nil {
+			return FrontMatter{}, err
+		}
+		return fm, nil
+	}
+
+	var nodes map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &nodes); err != nil {
+		return FrontMatter{}, err
+	}
+
+	sourceKey := func(canonical string) string {
+		if mapped, ok := frontmatterMappings[canonical]; ok && mapped != "" {
+			return mapped
+		}
+		return canonical
+	}
+
+	if node, ok := nodes[sourceKey("title")]; ok {
+		if err := node.Decode(&fm.Title); err != nil {
+			return FrontMatter{}, err
+		}
+	}
+	if node, ok := nodes[sourceKey("status")]; ok {
+		if err := node.Decode(&fm.Status); err != nil {
+			return FrontMatter{}, err
+		}
+	}
+	if node, ok := nodes[sourceKey("scope")]; ok {
+		if err := node.Decode(&fm.Scope); err != nil {
+			return FrontMatter{}, err
+		}
+	}
+	if node, ok := nodes[sourceKey("similarity_threshold")]; ok {
+		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
+			return FrontMatter{}, err
+		}
+	}
+	return fm, nil
 }

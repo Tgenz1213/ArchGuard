@@ -16,12 +16,13 @@ import (
 
 // ConfluenceProvider fetches ADRs from an Atlassian Confluence Space.
 type ConfluenceProvider struct {
-	domain           string
-	spaceID          string
-	username         string
-	token            string
-	acceptedStatuses []string
-	writer           io.Writer
+	domain              string
+	spaceID             string
+	username            string
+	token               string
+	acceptedStatuses    []string
+	frontmatterMappings map[string]string
+	writer              io.Writer
 }
 
 // NewConfluenceProvider creates a new ConfluenceProvider.
@@ -39,6 +40,12 @@ func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStat
 // default os.Stdout. Passing nil restores the default.
 func (p *ConfluenceProvider) SetWriter(w io.Writer) {
 	p.writer = w
+}
+
+// SetFrontmatterMappings overrides which YAML key each canonical frontmatter
+// field is read from. Passing nil restores the default canonical keys.
+func (p *ConfluenceProvider) SetFrontmatterMappings(mappings map[string]string) {
+	p.frontmatterMappings = mappings
 }
 
 // ConfluenceSearchResponse represents the REST API response from Confluence.
@@ -121,7 +128,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			// Try to parse it as an ADR (looking for YAML frontmatter)
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
-			adr, err := ParseADRContent([]byte(rawText), adrID, relPath)
+			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.frontmatterMappings)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)
