@@ -239,6 +239,11 @@ func (e *Engine) Run(ctx context.Context) error {
 					effective := index.EffectiveThreshold(r.ADR, threshold)
 					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, effective)
 				}
+				truncated := e.Store.SearchTruncated(embedding, threshold, topKADRs, file)
+				totalQualifying := len(hits) + len(truncated)
+				for i, r := range truncated {
+					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, topKADRs+i+1, totalQualifying)
+				}
 			}
 
 			if len(hits) == 0 {
