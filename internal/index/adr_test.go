@@ -81,6 +81,19 @@ func TestParseADRContent_CustomSimilarityThresholdKeyMapped(t *testing.T) {
 	}
 }
 
+func TestParseADRContent_MappedSimilarityThresholdExplicitNullStaysNil(t *testing.T) {
+	data := []byte("---\ntitle: \"Explicit Null Threshold\"\nstatus: \"Accepted\"\nconfidence: null\n---\nBody")
+	mappings := map[string]string{"similarity_threshold": "confidence"}
+
+	adr, err := ParseADRContent(data, "0001", "0001-null-threshold.md", mappings)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if adr.SimilarityThreshold != nil {
+		t.Fatalf("expected nil similarity_threshold for an explicit null at the mapped key, got %v", *adr.SimilarityThreshold)
+	}
+}
+
 func TestParseADRContent_UnmappedFieldKeepsDefaultKeyWithOneFieldRemapped(t *testing.T) {
 	data := []byte("---\ntitle: \"Title Stays Default\"\nstatus: \"Accepted\"\napplies_to: \"internal/**\"\n---\nBody")
 	mappings := map[string]string{"scope": "applies_to"}

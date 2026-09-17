@@ -249,11 +249,9 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		}
 	}
 	if node, ok := nodes[sourceKey("similarity_threshold")]; ok {
-		var threshold float64
-		if err := node.Decode(&threshold); err != nil {
+		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
 			return FrontMatter{}, err
 		}
-		fm.SimilarityThreshold = &threshold
 	}
 	return fm, nil
 }
