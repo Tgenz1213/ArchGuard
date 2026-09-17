@@ -31,7 +31,7 @@ An alternative considered: have `Search` itself always compute and return reject
 The same blind spot exists for ADRs that pass both `scope` and
 `similarity_threshold` but are still dropped by `rankAndLimit`'s topK cutoff
 (`internal/index/rank.go`) -- previously indistinguishable from "no other ADR
-was relevant." `Store.SearchTruncated` mirrors `SearchRejected`'s shape and
+was relevant." `VectorStore.SearchTruncated` mirrors `SearchRejected`'s shape and
 cost contract (candidates + score, called only inside `if e.Debug`), but
 inverts a different pipeline stage: `SearchRejected` complements the
 threshold filter (`filterBelowThreshold` instead of `filterByThreshold`)
@@ -45,3 +45,8 @@ normally and complements `rankAndLimit` instead, via `truncatedByTopK`. In
 
 distinct from the existing `"  Below threshold: ..."` line. Non-debug
 behavior and cost are unaffected, same as the original decision above.
+`SearchTruncated`'s result is intentionally uncapped (unlike `SearchRejected`,
+which still ends in `rankAndLimit`) -- every qualifying ADR beyond topK is
+reported, not just the closest few. `PgStore.SearchTruncated` issues a third
+query per file in `--debug` mode, alongside `Search` and `SearchRejected`,
+under the same `MaxSearchCandidates`-bounded cost as the other two.

@@ -242,7 +242,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				truncated := e.Store.SearchTruncated(embedding, threshold, topKADRs, file)
 				totalQualifying := len(hits) + len(truncated)
 				for i, r := range truncated {
-					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, topKADRs+i+1, totalQualifying)
+					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, len(hits)+i+1, totalQualifying)
 				}
 			}
 
