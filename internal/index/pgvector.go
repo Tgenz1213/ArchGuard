@@ -524,3 +524,51 @@ func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, to
 	candidates = filterBelowThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
+
+// SearchTruncated returns scope-matched, threshold-passing candidates that
+// were cut purely by the topK limit -- Search's other complement, alongside
+// SearchRejected, for --debug diagnostics only.
+func (s *PgStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	ctx := context.Background()
+	vec := pgvector.NewVector(queryEmbedding)
+
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
+	if err != nil {
+		diagPrintf(s.writer, "PgStore SearchTruncated query failed: %v\n", err)
+		return nil
+	}
+	defer rows.Close()
+
+	candidates := scanSearchResults(rows, s.writer)
+	candidates = filterByScope(candidates, filePath)
+	candidates = filterByThreshold(candidates, threshold)
+	return truncatedByTopK(candidates, topK)
+}
+
+// SearchWithDebugInfo derives hits, rejected, and truncated from one query's
+// candidate set, so all three are guaranteed consistent with each other --
+// see the VectorStore interface doc for why that matters for PgStore
+// specifically (independent queries can see different approximate results
+// under hnsw.iterative_scan=relaxed_order).
+func (s *PgStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult) {
+	ctx := context.Background()
+	vec := pgvector.NewVector(queryEmbedding)
+
+	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
+	if err != nil {
+		diagPrintf(s.writer, "PgStore SearchWithDebugInfo query failed: %v\n", err)
+		return nil, nil, nil
+	}
+	defer rows.Close()
+
+	candidates := filterByScope(scanSearchResults(rows, s.writer), filePath)
+
+	belowCopy := append([]SearchResult(nil), candidates...)
+	rejected = rankAndLimit(filterBelowThreshold(belowCopy, threshold), topK)
+
+	qualifying := filterByThreshold(append([]SearchResult(nil), candidates...), threshold)
+	hits = rankAndLimit(qualifying, topK)
+	truncated = truncatedByTopK(qualifying, topK)
+
+	return hits, rejected, truncated
+}

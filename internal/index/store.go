@@ -71,6 +71,20 @@ type VectorStore interface {
 	// SearchRejected returns scope-matched candidates scoring below threshold.
 	// Debug diagnostics only -- call it only inside an `if debug` branch.
 	SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
+	// SearchTruncated returns scope-matched, threshold-passing candidates cut
+	// by the topK limit. Debug diagnostics only -- call it only inside an
+	// `if debug` branch.
+	SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
+	// SearchWithDebugInfo derives hits, rejected, and truncated from a single
+	// scope-filtered candidate set, guaranteeing they agree with each other --
+	// unlike calling Search/SearchRejected/SearchTruncated independently,
+	// which for PgStore under hnsw.iterative_scan=relaxed_order could each
+	// see a different approximate candidate set (see
+	// docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md) and
+	// disagree on whether an ADR is a hit, rejected, or truncated. Debug
+	// diagnostics only -- call it only inside an `if debug` branch; use
+	// Search alone otherwise.
+	SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult)
 }
 
 // LocalStore manages the persistence and retrieval of ADR embeddings and metadata.

@@ -232,13 +232,22 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			const topKADRs = 3
 			threshold := e.Config.VectorStore.SimilarityThreshold
-			hits := e.Store.Search(embedding, threshold, topKADRs, file)
 
+			var hits []index.SearchResult
 			if e.Debug {
-				for _, r := range e.Store.SearchRejected(embedding, threshold, topKADRs, file) {
+				var rejected, truncated []index.SearchResult
+				hits, rejected, truncated = e.Store.SearchWithDebugInfo(embedding, threshold, topKADRs, file)
+
+				for _, r := range rejected {
 					effective := index.EffectiveThreshold(r.ADR, threshold)
 					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, effective)
 				}
+				totalQualifying := len(hits) + len(truncated)
+				for i, r := range truncated {
+					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, len(hits)+i+1, totalQualifying)
+				}
+			} else {
+				hits = e.Store.Search(embedding, threshold, topKADRs, file)
 			}
 
 			if len(hits) == 0 {

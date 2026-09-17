@@ -65,3 +65,16 @@ func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
 	}
 	return candidates
 }
+
+// truncatedByTopK returns the candidates ranked after topK -- rankAndLimit's
+// complement, ranked descending by score -- for --debug diagnostics only.
+func truncatedByTopK(candidates []SearchResult, topK int) []SearchResult {
+	if topK < 0 {
+		topK = 0
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
+	if len(candidates) > topK {
+		return candidates[topK:]
+	}
+	return nil
+}
