@@ -114,6 +114,8 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   # adr_id_pattern: '^adr-(\d+)-' # Optional: overrides default first-hyphen-split ADR ID extraction
+  # frontmatter_mappings: # Optional: remap canonical frontmatter keys to your corpus's own field names
+  #   scope: "applies_to"
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -147,6 +149,16 @@ ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is requir
 **Location:** Store your ADRs in the folder specified by `analysis.adr_path` (default `./docs/arch`).
 
 **ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex: capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
+
+**Frontmatter Field Mappings:** If your existing ADR corpus uses different frontmatter key names (e.g. MADR-style or your own house convention), set `analysis.frontmatter_mappings` to remap any of the four canonical fields (`title`, `status`, `scope`, `similarity_threshold`) to the YAML key your files actually use:
+
+```yaml
+analysis:
+  frontmatter_mappings:
+    scope: "applies_to"
+```
+
+With this configured, an ADR's `applies_to: "**/*.go"` frontmatter key is read as `scope`. Any field left out of the mapping keeps reading its canonical key unchanged — this is a per-field override, not an all-or-nothing schema replacement. A mapping naming an unknown canonical field, or one that would make two fields read the same YAML key, is rejected at startup.
 
 ```markdown
 ---

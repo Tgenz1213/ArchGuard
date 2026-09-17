@@ -134,6 +134,11 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		return ExitConfig, err
 	}
 
+	frontmatterMappings, err := validateFrontmatterMappings(cfg)
+	if err != nil {
+		return ExitConfig, err
+	}
+
 	var chatProvider, embedProvider llm.Provider
 	if factories.Chat != nil {
 		chatProvider = factories.Chat(cfg)
@@ -166,9 +171,9 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	}
 
 	if command == "check" {
-		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, os.Args[2:])
+		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 	}
-	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, os.Args[2:])
+	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 }
 
 // compileADRIDPattern compiles once at startup so a bad regex fails fast
@@ -182,6 +187,40 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 		return nil, fmt.Errorf("invalid analysis.adr_id_pattern %q: %w", cfg.Analysis.ADRIDPattern, err)
 	}
 	return re, nil
+}
+
+// validateFrontmatterMappings fails fast (ExitConfig) on a typo'd canonical
+// field name or a source-key collision, instead of silently misreading ADRs.
+func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) {
+	mappings := cfg.Analysis.FrontmatterMappings
+	if len(mappings) == 0 {
+		return nil, nil
+	}
+
+	canonicalFields := make(map[string]bool, len(index.CanonicalFrontMatterFields))
+	for _, field := range index.CanonicalFrontMatterFields {
+		canonicalFields[field] = true
+	}
+	for canonical := range mappings {
+		if !canonicalFields[canonical] {
+			return nil, fmt.Errorf("unknown analysis.frontmatter_mappings field %q: must be one of %s",
+				canonical, strings.Join(index.CanonicalFrontMatterFields, ", "))
+		}
+	}
+
+	sourceKeyOwner := make(map[string]string, len(index.CanonicalFrontMatterFields))
+	for _, canonical := range index.CanonicalFrontMatterFields {
+		sourceKey := canonical
+		if mapped, ok := mappings[canonical]; ok && mapped != "" {
+			sourceKey = mapped
+		}
+		if owner, exists := sourceKeyOwner[sourceKey]; exists {
+			return nil, fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
+		}
+		sourceKeyOwner[sourceKey] = canonical
+	}
+
+	return mappings, nil
 }
 
 // Must run unconditionally, not just when cwd != repoRoot -- a Windows
@@ -524,7 +563,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 
 // runCheck executes the architectural drift analysis against a set of files
 // based on the provided flags and ADR index.
-func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
+func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
@@ -567,6 +606,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
+	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetWriter(human)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
@@ -579,6 +619,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
 		)
+		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetWriter(human)
 		providers = append(providers, confluenceProvider)
 	}
@@ -597,7 +638,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, human); err != nil {
+		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -760,7 +801,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 
 // Separate from runIndex so runCheck's internal auto-rebuild call to
 // runIndex never goes through CLI-arg/help parsing.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, args []string) (ExitCode, error) {
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
 	indexFlags := newIndexFlagSet()
 	var flagParseOutput bytes.Buffer
 	indexFlags.SetOutput(&flagParseOutput)
@@ -776,7 +817,7 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
-	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, os.Stdout)
+	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Stdout)
 }
 
 // printIndexUsage mirrors printCheckUsage; index has no flags of its own yet,
@@ -796,7 +837,7 @@ func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 }
 
 // runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, w io.Writer) (ExitCode, error) {
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, w io.Writer) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg, w)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
@@ -804,6 +845,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
+	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetWriter(w)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
@@ -816,6 +858,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
 		)
+		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetWriter(w)
 		providers = append(providers, confluenceProvider)
 	}
