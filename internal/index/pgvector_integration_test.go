@@ -269,6 +269,65 @@ Far Content`
 	assert.Empty(t, hits, "both ADRs should be rejected, not returned by Search")
 }
 
+func TestPgStore_Integration_SearchTruncated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "truncated_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	err = store.Load("", "test-model", 2, "")
+	require.NoError(t, err)
+
+	tmpDir, err := os.MkdirTemp("", "archguard_truncated")
+	require.NoError(t, err)
+	defer func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
+		}
+	}()
+
+	adrDefs := []struct {
+		filename string
+		title    string
+		content  string
+	}{
+		{"0001-first.md", "First ADR", "First Content"},
+		{"0002-second.md", "Second ADR", "Second Content"},
+		{"0003-third.md", "Third ADR", "Third Content"},
+	}
+	for _, def := range adrDefs {
+		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s", def.title, def.content)
+		err = os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644)
+		require.NoError(t, err)
+	}
+
+	// All three embed identically to [1,0] so every one clears threshold;
+	// topK=2 must leave exactly one truncated.
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{1, 0}, nil
+		},
+	}
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	hits := store.Search([]float32{1, 0}, 0.5, 2, "main.go")
+	require.Len(t, hits, 2, "topK=2 should cap Search's hits")
+
+	truncated := store.SearchTruncated([]float32{1, 0}, 0.5, 2, "main.go")
+	require.Len(t, truncated, 1, "the third qualifying ADR should be truncated, not dropped silently")
+
+	for _, h := range hits {
+		assert.NotEqual(t, h.ADR.Title, truncated[0].ADR.Title, "an ADR cannot be both a hit and truncated")
+	}
+}
+
 func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
