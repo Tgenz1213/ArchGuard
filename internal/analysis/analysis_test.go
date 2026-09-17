@@ -2440,3 +2440,83 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 		t.Errorf("expected no Suggestion line for an unverified violation, got: %s", output)
 	}
 }
+
+// fourEquallyRelevantADRs builds a store where 4 ADRs equally pass scope
+// and threshold, so only topK distinguishes how many reach the LLM.
+func fourEquallyRelevantADRs() *index.LocalStore {
+	store := index.NewLocalStore(5)
+	for i := 0; i < 4; i++ {
+		store.ADRs = append(store.ADRs, index.ADR{
+			ID:        fmt.Sprintf("%04d", i),
+			Title:     fmt.Sprintf("ADR %d", i),
+			Status:    "Accepted",
+			Content:   "Some rule.",
+			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+		})
+	}
+	return store
+}
+
+func TestRun_MaxRelevantADRs_RaisesLimitAboveDefault(t *testing.T) {
+	var mu sync.Mutex
+	chatCalls := 0
+	provider := &llm.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			mu.Lock()
+			chatCalls++
+			mu.Unlock()
+			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+		},
+	}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}, MaxRelevantADRs: 4},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.go": "package main"}}
+
+	engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, content, false, false)
+	engine.Cache = nil
+
+	if err := engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if chatCalls != 4 {
+		t.Errorf("expected all 4 qualifying ADRs to reach the LLM with max_relevant_adrs=4, got %d chat calls", chatCalls)
+	}
+}
+
+func TestRun_MaxRelevantADRs_DefaultsToThreeWhenUnsetOrNonPositive(t *testing.T) {
+	for _, maxRelevantADRs := range []int{0, -1} {
+		t.Run(fmt.Sprintf("value=%d", maxRelevantADRs), func(t *testing.T) {
+			var mu sync.Mutex
+			chatCalls := 0
+			provider := &llm.MockProvider{
+				ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+					mu.Lock()
+					chatCalls++
+					mu.Unlock()
+					return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
+				},
+			}
+
+			cfg := &config.Config{
+				VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+				Analysis:    config.Analysis{ExcludePatterns: []string{}, MaxRelevantADRs: maxRelevantADRs},
+			}
+			content := &MockContentProvider{Files: map[string]string{"service.go": "package main"}}
+
+			engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, content, false, false)
+			engine.Cache = nil
+
+			if err := engine.Run(context.Background()); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if chatCalls != 3 {
+				t.Errorf("expected the default topK of 3 to apply, got %d chat calls", chatCalls)
+			}
+		})
+	}
+}

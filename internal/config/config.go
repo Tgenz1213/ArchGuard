@@ -47,11 +47,14 @@ type Confluence struct {
 }
 
 type Analysis struct {
-	ADRPath          string     `yaml:"adr_path"`
-	AcceptedStatuses []string   `yaml:"accepted_statuses"`
-	ExcludePatterns  []string   `yaml:"exclude_patterns"`
-	MaxConcurrency   int        `yaml:"max_concurrency"`
-	Confluence       Confluence `yaml:"confluence"`
+	ADRPath          string   `yaml:"adr_path"`
+	AcceptedStatuses []string `yaml:"accepted_statuses"`
+	ExcludePatterns  []string `yaml:"exclude_patterns"`
+	MaxConcurrency   int      `yaml:"max_concurrency"`
+	// MaxRelevantADRs caps how many ADRs Engine.Run considers per file
+	// (topK for Store.Search/SearchWithDebugInfo). <= 0 falls back to 3.
+	MaxRelevantADRs int        `yaml:"max_relevant_adrs"`
+	Confluence      Confluence `yaml:"confluence"`
 	// ADRIDPattern, when set, is a regexp applied to an ADR's filename to derive
 	// its ID, overriding the default first-hyphen-split. See docs/arch/0012.
 	ADRIDPattern string `yaml:"adr_id_pattern"`
