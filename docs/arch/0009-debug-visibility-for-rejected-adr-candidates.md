@@ -47,35 +47,6 @@ distinct from the existing `"  Below threshold: ..."` line. Non-debug
 behavior and cost are unaffected, same as the original decision above.
 `SearchTruncated`'s result is intentionally uncapped (unlike `SearchRejected`,
 which still ends in `rankAndLimit`) -- every qualifying ADR beyond topK is
-reported, not just the closest few. (Superseded by the amendment below:
-`PgStore` no longer issues three independent queries for this.)
-
-## Amendment: consolidating hits/rejected/truncated into one query (#192)
-
-`Search`, `SearchRejected`, and `SearchTruncated` each issued their own
-independent query. For `PgStore` under `hnsw.iterative_scan = 'relaxed_order'`
-(`docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md`), two
-separate approximate HNSW queries against the same index and query vector
-are not guaranteed to return identical candidate sets -- so within a single
-`--debug` run, an ADR could be misreported as both a hit and truncated (or
-neither), since the diagnostics were computed from a different query than
-the one that produced the actual analyzed hits. Flagged by automated review
-on #192.
-
-`VectorStore` gains `SearchWithDebugInfo(queryEmbedding []float32, threshold
-float64, topK int, filePath string) (hits, rejected, truncated
-[]SearchResult)`, which issues exactly one query, applies `filterByScope`
-once, then derives all three outputs from that single candidate set (a
-distinct copy per output, since `filterByThreshold`/`filterBelowThreshold`
-filter in place): `rejected` from `filterBelowThreshold` + `rankAndLimit`,
-`hits` and `truncated` from `filterByThreshold` followed by `rankAndLimit`
-and `truncatedByTopK` respectively. `Engine.Run` calls this instead of
-`Search`+`SearchRejected`+`SearchTruncated` whenever `e.Debug` is set;
-outside `--debug` it still calls plain `Search` alone, so non-debug behavior
-and cost are unaffected.
-
-`SearchRejected` and `SearchTruncated` are kept as standalone methods (still
-tested, still part of the interface) since existing tests and call sites use
-them independently, but `Engine.Run`'s debug path no longer calls them
-directly -- `SearchWithDebugInfo` is the only debug-diagnostic entry point
-that also needs `hits` to stay consistent with what it prints.
+reported, not just the closest few. As of `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`,
+`Engine.Run` no longer calls `SearchRejected`/`SearchTruncated` directly in
+`--debug` mode -- see that ADR for why.
