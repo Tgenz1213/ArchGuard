@@ -107,6 +107,30 @@ func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.
 	if !errors.As(err, &stageErr) || stageErr.Action != "generating embedding" || !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want a *stage.Error with action generating embedding wrapping the cause", err)
 	}
+	if stageErr.Kind != stage.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", stageErr.Kind, stage.KindUnavailable)
+	}
+}
+
+func TestCosineStage_MissingEmbedderIsPreconditionNotMet(t *testing.T) {
+	store := cosineStore(cosineADR("a", 1, 0))
+	s := stage.NewCosineStage(store, nil, 0, 5)
+
+	_, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(store))
+
+	var stageErr *stage.Error
+	if !errors.As(err, &stageErr) || stageErr.Kind != stage.KindPreconditionNotMet {
+		t.Fatalf("err = %v, want a *stage.Error of kind precondition_not_met", err)
+	}
+}
+
+func TestKind_String(t *testing.T) {
+	if got := stage.KindUnavailable.String(); got != "unavailable" {
+		t.Errorf("KindUnavailable = %q", got)
+	}
+	if got := stage.KindPreconditionNotMet.String(); got != "precondition_not_met" {
+		t.Errorf("KindPreconditionNotMet = %q", got)
+	}
 }
 
 func TestCosineStage_OmittedADRsScoreBelowAZeroThreshold(t *testing.T) {

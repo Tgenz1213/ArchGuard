@@ -132,6 +132,36 @@ func TestBuildStages_RankThenRerankInOrder(t *testing.T) {
 	}
 }
 
+func TestBuildStages_OnErrorSetsNameAndPolicy(t *testing.T) {
+	skip := &config.StageConfig{OnError: config.OnErrorSkip}
+	fail := &config.StageConfig{OnError: config.OnErrorFail}
+	tests := []struct {
+		name     string
+		rank     *config.StageConfig
+		rerank   *config.StageConfig
+		wantFail []bool
+	}{
+		{"unset", &config.StageConfig{}, &config.StageConfig{}, []bool{false, false}},
+		{"skip", skip, skip, []bool{false, false}},
+		{"fail", fail, fail, []bool{true, true}},
+		{"rerank alone", nil, fail, []bool{false, true}},
+	}
+	wantNames := []string{"rank", "rerank"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stages, _ := buildStages(t, configWith(&config.Pipeline{Rank: tt.rank, Rerank: tt.rerank}))
+			if len(stages) != 2 {
+				t.Fatalf("got %d stages, want 2", len(stages))
+			}
+			for i, st := range stages {
+				if st.Name != wantNames[i] || st.FailOnError != tt.wantFail[i] {
+					t.Errorf("stage %d = {Name %q, FailOnError %v}, want {%q, %v}", i, st.Name, st.FailOnError, wantNames[i], tt.wantFail[i])
+				}
+			}
+		})
+	}
+}
+
 func TestBuildStages_ADROverrideBeatsStageThreshold(t *testing.T) {
 	stages, _ := buildStages(t, configWith(&config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, Threshold: ptr(0.8)}}))
 

@@ -7,9 +7,24 @@ import (
 	"sort"
 )
 
+type Kind int
+
+const (
+	KindUnavailable Kind = iota
+	KindPreconditionNotMet
+)
+
+func (k Kind) String() string {
+	if k == KindPreconditionNotMet {
+		return "precondition_not_met"
+	}
+	return "unavailable"
+}
+
 // Error names the action that failed so the engine can report it without knowing which scorer ran.
 type Error struct {
 	Action string
+	Kind   Kind
 	Err    error
 }
 
@@ -17,9 +32,11 @@ func (e *Error) Error() string { return e.Err.Error() }
 func (e *Error) Unwrap() error { return e.Err }
 
 type Stage struct {
-	Scorer  Scorer
-	Min     Threshold
-	MaxKeep int
+	Name        string
+	Scorer      Scorer
+	Min         Threshold
+	MaxKeep     int
+	FailOnError bool
 }
 
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
