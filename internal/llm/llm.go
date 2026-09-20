@@ -10,31 +10,21 @@ import (
 	"github.com/cenkalti/backoff/v4"
 )
 
-/**
- * REGION: Types & Interfaces
- */
-
 type AnalysisResult struct {
 	Violation  bool   `json:"violation"`
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
 }
 
-// EmbeddingTaskType distinguishes why an embedding is being created, so an
-// asymmetric-retrieval-capable provider can tune the vector for that role.
+// Document is ADR content being indexed; query is a diff or code being searched.
 type EmbeddingTaskType int
 
 const (
-	// EmbeddingTaskDocument marks content being indexed into the vector
-	// store (ADR content).
 	EmbeddingTaskDocument EmbeddingTaskType = iota
-	// EmbeddingTaskQuery marks content being embedded to search the
-	// vector store (diff/code content).
 	EmbeddingTaskQuery
 )
 
-// Pick returns document or query depending on t, so providers can map the
-// task role onto their own backend's convention in one line.
+// Pick lets providers map the task role onto their backend's convention in one line.
 func (t EmbeddingTaskType) Pick(document, query string) string {
 	if t == EmbeddingTaskQuery {
 		return query
@@ -43,18 +33,13 @@ func (t EmbeddingTaskType) Pick(document, query string) string {
 }
 
 type Provider interface {
-	// CreateEmbedding embeds text for the given task role. Providers
-	// without an asymmetric-retrieval mechanism may ignore task.
+	// Providers without an asymmetric-retrieval mechanism may ignore task.
 	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
 	Chat(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 
 	// CountTokens uses each provider's own tokenizer, not a shared one.
 	CountTokens(ctx context.Context, text string) (int, error)
 }
-
-/**
- * REGION: Prompts
- */
 
 const DefaultSystemPrompt = `You are a literal-minded Architectural Compliance Auditor.
 Your ONLY task is to identify direct contradictions between the provided Code and the mandatory 'Decision' section of the ADR.
@@ -83,24 +68,21 @@ File Path: %s
   "quoted_code": "The snippet breaking the rule."
 }`
 
-// EscapePromptDelimiter prevents prompt injection by neutralising common LLM delimiters.
+// EscapePromptDelimiter neutralises the prompt's container delimiters to block prompt injection.
 func EscapePromptDelimiter(input string) string {
-	// Neutralize XML tags and triple backticks to prevent escaping the prompt containers
 	s := strings.ReplaceAll(input, "</adr_content>", "[ADR_END]")
 	s = strings.ReplaceAll(s, "</code_context>", "[CODE_END]")
 	return strings.ReplaceAll(s, "```", "'''")
 }
 
-// sanitizeFilename escapes the same delimiters as EscapePromptDelimiter and
-// additionally strips line breaks, since filename sits on its own unquoted
-// "File Path: %s" line rather than inside a delimited block.
+// sanitizeFilename also strips line breaks: the filename sits on its own unquoted
+// "File Path:" line, not inside a delimited block.
 func sanitizeFilename(filename string) string {
 	s := EscapePromptDelimiter(filename)
 	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
 }
 
 func GetAnalyzeDriftPrompt(adrContent, codeContext, filename string) string {
-	// Sanitize inputs before formatting into the template
 	safeADR := EscapePromptDelimiter(adrContent)
 	safeCode := EscapePromptDelimiter(codeContext)
 	safeFilename := sanitizeFilename(filename)
