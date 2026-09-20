@@ -9,7 +9,6 @@ type SearchResult struct {
 	Score float64
 }
 
-// Shared starting point for Search, SearchRejected, SearchTruncated, and SearchWithDebugInfo.
 func (s *LocalStore) scopeMatchedCandidates(queryEmbedding []float32, filePath string) []SearchResult {
 	var candidates []SearchResult
 

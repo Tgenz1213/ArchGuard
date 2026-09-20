@@ -8,7 +8,7 @@ type Embedder interface {
 	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
 }
 
-// Document is ADR content being indexed; query is a diff or code being searched.
+// A document is ADR content being indexed; a query is a diff or code being searched.
 type EmbeddingTaskType int
 
 const (

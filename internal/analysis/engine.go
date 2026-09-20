@@ -557,8 +557,7 @@ func rollBackToNewline(s string) string {
 	return s
 }
 
-// stripDiffMetadata strips unified-diff markup, leaving only code content,
-// so an embedding compares code against ADR prose, not patch syntax.
+// Patch syntax would skew the embedding away from code-vs-ADR-prose similarity.
 func stripDiffMetadata(s string) string {
 	if !isUnifiedDiff(s) {
 		return s

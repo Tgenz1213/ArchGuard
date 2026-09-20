@@ -66,7 +66,6 @@ func IterativeScanSupportedVersion(version string) bool {
 // probe stays in sync with NewPgStore's, instead of a copy that could drift.
 const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 
-// NewPgStore resolves a nil w to os.Stdout at each write, not at construction.
 func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOptions, w io.Writer) (*PgStore, error) {
 	ctx := context.Background()
 
@@ -456,7 +455,6 @@ const SearchQuery = `
 // (nearest rows by distance) so Go-side filtering sees every candidate.
 const MaxSearchCandidates = 1000
 
-// A row that fails to scan is logged and skipped, not fatal.
 func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 	var candidates []SearchResult
 	for rows.Next() {

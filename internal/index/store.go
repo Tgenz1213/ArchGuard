@@ -89,7 +89,6 @@ func NewLocalStore(concurrency int) *LocalStore {
 	}
 }
 
-// NewVectorStore resolves a nil w to os.Stdout at each write, not at construction.
 func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
 		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
