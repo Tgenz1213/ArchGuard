@@ -66,6 +66,23 @@ func TestTelemetry_StageThatReceivesNothingReportsZeros(t *testing.T) {
 	}
 }
 
+type slowDebug struct{ delay time.Duration }
+
+func (d slowDebug) Enabled() bool { return true }
+
+func (d slowDebug) Printf(string, ...any) { time.Sleep(d.delay) }
+
+func TestTelemetry_EmptyInputAddsNoTimeEvenWhenDebugOutputIsSlow(t *testing.T) {
+	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores()}})
+
+	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, slowDebug{delay: 5 * time.Millisecond}, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := tel.Stats()[0]; got.DurationMS != 0 {
+		t.Fatalf("stats = %+v, want duration_ms 0 for a stage that received nothing", got)
+	}
+}
+
 func TestTelemetry_FailedStageCountsReceivedAndTimeButKeepsNothing(t *testing.T) {
 	boom := errors.New("boom")
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: scorerFunc(func(context.Context, stage.File, stage.Debug, []stage.Candidate) ([]float64, error) {
