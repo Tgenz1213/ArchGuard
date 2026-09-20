@@ -12,12 +12,21 @@ import (
 
 const ScorerCosine = "cosine"
 
-var scorerNames = []string{ScorerCosine}
+const (
+	OnErrorSkip = "skip"
+	OnErrorFail = "fail"
+)
+
+var (
+	scorerNames  = []string{ScorerCosine}
+	onErrorModes = []string{OnErrorSkip, OnErrorFail}
+)
 
 type StageConfig struct {
 	Scorer    string
 	Threshold *float64
 	TopK      *int
+	OnError   string
 }
 
 func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
@@ -27,7 +36,7 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 		return &StageConfig{Scorer: ScorerCosine}, nil
 	}
 	if node.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s: must be a mapping with scorer, threshold and top_k keys", prefix)
+		return nil, fmt.Errorf("%s: must be a mapping with scorer, threshold, top_k and on_error keys", prefix)
 	}
 
 	fields, err := decodeFields(prefix, node)
@@ -46,8 +55,10 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 			stage.Threshold, err = decodeThreshold(prefix, value)
 		case "top_k":
 			stage.TopK, err = decodeTopK(prefix, value)
+		case "on_error":
+			stage.OnError, err = decodeOnError(prefix, value)
 		default:
-			err = fmt.Errorf("%s: unrecognized key %q (expected scorer, threshold or top_k)", prefix, key)
+			err = fmt.Errorf("%s: unrecognized key %q (expected scorer, threshold, top_k or on_error)", prefix, key)
 		}
 		if err != nil {
 			return nil, err
@@ -87,4 +98,15 @@ func decodeTopK(prefix string, node *yaml.Node) (*int, error) {
 		return nil, fmt.Errorf("%s.top_k: %d must be a positive integer", prefix, topK)
 	}
 	return &topK, nil
+}
+
+func decodeOnError(prefix string, node *yaml.Node) (string, error) {
+	var mode string
+	if err := node.Decode(&mode); err != nil || node.Tag == "!!null" {
+		return "", fmt.Errorf("%s.on_error: must be one of %s", prefix, strings.Join(onErrorModes, ", "))
+	}
+	if slices.Contains(onErrorModes, mode) {
+		return mode, nil
+	}
+	return "", fmt.Errorf("%s.on_error: unknown value %q (available: %s)", prefix, mode, strings.Join(onErrorModes, ", "))
 }

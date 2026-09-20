@@ -1,8 +1,11 @@
 package analysis_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -188,6 +191,160 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	}
 	if len(h.judged) != 1 || h.judged[0] != "0002" {
 		t.Fatalf("judged %v, want only ADR 0002", h.judged)
+	}
+}
+
+func runRankWithOnError(t *testing.T, onError string, embed llm.Embedder) (*scorerHarness, string) {
+	t.Helper()
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
+	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
+	var out bytes.Buffer
+	h.engine.Writer = &out
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0},
+		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
+	}
+	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, io.Discard)
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return h, out.String()
+}
+
+func embedFailingOnBAD() llm.Embedder {
+	return &llm.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			if strings.Contains(text, "BAD") {
+				return nil, errors.New("embedding service down")
+			}
+			return []float32{1, 0, 0, 0}, nil
+		},
+	}
+}
+
+func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
+	for _, onError := range []string{"", config.OnErrorSkip} {
+		t.Run("on_error="+onError, func(t *testing.T) {
+			h, out := runRankWithOnError(t, onError, embedFailingOnBAD())
+			if h.engine.SkippedFiles != 1 || len(h.engine.StageFailures) != 0 {
+				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", h.engine.SkippedFiles, h.engine.StageFailures)
+			}
+			if !strings.Contains(out, "Error generating embedding for bad.go: embedding service down") {
+				t.Errorf("output %q missing the skipped-file error", out)
+			}
+			if strings.Join(h.judged, ",") != "0001" {
+				t.Errorf("judged %v, want the healthy file still judged", h.judged)
+			}
+		})
+	}
+}
+
+func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
+	h, out := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
+	if h.engine.SkippedFiles != 0 || len(h.engine.StageFailures) != 1 {
+		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", h.engine.SkippedFiles, h.engine.StageFailures)
+	}
+	f := h.engine.StageFailures[0]
+	if f.Stage != "rank" || f.File != "bad.go" || f.Kind != stage.KindUnavailable || !strings.Contains(f.Error, "embedding service down") {
+		t.Errorf("failure = %+v", f)
+	}
+	for _, want := range []string{"stage rank", "bad.go", "unavailable", "embedding service down"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q missing %q", out, want)
+		}
+	}
+	if strings.Join(h.judged, ",") != "0001" {
+		t.Errorf("judged %v, want the healthy file still judged", h.judged)
+	}
+}
+
+func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
+	h, _ := runRankWithOnError(t, config.OnErrorFail, nil)
+	if len(h.engine.StageFailures) != 2 || len(h.judged) != 0 {
+		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", h.engine.StageFailures, h.judged)
+	}
+	for _, f := range h.engine.StageFailures {
+		if f.Stage != "rank" || f.Kind != stage.KindPreconditionNotMet {
+			t.Errorf("failure = %+v, want a rank precondition failure", f)
+		}
+	}
+}
+
+func TestPipeline_OnErrorSkipPreconditionSkipsFiles(t *testing.T) {
+	h, _ := runRankWithOnError(t, config.OnErrorSkip, nil)
+	if h.engine.SkippedFiles != 2 || len(h.engine.StageFailures) != 0 {
+		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want both files skipped", h.engine.SkippedFiles, h.engine.StageFailures)
+	}
+}
+
+func failingScorer(kind stage.Kind) stage.Scorer {
+	return scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		return nil, &stage.Error{Action: "scoring candidates", Kind: kind, Err: errors.New("boom")}
+	})
+}
+
+func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
+	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
+
+	var mu sync.Mutex
+	var secondStageFiles []string
+	first := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		if file.Path() == "bad.go" {
+			return nil, errors.New("boom")
+		}
+		return make([]float64, len(candidates)), nil
+	})
+	second := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		mu.Lock()
+		secondStageFiles = append(secondStageFiles, file.Path())
+		mu.Unlock()
+		return make([]float64, len(candidates)), nil
+	})
+	h.engine.Stages = []stage.Stage{
+		{Name: "rank", Scorer: first, FailOnError: true},
+		{Name: "rerank", Scorer: second},
+	}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].File != "bad.go" {
+		t.Fatalf("StageFailures = %v, want one failure for bad.go", h.engine.StageFailures)
+	}
+	if strings.Join(secondStageFiles, ",") != "good.go" {
+		t.Errorf("second stage ran for %v, want only good.go", secondStageFiles)
+	}
+}
+
+func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "m.go", "package m")
+	files := h.engine.Content.(*MockContentProvider).Files
+	files["z.go"] = "package z"
+	files["a.go"] = "package a"
+	h.engine.Config.Analysis.MaxConcurrency = 3
+	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got []string
+	for _, f := range h.engine.StageFailures {
+		got = append(got, f.File)
+	}
+	if strings.Join(got, ",") != "a.go,m.go,z.go" {
+		t.Errorf("failure order = %v, want sorted by file", got)
+	}
+}
+
+func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
+	b, err := json.Marshal(analysis.StageFailure{Stage: "rerank", File: "a.go", Kind: stage.KindPreconditionNotMet, Error: "boom"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"stage":"rerank","file":"a.go","kind":"precondition_not_met","error":"boom"}`
+	if string(b) != want {
+		t.Errorf("json = %s, want %s", b, want)
 	}
 }
 

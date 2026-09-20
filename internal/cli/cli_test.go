@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
@@ -41,6 +43,76 @@ func TestExitCodeForAnalysisError(t *testing.T) {
 			t.Fatalf("expected %d, got %d", ExitError, got)
 		}
 	})
+}
+
+func TestStageFailureExit(t *testing.T) {
+	unavailable := analysis.StageFailure{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable}
+	precondition := analysis.StageFailure{Stage: "rank", File: "b.go", Kind: stage.KindPreconditionNotMet}
+	tests := []struct {
+		name     string
+		failures []analysis.StageFailure
+		want     ExitCode
+	}{
+		{"none", nil, ExitSuccess},
+		{"unavailable only", []analysis.StageFailure{unavailable}, ExitStageUnavailable},
+		{"precondition only", []analysis.StageFailure{precondition}, ExitStagePrecondition},
+		{"both kinds", []analysis.StageFailure{unavailable, precondition, unavailable}, ExitStagePrecondition},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, err := stageFailureExit(tt.failures)
+			if code != tt.want || (err != nil) != (tt.want != ExitSuccess) {
+				t.Fatalf("stageFailureExit = (%d, %v), want code %d", code, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestStageExitCodeValues(t *testing.T) {
+	if ExitStageUnavailable != 6 || ExitStagePrecondition != 7 {
+		t.Fatalf("stage exit codes = %d and %d, want 6 and 7", ExitStageUnavailable, ExitStagePrecondition)
+	}
+}
+
+func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
+	seen := map[ExitCode]string{}
+	for name, code := range map[string]ExitCode{
+		"success": ExitSuccess, "error": ExitError, "usage": ExitUsage, "config": ExitConfig,
+		"drift": ExitDriftDetected, "index": ExitIndexError,
+		"unavailable": ExitStageUnavailable, "precondition": ExitStagePrecondition,
+	} {
+		if other, dup := seen[code]; dup {
+			t.Errorf("%s and %s share exit code %d", name, other, code)
+		}
+		seen[code] = name
+	}
+}
+
+func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeCheckReport(&buf, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "failures") {
+		t.Errorf("report %q should not mention failures when there are none", buf.String())
+	}
+}
+
+func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
+	var buf bytes.Buffer
+	failures := []analysis.StageFailure{{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable, Error: "down"}}
+	if err := writeCheckReport(&buf, nil, failures); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Failures []map[string]string `json:"failures"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("report is not valid JSON: %v", err)
+	}
+	if len(got.Failures) != 1 || got.Failures[0]["kind"] != "unavailable" || got.Failures[0]["stage"] != "rank" || got.Failures[0]["file"] != "a.go" || got.Failures[0]["error"] != "down" {
+		t.Errorf("failures = %v", got.Failures)
+	}
 }
 
 func TestValidateProviderConfig_ClaudeRequiresEmbeddingProvider(t *testing.T) {

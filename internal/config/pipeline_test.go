@@ -156,6 +156,29 @@ func TestLoadConfig_PipelineMergeKeys(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_PipelineOnError(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"unset", "rank:\n      top_k: 2", ""},
+		{"skip", "rank:\n      on_error: skip", OnErrorSkip},
+		{"fail", "rank:\n      on_error: fail", OnErrorFail},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := loadFromYAML(t, "analysis:\n  pipeline:\n    "+tt.yaml+"\n")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Analysis.Pipeline.Rank.OnError; got != tt.want {
+				t.Errorf("OnError = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_PipelineInvalid(t *testing.T) {
 	tests := []struct {
 		name string
@@ -164,7 +187,10 @@ func TestLoadConfig_PipelineInvalid(t *testing.T) {
 	}{
 		{"unknown scorer", "rank:\n      scorer: jev", []string{"analysis.pipeline.rank.scorer", `"jev"`, "cosine"}},
 		{"unrecognized stage", "pre_judge:\n      scorer: cosine", []string{"analysis.pipeline", `"pre_judge"`}},
-		{"unrecognized stage key", "rerank:\n      on_error: skip", []string{"analysis.pipeline.rerank", `"on_error"`}},
+		{"unrecognized stage key", "rerank:\n      retries: 2", []string{"analysis.pipeline.rerank", `"retries"`}},
+		{"unknown on_error", "rank:\n      on_error: warn", []string{"analysis.pipeline.rank.on_error", `"warn"`, "skip, fail"}},
+		{"non-string on_error", "rerank:\n      on_error: [skip]", []string{"analysis.pipeline.rerank.on_error", "skip, fail"}},
+		{"null on_error", "rank:\n      on_error:", []string{"analysis.pipeline.rank.on_error", "skip, fail"}},
 		{"non-numeric threshold", "rank:\n      threshold: high", []string{"analysis.pipeline.rank.threshold", "number"}},
 		{"threshold above range", "rerank:\n      threshold: 1.5", []string{"analysis.pipeline.rerank.threshold", "1.5", "between 0 and 1"}},
 		{"threshold below range", "rank:\n      threshold: -0.1", []string{"analysis.pipeline.rank.threshold", "-0.1"}},

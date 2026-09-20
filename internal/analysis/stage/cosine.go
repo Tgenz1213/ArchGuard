@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"math"
 
 	"github.com/tgenz1213/archguard/internal/index"
@@ -18,6 +19,9 @@ type CosineRanker struct {
 }
 
 func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]float64, error) {
+	if c.Embed == nil {
+		return nil, &Error{Action: "generating embedding", Kind: KindPreconditionNotMet, Err: errors.New("no embedding provider configured")}
+	}
 	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(), llm.EmbeddingTaskQuery)
 	if err != nil {
 		return nil, &Error{Action: "generating embedding", Err: err}
@@ -54,6 +58,7 @@ func adrKey(adr *index.ADR) string {
 
 func NewCosineStage(store index.VectorStore, embed llm.Embedder, threshold float64, topK int) Stage {
 	return Stage{
+		Name:    "rank",
 		Scorer:  &CosineRanker{Store: store, Embed: embed, Threshold: threshold},
 		Min:     ADRThreshold{Global: threshold},
 		MaxKeep: topK,

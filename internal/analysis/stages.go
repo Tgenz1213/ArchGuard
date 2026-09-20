@@ -40,7 +40,11 @@ func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorSto
 			topK = *sc.TopK
 		}
 	}
-	return stage.NewCosineStage(store, embed, threshold, topK)
+	st := stage.NewCosineStage(store, embed, threshold, topK)
+	if sc != nil {
+		st.FailOnError = sc.OnError == config.OnErrorFail
+	}
+	return st
 }
 
 func rerankStage(sc *config.StageConfig, store index.VectorStore, embed llm.Embedder, warnings io.Writer) stage.Stage {
@@ -57,5 +61,8 @@ func rerankStage(sc *config.StageConfig, store index.VectorStore, embed llm.Embe
 	} else {
 		_, _ = fmt.Fprintf(warnings, "Warning: analysis.pipeline.rerank.top_k not set, defaulting to %d\n", rerankDefaultTopK)
 	}
-	return stage.NewCosineStage(store, embed, threshold, topK)
+	st := stage.NewCosineStage(store, embed, threshold, topK)
+	st.Name = "rerank"
+	st.FailOnError = sc.OnError == config.OnErrorFail
+	return st
 }
