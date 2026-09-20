@@ -641,6 +641,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
 	engine.EmbedProvider = embedProvider
+	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, human)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = *updateBaseline
 	engine.BaselineReason = *baselineReason

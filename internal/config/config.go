@@ -60,6 +60,13 @@ type Analysis struct {
 	Pipeline            *Pipeline         `yaml:"pipeline"`
 }
 
+func (a Analysis) RelevantADRLimit() int {
+	if a.MaxRelevantADRs <= 0 {
+		return 3
+	}
+	return a.MaxRelevantADRs
+}
+
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
