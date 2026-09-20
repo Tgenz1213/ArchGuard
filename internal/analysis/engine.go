@@ -40,6 +40,7 @@ type Engine struct {
 	JSONOutput          bool
 	Writer              io.Writer
 	CollectedViolations []Violation
+	CollectedStages     []stage.Stats
 	StageFailures       []StageFailure
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
@@ -142,6 +143,8 @@ func (e *Engine) Run(ctx context.Context) error {
 		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
 
+	telemetry := stage.NewTelemetry(stages)
+
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 
@@ -205,8 +208,8 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
-			for _, st := range stages {
-				hits, err = st.Apply(ctx, query, debug, hits)
+			for i, st := range stages {
+				hits, err = telemetry.Apply(ctx, i, query, debug, hits)
 				if err != nil {
 					mu.Lock()
 					if st.FailOnError {
@@ -419,6 +422,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			collectedViolations = []Violation{}
 		}
 		e.CollectedViolations = collectedViolations
+		e.CollectedStages = telemetry.Stats()
 	}
 
 	if e.UpdateBaseline {

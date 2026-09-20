@@ -671,7 +671,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	if jsonOutput {
-		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.StageFailures); err != nil {
+		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
 			return ExitError, fmt.Errorf("failed to write json report: %v", err)
 		}
 	}
@@ -724,16 +724,20 @@ func newIndexFlagSet() *flag.FlagSet {
 type checkReport struct {
 	Violations []analysis.Violation    `json:"violations"`
 	Count      int                     `json:"count"`
+	Stages     []stage.Stats           `json:"stages"`
 	Failures   []analysis.StageFailure `json:"failures,omitempty"`
 }
 
-func writeCheckReport(w io.Writer, violations []analysis.Violation, failures []analysis.StageFailure) error {
+func writeCheckReport(w io.Writer, violations []analysis.Violation, stages []stage.Stats, failures []analysis.StageFailure) error {
 	if violations == nil {
 		violations = []analysis.Violation{}
 	}
+	if stages == nil {
+		stages = []stage.Stats{}
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(checkReport{Violations: violations, Count: len(violations), Failures: failures})
+	return enc.Encode(checkReport{Violations: violations, Count: len(violations), Stages: stages, Failures: failures})
 }
 
 // A precondition failure outranks an unavailable dependency when a run has both.
