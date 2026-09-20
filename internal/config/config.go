@@ -13,7 +13,7 @@ type Config struct {
 	LLM         LLMConfig   `yaml:"llm"`
 	VectorStore VectorStore `yaml:"vector_store"`
 	Analysis    Analysis    `yaml:"analysis"`
-	IndexFile   string      `yaml:"index_file"` // Optional, defaults to .archguard/index.json
+	IndexFile   string      `yaml:"index_file"`
 }
 
 type LLMConfig struct {
@@ -43,24 +43,28 @@ type Confluence struct {
 	Domain   string `yaml:"domain"` // e.g., "mycompany.atlassian.net"
 	SpaceID  string `yaml:"space_id"`
 	Username string `yaml:"username"`
-	Token    string `yaml:"token"` // API token
+	Token    string `yaml:"token"`
 }
 
 type Analysis struct {
-	ADRPath          string   `yaml:"adr_path"`
-	AcceptedStatuses []string `yaml:"accepted_statuses"`
-	ExcludePatterns  []string `yaml:"exclude_patterns"`
-	MaxConcurrency   int      `yaml:"max_concurrency"`
-	// MaxRelevantADRs caps how many ADRs Engine.Run considers per file
-	// (topK for Store.Search/SearchWithDebugInfo). <= 0 falls back to 3.
-	MaxRelevantADRs int        `yaml:"max_relevant_adrs"`
-	Confluence      Confluence `yaml:"confluence"`
-	// ADRIDPattern, when set, is a regexp applied to an ADR's filename to derive
-	// its ID, overriding the default first-hyphen-split. See docs/arch/0012.
+	ADRPath          string     `yaml:"adr_path"`
+	AcceptedStatuses []string   `yaml:"accepted_statuses"`
+	ExcludePatterns  []string   `yaml:"exclude_patterns"`
+	MaxConcurrency   int        `yaml:"max_concurrency"`
+	MaxRelevantADRs  int        `yaml:"max_relevant_adrs"`
+	Confluence       Confluence `yaml:"confluence"`
+	// Regexp applied to an ADR filename to derive its ID; see docs/arch/0012.
 	ADRIDPattern string `yaml:"adr_id_pattern"`
-	// FrontmatterMappings remaps a canonical frontmatter field name to the
-	// YAML key an existing ADR corpus actually uses. See docs/arch/0021.
+	// Canonical field name -> the YAML key the corpus uses; see docs/arch/0021.
 	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
+	Pipeline            *Pipeline         `yaml:"pipeline"`
+}
+
+func (a Analysis) RelevantADRLimit() int {
+	if a.MaxRelevantADRs <= 0 {
+		return 3
+	}
+	return a.MaxRelevantADRs
 }
 
 func LoadConfig(path string) (*Config, error) {

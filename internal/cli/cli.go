@@ -39,14 +39,12 @@ const (
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
 
-// ProviderFactories are test injection points for Execute (zero value in
-// production).
+// Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
 	Chat  func(*config.Config) llm.Provider
 	Embed func(*config.Config) llm.Provider
 }
 
-// Execute parses arguments and runs the requested command.
 func Execute(factories ProviderFactories) (ExitCode, error) {
 	if isTopLevelHelpRequest(os.Args) {
 		printUsage()
@@ -63,10 +61,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		return ExitSuccess, nil
 	}
 
-	// --format json must be the only thing on stdout, computed once here
-	// (before checkFlags.Parse runs inside runCheck) since it also gates the
-	// startup banner and buildProvider's missing-API-key warnings below,
-	// both printed before runCheck's own format handling exists.
+	// Decided before checkFlags.Parse so the banner and provider warnings stay off stdout in JSON mode.
 	jsonOutput := checkWantsJSON(os.Args)
 	if !jsonOutput {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
@@ -176,8 +171,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 }
 
-// compileADRIDPattern compiles once at startup so a bad regex fails fast
-// (ExitConfig) instead of surfacing per-file later.
+// Compiled at startup so a bad regex fails as ExitConfig, not per file.
 func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 	if cfg.Analysis.ADRIDPattern == "" {
 		return nil, nil
@@ -189,8 +183,7 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-// validateFrontmatterMappings fails fast (ExitConfig) on a typo'd canonical
-// field name or a source-key collision, instead of silently misreading ADRs.
+// Fails fast on a typo'd field or a source-key collision instead of silently misreading ADRs.
 func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) {
 	mappings := cfg.Analysis.FrontmatterMappings
 	if len(mappings) == 0 {
@@ -223,21 +216,12 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 	return mappings, nil
 }
 
-// Must run unconditionally, not just when cwd != repoRoot -- a Windows
-// backslash-style arg typed from the repo root needs this too (see #80).
-// valueFlagsBySubcommand lists, per subcommand, flags that consume a
-// following argument as their value rather than being boolean switches.
-// normalizePositionalArgPaths must skip that following argument instead of
-// rewriting it as a file path.
+// Flags that consume the next argument, which must not be rewritten as a path.
 var valueFlagsBySubcommand = map[string]map[string]bool{
 	"check": {"baseline-reason": true, "format": true},
 }
 
-// checkWantsJSON reports whether args requests `check --format json` without
-// `--update-baseline` (which ignores --format, see runCheck). It mirrors
-// normalizePositionalArgPaths' value-flag handling closely enough to read
-// --format's value before checkFlags.Parse runs, so Execute can decide
-// whether to suppress the startup banner (see docs/arch/0014-json-check-output.md).
+// Mirrors normalizePositionalArgPaths' flag handling to read --format before checkFlags.Parse runs (docs/arch/0014).
 func checkWantsJSON(args []string) bool {
 	if len(args) < 2 || args[1] != "check" {
 		return false
@@ -248,7 +232,7 @@ func checkWantsJSON(args []string) bool {
 	for i := 2; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "-") {
-			break // flag.Package stops parsing at the first positional arg
+			break // flag stops parsing at the first positional arg
 		}
 		name := strings.TrimLeft(arg, "-")
 		if flagName, value, ok := strings.Cut(name, "="); ok {
@@ -256,8 +240,7 @@ func checkWantsJSON(args []string) bool {
 			case "format":
 				format = value
 			case "update-baseline":
-				// bool flags accept -flag=<value>; anything but an explicit
-				// falsy value counts as set, matching flag.Bool's own parsing.
+				// Matches flag.Bool: only an explicit falsy value leaves it unset.
 				updateBaseline = value != "false" && value != "0"
 			}
 			continue
@@ -280,6 +263,7 @@ func checkWantsJSON(args []string) bool {
 	return format == "json" && !updateBaseline
 }
 
+// Runs unconditionally: a backslash-style arg typed from the repo root needs it too (#80).
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	var subcommand string
 	if len(args) > 1 {
@@ -310,8 +294,7 @@ func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	}
 }
 
-// validateProviderConfig checks provider-related config invariants the
-// YAML schema itself can't express (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
+// Invariants the YAML schema can't express (docs/arch/0004).
 func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
 		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
@@ -325,8 +308,7 @@ func validateProviderConfig(cfg *config.Config) error {
 	return nil
 }
 
-// resolveEmbedProvider picks the embed provider's name and API key.
-// apiKey is embedEnvKey whenever reuse is false -- never chatAPIKey.
+// apiKey is embedEnvKey whenever reuse is false, never chatAPIKey.
 func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (name, apiKey string, reuse bool) {
 	name = cfg.VectorStore.Provider
 	if name == "" {
@@ -338,8 +320,7 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 	return name, embedEnvKey, false
 }
 
-// resolveEmbedProviderInstance is resolveEmbedProvider's mock-injection
-// counterpart; errors instead of silently reusing chatProvider when needed.
+// Mock-injection counterpart of resolveEmbedProvider; errors rather than silently reusing chatProvider.
 func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider, embedFactory func(*config.Config) llm.Provider) (llm.Provider, error) {
 	_, _, reuse := resolveEmbedProvider(cfg, "", "")
 	switch {
@@ -352,8 +333,6 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	}
 }
 
-// buildProvider constructs the llm.Provider named by name, using apiKey
-// for providers that need one.
 func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
 	switch name {
 	case "openai":
@@ -383,8 +362,6 @@ func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) 
 	}
 }
 
-// runInit initializes a new ArchGuard project by prompting the user for configuration
-// preferences and creating the necessary directory structure and config files.
 func runInit() error {
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -466,7 +443,6 @@ func runInit() error {
 	return nil
 }
 
-// generateConfig creates the default YAML configuration string based on the provided ADR path.
 func generateConfig(adrPath string) string {
 	return fmt.Sprintf(`version: "1"
 
@@ -497,8 +473,6 @@ analysis:
 `, adrPath)
 }
 
-// ensureGitignore ensures the .archguard/ directory is ignored by git to prevent
-// local caches and indexes from being committed.
 func ensureGitignore() error {
 	const gitignorePath = ".gitignore"
 	const archguardEntry = ".archguard/"
@@ -561,8 +535,6 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-// runCheck executes the architectural drift analysis against a set of files
-// based on the provided flags and ADR index.
 func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
@@ -586,11 +558,9 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	files := checkFlags.Args()
 
-	// --update-baseline ignores --format: its output is a maintenance
-	// summary, not the machine-readable violation report --format targets.
+	// --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.
 	jsonOutput := *format == "json" && !*updateBaseline
-	// human receives progress/info text; stderr in JSON mode keeps stdout
-	// carrying only the JSON document (see docs/arch/0014-json-check-output.md).
+	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
 	human := io.Writer(os.Stdout)
 	if jsonOutput {
 		human = os.Stderr
@@ -642,7 +612,6 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
-		// Reload the index after a successful rebuild to ensure the latest state is in memory.
 		currentHash, _ = store.CalculateHash(validADRs, cfg.VectorStore.Model)
 		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
@@ -672,6 +641,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
 	engine.EmbedProvider = embedProvider
+	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, human)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = *updateBaseline
 	engine.BaselineReason = *baselineReason
@@ -702,9 +672,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 	}
 
-	// Reached only when runErr == nil (no violations), matching --format
-	// text's pre-existing behavior of skipping this summary on drift --
-	// unaffected by jsonOutput, which only changes human's destination.
+	// Reached only without drift, in either format.
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
 		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
@@ -718,8 +686,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	return ExitSuccess, nil
 }
 
-// registerCheckFlags registers check's flags on fs, the single source of
-// truth both runCheck and the --help-only path (newCheckFlagSet) build from.
+// Single source of truth for check's flags, shared with the --help path.
 func registerCheckFlags(fs *flag.FlagSet) (staged, all, debug, ci, updateBaseline *bool, baselineReason, format *string, suggestFixes *bool) {
 	staged = fs.Bool("staged", false, "Scan staged files only")
 	all = fs.Bool("all", false, "Scan all tracked files")
@@ -732,26 +699,21 @@ func registerCheckFlags(fs *flag.FlagSet) (staged, all, debug, ci, updateBaselin
 	return
 }
 
-// newCheckFlagSet builds a check FlagSet for usage printing only (e.g. the
-// early --help path in Execute); its flags are identical to runCheck's.
 func newCheckFlagSet() *flag.FlagSet {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	registerCheckFlags(fs)
 	return fs
 }
 
-// newIndexFlagSet builds an index FlagSet; index has no flags of its own yet.
 func newIndexFlagSet() *flag.FlagSet {
 	return flag.NewFlagSet("index", flag.ContinueOnError)
 }
 
-// checkReport is the --format json document shape for `archguard check`.
 type checkReport struct {
 	Violations []analysis.Violation `json:"violations"`
 	Count      int                  `json:"count"`
 }
 
-// writeCheckReport writes the single JSON document --format json produces.
 func writeCheckReport(w io.Writer, violations []analysis.Violation) error {
 	if violations == nil {
 		violations = []analysis.Violation{}
@@ -761,8 +723,6 @@ func writeCheckReport(w io.Writer, violations []analysis.Violation) error {
 	return enc.Encode(checkReport{Violations: violations, Count: len(violations)})
 }
 
-// resolveContentProvider picks the ContentProvider for a check run.
-// updateBaseline forces a full-repo scan, overriding any other flag.
 func resolveContentProvider(human io.Writer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
 	if updateBaseline {
 		return &analysis.AllProvider{}
@@ -799,8 +759,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 	return ExitError
 }
 
-// Separate from runIndex so runCheck's internal auto-rebuild call to
-// runIndex never goes through CLI-arg/help parsing.
+// Separate from runIndex so runCheck's auto-rebuild skips CLI-arg/help parsing.
 func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
 	indexFlags := newIndexFlagSet()
 	var flagParseOutput bytes.Buffer
@@ -820,8 +779,6 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Stdout)
 }
 
-// printIndexUsage mirrors printCheckUsage; index has no flags of its own yet,
-// so the Flags section only prints once one is added.
 func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 	_, _ = fmt.Fprintln(w, "Usage: archguard index")
 	_, _ = fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
@@ -836,7 +793,6 @@ func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 	})
 }
 
-// runIndex scans the ADR directory and builds a vector index for subsequent drift analysis.
 func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, w io.Writer) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg, w)
 	if err != nil {
@@ -884,7 +840,6 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	return ExitSuccess, nil
 }
 
-// printIndexSummary prints what archguard index found: counts, exclusions, and structural problems.
 func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
 	_, _ = fmt.Fprintf(w, "ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
 
@@ -941,15 +896,12 @@ func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
 	})
 }
 
-// Subcommand help (archguard check --help) is flag.FlagSet's job, not this.
+// Subcommand help is flag.FlagSet's job, not this.
 func isTopLevelHelpRequest(args []string) bool {
 	return len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
 }
 
-// subcommandHelpRequest reports whether args asks for check/index's own
-// --help/-h, so Execute can print usage before repo/config setup runs.
-// Delegates to the real FlagSet rather than scanning prefixes, so a
-// value-taking flag like --format ahead of --help is consumed correctly.
+// Delegates to the real FlagSet so a value flag like --format ahead of --help is consumed correctly.
 func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
 	if len(args) < 2 {
 		return "", false

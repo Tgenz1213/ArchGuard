@@ -127,14 +127,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		concurrency = 5
 	}
 
-	topKADRs := e.Config.Analysis.MaxRelevantADRs
-	if topKADRs <= 0 {
-		topKADRs = 3
-	}
-
 	stages := e.Stages
 	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, topKADRs)}
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
 
 	var g errgroup.Group
