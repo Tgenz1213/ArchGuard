@@ -124,6 +124,7 @@ analysis:
       scorer: "cosine"
       threshold: 0.75 # Minimum score; defaults to vector_store.similarity_threshold
       top_k: 3 # Maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
+      on_error: "skip" # "skip" (default) skips the file when the stage fails; "fail" fails the check
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -159,6 +160,7 @@ For each changed file, ArchGuard picks which of the ADRs whose `scope` matches i
 - `scorer`: how candidates are scored. `cosine` (embedding similarity) is the only scorer today, and it is the default when omitted.
 - `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped.
 - `top_k`: the maximum number of candidates kept, a positive integer.
+- `on_error`: what happens when the stage fails, `skip` or `fail` (see [When a stage fails](#when-a-stage-fails)). Unset behaves as `skip`.
 
 | | `rank` | `rerank` |
 |---|---|---|
@@ -182,7 +184,27 @@ A `rerank` configured without a `rank` runs after the default `rank`. An ADR's o
 
 Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. It becomes useful once other scorers can fill a stage.
 
-An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-range `threshold`, or a non-positive `top_k` stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, or an `on_error` other than `skip` or `fail` stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+
+#### When a stage fails
+
+By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, counts it in the skipped-files summary, and the run still exits `0`. Set `on_error: fail` on a stage to fail the check instead:
+
+```yaml
+analysis:
+  pipeline:
+    rank:
+      on_error: fail
+```
+
+Under `fail`, a failed stage stops that file's remaining stages, other files still run, and every failure is printed with its stage, file and error. The run then exits non-zero:
+
+| Failure kind | Meaning | Exit code |
+|---|---|---|
+| `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
+| `precondition_not_met` | The stage could not run at all, such as no embedding provider being configured | `7` |
+
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7` without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -277,6 +299,10 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected.
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
+- **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
+- **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
+
+Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file and the run exits `0` (see [Ranking Stages](#ranking-stages)).
 
 ### Machine-Readable Output
 
@@ -298,6 +324,8 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   "count": 1
 }
 ```
+
+When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 
