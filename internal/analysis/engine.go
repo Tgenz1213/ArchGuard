@@ -117,8 +117,17 @@ func (e *Engine) writer() io.Writer {
 }
 
 func (e *Engine) Run(ctx context.Context) error {
+	stages := e.Stages
+	if len(stages) == 0 {
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+	}
+	telemetry := stage.NewTelemetry(stages)
+
 	files, err := e.Content.GetFiles()
 	if err != nil {
+		if e.JSONOutput {
+			e.CollectedStages = telemetry.Stats()
+		}
 		return err
 	}
 
@@ -137,13 +146,6 @@ func (e *Engine) Run(ctx context.Context) error {
 	if concurrency <= 0 {
 		concurrency = 5
 	}
-
-	stages := e.Stages
-	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
-	}
-
-	telemetry := stage.NewTelemetry(stages)
 
 	var g errgroup.Group
 	g.SetLimit(concurrency)

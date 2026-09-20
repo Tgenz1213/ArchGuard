@@ -41,6 +41,24 @@ func TestEngine_ListsEveryStageEvenWhenThereAreNoFiles(t *testing.T) {
 	}
 }
 
+type failingFilesProvider struct{ MockContentProvider }
+
+func (failingFilesProvider) GetFiles() ([]string, error) { return nil, errors.New("git failed") }
+
+func TestEngine_ListsEveryStageWhenFileDiscoveryFails(t *testing.T) {
+	h := newScorerHarness(t, nil, "a.go", "package a")
+	h.engine.Content = &failingFilesProvider{}
+	h.engine.JSONOutput = true
+	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: scoresByID(nil, nil)}, {Name: "rerank", Scorer: scoresByID(nil, nil)}}
+
+	if err := h.engine.Run(context.Background()); err == nil {
+		t.Fatal("expected the file discovery error")
+	}
+	if got := h.engine.CollectedStages; len(got) != 2 || got[0].Name != "rank" || got[1].Name != "rerank" {
+		t.Fatalf("stages = %+v, want rank and rerank listed with zeros", got)
+	}
+}
+
 func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
 	h.engine.JSONOutput = true
