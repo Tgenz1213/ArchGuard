@@ -4,15 +4,19 @@ import (
 	"math"
 )
 
-// SearchResult represents an ADR matched during a vector search with its similarity score.
 type SearchResult struct {
 	ADR   *ADR
 	Score float64
 }
 
-// scopeMatchedCandidates scores every ADR against queryEmbedding and keeps
-// those whose scope (if any) matches filePath -- the shared starting point
-// for Search, SearchRejected, SearchTruncated, and SearchWithDebugInfo.
+func (s *LocalStore) ScopedADRs(filePath string) ([]SearchResult, error) {
+	candidates := make([]SearchResult, 0, len(s.ADRs))
+	for i := range s.ADRs {
+		candidates = append(candidates, SearchResult{ADR: &s.ADRs[i]})
+	}
+	return filterByScope(candidates, filePath), nil
+}
+
 func (s *LocalStore) scopeMatchedCandidates(queryEmbedding []float32, filePath string) []SearchResult {
 	var candidates []SearchResult
 
@@ -26,34 +30,24 @@ func (s *LocalStore) scopeMatchedCandidates(queryEmbedding []float32, filePath s
 	return filterByScope(candidates, filePath)
 }
 
-// Search returns up to topK ADRs whose scope (if any) matches filePath and
-// whose similarity is at least threshold, before the topK cut.
 func (s *LocalStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath)
 	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
 
-// SearchRejected returns up to topK scope-matched ADRs that scored below
-// threshold, ranked by descending similarity -- for --debug diagnostics only.
 func (s *LocalStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath)
 	candidates = filterBelowThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
 
-// SearchTruncated returns scope-matched, threshold-passing candidates that
-// rankAndLimit cut purely for exceeding topK -- Search's other complement,
-// alongside SearchRejected, for --debug diagnostics only.
 func (s *LocalStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath)
 	candidates = filterByThreshold(candidates, threshold)
 	return truncatedByTopK(candidates, topK)
 }
 
-// SearchWithDebugInfo derives hits, rejected, and truncated from one
-// scope-matched candidate set, so all three are guaranteed consistent with
-// each other -- see the VectorStore interface doc for why that matters.
 func (s *LocalStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult) {
 	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath)
 

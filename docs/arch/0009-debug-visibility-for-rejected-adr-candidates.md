@@ -16,7 +16,7 @@ scope: "internal/**"
 
 `LocalStore.SearchRejected` is a straightforward second pass over the in-memory ADRs: enumerate, `filterByScope`, `filterBelowThreshold`, `rankAndLimit` -- identical shape to `LocalStore.Search`. `PgStore.SearchRejected` reuses the same `SearchQuery` `Search` does (already threshold-less as of #140/#141's fix, bounded by `MaxSearchCandidates`), then applies `filterByScope`, `filterBelowThreshold`, `rankAndLimit` in Go. The row-scanning loop shared by both queries was factored into `scanSearchResults` to avoid duplicating it between `Search` and `SearchRejected`.
 
-`Engine.Run` calls `SearchRejected` only inside `if e.Debug`, immediately after the existing `Search` call, logging each rejected candidate's title and score. Because the call site is debug-gated, non-debug behavior and cost are unchanged by construction -- no new query runs, nothing new is printed, outside `--debug`.
+Under `--debug` the cosine stage logs each rejected candidate's title and score. Because the extra work is debug-gated, non-debug behavior and cost are unchanged by construction -- no new query runs, nothing new is printed, outside `--debug`.
 
 An alternative considered: have `Search` itself always compute and return rejected candidates (e.g. as a second return value), letting `Engine` decide whether to print them. This was rejected because it would mean `LocalStore.Search` and `PgStore.Search` do strictly more work on every call, including the non-debug path that is the overwhelming majority of real usage -- violating the "non-debug performance unchanged" requirement. A separate, debug-only method keeps the hot path untouched.
 
@@ -47,6 +47,6 @@ distinct from the existing `"  Below threshold: ..."` line. Non-debug
 behavior and cost are unaffected, same as the original decision above.
 `SearchTruncated`'s result is intentionally uncapped (unlike `SearchRejected`,
 which still ends in `rankAndLimit`) -- every qualifying ADR beyond topK is
-reported, not just the closest few. As of `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`,
-`Engine.Run` no longer calls `SearchRejected`/`SearchTruncated` directly in
-`--debug` mode -- see that ADR for why.
+reported, not just the closest few. In `--debug` mode the diagnostics come from one `SearchWithDebugInfo` query, not
+`SearchRejected`/`SearchTruncated` -- see
+`docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`.

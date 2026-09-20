@@ -11,6 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -19,55 +20,30 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Engine coordinates the analysis of source files against ADRs using LLM providers.
 type Engine struct {
-	Config *config.Config
-	Store  index.VectorStore
-	// Provider handles Chat and CountTokens. It also handles CreateEmbedding
-	// unless EmbedProvider is set.
+	Config   *config.Config
+	Store    index.VectorStore
 	Provider llm.Provider
-	// EmbedProvider, if set, handles CreateEmbedding instead of Provider.
-	// See docs/arch/0004-decoupled-chat-and-embedding-providers.md.
-	EmbedProvider llm.Provider
-	Content       ContentProvider
-	Debug         bool
-	CI            bool // CI-safe mode (Warn-Open behavior)
-	Cache         *cache.Cache
-	// Baseline, if set, suppresses violations it already contains. nil means unused.
-	Baseline *baseline.Baseline
-	// UpdateBaseline, when true, bypasses Baseline and collects a fresh
-	// snapshot into CollectedBaseline instead.
-	UpdateBaseline bool
-	// BaselineReason, when non-empty, is recorded as the Reason on every
-	// entry collected this run, overriding any reason carried forward from
-	// a matching (ADR ID, file) entry in the previous Baseline.
-	BaselineReason string
-	// CollectedBaseline is populated by Run when UpdateBaseline is true; cli.go saves it.
-	CollectedBaseline *baseline.Baseline
-	// SkippedFiles is populated by Run in every mode: the count of files
-	// skipped due to per-file errors (fetchContext/CreateEmbedding failures).
-	SkippedFiles int
-	// SkippedADRChecks is populated by Run in every mode: the count of
-	// per-ADR checks skipped due to llm.AnalyzeDrift failures.
-	SkippedADRChecks int
-	// JSONOutput, when true, routes Info/Log and per-file progress text to
-	// Writer (cli.go points it at stderr) instead of stdout, and populates
-	// CollectedViolations so the caller can emit a JSON report on stdout.
-	JSONOutput bool
-	// Writer receives human-readable Info/Log/progress output. Defaults to
-	// os.Stdout when nil.
-	Writer io.Writer
-	// CollectedViolations is populated by Run when JSONOutput is true: the
-	// same new (non-baselined) violations counted in DriftDetectedError.Count.
+	// Claude has no embeddings API; see docs/arch/0004-decoupled-chat-and-embedding-providers.md.
+	EmbedProvider       llm.Embedder
+	Content             ContentProvider
+	Debug               bool
+	CI                  bool
+	Cache               *cache.Cache
+	Baseline            *baseline.Baseline
+	UpdateBaseline      bool
+	BaselineReason      string
+	CollectedBaseline   *baseline.Baseline
+	SkippedFiles        int
+	SkippedADRChecks    int
+	JSONOutput          bool
+	Writer              io.Writer
 	CollectedViolations []Violation
-	// SuggestFixes, when true, makes a second LLM call (llm.SuggestRemediation)
-	// for each newly-reported violation to produce a short, unverified
-	// remediation pointer. Off by default: it doubles LLM calls per violation.
+	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
+	Stages       []stage.Stage
 }
 
-// Violation is the structured, machine-readable form of a single reported
-// violation, used for --format json.
 type Violation struct {
 	File       string `json:"file"`
 	ADRID      string `json:"adr_id"`
@@ -78,10 +54,8 @@ type Violation struct {
 	Suggestion string `json:"suggestion,omitempty"`
 }
 
-// ErrDriftDetected identifies analysis results that contain architectural violations.
 var ErrDriftDetected = errors.New("architectural drift detected")
 
-// DriftDetectedError reports the number of architectural violations found.
 type DriftDetectedError struct {
 	Count int
 }
@@ -94,7 +68,6 @@ func (e *DriftDetectedError) Is(target error) bool {
 	return target == ErrDriftDetected
 }
 
-// NewEngine initializes a new analysis engine with a local cache.
 func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provider, content ContentProvider, debug bool, ci bool) *Engine {
 	c, _ := cache.NewCache(".")
 
@@ -109,27 +82,23 @@ func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provide
 	}
 }
 
-// embedProvider returns EmbedProvider if set, otherwise Provider.
-func (e *Engine) embedProvider() llm.Provider {
+func (e *Engine) embedProvider() llm.Embedder {
 	if e.EmbedProvider != nil {
 		return e.EmbedProvider
 	}
 	return e.Provider
 }
 
-// Log prints debug information if the engine is in debug mode.
 func (e *Engine) Log(format string, args ...interface{}) {
 	if e.Debug {
 		_, _ = fmt.Fprintf(e.writer(), "[DEBUG] "+format+"\n", args...)
 	}
 }
 
-// Info prints standard informational messages.
 func (e *Engine) Info(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(e.writer(), format+"\n", args...)
 }
 
-// writer returns Writer, defaulting to os.Stdout.
 func (e *Engine) writer() io.Writer {
 	if e.Writer != nil {
 		return e.Writer
@@ -137,7 +106,6 @@ func (e *Engine) writer() io.Writer {
 	return os.Stdout
 }
 
-// Run executes the analysis pipeline across all files provided by the ContentProvider.
 func (e *Engine) Run(ctx context.Context) error {
 	files, err := e.Content.GetFiles()
 	if err != nil {
@@ -164,6 +132,11 @@ func (e *Engine) Run(ctx context.Context) error {
 		topKADRs = 3
 	}
 
+	stages := e.Stages
+	if len(stages) == 0 {
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, topKADRs)}
+	}
+
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 
@@ -179,7 +152,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 		file := file
 		g.Go(func() error {
-			// buffer output to ensure atomic printing per file
+			// Buffered so each file's output prints atomically.
 			var sb strings.Builder
 
 			if e.Debug {
@@ -212,46 +185,31 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
 			}
 
-			// Same reasoning as fetchContext above: a diff only covers the
-			// uncommitted hunk, not the whole file --update-baseline needs.
-			diffForEmbedding := content
-			if !e.UpdateBaseline {
-				if diff, err := e.Content.GetDiff(file); err == nil && diff != "" {
-					diffForEmbedding = stripDiffMetadata(diff)
-				}
+			debug := stage.NoDebug
+			if e.Debug {
+				debug = stage.NewDebug(&sb)
 			}
 
-			if len(diffForEmbedding) > 6000 {
-				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
-			}
-
-			embedding, err := e.embedProvider().CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
+			hits, err := candidateSource{store: e.Store}.For(file, content, debug)
 			if err != nil {
-				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
+				fmt.Fprintf(&sb, "Error loading candidate ADRs for %s: %v\n", file, err)
 				mu.Lock()
 				_, _ = fmt.Fprint(e.writer(), sb.String())
 				skippedFiles++
 				mu.Unlock()
 				return nil
 			}
-
-			threshold := e.Config.VectorStore.SimilarityThreshold
-
-			var hits []index.SearchResult
-			if e.Debug {
-				var rejected, truncated []index.SearchResult
-				hits, rejected, truncated = e.Store.SearchWithDebugInfo(embedding, threshold, topKADRs, file)
-
-				for _, r := range rejected {
-					effective := index.EffectiveThreshold(r.ADR, threshold)
-					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, effective)
+			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
+			for _, st := range stages {
+				hits, err = st.Apply(ctx, query, debug, hits)
+				if err != nil {
+					sb.WriteString(scoringErrorMessage(file, err))
+					mu.Lock()
+					_, _ = fmt.Fprint(e.writer(), sb.String())
+					skippedFiles++
+					mu.Unlock()
+					return nil
 				}
-				totalQualifying := len(hits) + len(truncated)
-				for i, r := range truncated {
-					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, len(hits)+i+1, totalQualifying)
-				}
-			} else {
-				hits = e.Store.Search(embedding, threshold, topKADRs, file)
 			}
 
 			if len(hits) == 0 {
@@ -274,18 +232,6 @@ func (e *Engine) Run(ctx context.Context) error {
 			var localBaselineEntries []baseline.Entry
 			var localViolationRecords []Violation
 			for _, hit := range hits {
-				// Check for ignore directive (optimization: only check header)
-				header := content
-				if len(header) > 2000 {
-					header = truncateRuneSafe(header, 2000)
-				}
-				if strings.Contains(header, fmt.Sprintf("archguard-ignore: %s", hit.ADR.ID)) {
-					if e.Debug {
-						fmt.Fprintf(&sb, "  Skipping ADR %s (Suppressed)\n", hit.ADR.Title)
-					}
-					continue
-				}
-
 				if e.Debug {
 					fmt.Fprintf(&sb, "  Checking against ADR: %s (%.2f)\n", hit.ADR.Title, hit.Score)
 				}
@@ -307,8 +253,6 @@ func (e *Engine) Run(ctx context.Context) error {
 				if e.Cache != nil {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
 					if err == nil && found {
-						// We can't log debug easily to sb properly unless we implement a custom logger on Engine
-						// but skipping for now or just append
 						if e.Debug {
 							fmt.Fprintf(&sb, "[DEBUG]   Cache Hit for %s\n", hit.ADR.Title)
 						}
@@ -493,8 +437,7 @@ func (e *Engine) shouldExclude(path string) bool {
 	return false
 }
 
-// fetchContext returns the LLM content (maybe a diff/excerpt) alongside
-// the untruncated fullContent, so callers needing both don't re-read the file.
+// fetchContext also returns the untruncated content so callers needing both don't re-read the file.
 func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
 	maxTokens := e.Config.LLM.MaxTokens
 	if maxTokens == 0 {
@@ -530,8 +473,6 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	return truncated, fullContent, "truncated", nil
 }
 
-// truncateToTokenLimit cuts content to at most maxTokens per the
-// provider's own CountTokens, then rolls back to the nearest newline.
 func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, totalTokens, maxTokens int) (string, error) {
 	bytesPerToken := float64(len(content)) / float64(totalTokens)
 	cut := clampRuneBoundary(content, int(float64(maxTokens)*bytesPerToken))
@@ -566,7 +507,6 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 		}
 	}
 
-	// Smart Truncate: roll back to the nearest preceding newline character.
 	if lastNewline := strings.LastIndex(candidate, "\n"); lastNewline != -1 {
 		candidate = candidate[:lastNewline+1]
 	}
@@ -574,8 +514,6 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 	return candidate, nil
 }
 
-// clampRuneBoundary clamps cut into [0, len(s)] and, if it lands in the
-// middle of a multi-byte UTF-8 rune, backs it up to the start of that rune.
 func clampRuneBoundary(s string, cut int) int {
 	if cut < 0 {
 		return 0
@@ -589,14 +527,10 @@ func clampRuneBoundary(s string, cut int) int {
 	return cut
 }
 
-// truncateRuneSafe cuts s to at most limit bytes without splitting a
-// multi-byte UTF-8 rune.
 func truncateRuneSafe(s string, limit int) string {
 	return s[:clampRuneBoundary(s, limit)]
 }
 
-// rollBackToNewline trims s back to end at its last newline character, if
-// any, so truncated content doesn't end mid-line.
 func rollBackToNewline(s string) string {
 	if lastNewline := strings.LastIndex(s, "\n"); lastNewline != -1 {
 		return s[:lastNewline+1]
@@ -604,8 +538,7 @@ func rollBackToNewline(s string) string {
 	return s
 }
 
-// stripDiffMetadata strips unified-diff markup, leaving only code content,
-// so an embedding compares code against ADR prose, not patch syntax.
+// Patch syntax would skew the embedding away from code-vs-ADR-prose similarity.
 func stripDiffMetadata(s string) string {
 	if !isUnifiedDiff(s) {
 		return s
@@ -619,12 +552,11 @@ func stripDiffMetadata(s string) string {
 		case strings.HasPrefix(line, "@@"):
 			inHunk = true
 		case !inHunk:
-			// preamble line (diff --git/index/---/+++), dropped
 		case strings.HasPrefix(line, "diff --git "):
 			// a second file's preamble in (unsupported) multi-file input
 			inHunk = false
 		case strings.HasPrefix(line, "\\"):
-			// "\ No newline at end of file" marker, dropped
+			// git's "\ No newline at end of file" marker
 		default:
 			if line != "" {
 				out = append(out, line[1:])
@@ -636,12 +568,9 @@ func stripDiffMetadata(s string) string {
 	return strings.Join(out, "\n")
 }
 
-// hunkHeaderPattern matches a real unified diff hunk header, e.g.
-// "@@ -12,7 +12,8 @@" (optionally followed by trailing function context).
 var hunkHeaderPattern = regexp.MustCompile(`(?m)^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@`)
 
-// isUnifiedDiff reports whether s looks like a real diff, not just content
-// that happens to contain an "@@" line (e.g. a doc with an example hunk).
+// Requires a git header too, so a doc containing an example "@@" hunk isn't mistaken for a diff.
 func isUnifiedDiff(s string) bool {
 	hasGitHeader := strings.Contains("\n"+s, "\ndiff --git ")
 	return hasGitHeader && hunkHeaderPattern.MatchString(s)
@@ -686,4 +615,12 @@ func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool)
 	if v.BaselineReason != "" {
 		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
 	}
+}
+
+func scoringErrorMessage(file string, err error) string {
+	var stageErr *stage.Error
+	if errors.As(err, &stageErr) {
+		return fmt.Sprintf("Error %s for %s: %v\n", stageErr.Action, file, stageErr.Err)
+	}
+	return fmt.Sprintf("Error scoring candidates for %s: %v\n", file, err)
 }
