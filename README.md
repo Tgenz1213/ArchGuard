@@ -113,9 +113,17 @@ vector_store:
 
 analysis:
   adr_path: "./docs/arch"
-  # adr_id_pattern: '^adr-(\d+)-' # Optional: overrides default first-hyphen-split ADR ID extraction
-  # frontmatter_mappings: # Optional: remap canonical frontmatter keys to your corpus's own field names
-  #   scope: "applies_to"
+  adr_id_pattern: '^([^-]+)' # Optional: regex that extracts an ADR's ID from its filename; this one is the default (text before the first hyphen)
+  frontmatter_mappings: # Optional: read a field from a different frontmatter key; each value shown is the default
+    title: "title"
+    status: "status"
+    scope: "scope" # e.g. "applies_to" if your ADRs use that key
+    similarity_threshold: "similarity_threshold"
+  pipeline: # Optional: how candidate ADRs are ranked before the LLM judges them; this rank stage matches the default
+    rank:
+      scorer: "cosine"
+      threshold: 0.75 # Minimum score; defaults to vector_store.similarity_threshold
+      top_k: 3 # Maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -133,6 +141,8 @@ analysis:
   max_concurrency: 5 # Number of files analyzed in parallel
 ```
 
+The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), and [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`).
+
 ### Supported Statuses
 You can filter ADRs by their status (e.g. `["Accepted"]`). If you want ArchGuard to evaluate against *all* ADRs regardless of status, use `["*"]`.
 
@@ -142,13 +152,45 @@ ArchGuard can natively pull your ADRs from Atlassian Confluence using the Conflu
 2. Provide your Confluence `domain` (e.g. `yourcompany.atlassian.net`), the `space_id` where the ADRs live, your `username`, and an API `token`.
 3. ArchGuard will crawl the specified space and evaluate your codebase against all pages matching your `accepted_statuses`.
 
+### Ranking Stages
+
+For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Two stages are available, `rank` then `rerank`, both optional, always run in that order and followed by LLM judgment. Each takes:
+
+- `scorer`: how candidates are scored. `cosine` (embedding similarity) is the only scorer today, and it is the default when omitted.
+- `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped.
+- `top_k`: the maximum number of candidates kept, a positive integer.
+
+| | `rank` | `rerank` |
+|---|---|---|
+| Stage omitted | cosine, using `vector_store.similarity_threshold` and `analysis.max_relevant_adrs` | not run |
+| `threshold` unset | `vector_store.similarity_threshold` | `0`, with a printed warning |
+| `top_k` unset | `analysis.max_relevant_adrs` (3 when unset) | `3`, with a printed warning |
+
+```yaml
+analysis:
+  pipeline:
+    rank:
+      scorer: cosine
+      threshold: 0.75
+      top_k: 5
+    rerank:
+      threshold: 0.8
+      top_k: 2
+```
+
+A `rerank` configured without a `rank` runs after the default `rank`. An ADR's own `similarity_threshold` frontmatter overrides a cosine stage's `threshold` for that ADR, so the stage `threshold` is a default for ADRs that don't set their own, not a hard floor.
+
+Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. It becomes useful once other scorers can fill a stage.
+
+An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-range `threshold`, or a non-positive `top_k` stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+
 ### ADR Format
 
 ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is required.
 
 **Location:** Store your ADRs in the folder specified by `analysis.adr_path` (default `./docs/arch`).
 
-**ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex: capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
+**ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex (for example `adr_id_pattern: '^adr-(\d+)-'`): capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
 
 **Frontmatter Field Mappings:** If your existing ADR corpus uses different frontmatter key names (e.g. MADR-style or your own house convention), set `analysis.frontmatter_mappings` to remap any of the four canonical fields (`title`, `status`, `scope`, `similarity_threshold`) to the YAML key your files actually use:
 
