@@ -21,6 +21,8 @@ func (k Kind) String() string {
 	return "unavailable"
 }
 
+func (k Kind) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
+
 // Error names the action that failed so the engine can report it without knowing which scorer ran.
 type Error struct {
 	Action string

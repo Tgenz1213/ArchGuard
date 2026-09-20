@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -39,6 +40,7 @@ type Engine struct {
 	JSONOutput          bool
 	Writer              io.Writer
 	CollectedViolations []Violation
+	StageFailures       []StageFailure
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
 	Stages       []stage.Stage
@@ -52,6 +54,13 @@ type Violation struct {
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
 	Suggestion string `json:"suggestion,omitempty"`
+}
+
+type StageFailure struct {
+	Stage string     `json:"stage"`
+	File  string     `json:"file"`
+	Kind  stage.Kind `json:"kind"`
+	Error string     `json:"error"`
 }
 
 var ErrDriftDetected = errors.New("architectural drift detected")
@@ -119,6 +128,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		skippedADRChecks    int
 		collectedEntries    []baseline.Entry
 		collectedViolations []Violation
+		stageFailures       []StageFailure
 		mu                  sync.Mutex
 	)
 
@@ -198,10 +208,16 @@ func (e *Engine) Run(ctx context.Context) error {
 			for _, st := range stages {
 				hits, err = st.Apply(ctx, query, debug, hits)
 				if err != nil {
-					sb.WriteString(scoringErrorMessage(file, err))
 					mu.Lock()
+					if st.FailOnError {
+						failure := newStageFailure(st.Name, file, err)
+						sb.WriteString(failureMessage(failure))
+						stageFailures = append(stageFailures, failure)
+					} else {
+						sb.WriteString(scoringErrorMessage(file, err))
+						skippedFiles++
+					}
 					_, _ = fmt.Fprint(e.writer(), sb.String())
-					skippedFiles++
 					mu.Unlock()
 					return nil
 				}
@@ -391,6 +407,13 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	e.SkippedFiles = skippedFiles
 	e.SkippedADRChecks = skippedADRChecks
+	sort.Slice(stageFailures, func(i, j int) bool {
+		if stageFailures[i].File != stageFailures[j].File {
+			return stageFailures[i].File < stageFailures[j].File
+		}
+		return stageFailures[i].Stage < stageFailures[j].Stage
+	})
+	e.StageFailures = stageFailures
 	if e.JSONOutput {
 		if collectedViolations == nil {
 			collectedViolations = []Violation{}
@@ -610,6 +633,19 @@ func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool)
 	if v.BaselineReason != "" {
 		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
 	}
+}
+
+func newStageFailure(name, file string, err error) StageFailure {
+	failure := StageFailure{Stage: name, File: file, Error: err.Error()}
+	var stageErr *stage.Error
+	if errors.As(err, &stageErr) {
+		failure.Kind = stageErr.Kind
+	}
+	return failure
+}
+
+func failureMessage(f StageFailure) string {
+	return fmt.Sprintf("Error: stage %s failed for %s (%s): %s\n", f.Stage, f.File, f.Kind, f.Error)
 }
 
 func scoringErrorMessage(file string, err error) string {

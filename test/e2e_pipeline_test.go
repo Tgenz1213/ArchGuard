@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/cli"
+	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
 func pipelineConfigYAML(pipeline string) string {
@@ -109,6 +110,59 @@ func TestE2E_PipelineConfig(t *testing.T) {
 	}
 }
 
+func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
+	tests := []struct {
+		name         string
+		pipeline     string
+		wantExit     cli.ExitCode
+		wantFailures int
+	}{
+		{"no pipeline skips the file", "", cli.ExitSuccess, 0},
+		{"on_error skip skips the file", "  pipeline:\n    rank:\n      on_error: skip\n", cli.ExitSuccess, 0},
+		{"on_error fail fails the check", "  pipeline:\n    rank:\n      on_error: fail\n", cli.ExitStageUnavailable, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir, binaryPath := buildE2EBinary(t)
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(tt.pipeline))
+			writePipelineADRs(t, tempDir)
+			fixture := fmt.Sprintf("function f() {\n    console.log(%q);\n}\n", testutil.MockEmbedFailureTrigger)
+			if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(fixture), 0644); err != nil {
+				t.Fatalf("Failed to create fixture: %v", err)
+			}
+
+			stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+
+			if exitCode != int(tt.wantExit) {
+				t.Fatalf("expected exit code %d, got %d. stderr: %s", tt.wantExit, exitCode, stderr)
+			}
+			var report struct {
+				Failures []map[string]string `json:"failures"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+			}
+			if len(report.Failures) != tt.wantFailures {
+				t.Fatalf("failures = %v, want %d", report.Failures, tt.wantFailures)
+			}
+			wantStderr := "generating embedding"
+			if tt.wantFailures == 1 {
+				wantStderr = "stage rank failed for " + fixtureFilename
+			}
+			if !strings.Contains(stderr, wantStderr) || !strings.Contains(stderr, "mock embed failure") {
+				t.Errorf("stderr should carry %q and the embedding error, got: %s", wantStderr, stderr)
+			}
+			if tt.wantFailures == 1 {
+				f := report.Failures[0]
+				if f["stage"] != "rank" || f["kind"] != "unavailable" || f["file"] != fixtureFilename {
+					t.Errorf("failure = %v", f)
+				}
+			}
+		})
+	}
+}
+
 func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -119,6 +173,7 @@ func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 		{"unrecognized stage", "  pipeline:\n    pre_judge:\n      scorer: cosine\n", "analysis.pipeline: unrecognized stage \"pre_judge\""},
 		{"out-of-range threshold", "  pipeline:\n    rerank:\n      threshold: 2\n", "analysis.pipeline.rerank.threshold"},
 		{"non-positive top_k", "  pipeline:\n    rank:\n      top_k: 0\n", "analysis.pipeline.rank.top_k"},
+		{"unknown on_error", "  pipeline:\n    rerank:\n      on_error: warn\n", "analysis.pipeline.rerank.on_error"},
 	}
 
 	for _, tt := range tests {

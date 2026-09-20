@@ -18,6 +18,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
@@ -28,12 +29,14 @@ import (
 type ExitCode int
 
 const (
-	ExitSuccess       ExitCode = 0
-	ExitError         ExitCode = 1
-	ExitUsage         ExitCode = 2
-	ExitConfig        ExitCode = 3
-	ExitDriftDetected ExitCode = 4
-	ExitIndexError    ExitCode = 5
+	ExitSuccess           ExitCode = 0
+	ExitError             ExitCode = 1
+	ExitUsage             ExitCode = 2
+	ExitConfig            ExitCode = 3
+	ExitDriftDetected     ExitCode = 4
+	ExitIndexError        ExitCode = 5
+	ExitStageUnavailable  ExitCode = 6
+	ExitStagePrecondition ExitCode = 7
 )
 
 const defaultADRPath = "./docs/arch"
@@ -650,9 +653,14 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	engine.SuggestFixes = *suggestFixes
 	runErr := engine.Run(context.Background())
 
+	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
+
 	if *updateBaseline {
 		if runErr != nil {
 			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+		}
+		if stageFailureErr != nil {
+			return stageFailureCode, fmt.Errorf("%v; baseline not written", stageFailureErr)
 		}
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
@@ -663,9 +671,13 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	if jsonOutput {
-		if err := writeCheckReport(os.Stdout, engine.CollectedViolations); err != nil {
+		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.StageFailures); err != nil {
 			return ExitError, fmt.Errorf("failed to write json report: %v", err)
 		}
+	}
+
+	if stageFailureErr != nil {
+		return stageFailureCode, stageFailureErr
 	}
 
 	if runErr != nil {
@@ -710,17 +722,32 @@ func newIndexFlagSet() *flag.FlagSet {
 }
 
 type checkReport struct {
-	Violations []analysis.Violation `json:"violations"`
-	Count      int                  `json:"count"`
+	Violations []analysis.Violation    `json:"violations"`
+	Count      int                     `json:"count"`
+	Failures   []analysis.StageFailure `json:"failures,omitempty"`
 }
 
-func writeCheckReport(w io.Writer, violations []analysis.Violation) error {
+func writeCheckReport(w io.Writer, violations []analysis.Violation, failures []analysis.StageFailure) error {
 	if violations == nil {
 		violations = []analysis.Violation{}
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(checkReport{Violations: violations, Count: len(violations)})
+	return enc.Encode(checkReport{Violations: violations, Count: len(violations), Failures: failures})
+}
+
+// A precondition failure outranks an unavailable dependency when a run has both.
+func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
+	if len(failures) == 0 {
+		return ExitSuccess, nil
+	}
+	code := ExitStageUnavailable
+	for _, f := range failures {
+		if f.Kind == stage.KindPreconditionNotMet {
+			code = ExitStagePrecondition
+		}
+	}
+	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
 func resolveContentProvider(human io.Writer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
