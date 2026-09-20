@@ -355,7 +355,13 @@ type checkReport struct {
 		QuotedCode string `json:"quoted_code"`
 		Suggestion string `json:"suggestion,omitempty"`
 	} `json:"violations"`
-	Count int `json:"count"`
+	Count  int `json:"count"`
+	Stages []struct {
+		Name       string `json:"name"`
+		Received   int    `json:"received"`
+		Kept       int    `json:"kept"`
+		DurationMS *int64 `json:"duration_ms"`
+	} `json:"stages"`
 }
 
 // runCheckJSON runs `archguard check --format json [target]`, capturing

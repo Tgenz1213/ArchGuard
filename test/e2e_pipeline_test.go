@@ -43,17 +43,24 @@ func writePipelineADRs(t *testing.T, dir string) {
 	}
 }
 
+type stageTotals struct {
+	name           string
+	received, kept int
+}
+
 func TestE2E_PipelineConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		pipeline      string
 		wantViolation int
 		wantWarnings  []string
+		wantStages    []stageTotals
 	}{
 		{
 			name:          "no pipeline judges every candidate",
 			pipeline:      "",
 			wantViolation: 2,
+			wantStages:    []stageTotals{{"rank", 2, 2}},
 		},
 		{
 			name: "rank and rerank narrow the candidates in order",
@@ -68,6 +75,7 @@ func TestE2E_PipelineConfig(t *testing.T) {
       top_k: 1
 `,
 			wantViolation: 1,
+			wantStages:    []stageTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
 		},
 		{
 			name: "rerank alone runs after the default rank and warns for unset keys",
@@ -77,6 +85,7 @@ func TestE2E_PipelineConfig(t *testing.T) {
 `,
 			wantViolation: 1,
 			wantWarnings:  []string{"analysis.pipeline.rerank.threshold not set, defaulting to 0"},
+			wantStages:    []stageTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
 		},
 	}
 
@@ -100,6 +109,15 @@ func TestE2E_PipelineConfig(t *testing.T) {
 			}
 			if report.Count != tt.wantViolation {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
+			}
+			if len(report.Stages) != len(tt.wantStages) {
+				t.Fatalf("stages = %+v, want %d entries", report.Stages, len(tt.wantStages))
+			}
+			for i, want := range tt.wantStages {
+				got := report.Stages[i]
+				if got.Name != want.name || got.Received != want.received || got.Kept != want.kept || got.DurationMS == nil {
+					t.Errorf("stage %d = %+v, want %+v with a duration_ms", i, got, want)
+				}
 			}
 			for _, want := range tt.wantWarnings {
 				if !strings.Contains(stderr, want) {

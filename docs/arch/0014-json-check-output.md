@@ -16,6 +16,7 @@ scope: "internal/**"
 
 - stdout carries exactly one JSON document: `{"violations": [...], "count": N}`, where each violation has `file`, `adr_id`, `adr_title`, `line`, `reasoning`, `quoted_code`, and (per `docs/arch/0016-llm-suggested-remediation.md`) an optional `suggestion`, and `count` matches `DriftDetectedError.Count` (the same number that drives the `ExitDriftDetected` exit code).
 - Everything else that would normally print to stdout (the startup banner, `--debug` logging, per-file progress, index-rebuild notices, the final "No new architectural violations found." summary) is redirected to stderr instead of being suppressed outright, so `--format json --debug` still gives visibility into what happened without breaking a pipe consuming stdout.
+- The document also carries a `stages` array with one `{name, received, kept, duration_ms}` entry per pipeline stage, in order (see `docs/arch/0022-candidate-scoring-pipeline.md`).
 - When a stage with `on_error: fail` fails (see `docs/arch/0022-candidate-scoring-pipeline.md`), the document also carries a `failures` array of `{stage, file, kind, error}`; it is omitted when empty.
 - Exit codes are unaffected: `--format` only changes what's printed, never what's returned.
 - `--update-baseline` ignores `--format` entirely (a printed note explains this) -- its output is a maintenance summary about the baseline file, not the violation report `--format json` targets, and baselining suppresses the very violations this flag would otherwise report.

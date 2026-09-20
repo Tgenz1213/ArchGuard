@@ -42,6 +42,11 @@ type Stage struct {
 }
 
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
+	if len(candidates) == 0 {
+		debug.Printf("  Stage %s: 0 candidate(s) received, 0 kept\n", s.Name)
+		return nil, nil
+	}
+
 	scores, err := s.Scorer.Score(ctx, file, debug, candidates)
 	if err != nil {
 		var stageErr *Error
@@ -70,24 +75,24 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	}
 	sort.SliceStable(qualifying, func(i, j int) bool { return qualifying[i].Score > qualifying[j].Score })
 
+	kept := qualifying
+	if s.MaxKeep > 0 && len(kept) > s.MaxKeep {
+		kept = kept[:s.MaxKeep]
+	}
+
 	if debug.Enabled() {
+		debug.Printf("  Stage %s: %d candidate(s) received, %d kept\n", s.Name, len(candidates), len(kept))
+		for _, c := range kept {
+			debug.Printf("  Kept: %s (score %.2f)\n", c.ADR.Title, c.Score)
+		}
 		sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
-		// With MaxKeep set, capped to keep --debug output bounded on large corpora.
-		for i, c := range below {
-			if s.MaxKeep > 0 && i >= s.MaxKeep {
-				break
-			}
+		for _, c := range below {
 			debug.Printf("  Below threshold: %s (score %.2f < threshold %.2f)\n", c.ADR.Title, c.Score, floor.For(c.ADR))
 		}
-		if s.MaxKeep > 0 && len(qualifying) > s.MaxKeep {
-			for i, c := range qualifying[s.MaxKeep:] {
-				debug.Printf("  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", c.ADR.Title, c.Score, s.MaxKeep+i+1, len(qualifying))
-			}
+		for i, c := range qualifying[len(kept):] {
+			debug.Printf("  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", c.ADR.Title, c.Score, len(kept)+i+1, len(qualifying))
 		}
 	}
 
-	if s.MaxKeep > 0 && len(qualifying) > s.MaxKeep {
-		qualifying = qualifying[:s.MaxKeep]
-	}
-	return qualifying, nil
+	return kept, nil
 }

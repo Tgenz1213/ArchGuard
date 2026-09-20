@@ -158,6 +158,13 @@ func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	}
 
 	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{{
+		ID:        "0001",
+		Title:     "Use Golang",
+		Status:    "Accepted",
+		Content:   "All services must be Go.",
+		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+	}}
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -231,6 +238,13 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	}
 
 	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{{
+		ID:        "0001",
+		Title:     "Use Golang",
+		Status:    "Accepted",
+		Content:   "All services must be Go.",
+		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+	}}
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},

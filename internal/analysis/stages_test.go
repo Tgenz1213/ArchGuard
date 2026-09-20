@@ -121,6 +121,9 @@ func TestBuildStages_RankThenRerankInOrder(t *testing.T) {
 	if len(stages) != 2 {
 		t.Fatalf("got %d stages, want 2", len(stages))
 	}
+	if stages[0].Name != "rank" || stages[1].Name != "rerank" {
+		t.Errorf("names = %q, %q, want rank, rerank", stages[0].Name, stages[1].Name)
+	}
 	if threshold, topK := cosineSettings(t, stages[0]); threshold != 0.3 || topK != 8 {
 		t.Errorf("rank = (%v, %d), want (0.3, 8)", threshold, topK)
 	}

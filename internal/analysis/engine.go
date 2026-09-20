@@ -40,6 +40,7 @@ type Engine struct {
 	JSONOutput          bool
 	Writer              io.Writer
 	CollectedViolations []Violation
+	CollectedStages     []stage.Stats
 	StageFailures       []StageFailure
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
@@ -116,8 +117,17 @@ func (e *Engine) writer() io.Writer {
 }
 
 func (e *Engine) Run(ctx context.Context) error {
+	stages := e.Stages
+	if len(stages) == 0 {
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+	}
+	telemetry := stage.NewTelemetry(stages)
+
 	files, err := e.Content.GetFiles()
 	if err != nil {
+		if e.JSONOutput {
+			e.CollectedStages = telemetry.Stats()
+		}
 		return err
 	}
 
@@ -135,11 +145,6 @@ func (e *Engine) Run(ctx context.Context) error {
 	concurrency := e.Config.Analysis.MaxConcurrency
 	if concurrency <= 0 {
 		concurrency = 5
-	}
-
-	stages := e.Stages
-	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
 
 	var g errgroup.Group
@@ -205,8 +210,8 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
-			for _, st := range stages {
-				hits, err = st.Apply(ctx, query, debug, hits)
+			for i, st := range stages {
+				hits, err = telemetry.Apply(ctx, i, query, debug, hits)
 				if err != nil {
 					mu.Lock()
 					if st.FailOnError {
@@ -419,6 +424,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			collectedViolations = []Violation{}
 		}
 		e.CollectedViolations = collectedViolations
+		e.CollectedStages = telemetry.Stats()
 	}
 
 	if e.UpdateBaseline {
