@@ -37,6 +37,9 @@ type PgStore struct {
 	concurrency      int
 	hnsw             HNSWOptions
 	writer           io.Writer
+	adrsMu           sync.Mutex
+	adrs             []ADR
+	adrsLoaded       bool
 }
 
 // hnsw.iterative_scan exists from pgvector 0.8.0.
@@ -252,6 +255,8 @@ func thresholdsEqual(a, b *float64) bool {
 }
 
 func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
+	defer s.dropADRCache()
+
 	if err := s.ensureSchema(ctx, dim); err != nil {
 		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
 	}
@@ -478,27 +483,53 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 }
 
 func (s *PgStore) ScopedADRs(filePath string) []SearchResult {
+	adrs, ok := s.projectADRs()
+	if !ok {
+		return nil
+	}
+	candidates := make([]SearchResult, 0, len(adrs))
+	for i := range adrs {
+		candidates = append(candidates, SearchResult{ADR: &adrs[i]})
+	}
+	return filterByScope(candidates, filePath)
+}
+
+// Cached so a check run reads the corpus once, not once per file; BuildIndex drops it.
+func (s *PgStore) projectADRs() ([]ADR, bool) {
+	s.adrsMu.Lock()
+	defer s.adrsMu.Unlock()
+	if s.adrsLoaded {
+		return s.adrs, true
+	}
+
 	rows, err := s.pool.Query(context.Background(), scopedADRsQuery, s.projectName)
 	if err != nil {
 		diagPrintf(s.writer, "PgStore ScopedADRs query failed: %v\n", err)
-		return nil
+		return nil, false
 	}
 	defer rows.Close()
 
-	var candidates []SearchResult
+	var adrs []ADR
 	for rows.Next() {
 		var adr ADR
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold); err != nil {
 			diagPrintf(s.writer, "PgStore Row scan failed: %v\n", err)
 			continue
 		}
-		candidates = append(candidates, SearchResult{ADR: &adr})
+		adrs = append(adrs, adr)
 	}
 	if err := rows.Err(); err != nil {
 		diagPrintf(s.writer, "PgStore ScopedADRs iteration failed: %v\n", err)
-		return nil
+		return nil, false
 	}
-	return filterByScope(candidates, filePath)
+	s.adrs, s.adrsLoaded = adrs, true
+	return adrs, true
+}
+
+func (s *PgStore) dropADRCache() {
+	s.adrsMu.Lock()
+	defer s.adrsMu.Unlock()
+	s.adrs, s.adrsLoaded = nil, false
 }
 
 func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {

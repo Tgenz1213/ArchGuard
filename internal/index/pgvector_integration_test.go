@@ -1364,3 +1364,45 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"Go ADR", "Any ADR"}, titles)
 }
+
+func TestPgStore_Integration_ScopedADRsAreCachedUntilBuildIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scoped_cache_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	writeADR := func(name, title string) {
+		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s content", title, title)
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(body), 0644))
+	}
+	writeADR("0001-first.md", "First ADR")
+	writeADR("0002-second.md", "Second ADR")
+
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{1, 0}, nil
+		},
+	}
+	adrProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, adrProvider)
+	require.NoError(t, err)
+
+	assert.Len(t, store.ScopedADRs("main.go"), 2)
+
+	_, err = store.Pool().Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1", "scoped_cache_project")
+	require.NoError(t, err)
+	assert.Len(t, store.ScopedADRs("main.go"), 2, "second call should be served from the cache, not the database")
+
+	writeADR("0003-third.md", "Third ADR")
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, adrProvider)
+	require.NoError(t, err)
+	assert.Len(t, store.ScopedADRs("main.go"), 3, "BuildIndex should drop the cache so new rows are visible")
+}
