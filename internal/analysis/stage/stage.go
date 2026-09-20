@@ -42,6 +42,11 @@ type Stage struct {
 }
 
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
+	if len(candidates) == 0 {
+		debug.Printf("  Stage %s: 0 candidate(s) received, 0 kept\n", s.Name)
+		return nil, nil
+	}
+
 	scores, err := s.Scorer.Score(ctx, file, debug, candidates)
 	if err != nil {
 		var stageErr *Error

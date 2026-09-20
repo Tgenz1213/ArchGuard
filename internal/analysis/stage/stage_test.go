@@ -149,6 +149,19 @@ func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
 	}
 }
 
+func TestStage_DoesNotScoreWhenThereAreNoCandidates(t *testing.T) {
+	called := false
+	s := stage.Stage{Scorer: scorerFunc(func(context.Context, stage.File, stage.Debug, []stage.Candidate) ([]float64, error) {
+		called = true
+		return nil, errors.New("scorer must not run without candidates")
+	})}
+
+	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, nil)
+	if err != nil || len(got) != 0 || called {
+		t.Fatalf("got=%v err=%v called=%v, want an empty result and no scorer call", got, err, called)
+	}
+}
+
 func TestStage_NoDebugPrintsNothing(t *testing.T) {
 	if stage.NoDebug.Enabled() {
 		t.Fatal("NoDebug reports enabled")
