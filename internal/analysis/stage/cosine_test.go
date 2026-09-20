@@ -31,7 +31,7 @@ func queryEmbedder(vec ...float32) llm.Embedder {
 }
 
 func candidatesFor(store *index.LocalStore) []stage.Candidate {
-	scoped := store.ScopedADRs("svc.go")
+	scoped, _ := store.ScopedADRs("svc.go")
 	out := make([]stage.Candidate, len(scoped))
 	for i, r := range scoped {
 		out[i] = stage.Candidate{ADR: r.ADR}

@@ -313,7 +313,10 @@ func TestLocalStore_ScopedADRs_FiltersByScopeWithoutEmbeddings(t *testing.T) {
 		{Title: "Unscoped"},
 	}
 
-	results := store.ScopedADRs("service.go")
+	results, err := store.ScopedADRs("service.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if len(results) != 2 || results[0].ADR.Title != "Go only" || results[1].ADR.Title != "Unscoped" {
 		t.Fatalf("expected [Go only, Unscoped], got %+v", results)

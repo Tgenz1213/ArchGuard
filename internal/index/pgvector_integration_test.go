@@ -1355,7 +1355,8 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 	_, err = store.BuildIndex(ctx, "test-model", 2, provider, index.NewLocalProvider(tmpDir, []string{"Accepted"}))
 	require.NoError(t, err)
 
-	results := store.ScopedADRs("main.go")
+	results, err := store.ScopedADRs("main.go")
+	require.NoError(t, err)
 
 	titles := make([]string, 0, len(results))
 	for _, r := range results {
@@ -1395,14 +1396,38 @@ func TestPgStore_Integration_ScopedADRsAreCachedUntilBuildIndex(t *testing.T) {
 	_, err = store.BuildIndex(ctx, "test-model", 2, provider, adrProvider)
 	require.NoError(t, err)
 
-	assert.Len(t, store.ScopedADRs("main.go"), 2)
+	scoped := func() []index.SearchResult {
+		results, err := store.ScopedADRs("main.go")
+		require.NoError(t, err)
+		return results
+	}
+	assert.Len(t, scoped(), 2)
 
 	_, err = store.Pool().Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1", "scoped_cache_project")
 	require.NoError(t, err)
-	assert.Len(t, store.ScopedADRs("main.go"), 2, "second call should be served from the cache, not the database")
+	assert.Len(t, scoped(), 2, "second call should be served from the cache, not the database")
 
 	writeADR("0003-third.md", "Third ADR")
 	_, err = store.BuildIndex(ctx, "test-model", 2, provider, adrProvider)
 	require.NoError(t, err)
-	assert.Len(t, store.ScopedADRs("main.go"), 3, "BuildIndex should drop the cache so new rows are visible")
+	assert.Len(t, scoped(), 3, "BuildIndex should drop the cache so new rows are visible")
+}
+
+func TestPgStore_Integration_ScopedADRsReportsBackendFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scoped_failure_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+	store.Close()
+
+	results, err := store.ScopedADRs("main.go")
+
+	assert.Error(t, err, "a backend failure must not look like an empty candidate list")
+	assert.Nil(t, results)
 }

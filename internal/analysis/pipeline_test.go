@@ -243,3 +243,21 @@ func TestPipeline_EmptyStagesFallsBackToTheDefaultCosineStage(t *testing.T) {
 		t.Fatalf("embeds = %d, judged = %v; want the default cosine stage (1 embed, top-2 judged), not every ADR", h.embeds, h.judged)
 	}
 }
+
+type failingScopedStore struct{ index.VectorStore }
+
+func (failingScopedStore) ScopedADRs(string) ([]index.SearchResult, error) {
+	return nil, errors.New("db down")
+}
+
+func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
+	h.engine.Store = failingScopedStore{VectorStore: h.engine.Store}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if h.engine.SkippedFiles != 1 || len(h.judged) != 0 || h.embeds != 0 {
+		t.Fatalf("SkippedFiles = %d, judged = %v, embeds = %d; want the file reported as skipped with nothing judged", h.engine.SkippedFiles, h.judged, h.embeds)
+	}
+}

@@ -482,30 +482,29 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 	return candidates
 }
 
-func (s *PgStore) ScopedADRs(filePath string) []SearchResult {
-	adrs, ok := s.projectADRs()
-	if !ok {
-		return nil
+func (s *PgStore) ScopedADRs(filePath string) ([]SearchResult, error) {
+	adrs, err := s.projectADRs()
+	if err != nil {
+		return nil, err
 	}
 	candidates := make([]SearchResult, 0, len(adrs))
 	for i := range adrs {
 		candidates = append(candidates, SearchResult{ADR: &adrs[i]})
 	}
-	return filterByScope(candidates, filePath)
+	return filterByScope(candidates, filePath), nil
 }
 
 // Cached so a check run reads the corpus once, not once per file; BuildIndex drops it.
-func (s *PgStore) projectADRs() ([]ADR, bool) {
+func (s *PgStore) projectADRs() ([]ADR, error) {
 	s.adrsMu.Lock()
 	defer s.adrsMu.Unlock()
 	if s.adrsLoaded {
-		return s.adrs, true
+		return s.adrs, nil
 	}
 
 	rows, err := s.pool.Query(context.Background(), scopedADRsQuery, s.projectName)
 	if err != nil {
-		diagPrintf(s.writer, "PgStore ScopedADRs query failed: %v\n", err)
-		return nil, false
+		return nil, fmt.Errorf("querying ADRs: %w", err)
 	}
 	defer rows.Close()
 
@@ -513,17 +512,15 @@ func (s *PgStore) projectADRs() ([]ADR, bool) {
 	for rows.Next() {
 		var adr ADR
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold); err != nil {
-			diagPrintf(s.writer, "PgStore Row scan failed: %v\n", err)
-			continue
+			return nil, fmt.Errorf("scanning ADR row: %w", err)
 		}
 		adrs = append(adrs, adr)
 	}
 	if err := rows.Err(); err != nil {
-		diagPrintf(s.writer, "PgStore ScopedADRs iteration failed: %v\n", err)
-		return nil, false
+		return nil, fmt.Errorf("reading ADR rows: %w", err)
 	}
 	s.adrs, s.adrsLoaded = adrs, true
-	return adrs, true
+	return adrs, nil
 }
 
 func (s *PgStore) dropADRCache() {

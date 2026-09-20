@@ -9,12 +9,12 @@ type SearchResult struct {
 	Score float64
 }
 
-func (s *LocalStore) ScopedADRs(filePath string) []SearchResult {
+func (s *LocalStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 	candidates := make([]SearchResult, 0, len(s.ADRs))
 	for i := range s.ADRs {
 		candidates = append(candidates, SearchResult{ADR: &s.ADRs[i]})
 	}
-	return filterByScope(candidates, filePath)
+	return filterByScope(candidates, filePath), nil
 }
 
 func (s *LocalStore) scopeMatchedCandidates(queryEmbedding []float32, filePath string) []SearchResult {

@@ -190,7 +190,15 @@ func (e *Engine) Run(ctx context.Context) error {
 				debug = stage.NewDebug(&sb)
 			}
 
-			hits := candidateSource{store: e.Store}.For(file, content, debug)
+			hits, err := candidateSource{store: e.Store}.For(file, content, debug)
+			if err != nil {
+				fmt.Fprintf(&sb, "Error loading candidate ADRs for %s: %v\n", file, err)
+				mu.Lock()
+				_, _ = fmt.Fprint(e.writer(), sb.String())
+				skippedFiles++
+				mu.Unlock()
+				return nil
+			}
 			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
 			for _, st := range stages {
 				hits, err = st.Apply(ctx, query, debug, hits)
