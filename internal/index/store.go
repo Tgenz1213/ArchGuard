@@ -28,9 +28,8 @@ func diagWriter(w io.Writer) io.Writer {
 
 var diagMu sync.Mutex
 
-// diagPrintf and diagPrintln serialize diagnostic writes -- a caller-supplied
-// writer (unlike os.Stdout) isn't guaranteed safe for the concurrent writers
-// this package has (CompositeProvider's providers, PgStore's pooled AfterConnect).
+// diagPrintf and diagPrintln serialize writes: a caller-supplied writer (unlike os.Stdout)
+// isn't guaranteed safe for this package's concurrent writers.
 func diagPrintf(w io.Writer, format string, args ...any) {
 	diagMu.Lock()
 	defer diagMu.Unlock()
@@ -43,7 +42,6 @@ func diagPrintln(w io.Writer) {
 	_, _ = fmt.Fprintln(diagWriter(w))
 }
 
-// SkippedADR records one ADR that BuildIndex could not embed or persist.
 type SkippedADR struct {
 	RelPath string
 	Err     error
@@ -59,35 +57,22 @@ type BuildIndexResult struct {
 	Attempted bool
 }
 
-// VectorStore defines the interface for interacting with the index storage.
 type VectorStore interface {
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
 	BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error)
-	// Search filters candidates by scope, then by threshold, before
-	// ranking and cutting to topK -- see filterByScope, filterByThreshold, and rankAndLimit.
+	// Applies scope, then threshold, then the topK cut.
 	Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
-	// SearchRejected returns scope-matched candidates scoring below threshold.
-	// Debug diagnostics only -- call it only inside an `if debug` branch.
+	// Scope-matched candidates below threshold. Debug only: callers must gate it behind `if debug`.
 	SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
-	// SearchTruncated returns scope-matched, threshold-passing candidates cut
-	// by the topK limit. Debug diagnostics only -- call it only inside an
-	// `if debug` branch.
+	// Threshold-passing candidates cut only by topK. Debug only: callers must gate it behind `if debug`.
 	SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
-	// SearchWithDebugInfo derives hits, rejected, and truncated from a single
-	// scope-filtered candidate set, guaranteeing they agree with each other --
-	// unlike calling Search/SearchRejected/SearchTruncated independently,
-	// which for PgStore under hnsw.iterative_scan=relaxed_order could each
-	// see a different approximate candidate set (see
-	// docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md) and
-	// disagree on whether an ADR is a hit, rejected, or truncated. Debug
-	// diagnostics only -- call it only inside an `if debug` branch; use
-	// Search alone otherwise.
+	// One query yields all three sets, so they can't disagree under hnsw.iterative_scan=relaxed_order
+	// (docs/arch/0005). Debug only: callers must gate it behind `if debug`.
 	SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult)
 }
 
-// LocalStore manages the persistence and retrieval of ADR embeddings and metadata.
 type LocalStore struct {
 	ADRs        []ADR     `json:"adrs"`
 	Hash        string    `json:"hash"`
@@ -97,7 +82,6 @@ type LocalStore struct {
 	writer      io.Writer `json:"-"`
 }
 
-// NewLocalStore initializes a new LocalStore instance.
 func NewLocalStore(concurrency int) *LocalStore {
 	return &LocalStore{
 		ADRs:        []ADR{},
@@ -105,8 +89,7 @@ func NewLocalStore(concurrency int) *LocalStore {
 	}
 }
 
-// NewVectorStore creates the appropriate VectorStore based on the configuration.
-// A nil w defaults to os.Stdout, resolved dynamically at each write.
+// NewVectorStore resolves a nil w to os.Stdout at each write, not at construction.
 func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
 		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
@@ -121,8 +104,8 @@ func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	return store, nil
 }
 
-// CalculateHash hashes the model name plus each ADR's RelPath, Content, and ID
-// to detect if the index needs a rebuild.
+// Covers only the model name and each ADR's RelPath, Content, and ID;
+// changes to other fields don't trigger a rebuild.
 func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(modelName))
@@ -135,7 +118,6 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// Load reads the index from disk and validates metadata against the current configuration.
 func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -166,7 +148,6 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 	return nil
 }
 
-// Save persists the current state of the store to a JSON file.
 func (s *LocalStore) Save(path string) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

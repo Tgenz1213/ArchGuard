@@ -30,7 +30,6 @@ type HNSWOptions struct {
 	IterativeScan *bool    // nil = enabled when pgvector supports it; explicit false disables
 }
 
-// PgStore implements the VectorStore interface using PostgreSQL and pgvector.
 type PgStore struct {
 	pool             *pgxpool.Pool
 	connectionString string
@@ -40,8 +39,7 @@ type PgStore struct {
 	writer           io.Writer
 }
 
-// IterativeScanSupportedVersion reports whether version is >= 0.8.0, which
-// introduced the hnsw.iterative_scan GUC.
+// hnsw.iterative_scan exists from pgvector 0.8.0.
 func IterativeScanSupportedVersion(version string) bool {
 	parts := strings.SplitN(version, ".", 3)
 	if len(parts) < 1 {
@@ -68,13 +66,11 @@ func IterativeScanSupportedVersion(version string) bool {
 // probe stays in sync with NewPgStore's, instead of a copy that could drift.
 const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 
-// NewPgStore initializes a new PgStore connected to the given database URL.
-// hnsw controls automatic HNSW index maintenance and iterative-scan behavior.
-// A nil w defaults to os.Stdout, resolved dynamically at each write.
+// NewPgStore resolves a nil w to os.Stdout at each write, not at construction.
 func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOptions, w io.Writer) (*PgStore, error) {
 	ctx := context.Background()
 
-	// Ensure the vector extension exists BEFORE setting up the pool
+	// The extension must exist before the pool's AfterConnect registers vector types.
 	tempConn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
@@ -139,7 +135,6 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 // inspect real pooled-connection state (e.g. AfterConnect-applied GUCs).
 func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
 
-// Close releases the store's connection pool.
 func (s *PgStore) Close() {
 	s.pool.Close()
 }
@@ -179,15 +174,12 @@ func (s *PgStore) reindexStatement() string {
 	return "REINDEX INDEX " + hnswIndexName
 }
 
-// CalculateHash is a no-op for PgStore because the database maintains state incrementally (or is completely truncated on Build).
+// Constant: the DB keeps its own state, so a hash mismatch never triggers a rebuild.
 func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	return "remote", nil
 }
 
-// ensureSchema creates the archguard_adrs table and HNSW index if they don't
-// exist, and adds the adr_id/scope columns if missing. Both Load and
-// BuildIndex call this -- BuildIndex must be self-sufficient since
-// cli.runIndex calls it without a preceding Load.
+// Both Load and BuildIndex call this: cli.runIndex calls BuildIndex without a preceding Load.
 func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	createQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
@@ -244,18 +236,15 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	return nil
 }
 
-// Load verifies the database connection and ensures the tables exist.
 func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
 	return s.ensureSchema(context.Background(), dim)
 }
 
-// Save is a no-op for PgStore as data is persisted immediately during BuildIndex.
+// No-op: BuildIndex persists immediately.
 func (s *PgStore) Save(path string) error {
 	return nil
 }
 
-// thresholdsEqual reports whether two possibly-nil threshold overrides are
-// the same, so BuildIndex's sync-detection can compare them like any other field.
 func thresholdsEqual(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -263,7 +252,6 @@ func thresholdsEqual(a, b *float64) bool {
 	return *a == *b
 }
 
-// BuildIndex parses the ADRs, generates embeddings, and inserts them into the database.
 func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
 	if err := s.ensureSchema(ctx, dim); err != nil {
 		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
@@ -274,7 +262,6 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		return BuildIndexResult{}, err
 	}
 
-	// Fetch existing ADRs from database for this project
 	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
 		return BuildIndexResult{}, fmt.Errorf("failed to query existing ADRs: %w", err)
@@ -414,7 +401,6 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	// Delete missing ADRs
 	validMap := make(map[string]bool)
 	for _, valid := range validADRs {
 		validMap[valid.RelPath] = true
@@ -437,7 +423,6 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		}
 	}
 
-	// Conditional HNSW maintenance routine
 	if s.reindexEnabled() {
 		modifiedCount := (len(adrsToEmbed) - len(failed)) + len(toDelete)
 		totalCount := len(validADRs) + len(toDelete)
@@ -467,12 +452,11 @@ const SearchQuery = `
 	LIMIT $3
 `
 
-// MaxSearchCandidates bounds PgStore.Search's and SearchRejected's fetch
+// MaxSearchCandidates bounds each PgStore search's fetch
 // (nearest rows by distance) so Go-side filtering sees every candidate.
 const MaxSearchCandidates = 1000
 
-// scanSearchResults drains rows into SearchResults, skipping any row that
-// fails to scan (logged, not fatal -- one bad row shouldn't drop the rest).
+// A row that fails to scan is logged and skipped, not fatal.
 func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 	var candidates []SearchResult
 	for rows.Next() {
@@ -487,8 +471,6 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 	return candidates
 }
 
-// Search returns up to topK ADRs matching filePath's scope and at least
-// threshold similarity -- scope then threshold then topK (see filterByScope, filterByThreshold, rankAndLimit).
 func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
@@ -506,8 +488,6 @@ func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, 
 	return rankAndLimit(candidates, topK)
 }
 
-// SearchRejected returns up to topK scope-matched ADRs that scored below
-// threshold, ranked by descending similarity -- for --debug diagnostics only.
 func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
@@ -525,9 +505,6 @@ func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, to
 	return rankAndLimit(candidates, topK)
 }
 
-// SearchTruncated returns scope-matched, threshold-passing candidates that
-// were cut purely by the topK limit -- Search's other complement, alongside
-// SearchRejected, for --debug diagnostics only.
 func (s *PgStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
@@ -545,11 +522,6 @@ func (s *PgStore) SearchTruncated(queryEmbedding []float32, threshold float64, t
 	return truncatedByTopK(candidates, topK)
 }
 
-// SearchWithDebugInfo derives hits, rejected, and truncated from one query's
-// candidate set, so all three are guaranteed consistent with each other --
-// see the VectorStore interface doc for why that matters for PgStore
-// specifically (independent queries can see different approximate results
-// under hnsw.iterative_scan=relaxed_order).
 func (s *PgStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult) {
 	ctx := context.Background()
 	vec := pgvector.NewVector(queryEmbedding)
