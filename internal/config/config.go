@@ -57,6 +57,7 @@ type Analysis struct {
 	ADRIDPattern string `yaml:"adr_id_pattern"`
 	// Canonical field name -> the YAML key the corpus uses; see docs/arch/0021.
 	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
+	Pipeline            *Pipeline         `yaml:"pipeline"`
 }
 
 func LoadConfig(path string) (*Config, error) {
