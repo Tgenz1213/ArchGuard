@@ -53,7 +53,7 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 
 	if debug.Enabled() {
 		sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
-		// Capped at MaxKeep to keep --debug output bounded on large corpora.
+		// With MaxKeep set, capped to keep --debug output bounded on large corpora.
 		for i, c := range below {
 			if s.MaxKeep > 0 && i >= s.MaxKeep {
 				break
