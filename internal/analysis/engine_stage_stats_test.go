@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
@@ -50,6 +51,28 @@ func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
 	got := h.engine.CollectedStages
 	if len(got) != 1 || got[0].Name != "rank" || got[0].Received != 2 || got[0].Kept != 2 {
 		t.Fatalf("stages = %+v, want the default stage as rank with 2 received and 2 kept", got)
+	}
+}
+
+func TestEngine_FailedStageStillAppearsInStageStatsAlongsideItsFailure(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
+	h.engine.JSONOutput = true
+	h.engine.Stages = []stage.Stage{
+		{Name: "rank", Scorer: scoresByID(map[string]float64{"0001": 0.9, "0002": 0.8}, nil)},
+		{Name: "rerank", FailOnError: true, Scorer: scorerFunc(func(context.Context, stage.File, stage.Debug, []stage.Candidate) ([]float64, error) {
+			return nil, errors.New("down")
+		})},
+	}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "rerank" {
+		t.Fatalf("failures = %+v, want one failure from rerank", h.engine.StageFailures)
+	}
+	got := h.engine.CollectedStages
+	if len(got) != 2 || got[0].Kept != 2 || got[1].Name != "rerank" || got[1].Received != 2 || got[1].Kept != 0 {
+		t.Fatalf("stages = %+v, want rank kept 2 and rerank received 2 kept 0", got)
 	}
 }
 

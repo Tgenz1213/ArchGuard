@@ -82,6 +82,20 @@ func TestTelemetry_FailedStageCountsReceivedAndTimeButKeepsNothing(t *testing.T)
 	}
 }
 
+func TestTelemetry_StatsReturnsACopy(t *testing.T) {
+	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores(1)}})
+
+	first := tel.Stats()
+	first[0].Kept = 99
+	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := tel.Stats()[0]; got.Received != 1 || got.Kept != 1 {
+		t.Fatalf("stats = %+v after the caller edited an earlier result, want received 1 kept 1", got)
+	}
+}
+
 func TestTelemetry_ConcurrentCallsDoNotLoseCounts(t *testing.T) {
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores(1, 1)}})
 
