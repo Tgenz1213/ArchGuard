@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// LocalProvider fetches ADRs from the local filesystem.
 type LocalProvider struct {
 	dirPath             string
 	acceptedStatuses    []string
@@ -18,7 +17,6 @@ type LocalProvider struct {
 	writer              io.Writer
 }
 
-// NewLocalProvider creates a new LocalProvider.
 func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider {
 	return &LocalProvider{
 		dirPath:          dirPath,
@@ -26,14 +24,10 @@ func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider 
 	}
 }
 
-// SetIDPattern overrides the default filename-based ADR ID extraction (see
-// extractID in adr.go). Passing nil restores the default behavior.
 func (p *LocalProvider) SetIDPattern(re *regexp.Regexp) {
 	p.idPattern = re
 }
 
-// SetFrontmatterMappings overrides which YAML key each canonical frontmatter
-// field is read from. Passing nil restores the default canonical keys.
 func (p *LocalProvider) SetFrontmatterMappings(mappings map[string]string) {
 	p.frontmatterMappings = mappings
 }
@@ -44,7 +38,6 @@ func (p *LocalProvider) SetWriter(w io.Writer) {
 	p.writer = w
 }
 
-// GetADRs walks the directory tree and returns ADRs matching accepted statuses.
 func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var validADRs []ADR
 	var stats FetchStats

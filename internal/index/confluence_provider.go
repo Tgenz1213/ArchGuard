@@ -14,7 +14,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// ConfluenceProvider fetches ADRs from an Atlassian Confluence Space.
 type ConfluenceProvider struct {
 	domain              string
 	spaceID             string
@@ -25,7 +24,6 @@ type ConfluenceProvider struct {
 	writer              io.Writer
 }
 
-// NewConfluenceProvider creates a new ConfluenceProvider.
 func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStatuses []string) *ConfluenceProvider {
 	return &ConfluenceProvider{
 		domain:           domain,
@@ -42,13 +40,10 @@ func (p *ConfluenceProvider) SetWriter(w io.Writer) {
 	p.writer = w
 }
 
-// SetFrontmatterMappings overrides which YAML key each canonical frontmatter
-// field is read from. Passing nil restores the default canonical keys.
 func (p *ConfluenceProvider) SetFrontmatterMappings(mappings map[string]string) {
 	p.frontmatterMappings = mappings
 }
 
-// ConfluenceSearchResponse represents the REST API response from Confluence.
 type ConfluenceSearchResponse struct {
 	Results []struct {
 		ID    string `json:"id"`
@@ -67,12 +62,10 @@ type ConfluenceSearchResponse struct {
 	} `json:"_links"`
 }
 
-// GetADRs fetches and parses all matching ADRs from Confluence using the CQL query.
 func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var allADRs []ADR
 	var stats FetchStats
 
-	// Use Confluence v2 API to get pages in a space
 	baseURL, err := url.Parse(p.domain)
 	if err != nil {
 		return nil, FetchStats{}, fmt.Errorf("invalid confluence domain: %w", err)
@@ -80,7 +73,6 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 	u := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", p.domain, p.spaceID)
 
-	// Use a dedicated HTTP client with a strict timeout for remote calls
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
@@ -91,7 +83,6 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			return nil, FetchStats{}, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		// Authenticate with Atlassian Cloud
 		req.SetBasicAuth(p.username, p.token)
 		req.Header.Add("Accept", "application/json")
 
@@ -115,9 +106,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 		for _, result := range searchResp.Results {
 			stats.Discovered++
-			// Extract raw text for metadata parsing (frontmatter)
 			rawText := extractRawText(result.Body.Storage.Value)
-			// Resolve the WebUI link to an absolute URL for clickable logging
 			var relPath string
 			if parsedWebUI, err := url.Parse(result.Links.WebUI); err == nil {
 				relPath = baseURL.ResolveReference(parsedWebUI).String()
@@ -125,7 +114,6 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 				relPath = fmt.Sprintf("%s%s", p.domain, result.Links.WebUI)
 			}
 
-			// Try to parse it as an ADR (looking for YAML frontmatter)
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
 			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.frontmatterMappings)
@@ -135,7 +123,6 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 				continue
 			}
 
-			// Generate rich Markdown for the LLM to use
 			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
 			adr.Content = markdown
 
@@ -154,19 +141,18 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			resolvedURL := baseURL.ResolveReference(nextURL)
 			u = resolvedURL.String()
 		} else {
-			u = "" // no more pages
+			u = ""
 		}
 	}
 
 	return allADRs, stats, nil
 }
 
-// extractRawText strips HTML tags via goquery, inserting a newline after
-// each br/p/div first so lines don't get concatenated together.
+// Newline after br/p/div so adjacent lines are not concatenated.
 func extractRawText(htmlContent string) string {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {
-		return htmlContent // fallback
+		return htmlContent
 	}
 
 	doc.Find("br, p, div").AfterHtml("\n")
@@ -174,7 +160,6 @@ func extractRawText(htmlContent string) string {
 	return strings.TrimSpace(doc.Text())
 }
 
-// convertHTMLToMarkdown uses html-to-markdown to generate rich structural formatting.
 func convertHTMLToMarkdown(htmlContent string) string {
 	converter := md.NewConverter("", true, nil)
 	markdown, err := converter.ConvertString(htmlContent)

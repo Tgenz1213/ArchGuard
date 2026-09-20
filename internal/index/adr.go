@@ -17,7 +17,7 @@ type ADR struct {
 	ID     string        `json:"id"`
 	Title  string        `json:"title"`
 	Status string        `json:"status"`
-	Scope  ScopePatterns `json:"scope"` // Optional glob pattern(s) from frontmatter
+	Scope  ScopePatterns `json:"scope"`
 	// SimilarityThreshold overrides vector_store.similarity_threshold for
 	// this ADR only; nil means "use the global value" (see EffectiveThreshold).
 	SimilarityThreshold *float64  `json:"similarity_threshold,omitempty"`
@@ -68,10 +68,8 @@ func (sp ScopePatterns) Serialize() string {
 	}
 }
 
-// ParseScopePatterns is Serialize's inverse: a JSON array parses as
-// multiple patterns, anything else (including legacy raw text) as one.
-// Only a "["-prefixed value is treated as JSON -- Serialize never emits any
-// other JSON shape, so a literal pattern like "null" isn't misread as one.
+// ParseScopePatterns reads a JSON array as many patterns and anything else, legacy raw text
+// included, as one; only a "["-prefixed value is tried as JSON so a literal "null" survives.
 func ParseScopePatterns(s string) ScopePatterns {
 	if s == "" {
 		return nil
@@ -134,8 +132,6 @@ func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// Value and Scan let ScopePatterns act as a pgx/database-sql query
-// parameter and scan destination directly against a TEXT column.
 func (sp ScopePatterns) Value() (driver.Value, error) {
 	return sp.Serialize(), nil
 }
@@ -167,8 +163,6 @@ func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, frontmatter
 	return ParseADRContent(data, id, relPath, frontmatterMappings)
 }
 
-// extractID uses idPattern's capture group 1 (or whole match) when it matches;
-// otherwise falls back to the first-hyphen split.
 func extractID(filename string, idPattern *regexp.Regexp) string {
 	if idPattern != nil {
 		if m := idPattern.FindStringSubmatch(filename); m != nil {
@@ -210,8 +204,6 @@ func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings
 	}, nil
 }
 
-// decodeFrontMatter reads each canonical field from its mapped source key,
-// falling back to the canonical key itself when unmapped.
 func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (FrontMatter, error) {
 	var fm FrontMatter
 	if len(frontmatterMappings) == 0 {
