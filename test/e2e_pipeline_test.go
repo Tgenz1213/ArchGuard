@@ -1,0 +1,143 @@
+package test
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tgenz1213/archguard/internal/cli"
+)
+
+func pipelineConfigYAML(pipeline string) string {
+	return `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+` + pipeline
+}
+
+func writePipelineADRs(t *testing.T, dir string) {
+	t.Helper()
+	adrDir := filepath.Join(dir, "docs", "arch")
+	if err := os.MkdirAll(adrDir, 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		content := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\nscope: \"**\"\n---\n\n## Decision\nRule %s.", "ADR "+name, name)
+		if err := os.WriteFile(filepath.Join(adrDir, "000-"+name+".md"), []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create ADR %s: %v", name, err)
+		}
+	}
+}
+
+func TestE2E_PipelineConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		pipeline      string
+		wantViolation int
+		wantWarnings  []string
+	}{
+		{
+			name:          "no pipeline judges every candidate",
+			pipeline:      "",
+			wantViolation: 2,
+		},
+		{
+			name: "rank and rerank narrow the candidates in order",
+			pipeline: `  pipeline:
+    rank:
+      scorer: cosine
+      threshold: 0.5
+      top_k: 2
+    rerank:
+      scorer: cosine
+      threshold: 0.5
+      top_k: 1
+`,
+			wantViolation: 1,
+		},
+		{
+			name: "rerank alone runs after the default rank and warns for unset keys",
+			pipeline: `  pipeline:
+    rerank:
+      top_k: 1
+`,
+			wantViolation: 1,
+			wantWarnings:  []string{"analysis.pipeline.rerank.threshold not set, defaulting to 0"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir, binaryPath := buildE2EBinary(t)
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(tt.pipeline))
+			writePipelineADRs(t, tempDir)
+			if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+				t.Fatalf("Failed to create fixture: %v", err)
+			}
+
+			stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, fixtureFilename)
+
+			if exitCode != int(cli.ExitDriftDetected) {
+				t.Fatalf("expected drift exit code %d, got %d. stderr: %s", cli.ExitDriftDetected, exitCode, stderr)
+			}
+			var report checkReport
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+			}
+			if report.Count != tt.wantViolation {
+				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
+			}
+			for _, want := range tt.wantWarnings {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr missing %q, got: %s", want, stderr)
+				}
+			}
+			if strings.Contains(stdout, "Warning") {
+				t.Errorf("warnings must stay off stdout, got: %s", stdout)
+			}
+		})
+	}
+}
+
+func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
+	tests := []struct {
+		name     string
+		pipeline string
+		want     string
+	}{
+		{"unknown scorer", "  pipeline:\n    rank:\n      scorer: jev\n", "analysis.pipeline.rank.scorer"},
+		{"unrecognized stage", "  pipeline:\n    pre_judge:\n      scorer: cosine\n", "analysis.pipeline: unrecognized stage \"pre_judge\""},
+		{"out-of-range threshold", "  pipeline:\n    rerank:\n      threshold: 2\n", "analysis.pipeline.rerank.threshold"},
+		{"non-positive top_k", "  pipeline:\n    rank:\n      top_k: 0\n", "analysis.pipeline.rank.top_k"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir, binaryPath := buildE2EBinary(t)
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(tt.pipeline))
+			writePipelineADRs(t, tempDir)
+
+			stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "")
+
+			if exitCode != int(cli.ExitConfig) {
+				t.Fatalf("expected config exit code %d, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
+			}
+			if !strings.Contains(stderr, tt.want) {
+				t.Errorf("stderr missing %q, got: %s", tt.want, stderr)
+			}
+			if stdout != "" {
+				t.Errorf("stdout should be empty on config failure, got: %q", stdout)
+			}
+		})
+	}
+}
