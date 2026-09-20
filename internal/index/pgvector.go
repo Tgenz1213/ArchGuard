@@ -451,6 +451,14 @@ const SearchQuery = `
 	LIMIT $3
 `
 
+// Scope is a glob Postgres can't evaluate, so it is filtered in Go.
+const scopedADRsQuery = `
+	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, similarity_threshold
+	FROM archguard_adrs
+	WHERE project_name = $1
+	ORDER BY rel_path
+`
+
 // MaxSearchCandidates bounds each PgStore search's fetch
 // (nearest rows by distance) so Go-side filtering sees every candidate.
 const MaxSearchCandidates = 1000
@@ -467,6 +475,30 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 		candidates = append(candidates, SearchResult{ADR: &adr, Score: score})
 	}
 	return candidates
+}
+
+func (s *PgStore) ScopedADRs(filePath string) []SearchResult {
+	rows, err := s.pool.Query(context.Background(), scopedADRsQuery, s.projectName)
+	if err != nil {
+		diagPrintf(s.writer, "PgStore ScopedADRs query failed: %v\n", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var candidates []SearchResult
+	for rows.Next() {
+		var adr ADR
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold); err != nil {
+			diagPrintf(s.writer, "PgStore Row scan failed: %v\n", err)
+			continue
+		}
+		candidates = append(candidates, SearchResult{ADR: &adr})
+	}
+	if err := rows.Err(); err != nil {
+		diagPrintf(s.writer, "PgStore ScopedADRs iteration failed: %v\n", err)
+		return nil
+	}
+	return filterByScope(candidates, filePath)
 }
 
 func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {

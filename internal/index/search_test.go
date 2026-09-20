@@ -304,3 +304,23 @@ func TestLocalStore_SearchWithDebugInfo_EmptyWhenNoADRs(t *testing.T) {
 		t.Fatalf("expected all-empty results for an empty index, got hits=%d rejected=%d truncated=%d", len(hits), len(rejected), len(truncated))
 	}
 }
+
+func TestLocalStore_ScopedADRs_FiltersByScopeWithoutEmbeddings(t *testing.T) {
+	store := NewLocalStore(1)
+	store.ADRs = []ADR{
+		{Title: "Go only", Scope: ScopePatterns{"**/*.go"}},
+		{Title: "TS only", Scope: ScopePatterns{"**/*.ts"}},
+		{Title: "Unscoped"},
+	}
+
+	results := store.ScopedADRs("service.go")
+
+	if len(results) != 2 || results[0].ADR.Title != "Go only" || results[1].ADR.Title != "Unscoped" {
+		t.Fatalf("expected [Go only, Unscoped], got %+v", results)
+	}
+	for _, r := range results {
+		if r.Score != 0 {
+			t.Errorf("expected unscored candidate, got score %v for %q", r.Score, r.ADR.Title)
+		}
+	}
+}

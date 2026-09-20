@@ -1318,3 +1318,49 @@ func TestPgStore_Integration_ExplicitWriterReceivesProgressNotStdout(t *testing.
 	assert.Contains(t, buf.String(), "Found 1 valid ADRs", "progress text should land on the explicit writer")
 	assert.NotContains(t, stdoutDuring, "Found 1 valid ADRs", "progress text must not also leak to the real stdout")
 }
+
+func TestPgStore_Integration_ScopedADRs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "scoped_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrDefs := []struct{ filename, title, scope string }{
+		{"0001-go.md", "Go ADR", "**/*.go"},
+		{"0002-ts.md", "TS ADR", "**/*.ts"},
+		{"0003-any.md", "Any ADR", ""},
+	}
+	for _, def := range adrDefs {
+		scopeLine := ""
+		if def.scope != "" {
+			scopeLine = fmt.Sprintf("scope: %q\n", def.scope)
+		}
+		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n%s---\n%s content", def.title, scopeLine, def.title)
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644))
+	}
+
+	provider := &llm.MockProvider{
+		EmbeddingDim: 2,
+		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+			return []float32{1, 0}, nil
+		},
+	}
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, index.NewLocalProvider(tmpDir, []string{"Accepted"}))
+	require.NoError(t, err)
+
+	results := store.ScopedADRs("main.go")
+
+	titles := make([]string, 0, len(results))
+	for _, r := range results {
+		titles = append(titles, r.ADR.Title)
+		assert.Zero(t, r.Score)
+	}
+	assert.ElementsMatch(t, []string{"Go ADR", "Any ADR"}, titles)
+}

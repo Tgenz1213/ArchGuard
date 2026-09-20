@@ -58,6 +58,8 @@ type BuildIndexResult struct {
 }
 
 type VectorStore interface {
+	// ScopedADRs needs no embedding, so pipelines without a cosine stage never embed.
+	ScopedADRs(filePath string) []SearchResult
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
