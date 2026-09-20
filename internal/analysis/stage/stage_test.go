@@ -105,13 +105,47 @@ func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
 	}
 }
 
-func TestStage_DebugBelowThresholdLinesAreCappedAtMaxKeep(t *testing.T) {
+func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
 	_, _ = s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d"))
-	if n := strings.Count(buf.String(), "Below threshold"); n != 2 {
-		t.Fatalf("printed %d below-threshold lines, want 2", n)
+	if n := strings.Count(buf.String(), "Below threshold"); n != 4 {
+		t.Fatalf("printed %d below-threshold lines, want 4", n)
+	}
+}
+
+func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
+	var buf bytes.Buffer
+	s := stage.Stage{Name: "rerank", Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
+
+	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d")); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Stage rerank: 4 candidate(s) received, 2 kept",
+		"Kept: ADR a (score 0.90)",
+		"Kept: ADR b (score 0.80)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "Kept: ADR c") {
+		t.Errorf("cut candidate c reported as kept in %q", out)
+	}
+}
+
+func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
+	var buf bytes.Buffer
+	s := stage.Stage{Name: "rank", Scorer: fixedScores()}
+
+	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Stage rank: 0 candidate(s) received, 0 kept") {
+		t.Errorf("missing zero-candidate summary in %q", buf.String())
 	}
 }
 
