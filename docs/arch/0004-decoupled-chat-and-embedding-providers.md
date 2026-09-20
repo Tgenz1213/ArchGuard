@@ -16,7 +16,7 @@ Every `llm.Provider` implementation (OpenAI, Ollama, Gemini) has always implemen
 
 `vector_store.provider` becomes the explicit selector for which provider handles `CreateEmbedding`, decoupled from `llm.provider` (which continues to select the provider for `Chat`/`CountTokens`). When unset, it defaults to `llm.provider` -- every existing config, where `vector_store.provider` is set to the same value as `llm.provider` or left unset, behaves identically to before.
 
-`internal/analysis.Engine` gains an `EmbedProvider` field (falls back to `Provider` when nil) rather than the `Provider` interface itself being split into separate chat/embedding interfaces -- this keeps every existing provider implementation and every existing single-provider config untouched, and keeps the change to `internal/cli` additive (one new resolution step, not a rewrite).
+`internal/analysis.Engine` has an `EmbedProvider` (an `llm.Embedder`, falling back to `Provider` when nil), so every provider implementation and every single-provider config is untouched and `internal/cli` needs one resolution step, not a rewrite. `llm.Provider` is `Embedder` plus `Chatter`; a provider lacking a half implements an error stub for it.
 
 `internal/cli.validateProviderConfig` enforces three provider-pairing invariants that can't be expressed in the YAML schema itself:
 

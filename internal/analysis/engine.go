@@ -11,6 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -24,7 +25,7 @@ type Engine struct {
 	Store    index.VectorStore
 	Provider llm.Provider
 	// Claude has no embeddings API; see docs/arch/0004-decoupled-chat-and-embedding-providers.md.
-	EmbedProvider       llm.Provider
+	EmbedProvider       llm.Embedder
 	Content             ContentProvider
 	Debug               bool
 	CI                  bool
@@ -40,6 +41,7 @@ type Engine struct {
 	CollectedViolations []Violation
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
+	Stages       []stage.Stage
 }
 
 type Violation struct {
@@ -80,7 +82,7 @@ func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provide
 	}
 }
 
-func (e *Engine) embedProvider() llm.Provider {
+func (e *Engine) embedProvider() llm.Embedder {
 	if e.EmbedProvider != nil {
 		return e.EmbedProvider
 	}
@@ -128,6 +130,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	topKADRs := e.Config.Analysis.MaxRelevantADRs
 	if topKADRs <= 0 {
 		topKADRs = 3
+	}
+
+	stages := e.Stages
+	if len(stages) == 0 {
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, topKADRs)}
 	}
 
 	var g errgroup.Group
@@ -178,45 +185,23 @@ func (e *Engine) Run(ctx context.Context) error {
 				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
 			}
 
-			// A diff only covers the uncommitted hunk, not the whole file --update-baseline needs.
-			diffForEmbedding := content
-			if !e.UpdateBaseline {
-				if diff, err := e.Content.GetDiff(file); err == nil && diff != "" {
-					diffForEmbedding = stripDiffMetadata(diff)
-				}
-			}
-
-			if len(diffForEmbedding) > 6000 {
-				diffForEmbedding = rollBackToNewline(truncateRuneSafe(diffForEmbedding, 6000))
-			}
-
-			embedding, err := e.embedProvider().CreateEmbedding(ctx, diffForEmbedding, llm.EmbeddingTaskQuery)
-			if err != nil {
-				fmt.Fprintf(&sb, "Error generating embedding for %s: %v\n", file, err)
-				mu.Lock()
-				_, _ = fmt.Fprint(e.writer(), sb.String())
-				skippedFiles++
-				mu.Unlock()
-				return nil
-			}
-
-			threshold := e.Config.VectorStore.SimilarityThreshold
-
-			var hits []index.SearchResult
+			debug := stage.NoDebug
 			if e.Debug {
-				var rejected, truncated []index.SearchResult
-				hits, rejected, truncated = e.Store.SearchWithDebugInfo(embedding, threshold, topKADRs, file)
+				debug = stage.NewDebug(&sb)
+			}
 
-				for _, r := range rejected {
-					effective := index.EffectiveThreshold(r.ADR, threshold)
-					fmt.Fprintf(&sb, "  Below threshold: %s (score %.2f < threshold %.2f)\n", r.ADR.Title, r.Score, effective)
+			hits := candidateSource{store: e.Store}.For(file, content, debug)
+			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
+			for _, st := range stages {
+				hits, err = st.Apply(ctx, query, debug, hits)
+				if err != nil {
+					sb.WriteString(scoringErrorMessage(file, err))
+					mu.Lock()
+					_, _ = fmt.Fprint(e.writer(), sb.String())
+					skippedFiles++
+					mu.Unlock()
+					return nil
 				}
-				totalQualifying := len(hits) + len(truncated)
-				for i, r := range truncated {
-					fmt.Fprintf(&sb, "  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", r.ADR.Title, r.Score, len(hits)+i+1, totalQualifying)
-				}
-			} else {
-				hits = e.Store.Search(embedding, threshold, topKADRs, file)
 			}
 
 			if len(hits) == 0 {
@@ -239,18 +224,6 @@ func (e *Engine) Run(ctx context.Context) error {
 			var localBaselineEntries []baseline.Entry
 			var localViolationRecords []Violation
 			for _, hit := range hits {
-				// Header only, to keep the scan cheap.
-				header := content
-				if len(header) > 2000 {
-					header = truncateRuneSafe(header, 2000)
-				}
-				if strings.Contains(header, fmt.Sprintf("archguard-ignore: %s", hit.ADR.ID)) {
-					if e.Debug {
-						fmt.Fprintf(&sb, "  Skipping ADR %s (Suppressed)\n", hit.ADR.Title)
-					}
-					continue
-				}
-
 				if e.Debug {
 					fmt.Fprintf(&sb, "  Checking against ADR: %s (%.2f)\n", hit.ADR.Title, hit.Score)
 				}
@@ -634,4 +607,12 @@ func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool)
 	if v.BaselineReason != "" {
 		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
 	}
+}
+
+func scoringErrorMessage(file string, err error) string {
+	var stageErr *stage.Error
+	if errors.As(err, &stageErr) {
+		return fmt.Sprintf("Error %s for %s: %v\n", stageErr.Action, file, stageErr.Err)
+	}
+	return fmt.Sprintf("Error scoring candidates for %s: %v\n", file, err)
 }
