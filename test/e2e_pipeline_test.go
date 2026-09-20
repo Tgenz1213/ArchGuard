@@ -1,13 +1,16 @@
 package test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
@@ -160,6 +163,64 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestE2E_PipelineOnErrorFail_TakesPrecedenceOverDrift(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rank:\n      on_error: fail\n"))
+	writePipelineADRs(t, tempDir)
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	failing := "embed-fails.js"
+	if err := os.WriteFile(filepath.Join(tempDir, failing), []byte(fmt.Sprintf("console.log(%q);\n", testutil.MockEmbedFailureTrigger)), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	cmd := exec.Command(binaryPath, "check", "--format", "json", fixtureFilename, failing)
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
+	err := cmd.Run()
+	exitError, ok := err.(*exec.ExitError)
+	if !ok || exitError.ExitCode() != 6 {
+		t.Fatalf("expected exit code 6, got err %v. stderr: %s", err, errBuf.String())
+	}
+
+	var report struct {
+		Count    int                 `json:"count"`
+		Failures []map[string]string `json:"failures"`
+	}
+	if err := json.Unmarshal(outBuf.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, outBuf.String())
+	}
+	if report.Count == 0 || len(report.Failures) != 1 {
+		t.Errorf("count = %d, failures = %v; want the healthy file's drift and one failure both reported", report.Count, report.Failures)
+	}
+}
+
+func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rank:\n      on_error: fail\n"))
+	writePipelineADRs(t, tempDir)
+	failing := "embed-fails.js"
+	if err := os.WriteFile(filepath.Join(tempDir, failing), []byte(fmt.Sprintf("console.log(%q);\n", testutil.MockEmbedFailureTrigger)), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+	gitAdd(t, tempDir, failing)
+
+	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+	out, err := cmd.CombinedOutput()
+	exitError, ok := err.(*exec.ExitError)
+	if !ok || exitError.ExitCode() != 6 {
+		t.Fatalf("expected exit code 6, got err %v. Output: %s", err, out)
+	}
+	if _, statErr := os.Stat(filepath.Join(tempDir, baseline.Path)); !os.IsNotExist(statErr) {
+		t.Errorf("baseline file must not be written when a stage failed, stat err: %v", statErr)
 	}
 }
 

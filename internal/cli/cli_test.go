@@ -68,6 +68,12 @@ func TestStageFailureExit(t *testing.T) {
 	}
 }
 
+func TestStageExitCodeValues(t *testing.T) {
+	if ExitStageUnavailable != 6 || ExitStagePrecondition != 7 {
+		t.Fatalf("stage exit codes = %d and %d, want 6 and 7", ExitStageUnavailable, ExitStagePrecondition)
+	}
+}
+
 func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 	seen := map[ExitCode]string{}
 	for name, code := range map[string]ExitCode{

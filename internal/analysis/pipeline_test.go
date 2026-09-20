@@ -277,6 +277,66 @@ func TestPipeline_OnErrorSkipPreconditionSkipsFiles(t *testing.T) {
 	}
 }
 
+func failingScorer(kind stage.Kind) stage.Scorer {
+	return scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		return nil, &stage.Error{Action: "scoring candidates", Kind: kind, Err: errors.New("boom")}
+	})
+}
+
+func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
+	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
+
+	var mu sync.Mutex
+	var secondStageFiles []string
+	first := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		if file.Path() == "bad.go" {
+			return nil, errors.New("boom")
+		}
+		return make([]float64, len(candidates)), nil
+	})
+	second := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		mu.Lock()
+		secondStageFiles = append(secondStageFiles, file.Path())
+		mu.Unlock()
+		return make([]float64, len(candidates)), nil
+	})
+	h.engine.Stages = []stage.Stage{
+		{Name: "rank", Scorer: first, FailOnError: true},
+		{Name: "rerank", Scorer: second},
+	}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].File != "bad.go" {
+		t.Fatalf("StageFailures = %v, want one failure for bad.go", h.engine.StageFailures)
+	}
+	if strings.Join(secondStageFiles, ",") != "good.go" {
+		t.Errorf("second stage ran for %v, want only good.go", secondStageFiles)
+	}
+}
+
+func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "m.go", "package m")
+	files := h.engine.Content.(*MockContentProvider).Files
+	files["z.go"] = "package z"
+	files["a.go"] = "package a"
+	h.engine.Config.Analysis.MaxConcurrency = 3
+	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
+
+	if err := h.engine.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var got []string
+	for _, f := range h.engine.StageFailures {
+		got = append(got, f.File)
+	}
+	if strings.Join(got, ",") != "a.go,m.go,z.go" {
+		t.Errorf("failure order = %v, want sorted by file", got)
+	}
+}
+
 func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
 	b, err := json.Marshal(analysis.StageFailure{Stage: "rerank", File: "a.go", Kind: stage.KindPreconditionNotMet, Error: "boom"})
 	if err != nil {
