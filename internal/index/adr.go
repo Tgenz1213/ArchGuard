@@ -150,7 +150,11 @@ func (sp *ScopePatterns) Scan(src any) error {
 	return nil
 }
 
-func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, frontmatterMappings map[string]string) (*ADR, error) {
+type ParseOptions struct {
+	FrontmatterMappings map[string]string
+}
+
+func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (*ADR, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -160,7 +164,7 @@ func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, frontmatter
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
-	return ParseADRContent(data, id, relPath, frontmatterMappings)
+	return ParseADRContent(data, id, relPath, opts)
 }
 
 func extractID(filename string, idPattern *regexp.Regexp) string {
@@ -178,7 +182,7 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 	return strings.Split(filename, "-")[0]
 }
 
-func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings map[string]string) (*ADR, error) {
+func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
 	if !bytes.HasPrefix(data, []byte("---")) {
 		return nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
@@ -188,7 +192,7 @@ func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings
 		return nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}
 
-	fm, err := decodeFrontMatter(parts[1], frontmatterMappings)
+	fm, err := decodeFrontMatter(parts[1], opts.FrontmatterMappings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
 	}

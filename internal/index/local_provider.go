@@ -10,11 +10,11 @@ import (
 )
 
 type LocalProvider struct {
-	dirPath             string
-	acceptedStatuses    []string
-	idPattern           *regexp.Regexp
-	frontmatterMappings map[string]string
-	writer              io.Writer
+	dirPath          string
+	acceptedStatuses []string
+	idPattern        *regexp.Regexp
+	parseOpts        ParseOptions
+	writer           io.Writer
 }
 
 func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider {
@@ -29,7 +29,7 @@ func (p *LocalProvider) SetIDPattern(re *regexp.Regexp) {
 }
 
 func (p *LocalProvider) SetFrontmatterMappings(mappings map[string]string) {
-	p.frontmatterMappings = mappings
+	p.parseOpts.FrontmatterMappings = mappings
 }
 
 // SetWriter routes GetADRs' parse-failure warnings to w instead of the
@@ -48,7 +48,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
 			stats.Discovered++
-			adr, err := ParseADR(path, p.dirPath, p.idPattern, p.frontmatterMappings)
+			adr, err := ParseADR(path, p.dirPath, p.idPattern, p.parseOpts)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping %s: %v\n", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)

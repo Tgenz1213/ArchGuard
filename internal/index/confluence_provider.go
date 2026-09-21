@@ -15,13 +15,13 @@ import (
 )
 
 type ConfluenceProvider struct {
-	domain              string
-	spaceID             string
-	username            string
-	token               string
-	acceptedStatuses    []string
-	frontmatterMappings map[string]string
-	writer              io.Writer
+	domain           string
+	spaceID          string
+	username         string
+	token            string
+	acceptedStatuses []string
+	parseOpts        ParseOptions
+	writer           io.Writer
 }
 
 func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStatuses []string) *ConfluenceProvider {
@@ -41,7 +41,7 @@ func (p *ConfluenceProvider) SetWriter(w io.Writer) {
 }
 
 func (p *ConfluenceProvider) SetFrontmatterMappings(mappings map[string]string) {
-	p.frontmatterMappings = mappings
+	p.parseOpts.FrontmatterMappings = mappings
 }
 
 type ConfluenceSearchResponse struct {
@@ -116,7 +116,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
-			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.frontmatterMappings)
+			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.parseOpts)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)

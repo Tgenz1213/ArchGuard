@@ -208,7 +208,7 @@ func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
 
 	raw := extractRawText(html)
 
-	adr, err := ParseADRContent([]byte(raw), "confluence-test", "test/path", nil)
+	adr, err := ParseADRContent([]byte(raw), "confluence-test", "test/path", ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADRContent failed on extracted text (got: %q): %v", raw, err)
 	}

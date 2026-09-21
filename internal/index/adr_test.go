@@ -10,7 +10,7 @@ import (
 func TestParseADRContent_SimilarityThresholdOverride(t *testing.T) {
 	data := []byte("---\ntitle: \"Strict ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.6\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-strict.md", nil)
+	adr, err := ParseADRContent(data, "0001", "0001-strict.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestParseADRContent_SimilarityThresholdOverride(t *testing.T) {
 func TestParseADRContent_SimilarityThresholdUnsetIsNil(t *testing.T) {
 	data := []byte("---\ntitle: \"Default ADR\"\nstatus: \"Accepted\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0002", "0002-default.md", nil)
+	adr, err := ParseADRContent(data, "0002", "0002-default.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestParseADRContent_SimilarityThresholdUnsetIsNil(t *testing.T) {
 func TestParseADRContent_MultiPatternScope(t *testing.T) {
 	data := []byte("---\ntitle: \"Multi Scope\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-multi-scope.md", nil)
+	adr, err := ParseADRContent(data, "0001", "0001-multi-scope.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestParseADRContent_CustomScopeKeyMappedIsReadAsScope(t *testing.T) {
 	data := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
 	mappings := map[string]string{"scope": "applies_to"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", mappings)
+	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestParseADRContent_CustomScopeKeyMappedIsReadAsScope(t *testing.T) {
 func TestParseADRContent_CustomScopeKeyUnmappedFallsBackToUnrestrictedScope(t *testing.T) {
 	data := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", nil)
+	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestParseADRContent_CustomSimilarityThresholdKeyMapped(t *testing.T) {
 	data := []byte("---\ntitle: \"Custom Threshold Key\"\nstatus: \"Accepted\"\nconfidence: 0.42\n---\nBody")
 	mappings := map[string]string{"similarity_threshold": "confidence"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-threshold.md", mappings)
+	adr, err := ParseADRContent(data, "0001", "0001-custom-threshold.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestParseADRContent_MappedSimilarityThresholdExplicitNullStaysNil(t *testin
 	data := []byte("---\ntitle: \"Explicit Null Threshold\"\nstatus: \"Accepted\"\nconfidence: null\n---\nBody")
 	mappings := map[string]string{"similarity_threshold": "confidence"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-null-threshold.md", mappings)
+	adr, err := ParseADRContent(data, "0001", "0001-null-threshold.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestParseADRContent_UnmappedFieldKeepsDefaultKeyWithOneFieldRemapped(t *tes
 	data := []byte("---\ntitle: \"Title Stays Default\"\nstatus: \"Accepted\"\napplies_to: \"internal/**\"\n---\nBody")
 	mappings := map[string]string{"scope": "applies_to"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-mixed.md", mappings)
+	adr, err := ParseADRContent(data, "0001", "0001-mixed.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestParseADR_DefaultSplitBehaviorUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	adr, err := ParseADR(path, dir, nil, nil)
+	adr, err := ParseADR(path, dir, nil, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
@@ -144,11 +144,11 @@ func TestParseADR_CustomPatternDistinguishesCollidingDefaultIDs(t *testing.T) {
 
 	pattern := regexp.MustCompile(`^adr-(\d+)-`)
 
-	adr1, err := ParseADR(filepath.Join(dir, "adr-1-use-postgres.md"), dir, pattern, nil)
+	adr1, err := ParseADR(filepath.Join(dir, "adr-1-use-postgres.md"), dir, pattern, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
-	adr2, err := ParseADR(filepath.Join(dir, "adr-2-use-kafka.md"), dir, pattern, nil)
+	adr2, err := ParseADR(filepath.Join(dir, "adr-2-use-kafka.md"), dir, pattern, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestParseADR_CustomPatternNoMatchFallsBackToDefaultSplit(t *testing.T) {
 	}
 
 	pattern := regexp.MustCompile(`^adr-(\d+)-`)
-	adr, err := ParseADR(path, dir, pattern, nil)
+	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestParseADR_PatternWithEmptyCaptureGroupFallsBackToDefaultSplit(t *testing
 	}
 
 	pattern := regexp.MustCompile(`^0005(x?)-`)
-	adr, err := ParseADR(path, dir, pattern, nil)
+	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestParseADR_PatternWithoutCaptureGroupUsesWholeMatch(t *testing.T) {
 	}
 
 	pattern := regexp.MustCompile(`^adr-\d+`)
-	adr, err := ParseADR(path, dir, pattern, nil)
+	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
 	if err != nil {
 		t.Fatalf("ParseADR failed: %v", err)
 	}
