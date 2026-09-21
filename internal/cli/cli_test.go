@@ -235,6 +235,26 @@ func TestValidateFrontmatterMappings_MappedKeyCollidesWithUnmappedDefaultErrors(
 	}
 }
 
+func TestValidateFrontmatterMappings_RulesFieldCanBeRemapped(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"rules": "screening"}
+	mappings, err := validateFrontmatterMappings(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mappings["rules"] != "screening" {
+		t.Errorf("mappings[rules] = %q, want %q", mappings["rules"], "screening")
+	}
+}
+
+func TestValidateFrontmatterMappings_MappedKeyCollidesWithRulesDefaultErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "rules"}
+	if _, err := validateFrontmatterMappings(cfg); err == nil {
+		t.Fatal("expected collision error when a mapped key matches the rules field's default key, got nil")
+	}
+}
+
 func TestValidateProviderConfig_ClaudeRejectedAsEmbeddingProvider(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "gemini"},

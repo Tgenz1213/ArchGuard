@@ -14,16 +14,16 @@ import (
 )
 
 type ADR struct {
-	ID     string        `json:"id"`
-	Title  string        `json:"title"`
-	Status string        `json:"status"`
-	Scope  ScopePatterns `json:"scope"`
-	// SimilarityThreshold overrides vector_store.similarity_threshold for
-	// this ADR only; nil means "use the global value" (see EffectiveThreshold).
-	SimilarityThreshold *float64  `json:"similarity_threshold,omitempty"`
-	Content             string    `json:"content"`
-	Embedding           []float32 `json:"embedding"`
-	RelPath             string    `json:"rel_path"`
+	ID                  string        `json:"id"`
+	Title               string        `json:"title"`
+	Status              string        `json:"status"`
+	Scope               ScopePatterns `json:"scope"`
+	SimilarityThreshold *float64      `json:"similarity_threshold,omitempty"`
+	Content             string        `json:"content"`
+	Embedding           []float32     `json:"embedding"`
+	RelPath             string        `json:"rel_path"`
+	Rules               Rules         `json:"rules,omitempty"`
+	RulesError          string        `json:"-"`
 }
 
 type FrontMatter struct {
@@ -31,11 +31,12 @@ type FrontMatter struct {
 	Status              string        `yaml:"status"`
 	Scope               ScopePatterns `yaml:"scope"`
 	SimilarityThreshold *float64      `yaml:"similarity_threshold"`
+	Rules               yaml.Node     `yaml:"rules"`
 }
 
 // CanonicalFrontMatterFields lists the FrontMatter fields that
 // analysis.frontmatter_mappings may remap to a different YAML key.
-var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold"}
+var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold", "rules"}
 
 // ScopePatterns holds one or more glob patterns from an ADR's scope
 // frontmatter, matched with OR semantics; nil/empty means unrestricted.
@@ -197,7 +198,7 @@ func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) 
 		return nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
 	}
 
-	return &ADR{
+	adr := &ADR{
 		ID:                  id,
 		Title:               fm.Title,
 		Status:              fm.Status,
@@ -205,7 +206,13 @@ func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) 
 		SimilarityThreshold: fm.SimilarityThreshold,
 		Content:             string(parts[2]),
 		RelPath:             relPath,
-	}, nil
+	}
+	rules, rulesErr := decodeFrontMatterRules(&fm.Rules)
+	if rulesErr != nil {
+		adr.RulesError = rulesErr.Error()
+	}
+	adr.Rules = rules
+	return adr, nil
 }
 
 func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (FrontMatter, error) {
@@ -248,6 +255,9 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
 			return FrontMatter{}, err
 		}
+	}
+	if node, ok := nodes[sourceKey("rules")]; ok {
+		fm.Rules = node
 	}
 	return fm, nil
 }
