@@ -14,9 +14,11 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
+
 		if !strings.Contains(r.URL.Path, "chat/completions") {
 			t.Errorf("expected chat/completions path, got %s", r.URL.Path)
 		}
+
 		if got := r.Header.Get("Authorization"); got != "Bearer test-api-key" {
 			t.Errorf("expected Bearer auth header, got %q", got)
 		}
@@ -25,9 +27,11 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["model"] != "gpt-4o-mini" {
 			t.Errorf("expected model gpt-4o-mini, got %v", reqBody["model"])
 		}
+
 		messages, ok := reqBody["messages"].([]interface{})
 		if !ok || len(messages) != 2 {
 			t.Fatalf("expected 2 messages, got %v", reqBody["messages"])
@@ -44,6 +48,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
+
 	if res != `{"violation": false}` {
 		t.Errorf("unexpected response: %q", res)
 	}
@@ -59,6 +64,7 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["input"] != "test text" {
 			t.Errorf("expected input 'test text', got %v", reqBody["input"])
 		}
@@ -74,10 +80,12 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
+
 	expected := []float32{0.1, 0.2, 0.3}
 	if len(res) != len(expected) {
 		t.Fatalf("expected length %d, got %d", len(expected), len(res))
 	}
+
 	for i := range res {
 		if res[i] != expected[i] {
 			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
@@ -107,6 +115,7 @@ func TestOpenAIProvider_CountTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	// "Hello, world!" is 4 tokens under cl100k_base (the encoding gpt-3.5-turbo
 	// resolves to): ["Hello", ",", " world", "!"].
 	if n != 4 {
@@ -121,6 +130,7 @@ func TestOpenAIProvider_CountTokens_UnknownModelFallsBackToCl100kBase(t *testing
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	if n != 4 {
 		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", n)
 	}

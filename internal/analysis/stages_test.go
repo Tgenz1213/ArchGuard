@@ -23,14 +23,17 @@ func buildStages(t *testing.T, cfg *config.Config) ([]stage.Stage, string) {
 
 func cosineSettings(t *testing.T, st stage.Stage) (threshold float64, topK int) {
 	t.Helper()
+
 	ranker, ok := st.Scorer.(*stage.CosineRanker)
 	if !ok {
 		t.Fatalf("scorer = %T, want *stage.CosineRanker", st.Scorer)
 	}
+
 	minimum, ok := st.Min.(stage.ADRThreshold)
 	if !ok || minimum.Global != ranker.Threshold {
 		t.Fatalf("Min = %#v, want ADRThreshold matching the ranker threshold %v", st.Min, ranker.Threshold)
 	}
+
 	return ranker.Threshold, st.MaxKeep
 }
 
@@ -46,6 +49,7 @@ func TestBuildStages_NoPipelineLeavesDefaults(t *testing.T) {
 	if stages != nil {
 		t.Errorf("stages = %v, want nil", stages)
 	}
+
 	if warnings != "" {
 		t.Errorf("warnings = %q, want none", warnings)
 	}
@@ -56,10 +60,12 @@ func TestBuildStages_RankFallsBackToExistingSettings(t *testing.T) {
 	if len(stages) != 1 {
 		t.Fatalf("got %d stages, want 1", len(stages))
 	}
+
 	threshold, topK := cosineSettings(t, stages[0])
 	if threshold != 0.42 || topK != 5 {
 		t.Errorf("rank = (%v, %d), want (0.42, 5)", threshold, topK)
 	}
+
 	if warnings != "" {
 		t.Errorf("warnings = %q, want none", warnings)
 	}
@@ -68,6 +74,7 @@ func TestBuildStages_RankFallsBackToExistingSettings(t *testing.T) {
 func TestBuildStages_RankTopKFallsBackToDefaultOfThree(t *testing.T) {
 	cfg := configWith(&config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine}})
 	cfg.Analysis.MaxRelevantADRs = 0
+
 	stages, _ := buildStages(t, cfg)
 	if _, topK := cosineSettings(t, stages[0]); topK != 3 {
 		t.Errorf("topK = %d, want 3", topK)
@@ -76,6 +83,7 @@ func TestBuildStages_RankTopKFallsBackToDefaultOfThree(t *testing.T) {
 
 func TestBuildStages_RankExplicitValuesWin(t *testing.T) {
 	stages, _ := buildStages(t, configWith(&config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, Threshold: ptr(0.7), TopK: ptr(9)}}))
+
 	threshold, topK := cosineSettings(t, stages[0])
 	if threshold != 0.7 || topK != 9 {
 		t.Errorf("rank = (%v, %d), want (0.7, 9)", threshold, topK)
@@ -87,12 +95,15 @@ func TestBuildStages_RerankAloneRunsAfterDefaultRank(t *testing.T) {
 	if len(stages) != 2 {
 		t.Fatalf("got %d stages, want 2", len(stages))
 	}
+
 	if threshold, topK := cosineSettings(t, stages[0]); threshold != 0.42 || topK != 5 {
 		t.Errorf("default rank = (%v, %d), want (0.42, 5)", threshold, topK)
 	}
+
 	if threshold, topK := cosineSettings(t, stages[1]); threshold != 0 || topK != 3 {
 		t.Errorf("rerank = (%v, %d), want (0, 3)", threshold, topK)
 	}
+
 	for _, want := range []string{
 		"Warning: analysis.pipeline.rerank.threshold not set, defaulting to 0",
 		"Warning: analysis.pipeline.rerank.top_k not set, defaulting to 3",
@@ -108,6 +119,7 @@ func TestBuildStages_RerankOnlyWarnsForUnsetKeys(t *testing.T) {
 	if threshold, topK := cosineSettings(t, stages[1]); threshold != 0.9 || topK != 3 {
 		t.Errorf("rerank = (%v, %d), want (0.9, 3)", threshold, topK)
 	}
+
 	if strings.Contains(warnings, "threshold") || !strings.Contains(warnings, "top_k not set") {
 		t.Errorf("warnings = %q, want only the top_k warning", warnings)
 	}
@@ -121,15 +133,19 @@ func TestBuildStages_RankThenRerankInOrder(t *testing.T) {
 	if len(stages) != 2 {
 		t.Fatalf("got %d stages, want 2", len(stages))
 	}
+
 	if stages[0].Name != "rank" || stages[1].Name != "rerank" {
 		t.Errorf("names = %q, %q, want rank, rerank", stages[0].Name, stages[1].Name)
 	}
+
 	if threshold, topK := cosineSettings(t, stages[0]); threshold != 0.3 || topK != 8 {
 		t.Errorf("rank = (%v, %d), want (0.3, 8)", threshold, topK)
 	}
+
 	if threshold, topK := cosineSettings(t, stages[1]); threshold != 0.6 || topK != 2 {
 		t.Errorf("rerank = (%v, %d), want (0.6, 2)", threshold, topK)
 	}
+
 	if warnings != "" {
 		t.Errorf("warnings = %q, want none", warnings)
 	}
@@ -156,6 +172,7 @@ func TestBuildStages_OnErrorSetsNameAndPolicy(t *testing.T) {
 			if len(stages) != 2 {
 				t.Fatalf("got %d stages, want 2", len(stages))
 			}
+
 			for i, st := range stages {
 				if st.Name != wantNames[i] || st.FailOnError != tt.wantFail[i] {
 					t.Errorf("stage %d = {Name %q, FailOnError %v}, want {%q, %v}", i, st.Name, st.FailOnError, wantNames[i], tt.wantFail[i])
@@ -172,6 +189,7 @@ func TestBuildStages_ADROverrideBeatsStageThreshold(t *testing.T) {
 	if got := stages[0].Min.For(own); got != 0.1 {
 		t.Errorf("threshold for ADR with override = %v, want 0.1", got)
 	}
+
 	if got := stages[0].Min.For(&index.ADR{}); got != 0.8 {
 		t.Errorf("threshold for ADR without override = %v, want 0.8", got)
 	}

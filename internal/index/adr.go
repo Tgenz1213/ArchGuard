@@ -14,16 +14,15 @@ import (
 )
 
 type ADR struct {
-	ID     string        `json:"id"`
-	Title  string        `json:"title"`
-	Status string        `json:"status"`
-	Scope  ScopePatterns `json:"scope"` // Optional glob pattern(s) from frontmatter
-	// SimilarityThreshold overrides vector_store.similarity_threshold for
-	// this ADR only; nil means "use the global value" (see EffectiveThreshold).
-	SimilarityThreshold *float64  `json:"similarity_threshold,omitempty"`
-	Content             string    `json:"content"`
-	Embedding           []float32 `json:"embedding"`
-	RelPath             string    `json:"rel_path"`
+	ID                  string        `json:"id"`
+	Title               string        `json:"title"`
+	Status              string        `json:"status"`
+	Scope               ScopePatterns `json:"scope"`
+	SimilarityThreshold *float64      `json:"similarity_threshold,omitempty"`
+	Content             string        `json:"content"`
+	Embedding           []float32     `json:"embedding"`
+	RelPath             string        `json:"rel_path"`
+	Rules               Rules         `json:"rules,omitempty"`
 }
 
 type FrontMatter struct {
@@ -31,11 +30,12 @@ type FrontMatter struct {
 	Status              string        `yaml:"status"`
 	Scope               ScopePatterns `yaml:"scope"`
 	SimilarityThreshold *float64      `yaml:"similarity_threshold"`
+	Rules               yaml.Node     `yaml:"rules"`
 }
 
 // CanonicalFrontMatterFields lists the FrontMatter fields that
 // analysis.frontmatter_mappings may remap to a different YAML key.
-var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold"}
+var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold", "rules"}
 
 // ScopePatterns holds one or more glob patterns from an ADR's scope
 // frontmatter, matched with OR semantics; nil/empty means unrestricted.
@@ -46,11 +46,13 @@ func (sp ScopePatterns) Matches(filePath string) bool {
 	if len(sp) == 0 {
 		return true
 	}
+
 	for _, pattern := range sp {
 		if MatchGlob(pattern, filePath) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -68,20 +70,20 @@ func (sp ScopePatterns) Serialize() string {
 	}
 }
 
-// ParseScopePatterns is Serialize's inverse: a JSON array parses as
-// multiple patterns, anything else (including legacy raw text) as one.
-// Only a "["-prefixed value is treated as JSON -- Serialize never emits any
-// other JSON shape, so a literal pattern like "null" isn't misread as one.
+// ParseScopePatterns reads a JSON array as many patterns and anything else, legacy raw text
+// included, as one; only a "["-prefixed value is tried as JSON so a literal "null" survives.
 func ParseScopePatterns(s string) ScopePatterns {
 	if s == "" {
 		return nil
 	}
+
 	if strings.HasPrefix(strings.TrimSpace(s), "[") {
 		var patterns []string
 		if err := json.Unmarshal([]byte(s), &patterns); err == nil {
 			return ScopePatterns(patterns)
 		}
 	}
+
 	return ScopePatterns{s}
 }
 
@@ -89,6 +91,7 @@ func (sp ScopePatterns) MarshalJSON() ([]byte, error) {
 	if len(sp) <= 1 {
 		return json.Marshal(sp.Serialize())
 	}
+
 	return json.Marshal([]string(sp))
 }
 
@@ -98,10 +101,12 @@ func (sp *ScopePatterns) UnmarshalJSON(data []byte) error {
 		*sp = ParseScopePatterns(single)
 		return nil
 	}
+
 	var multi []string
 	if err := json.Unmarshal(data, &multi); err != nil {
 		return err
 	}
+
 	*sp = ScopePatterns(multi)
 	return nil
 }
@@ -113,17 +118,20 @@ func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
 		if err := node.Decode(&s); err != nil {
 			return err
 		}
+
 		if s == "" {
 			*sp = nil
 		} else {
 			*sp = ScopePatterns{s}
 		}
+
 		return nil
 	case yaml.SequenceNode:
 		var list []string
 		if err := node.Decode(&list); err != nil {
 			return err
 		}
+
 		*sp = ScopePatterns(list)
 		return nil
 	case 0:
@@ -134,8 +142,6 @@ func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// Value and Scan let ScopePatterns act as a pgx/database-sql query
-// parameter and scan destination directly against a TEXT column.
 func (sp ScopePatterns) Value() (driver.Value, error) {
 	return sp.Serialize(), nil
 }
@@ -151,24 +157,33 @@ func (sp *ScopePatterns) Scan(src any) error {
 	default:
 		return fmt.Errorf("unsupported scan type %T for ScopePatterns", src)
 	}
+
 	return nil
 }
 
-func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, frontmatterMappings map[string]string) (*ADR, error) {
+type ParseOptions struct {
+	FrontmatterMappings map[string]string
+	RulesHeading        string
+}
+
+func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (*ADR, error) {
+	adr, _, err := parseADRFile(path, rootDir, idPattern, opts)
+	return adr, err
+}
+
+func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (adr *ADR, rulesErr error, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	relPath, _ := filepath.Rel(rootDir, path)
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
-	return ParseADRContent(data, id, relPath, frontmatterMappings)
+	return parseADR(data, id, relPath, opts, nil)
 }
 
-// extractID uses idPattern's capture group 1 (or whole match) when it matches;
-// otherwise falls back to the first-hyphen split.
 func extractID(filename string, idPattern *regexp.Regexp) string {
 	if idPattern != nil {
 		if m := idPattern.FindStringSubmatch(filename); m != nil {
@@ -176,27 +191,63 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 			if len(m) > 1 {
 				id = m[1]
 			}
+
 			if id != "" {
 				return id
 			}
 		}
 	}
+
 	return strings.Split(filename, "-")[0]
 }
 
-func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings map[string]string) (*ADR, error) {
+func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
+	adr, _, err := parseADR(data, id, relPath, opts, nil)
+	return adr, err
+}
+
+// The closing fence is the first line starting with "---", so a "---" inside a value can't end the
+// frontmatter; YAML lines never start with it.
+func splitFrontMatter(data []byte) (frontMatter, body []byte, ok bool) {
+	end := bytes.Index(data[3:], []byte("\n---"))
+	if end < 0 {
+		return nil, nil, false
+	}
+
+	closing := 3 + end + 1
+
+	return data[3:closing], data[closing+3:], true
+}
+
+// rulesErr means the ADR is usable but its rules were dropped; err means the ADR is unusable.
+func parseADR(data []byte, id string, relPath string, opts ParseOptions, contentOverride *string) (adr *ADR, rulesErr error, err error) {
 	if !bytes.HasPrefix(data, []byte("---")) {
-		return nil, fmt.Errorf("no frontmatter found in %s", relPath)
+		return nil, nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
 
-	parts := bytes.SplitN(data, []byte("---"), 3)
-	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
+	frontMatter, body, ok := splitFrontMatter(data)
+	if !ok {
+		return nil, nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}
 
-	fm, err := decodeFrontMatter(parts[1], frontmatterMappings)
+	fm, err := decodeFrontMatter(frontMatter, opts.FrontmatterMappings)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
+		return nil, nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
+	}
+
+	content := string(body)
+	if contentOverride != nil {
+		content = *contentOverride
+	}
+
+	heading := strings.TrimSpace(opts.RulesHeading)
+	if heading == "" {
+		heading = DefaultRulesHeading
+	}
+
+	rules, rulesErr := frontMatterRules(&fm.Rules)
+	if rulesErr == nil && len(rules) == 0 {
+		rules, rulesErr = bodyRules(content, heading)
 	}
 
 	return &ADR{
@@ -205,19 +256,19 @@ func ParseADRContent(data []byte, id string, relPath string, frontmatterMappings
 		Status:              fm.Status,
 		Scope:               fm.Scope,
 		SimilarityThreshold: fm.SimilarityThreshold,
-		Content:             string(parts[2]),
+		Content:             content,
 		RelPath:             relPath,
-	}, nil
+		Rules:               rules,
+	}, rulesErr, nil
 }
 
-// decodeFrontMatter reads each canonical field from its mapped source key,
-// falling back to the canonical key itself when unmapped.
 func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (FrontMatter, error) {
 	var fm FrontMatter
 	if len(frontmatterMappings) == 0 {
 		if err := yaml.Unmarshal(raw, &fm); err != nil {
 			return FrontMatter{}, err
 		}
+
 		return fm, nil
 	}
 
@@ -230,6 +281,7 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		if mapped, ok := frontmatterMappings[canonical]; ok && mapped != "" {
 			return mapped
 		}
+
 		return canonical
 	}
 
@@ -238,20 +290,28 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("status")]; ok {
 		if err := node.Decode(&fm.Status); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("scope")]; ok {
 		if err := node.Decode(&fm.Scope); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("similarity_threshold")]; ok {
 		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
+	if node, ok := nodes[sourceKey("rules")]; ok {
+		fm.Rules = node
+	}
+
 	return fm, nil
 }

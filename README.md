@@ -119,6 +119,8 @@ analysis:
     status: "status"
     scope: "scope" # e.g. "applies_to" if your ADRs use that key
     similarity_threshold: "similarity_threshold"
+    rules: "rules"
+  rules_heading: "Rules" # Optional: the ADR body section whose bullets are read as screening rules; this is the default
   pipeline: # Optional: how candidate ADRs are ranked before the LLM judges them; this rank stage matches the default
     rank:
       scorer: "cosine"
@@ -142,7 +144,7 @@ analysis:
   max_concurrency: 5 # Number of files analyzed in parallel
 ```
 
-The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), and [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`).
+The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`), and [Screening Rules](#screening-rules) (`rules_heading`).
 
 ### Supported Statuses
 You can filter ADRs by their status (e.g. `["Accepted"]`). If you want ArchGuard to evaluate against *all* ADRs regardless of status, use `["*"]`.
@@ -214,7 +216,7 @@ ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is requir
 
 **ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex (for example `adr_id_pattern: '^adr-(\d+)-'`): capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
 
-**Frontmatter Field Mappings:** If your existing ADR corpus uses different frontmatter key names (e.g. MADR-style or your own house convention), set `analysis.frontmatter_mappings` to remap any of the four canonical fields (`title`, `status`, `scope`, `similarity_threshold`) to the YAML key your files actually use:
+**Frontmatter Field Mappings:** If your existing ADR corpus uses different frontmatter key names (e.g. MADR-style or your own house convention), set `analysis.frontmatter_mappings` to remap any of the five canonical fields (`title`, `status`, `scope`, `similarity_threshold`, `rules`) to the YAML key your files actually use:
 
 ```yaml
 analysis:
@@ -222,7 +224,7 @@ analysis:
     scope: "applies_to"
 ```
 
-With this configured, an ADR's `applies_to: "**/*.go"` frontmatter key is read as `scope`. Any field left out of the mapping keeps reading its canonical key unchanged — this is a per-field override, not an all-or-nothing schema replacement. A mapping naming an unknown canonical field, or one that would make two fields read the same YAML key, is rejected at startup.
+With this configured, an ADR's `applies_to: "**/*.go"` frontmatter key is read as `scope`. Any field left out of the mapping keeps reading its canonical key unchanged — this is a per-field override, not an all-or-nothing schema replacement. A mapping naming an unknown canonical field, or one that would make two fields read the same YAML key, is rejected at startup. Because `rules` reads the `rules` key by default, mapping another field onto `rules` is rejected too; the error tells you to remap `rules` itself (for example `rules: rules_field`).
 
 ```markdown
 ---
@@ -255,6 +257,34 @@ scope:
 - `status` (Required): Must match a value in `analysis.accepted_statuses`.
 - `scope` (Optional): A glob pattern (e.g., `src/**/*.ts`) or a YAML list of glob patterns matched with OR semantics. Supports standard Go globbing and recursive `**` patterns.
 - `similarity_threshold` (Optional): Float overriding the global `vector_store.similarity_threshold` for matching against this ADR only. Falls back to the global value when unset.
+- `rules` (Optional): Screening rules stating what a violation of this ADR looks like. See [Screening Rules](#screening-rules).
+
+#### Screening Rules
+
+An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers; they don't yet change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
+
+```markdown
+## Rules
+
+- All code MUST be written in Go.
+- There MUST NOT be hand rolled logic where a well-tested library exists to solve the same problem
+```
+
+The section is found by its heading text (`Rules` by default, set `analysis.rules_heading` to use another), matched at any heading level, ignoring case, inline formatting and a trailing colon (so `## **Rules:**` matches), and it ends at the next heading of the same or a higher level. Only the top-level bullets are rules, with any task-list checkbox (`[ ]`, `[x]`) dropped; nested bullets and prose around the list are ignored, so a rule can carry its own explanation underneath.
+
+Rules can also go in the frontmatter, as a list of statements. A rule written as a mapping can add examples of violating and compliant code:
+
+```yaml
+rules:
+  - All code MUST be written in Go.
+  - statement: Handlers must not import the database package directly
+    violating:
+      - 'import "app/db"'
+    compliant:
+      - call the repository interface instead
+```
+
+If an ADR declares rules in both places, only the frontmatter rules are used. An ADR with malformed rules (for example `rules: yes`, or a bullet in the rules section that has no text of its own) still loads and is still judged, just without its rules: `archguard index` and `archguard check` print a warning, and the `archguard index` summary lists it under `Rules ignored (malformed)` with the reason. Rules are stored in the index alongside each ADR, so editing only an ADR's frontmatter rules is picked up by the next `archguard index`, and with the local index by the next `archguard check` too.
 
 ### Remote Vector Databases (pgvector)
 By default, ArchGuard stores your ADR embeddings in a local `.archguard/index.json` file. For large teams or CI environments, you can centralize this index using PostgreSQL and the `pgvector` extension.

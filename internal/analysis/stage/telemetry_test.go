@@ -35,12 +35,15 @@ func TestTelemetry_SumsReceivedKeptAndTimeAcrossCalls(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("stats = %+v, want 2 stages", got)
 	}
+
 	if got[0].Name != "rank" || got[0].Received != 6 || got[0].Kept != 4 {
 		t.Errorf("rank = %+v, want received 6 kept 4", got[0])
 	}
+
 	if got[1].Name != "rerank" || got[1].Received != 4 || got[1].Kept != 2 {
 		t.Errorf("rerank = %+v, want received 4 kept 2", got[1])
 	}
+
 	if got[0].DurationMS < 10 {
 		t.Errorf("rank duration_ms = %d, want at least the two calls' 5ms sleeps summed", got[0].DurationMS)
 	}
@@ -61,6 +64,7 @@ func TestTelemetry_StageThatReceivesNothingReportsZeros(t *testing.T) {
 	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if got := tel.Stats()[0]; got.Received != 0 || got.Kept != 0 {
 		t.Fatalf("stats = %+v, want zero received and kept", got)
 	}
@@ -78,6 +82,7 @@ func TestTelemetry_EmptyInputAddsNoTimeEvenWhenDebugOutputIsSlow(t *testing.T) {
 	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, slowDebug{delay: 5 * time.Millisecond}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if got := tel.Stats()[0]; got.DurationMS != 0 {
 		t.Fatalf("stats = %+v, want duration_ms 0 for a stage that received nothing", got)
 	}
@@ -94,6 +99,7 @@ func TestTelemetry_FailedStageCountsReceivedAndTimeButKeepsNothing(t *testing.T)
 	if !errors.Is(err, boom) || len(kept) != 0 {
 		t.Fatalf("kept=%v err=%v, want the scorer's error and nothing kept", kept, err)
 	}
+
 	if got := tel.Stats()[0]; got.Received != 2 || got.Kept != 0 || got.DurationMS < 3 {
 		t.Fatalf("stats = %+v, want received 2, kept 0, duration of at least 3ms", got)
 	}
@@ -104,6 +110,7 @@ func TestTelemetry_StatsReturnsACopy(t *testing.T) {
 
 	first := tel.Stats()
 	first[0].Kept = 99
+
 	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -122,6 +129,7 @@ func TestTelemetry_ConcurrentCallsDoNotLoseCounts(t *testing.T) {
 			_, _ = tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b"))
 		})
 	}
+
 	wg.Wait()
 
 	if got := tel.Stats()[0]; got.Received != 100 || got.Kept != 100 {

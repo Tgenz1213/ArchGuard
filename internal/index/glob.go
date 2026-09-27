@@ -9,5 +9,6 @@ func MatchGlob(pattern, name string) bool {
 	if err != nil {
 		return false
 	}
+
 	return matched
 }

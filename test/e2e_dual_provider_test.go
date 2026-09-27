@@ -40,6 +40,7 @@ analysis:
 		if !strings.Contains(output, embedProviderMarker) {
 			t.Fatalf("expected index output to contain %q, got: %s", embedProviderMarker, output)
 		}
+
 		if strings.Contains(output, chatProviderMarker) {
 			t.Fatalf("index should never invoke the chat provider when providers differ, but output contains %q: %s", chatProviderMarker, output)
 		}
@@ -56,6 +57,7 @@ analysis:
 		if !strings.Contains(output, chatProviderMarker) {
 			t.Fatalf("expected check output to contain %q, got: %s", chatProviderMarker, output)
 		}
+
 		if !strings.Contains(output, embedProviderMarker) {
 			t.Fatalf("expected check output to contain %q, got: %s", embedProviderMarker, output)
 		}
@@ -65,6 +67,7 @@ analysis:
 		if err := os.Remove(fixturePath); err != nil {
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
+
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
 	})
 }

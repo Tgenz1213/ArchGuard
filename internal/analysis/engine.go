@@ -96,6 +96,7 @@ func (e *Engine) embedProvider() llm.Embedder {
 	if e.EmbedProvider != nil {
 		return e.EmbedProvider
 	}
+
 	return e.Provider
 }
 
@@ -113,6 +114,7 @@ func (e *Engine) writer() io.Writer {
 	if e.Writer != nil {
 		return e.Writer
 	}
+
 	return os.Stdout
 }
 
@@ -121,6 +123,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	if len(stages) == 0 {
 		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
+
 	telemetry := stage.NewTelemetry(stages)
 
 	files, err := e.Content.GetFiles()
@@ -128,6 +131,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		if e.JSONOutput {
 			e.CollectedStages = telemetry.Stats()
 		}
+
 		return err
 	}
 
@@ -157,6 +161,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if explicitFiles && file != baseline.Path {
 				e.Log("Skipping %s: explicitly requested but matches exclude_patterns", file)
 			}
+
 			continue
 		}
 
@@ -209,6 +214,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				mu.Unlock()
 				return nil
 			}
+
 			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
 			for i, st := range stages {
 				hits, err = telemetry.Apply(ctx, i, query, debug, hits)
@@ -222,6 +228,7 @@ func (e *Engine) Run(ctx context.Context) error {
 						sb.WriteString(scoringErrorMessage(file, err))
 						skippedFiles++
 					}
+
 					_, _ = fmt.Fprint(e.writer(), sb.String())
 					mu.Unlock()
 					return nil
@@ -232,6 +239,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				if e.Debug {
 					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")
 				}
+
 				mu.Lock()
 				_, _ = fmt.Fprint(e.writer(), sb.String())
 				mu.Unlock()
@@ -266,12 +274,14 @@ func (e *Engine) Run(ctx context.Context) error {
 				})
 
 				var res *llm.AnalysisResult
+
 				if e.Cache != nil {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
 					if err == nil && found {
 						if e.Debug {
 							fmt.Fprintf(&sb, "[DEBUG]   Cache Hit for %s\n", hit.ADR.Title)
 						}
+
 						res = cachedRes
 					}
 				}
@@ -280,12 +290,14 @@ func (e *Engine) Run(ctx context.Context) error {
 					if e.Debug {
 						fmt.Fprintf(&sb, "[DEBUG]   Cache Miss. Calling LLM...\n")
 					}
+
 					res, err = llm.AnalyzeDrift(ctx, e.Provider, hit.ADR.Content, content, file, systemPrompt)
 					if err != nil {
 						fmt.Fprintf(&sb, "    Warning: LLM analysis failed: %v\n", err)
 						localSkippedADRChecks++
 						continue
 					}
+
 					if e.Cache != nil {
 						if err := e.Cache.Put(cacheKey, res); err != nil {
 							e.Log("Failed to cache analysis result: %v", err)
@@ -305,6 +317,7 @@ func (e *Engine) Run(ctx context.Context) error {
 						if reason == "" {
 							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
 						}
+
 						writeViolationOutput(&sb, violationOutput{
 							Label:          "VIOLATION",
 							Title:          hit.ADR.Title,
@@ -337,6 +350,7 @@ func (e *Engine) Run(ctx context.Context) error {
 						localBaselined++
 					default:
 						var suggestion string
+
 						if e.SuggestFixes && verified {
 							suggestionKey := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
 								ModelName:                e.Config.LLM.Model,
@@ -353,6 +367,7 @@ func (e *Engine) Run(ctx context.Context) error {
 									suggestion = cached
 								}
 							}
+
 							if suggestion == "" {
 								s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
 								switch {
@@ -370,6 +385,7 @@ func (e *Engine) Run(ctx context.Context) error {
 								}
 							}
 						}
+
 						writeViolationOutput(&sb, violationOutput{
 							Label:      "VIOLATION",
 							Title:      hit.ADR.Title,
@@ -379,6 +395,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							Suggestion: suggestion,
 						}, verified)
 						localViolations++
+
 						if e.JSONOutput {
 							localViolationRecords = append(localViolationRecords, Violation{
 								File:       file,
@@ -399,9 +416,11 @@ func (e *Engine) Run(ctx context.Context) error {
 			violations += localViolations
 			baselinedCount += localBaselined
 			skippedADRChecks += localSkippedADRChecks
+
 			if e.UpdateBaseline {
 				collectedEntries = append(collectedEntries, localBaselineEntries...)
 			}
+
 			collectedViolations = append(collectedViolations, localViolationRecords...)
 			mu.Unlock()
 			return nil
@@ -416,13 +435,16 @@ func (e *Engine) Run(ctx context.Context) error {
 		if stageFailures[i].File != stageFailures[j].File {
 			return stageFailures[i].File < stageFailures[j].File
 		}
+
 		return stageFailures[i].Stage < stageFailures[j].Stage
 	})
+
 	e.StageFailures = stageFailures
 	if e.JSONOutput {
 		if collectedViolations == nil {
 			collectedViolations = []Violation{}
 		}
+
 		e.CollectedViolations = collectedViolations
 		e.CollectedStages = telemetry.Stats()
 	}
@@ -432,6 +454,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		for _, entry := range collectedEntries {
 			b.Add(entry)
 		}
+
 		e.CollectedBaseline = b
 		return nil
 	}
@@ -453,11 +476,13 @@ func (e *Engine) shouldExclude(path string) bool {
 	if path == baseline.Path {
 		return true
 	}
+
 	for _, pattern := range e.Config.Analysis.ExcludePatterns {
 		if index.MatchGlob(pattern, path) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -477,6 +502,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	if err != nil {
 		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
 	}
+
 	if totalTokens <= maxTokens {
 		return fullContent, fullContent, "full", nil
 	}
@@ -494,6 +520,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	if err != nil {
 		return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
 	}
+
 	return truncated, fullContent, "truncated", nil
 }
 
@@ -509,10 +536,12 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 		if err != nil {
 			return "", err
 		}
+
 		if n <= maxTokens {
 			fits = true
 			break
 		}
+
 		cut = clampRuneBoundary(content, int(float64(cut)*float64(maxTokens)/float64(n)))
 		candidate = content[:cut]
 	}
@@ -522,10 +551,12 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 		// known to exceed maxTokens, so re-measuring it would be redundant.
 		cut = clampRuneBoundary(content, cut/2)
 		candidate = content[:cut]
+
 		n, err := e.Provider.CountTokens(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
+
 		if n <= maxTokens {
 			fits = true
 		}
@@ -542,12 +573,15 @@ func clampRuneBoundary(s string, cut int) int {
 	if cut < 0 {
 		return 0
 	}
+
 	if cut >= len(s) {
 		return len(s)
 	}
+
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
+
 	return cut
 }
 
@@ -559,6 +593,7 @@ func rollBackToNewline(s string) string {
 	if lastNewline := strings.LastIndex(s, "\n"); lastNewline != -1 {
 		return s[:lastNewline+1]
 	}
+
 	return s
 }
 
@@ -589,6 +624,7 @@ func stripDiffMetadata(s string) string {
 			}
 		}
 	}
+
 	return strings.Join(out, "\n")
 }
 
@@ -604,6 +640,7 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	if quote == "" {
 		return 0
 	}
+
 	idx := strings.Index(content, quote)
 	if idx == -1 {
 		return 0
@@ -629,13 +666,17 @@ func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool)
 	} else {
 		fmt.Fprintf(sb, "    [%s] %s [UNVERIFIED: quoted code not found in analyzed content]\n", v.Label, v.Title)
 	}
+
 	fmt.Fprintf(sb, "    Reasoning: %s\n", v.Reasoning)
+
 	if v.QuotedCode != "" {
 		fmt.Fprintf(sb, "    Code: %s\n", v.QuotedCode)
 	}
+
 	if v.Suggestion != "" {
 		fmt.Fprintf(sb, "    Suggestion (unverified): %s\n", v.Suggestion)
 	}
+
 	if v.BaselineReason != "" {
 		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
 	}
@@ -643,10 +684,12 @@ func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool)
 
 func newStageFailure(name, file string, err error) StageFailure {
 	failure := StageFailure{Stage: name, File: file, Error: err.Error()}
+
 	var stageErr *stage.Error
 	if errors.As(err, &stageErr) {
 		failure.Kind = stageErr.Kind
 	}
+
 	return failure
 }
 
@@ -659,5 +702,6 @@ func scoringErrorMessage(file string, err error) string {
 	if errors.As(err, &stageErr) {
 		return fmt.Sprintf("Error %s for %s: %v\n", stageErr.Action, file, stageErr.Err)
 	}
+
 	return fmt.Sprintf("Error scoring candidates for %s: %v\n", file, err)
 }

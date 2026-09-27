@@ -36,6 +36,7 @@ func getBinaryName() string {
 	if runtime.GOOS == "windows" {
 		return "e2e_archguard.exe"
 	}
+
 	return "e2e_archguard"
 }
 
@@ -48,11 +49,13 @@ var (
 // TestMain builds the archguard-e2e binary once, shared by every test.
 func TestMain(m *testing.M) {
 	code := m.Run()
+
 	if sharedBinaryPath != "" {
 		if err := os.RemoveAll(filepath.Dir(sharedBinaryPath)); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to clean up shared e2e binary dir: %v\n", err)
 		}
 	}
+
 	os.Exit(code)
 }
 
@@ -61,11 +64,13 @@ func buildSharedE2EBinary(t *testing.T) string {
 
 	sharedBinaryOnce.Do(func() {
 		cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
+
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			sharedBinaryErr = fmt.Errorf("failed to get module root: %w", err)
 			return
 		}
+
 		sourceRoot := strings.TrimSpace(string(out))
 
 		binDir, err := os.MkdirTemp("", "archguard-e2e-bin")
@@ -73,9 +78,11 @@ func buildSharedE2EBinary(t *testing.T) string {
 			sharedBinaryErr = fmt.Errorf("failed to create shared binary dir: %w", err)
 			return
 		}
+
 		sharedBinaryPath = filepath.Join(binDir, getBinaryName())
 
 		buildCmd := exec.Command("go", "build", "-o", sharedBinaryPath, "./cmd/archguard-e2e")
+
 		buildCmd.Dir = sourceRoot
 		if out, err := buildCmd.CombinedOutput(); err != nil {
 			sharedBinaryErr = fmt.Errorf("failed to build binary: %w\nOutput: %s", err, out)
@@ -85,6 +92,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 	if sharedBinaryErr != nil {
 		t.Fatalf("shared E2E binary build failed: %v", sharedBinaryErr)
 	}
+
 	return sharedBinaryPath
 }
 
@@ -96,6 +104,7 @@ func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 	tempDir = t.TempDir()
 
 	gitInitCmd := exec.Command("git", "init")
+
 	gitInitCmd.Dir = tempDir
 	if out, err := gitInitCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
@@ -107,9 +116,11 @@ func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 // writeE2EConfig writes archguard.yaml and an empty .env into dir.
 func writeE2EConfig(t *testing.T, dir, configContent string) {
 	t.Helper()
+
 	if err := os.WriteFile(filepath.Join(dir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to create archguard.yaml: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to create .env: %v", err)
 	}
@@ -118,10 +129,12 @@ func writeE2EConfig(t *testing.T, dir, configContent string) {
 // writeNoSecretsADR writes the shared "no secrets in logs" ADR fixture.
 func writeNoSecretsADR(t *testing.T, dir string) {
 	t.Helper()
+
 	adrPath := filepath.Join(dir, "docs", "arch", "0000-no-secrets-in-log.md")
 	if err := os.MkdirAll(filepath.Dir(adrPath), 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	if err := os.WriteFile(adrPath, []byte(noSecretsADRContent), 0644); err != nil {
 		t.Fatalf("Failed to create mock ADR: %v", err)
 	}
@@ -170,6 +183,7 @@ analysis:
 		if err := os.Remove(configPath); err != nil {
 			t.Fatalf("Failed to remove config: %v", err)
 		}
+
 		defer func() {
 			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 				t.Fatalf("Failed to restore config: %v", err)
@@ -182,6 +196,7 @@ analysis:
 
 		_, err := cmd.CombinedOutput()
 		exitCode := 0
+
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				exitCode = exitError.ExitCode()
@@ -189,6 +204,7 @@ analysis:
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
 		}
+
 		if exitCode != int(cli.ExitUsage) {
 			t.Fatalf("expected usage exit code %d, got %d", cli.ExitUsage, exitCode)
 		}
@@ -213,6 +229,7 @@ analysis:
 
 				out, err := cmd.CombinedOutput()
 				exitCode := 0
+
 				if err != nil {
 					if exitError, ok := err.(*exec.ExitError); ok {
 						exitCode = exitError.ExitCode()
@@ -220,9 +237,11 @@ analysis:
 						t.Fatalf("Binary failed to execute: %v", err)
 					}
 				}
+
 				if exitCode != int(cli.ExitSuccess) {
 					t.Fatalf("expected success exit code %d for %v, got %d (output: %s)", cli.ExitSuccess, args, exitCode, out)
 				}
+
 				if !strings.Contains(string(out), "Usage") {
 					t.Fatalf("expected usage text in output for %v, got %q", args, out)
 				}
@@ -237,6 +256,7 @@ analysis:
 
 		_, err := cmd.CombinedOutput()
 		exitCode := 0
+
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				exitCode = exitError.ExitCode()
@@ -244,6 +264,7 @@ analysis:
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
 		}
+
 		if exitCode != int(cli.ExitUsage) {
 			t.Fatalf("expected usage exit code %d, got %d", cli.ExitUsage, exitCode)
 		}
@@ -262,10 +283,12 @@ analysis:
   adr_path: "./does_not_exist"
   accepted_statuses: ["Accepted", "Active"]
 `
+
 		err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(badConfigContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to write bad config: %v", err)
 		}
+
 		defer func() {
 			if err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(configContent), 0644); err != nil {
 				t.Fatalf("Failed to restore config: %v", err)
@@ -280,6 +303,7 @@ analysis:
 		if err := os.MkdirAll(filepath.Dir(indexPath), 0755); err != nil {
 			t.Fatalf("Failed to create archguard dir: %v", err)
 		}
+
 		if err := os.WriteFile(indexPath, []byte("{corrupt json"), 0644); err != nil {
 			t.Fatalf("Failed to corrupt index: %v", err)
 		}
@@ -296,6 +320,7 @@ analysis:
 		if err := os.Remove(fixturePath); err != nil {
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
+
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
 	})
 }
@@ -306,10 +331,12 @@ analysis:
 func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	gitInitCmd := exec.Command("git", "init")
+
 	gitInitCmd.Dir = tempDir
 	if out, err := gitInitCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to initialize git in temp dir: %v\nOutput: %s", err, out)
 	}
+
 	binaryPath := buildSharedE2EBinary(t)
 
 	cases := [][]string{
@@ -327,6 +354,7 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 
 			out, err := cmd.CombinedOutput()
 			exitCode := 0
+
 			if err != nil {
 				if exitError, ok := err.(*exec.ExitError); ok {
 					exitCode = exitError.ExitCode()
@@ -334,9 +362,11 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 					t.Fatalf("Binary failed to execute: %v", err)
 				}
 			}
+
 			if exitCode != int(cli.ExitSuccess) {
 				t.Fatalf("expected success exit code %d for %v, got %d (output: %s)", cli.ExitSuccess, args, exitCode, out)
 			}
+
 			if !strings.Contains(string(out), "Usage") {
 				t.Fatalf("expected usage text in output for %v, got %q", args, out)
 			}
@@ -388,8 +418,10 @@ func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr 
 		if exitError, ok := err.(*exec.ExitError); ok {
 			return outBuf.String(), errBuf.String(), exitError.ExitCode()
 		}
+
 		t.Fatalf("Binary failed to execute: %v", err)
 	}
+
 	return outBuf.String(), errBuf.String(), 0
 }
 
@@ -432,13 +464,16 @@ analysis:
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 		}
+
 		if report.Count != 1 || len(report.Violations) != 1 {
 			t.Fatalf("expected 1 violation, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
 		}
+
 		v := report.Violations[0]
 		if v.File != fixtureFilename {
 			t.Errorf("expected file %q, got %q", fixtureFilename, v.File)
 		}
+
 		if v.ADRID == "" || v.ADRTitle == "" || v.Reasoning == "" {
 			t.Errorf("expected populated adr_id/adr_title/reasoning, got %+v", v)
 		}
@@ -448,6 +483,7 @@ analysis:
 		if err := os.Remove(fixturePath); err != nil {
 			t.Fatalf("Failed to remove fixture: %v", err)
 		}
+
 		defer func() {
 			if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
 				t.Fatalf("Failed to restore fixture: %v", err)
@@ -464,6 +500,7 @@ analysis:
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 		}
+
 		if report.Count != 0 || len(report.Violations) != 0 {
 			t.Fatalf("expected 0 violations, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
 		}
@@ -486,9 +523,11 @@ analysis:
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON with --debug: %v\nstdout: %q", err, stdout)
 		}
+
 		if strings.Contains(stdout, "ArchGuard - Architectural Drift Detector") {
 			t.Errorf("banner must not appear on stdout in --format json mode. stdout: %s", stdout)
 		}
+
 		if !strings.Contains(stderr, "[DEBUG]") {
 			t.Errorf("expected debug output on stderr, got: %s", stderr)
 		}
@@ -496,6 +535,7 @@ analysis:
 
 	t.Run("skipped ADR checks: JSON still valid, skip summary lands on stderr", func(t *testing.T) {
 		skipFixturePath := filepath.Join(tempDir, "skipped.js")
+
 		skipFixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     console.log("%s");
@@ -504,6 +544,7 @@ function sensitiveData() {
 		if err := os.WriteFile(skipFixturePath, []byte(skipFixtureContent), 0644); err != nil {
 			t.Fatalf("Failed to create fixture: %v", err)
 		}
+
 		defer func() {
 			if err := os.Remove(skipFixturePath); err != nil {
 				t.Fatalf("Failed to remove fixture: %v", err)
@@ -520,9 +561,11 @@ function sensitiveData() {
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 		}
+
 		if report.Count != 0 {
 			t.Fatalf("expected 0 violations for a skipped ADR check, got count=%d. stdout: %s", report.Count, stdout)
 		}
+
 		if !strings.Contains(stderr, "1 ADR check(s) were skipped due to LLM errors") {
 			t.Errorf("expected the skip-count summary on stderr (not silently dropped by --format json), got: %s", stderr)
 		}
@@ -561,16 +604,20 @@ analysis:
 		if exitCode != int(cli.ExitDriftDetected) {
 			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
 		}
+
 		var report checkReport
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 		}
+
 		if len(report.Violations) != 1 {
 			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), stdout)
 		}
+
 		if report.Violations[0].Suggestion != "" {
 			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, got %q", report.Violations[0].Suggestion)
 		}
+
 		if strings.Contains(stdout, `"suggestion"`) {
 			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
 		}
@@ -587,6 +634,7 @@ analysis:
 		cmd.Stderr = &errBuf
 		err := cmd.Run()
 		exitCode := 0
+
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				exitCode = exitError.ExitCode()
@@ -594,6 +642,7 @@ analysis:
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
 		}
+
 		if exitCode != int(cli.ExitDriftDetected) {
 			t.Fatalf("expected drift exit code %d, got %d. stdout: %s stderr: %s", cli.ExitDriftDetected, exitCode, outBuf.String(), errBuf.String())
 		}
@@ -602,9 +651,11 @@ analysis:
 		if err := json.Unmarshal(outBuf.Bytes(), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, outBuf.String())
 		}
+
 		if len(report.Violations) != 1 {
 			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), outBuf.String())
 		}
+
 		want := "Mock suggestion: move this logic into a Go service."
 		if report.Violations[0].Suggestion != want {
 			t.Errorf("expected suggestion %q, got %q", want, report.Violations[0].Suggestion)
@@ -616,16 +667,20 @@ analysis:
 		if exitCode != int(cli.ExitDriftDetected) {
 			t.Fatalf("expected drift exit code %d, got %d. stdout: %s", cli.ExitDriftDetected, exitCode, stdout)
 		}
+
 		var report checkReport
 		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
 		}
+
 		if len(report.Violations) != 1 {
 			t.Fatalf("expected 1 violation, got %d. stdout: %s", len(report.Violations), stdout)
 		}
+
 		if report.Violations[0].Suggestion != "" {
 			t.Errorf("expected empty suggestion when --suggest-fixes is not passed, even with a warm cache from the earlier flagged run, got %q", report.Violations[0].Suggestion)
 		}
+
 		if strings.Contains(stdout, `"suggestion"`) {
 			t.Errorf("expected the suggestion key to be omitted entirely (omitempty), not just empty, in raw JSON: %s", stdout)
 		}
@@ -660,6 +715,7 @@ analysis:
 	// Modifying the ADR after indexing forces a hash mismatch on the next check --
 	// deleting index.json instead is covered by TestE2E_CheckRebuildsIndexWhenIndexFileMissing.
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
 	if err := os.WriteFile(adrPath, []byte(noSecretsADRContent+"\n\nUpdated.\n"), 0644); err != nil {
 		t.Fatalf("Failed to modify ADR to force a hash mismatch: %v", err)
 	}
@@ -674,6 +730,7 @@ analysis:
 	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 		t.Fatalf("stdout is not valid JSON after triggering an index rebuild: %v\nstdout: %q\nstderr: %q", err, stdout, stderr)
 	}
+
 	if report.Count != 1 || len(report.Violations) != 1 {
 		t.Fatalf("expected 1 violation, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
 	}
@@ -681,6 +738,7 @@ analysis:
 	if !strings.Contains(stderr, "Found 1 valid ADRs") {
 		t.Errorf("expected BuildIndex's progress text on stderr (not silently dropped), got: %s", stderr)
 	}
+
 	if strings.Contains(stdout, "Found") || strings.Contains(stdout, "Generating embeddings") {
 		t.Errorf("BuildIndex progress text leaked onto stdout: %s", stdout)
 	}
@@ -726,6 +784,120 @@ analysis:
 	}
 }
 
+func TestE2E_CheckRebuildsLocalIndexAfterRulesOnlyEdit(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
+
+	withRules := strings.Replace(noSecretsADRContent, "scope: \"**\"\n", "scope: \"**\"\nrules:\n  - Never log secrets\n", 1)
+	if withRules == noSecretsADRContent {
+		t.Fatal("failed to insert rules into the ADR frontmatter")
+	}
+
+	if err := os.WriteFile(adrPath, []byte(withRules), 0644); err != nil {
+		t.Fatalf("Failed to edit ADR: %v", err)
+	}
+
+	runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+
+	data, err := os.ReadFile(filepath.Join(tempDir, ".archguard", "index.json"))
+	if err != nil {
+		t.Fatalf("Failed to read index.json: %v", err)
+	}
+
+	var index struct {
+		ADRs []struct {
+			Rules []struct {
+				Statement string `json:"statement"`
+			} `json:"rules"`
+		} `json:"adrs"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatalf("Failed to parse index.json: %v", err)
+	}
+
+	if len(index.ADRs) != 1 || len(index.ADRs[0].Rules) != 1 || index.ADRs[0].Rules[0].Statement != "Never log secrets" {
+		t.Fatalf("expected check to rebuild the index with the new rule, got %s", data)
+	}
+}
+
+func TestE2E_CheckPrintsEachADRWarningOnceEvenWhenItRebuilds(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`)
+	writeNoSecretsADR(t, tempDir)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	badRules := filepath.Join(adrDir, "0001-bad-rules.md")
+
+	if err := os.WriteFile(badRules, []byte("---\ntitle: Bad\nstatus: Accepted\nrules: nope\n---\nBody"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(adrDir, "0002-unparseable.md"), []byte("not frontmatter"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	assertOnce := func(label, output string) {
+		t.Helper()
+
+		for _, warning := range []string{"ignoring rules in", "Warning: skipping"} {
+			if n := strings.Count(output, warning); n != 1 {
+				t.Errorf("%s: %q printed %d times, want 1. Output:\n%s", label, warning, n, output)
+			}
+		}
+	}
+
+	assertOnce("steady-state check", runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected)))
+
+	if err := os.WriteFile(badRules, []byte("---\ntitle: Bad\nstatus: Accepted\nrules: nope\n---\nBody edited"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rebuild := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+	if !strings.Contains(rebuild, "Triggering index rebuild") {
+		t.Fatalf("expected the edit to trigger a rebuild. Output:\n%s", rebuild)
+	}
+
+	assertOnce("rebuilding check", rebuild)
+}
+
 // TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
 // LLM-call failure (as opposed to a file/embedding failure) suppresses the
 // unqualified "No new architectural violations found." message.
@@ -747,6 +919,7 @@ analysis:
 	writeNoSecretsADR(t, tempDir)
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
+
 	fixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     console.log("%s");
@@ -763,9 +936,11 @@ function sensitiveData() {
 	if strings.Contains(output, "No new architectural violations found.") {
 		t.Errorf("check must not print the unqualified clean message when an ADR check was skipped due to an LLM error. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "1 ADR check(s) skipped due to LLM errors") {
 		t.Errorf("expected the skipped ADR check count to be reported. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "compliance was not fully verified") {
 		t.Errorf("expected the cli-level skipped-check message to be reported. Output: %s", output)
 	}
@@ -791,9 +966,11 @@ analysis:
 
 	fileA := filepath.Join(tempDir, "a.js")
 	fileB := filepath.Join(tempDir, "b.js")
+
 	if err := os.WriteFile(fileA, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture a.js: %v", err)
 	}
+
 	if err := os.WriteFile(fileB, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture b.js: %v", err)
 	}
@@ -812,23 +989,28 @@ analysis:
 	out, err := cmd.CombinedOutput()
 	output := string(out)
 	exitCode := 0
+
 	if err != nil {
 		exitError, ok := err.(*exec.ExitError)
 		if !ok {
 			t.Fatalf("Binary failed to execute: %v", err)
 		}
+
 		exitCode = exitError.ExitCode()
 	}
 
 	if exitCode != int(cli.ExitDriftDetected) {
 		t.Fatalf("expected exit code %d (drift detected), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
 	}
+
 	if !strings.Contains(output, "Analyzing a.js") {
 		t.Errorf("expected output to mention a.js's violation, got:\n%s", output)
 	}
+
 	if !strings.Contains(output, "Analyzing b.js") {
 		t.Errorf("expected output to mention b.js's violation, got:\n%s", output)
 	}
+
 	if strings.Count(output, "[VIOLATION]") != 2 {
 		t.Errorf("expected 2 violations (one per file), got:\n%s", output)
 	}
@@ -856,9 +1038,11 @@ analysis:
 
 	excludedFile := filepath.Join(tempDir, "excluded.js")
 	violatingFile := filepath.Join(tempDir, "b.js")
+
 	if err := os.WriteFile(excludedFile, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture excluded.js: %v", err)
 	}
+
 	if err := os.WriteFile(violatingFile, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture b.js: %v", err)
 	}
@@ -876,20 +1060,24 @@ analysis:
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 		exitCode := 0
+
 		if err != nil {
 			exitError, ok := err.(*exec.ExitError)
 			if !ok {
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
+
 			exitCode = exitError.ExitCode()
 		}
 
 		if exitCode != int(cli.ExitDriftDetected) {
 			t.Fatalf("expected exit code %d (drift detected from b.js), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
 		}
+
 		if !strings.Contains(output, "Skipping excluded.js: explicitly requested but matches exclude_patterns") {
 			t.Errorf("expected a debug line naming the skipped excluded file, got:\n%s", output)
 		}
+
 		if !strings.Contains(output, "Analyzing b.js") {
 			t.Errorf("expected b.js to still be analyzed, got:\n%s", output)
 		}
@@ -903,17 +1091,20 @@ analysis:
 		out, err := cmd.CombinedOutput()
 		output := string(out)
 		exitCode := 0
+
 		if err != nil {
 			exitError, ok := err.(*exec.ExitError)
 			if !ok {
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
+
 			exitCode = exitError.ExitCode()
 		}
 
 		if exitCode != int(cli.ExitDriftDetected) {
 			t.Fatalf("expected exit code %d (drift detected from b.js), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
 		}
+
 		if strings.Contains(output, "excluded.js") {
 			t.Errorf("expected no mention of the excluded file outside --debug, got:\n%s", output)
 		}
@@ -965,9 +1156,11 @@ analysis:
 	if strings.Contains(indexOutput, "ADR Index updated successfully") {
 		t.Errorf("index must not claim unqualified success when an ADR was skipped. Output: %s", indexOutput)
 	}
+
 	if !strings.Contains(indexOutput, "Failed to embed or persist: 1") {
 		t.Errorf("expected the skipped ADR to be reported. Output: %s", indexOutput)
 	}
+
 	if !strings.Contains(indexOutput, "0001-always-fails.md") {
 		t.Errorf("expected the skipped ADR to be named. Output: %s", indexOutput)
 	}
@@ -979,6 +1172,7 @@ analysis:
 		if exitCode != int(cli.ExitSuccess) {
 			t.Fatalf("check run %d: expected exit code %d, got %d. Output: %s", i, cli.ExitSuccess, exitCode, output)
 		}
+
 		if strings.Contains(output, "failed to load rebuilt index") {
 			t.Fatalf("check run %d hit the rebuild loop. Output: %s", i, output)
 		}
@@ -1007,6 +1201,7 @@ analysis:
 	if err := os.MkdirAll(adrDir, 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(adrDir, "0001-always-fails.md"), []byte(alwaysFailsToEmbedADRContent), 0644); err != nil {
 		t.Fatalf("Failed to write ADR: %v", err)
 	}
@@ -1015,9 +1210,11 @@ analysis:
 	if exitCode != int(cli.ExitIndexError) {
 		t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitIndexError, exitCode, output)
 	}
+
 	if !strings.Contains(output, "1 discovered, 0 valid") {
 		t.Errorf("expected the summary to print even though BuildIndex returned an error. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "Failed to embed or persist: 1") {
 		t.Errorf("expected the failed ADR to be reported in the summary. Output: %s", output)
 	}
@@ -1051,6 +1248,7 @@ analysis:
 	unparseable := "not frontmatter at all"
 	dup1 := "---\ntitle: \"Dup A\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
 	dup2 := "---\ntitle: \"Dup B\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+	badRules := "---\ntitle: \"Bad Rules\"\nstatus: \"Accepted\"\nscope: \"**\"\nrules: nope\n---\nContent"
 
 	files := map[string]string{
 		"0001-valid.md":       valid,
@@ -1058,6 +1256,7 @@ analysis:
 		"0003-unparseable.md": unparseable,
 		"0004-first.md":       dup1,
 		"0004-second.md":      dup2,
+		"0005-bad-rules.md":   badRules,
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(adrDir, name), []byte(content), 0644); err != nil {
@@ -1067,15 +1266,22 @@ analysis:
 
 	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	if !strings.Contains(output, "5 discovered, 3 valid") {
-		t.Errorf("expected 5 discovered, 3 valid. Output: %s", output)
+	if !strings.Contains(output, "6 discovered, 4 valid") {
+		t.Errorf("expected 6 discovered, 4 valid (malformed rules still index the ADR). Output: %s", output)
 	}
+
+	if !strings.Contains(output, "Rules ignored (malformed): 1") || !strings.Contains(output, "0005-bad-rules.md: frontmatter: rules must be a list") {
+		t.Errorf("expected the malformed rules to be reported with the reason. Output: %s", output)
+	}
+
 	if !strings.Contains(output, "Skipped (parse failure): 1") || !strings.Contains(output, "0003-unparseable.md") {
 		t.Errorf("expected the parse failure to be named. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "Skipped (status not accepted): 1") {
 		t.Errorf("expected the status rejection to be counted. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "Duplicate ADR IDs: 1") || !strings.Contains(output, "0004-first.md") || !strings.Contains(output, "0004-second.md") {
 		t.Errorf("expected the duplicate ID collision to be reported. Output: %s", output)
 	}
@@ -1103,13 +1309,16 @@ analysis:
 	if err := os.MkdirAll(adrDir, 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	// Both files parse their ADR ID from the leading "-"-delimited filename
 	// segment, so these two collide on ID "0001" despite different paths.
 	dup1 := "---\ntitle: \"First\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent A"
 	dup2 := "---\ntitle: \"Second\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent B"
+
 	if err := os.WriteFile(filepath.Join(adrDir, "0001-first.md"), []byte(dup1), 0644); err != nil {
 		t.Fatalf("Failed to write first ADR: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(adrDir, "0001-second.md"), []byte(dup2), 0644); err != nil {
 		t.Fatalf("Failed to write second ADR: %v", err)
 	}
@@ -1119,6 +1328,7 @@ analysis:
 	if !strings.Contains(output, "Duplicate ADR IDs: 1") {
 		t.Errorf("expected duplicate ADR IDs to be reported. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "0001-first.md") || !strings.Contains(output, "0001-second.md") {
 		t.Errorf("expected both colliding paths to be named. Output: %s", output)
 	}
@@ -1146,12 +1356,15 @@ analysis:
 	if err := os.MkdirAll(adrDir, 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	// Both files collapse to ID "adr" under the default first-hyphen split.
 	dup1 := "---\ntitle: \"First\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent A"
 	dup2 := "---\ntitle: \"Second\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent B"
+
 	if err := os.WriteFile(filepath.Join(adrDir, "adr-1-first.md"), []byte(dup1), 0644); err != nil {
 		t.Fatalf("Failed to write first ADR: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(adrDir, "adr-2-second.md"), []byte(dup2), 0644); err != nil {
 		t.Fatalf("Failed to write second ADR: %v", err)
 	}
@@ -1161,6 +1374,7 @@ analysis:
 	if !strings.Contains(output, "2 discovered, 2 valid") {
 		t.Errorf("expected 2 discovered, 2 valid. Output: %s", output)
 	}
+
 	if strings.Contains(output, "Duplicate ADR IDs") {
 		t.Errorf("expected no duplicate ADR IDs once adr_id_pattern distinguishes them. Output: %s", output)
 	}
@@ -1188,6 +1402,7 @@ analysis:
 	if err := os.MkdirAll(adrDir, 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	rejected := "---\ntitle: \"Draft Only\"\nstatus: \"Proposed\"\nscope: \"**\"\n---\nNot yet accepted."
 	if err := os.WriteFile(filepath.Join(adrDir, "0001-draft.md"), []byte(rejected), 0644); err != nil {
 		t.Fatalf("Failed to write ADR: %v", err)
@@ -1252,7 +1467,9 @@ analysis:
 	if err := os.MkdirAll(adrDir, 0755); err != nil {
 		t.Fatalf("Failed to create ADR directory: %v", err)
 	}
+
 	adrPath := filepath.Join(adrDir, "0001-valid.md")
+
 	valid := "---\ntitle: \"Valid\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
 	if err := os.WriteFile(adrPath, []byte(valid), 0644); err != nil {
 		t.Fatalf("Failed to write ADR: %v", err)
@@ -1261,6 +1478,7 @@ analysis:
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
 	indexPath := filepath.Join(tempDir, ".archguard", "index.json")
+
 	before, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("Failed to read index.json after the healthy build: %v", err)
@@ -1279,6 +1497,7 @@ analysis:
 	if err != nil {
 		t.Fatalf("Failed to read index.json after the failed rebuild: %v", err)
 	}
+
 	if string(before) != string(after) {
 		t.Errorf("expected index.json to be left untouched by the failed rebuild.\nBefore: %s\nAfter: %s", before, after)
 	}
@@ -1289,6 +1508,7 @@ func gitAdd(t *testing.T, dir, path string) {
 	t.Helper()
 
 	cmd := exec.Command("git", "add", "--", path)
+
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to git add %s: %v\nOutput: %s", path, err, out)
@@ -1315,6 +1535,7 @@ analysis:
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
 	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+
 	fixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     %s
@@ -1323,6 +1544,7 @@ function sensitiveData() {
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
+
 	// --update-baseline scans via `git ls-files`, so the fixture must be tracked.
 	gitAdd(t, tempDir, fixtureFilename)
 
@@ -1337,6 +1559,7 @@ function sensitiveData() {
 
 		out, err := cmd.CombinedOutput()
 		exitCode := 0
+
 		if err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
 				exitCode = exitError.ExitCode()
@@ -1344,11 +1567,13 @@ function sensitiveData() {
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
 		}
+
 		if exitCode != int(cli.ExitSuccess) {
 			t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
 		}
 
 		baselinePath := filepath.Join(tempDir, baseline.Path)
+
 		data, err := os.ReadFile(baselinePath)
 		if err != nil {
 			t.Fatalf("Failed to read baseline file %s: %v", baselinePath, err)
@@ -1362,15 +1587,18 @@ function sensitiveData() {
 		if len(b.Entries) != 1 {
 			t.Fatalf("expected exactly 1 baseline entry, got %d: %+v", len(b.Entries), b.Entries)
 		}
+
 		writtenEntry = b.Entries[0]
 
 		const expectedADRID = "0000" // from writeNoSecretsADR's "0000-no-secrets-in-log.md"
 		if writtenEntry.ADRID != expectedADRID {
 			t.Errorf("expected baseline entry ADRID %q, got %q", expectedADRID, writtenEntry.ADRID)
 		}
+
 		if writtenEntry.File != fixtureFilename {
 			t.Errorf("expected baseline entry File %q, got %q", fixtureFilename, writtenEntry.File)
 		}
+
 		if writtenEntry.QuotedCode != violatingLine {
 			t.Errorf("expected baseline entry QuotedCode %q, got %q", violatingLine, writtenEntry.QuotedCode)
 		}
@@ -1385,6 +1613,7 @@ function sensitiveData() {
 
 	t.Run("check re-flags violation once baselined line changes", func(t *testing.T) {
 		newViolatingLine := fmt.Sprintf(`console.log("%s: 456");`, testutil.MockViolationTrigger)
+
 		newFixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     %s
@@ -1426,6 +1655,7 @@ analysis:
 	if err := os.MkdirAll(obstructionDir, 0755); err != nil {
 		t.Fatalf("Failed to create obstruction directory: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(obstructionDir, "placeholder"), []byte("x"), 0644); err != nil {
 		t.Fatalf("Failed to create obstruction placeholder file: %v", err)
 	}
@@ -1436,6 +1666,7 @@ analysis:
 
 	out, err := cmd.CombinedOutput()
 	exitCode := 0
+
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
@@ -1452,6 +1683,7 @@ analysis:
 	if strings.Contains(output, "Baseline scan complete") {
 		t.Errorf("success message printed despite Save failure. Output: %s", output)
 	}
+
 	if !strings.Contains(output, "failed to write baseline file") {
 		t.Errorf("expected the actual Save failure to be reported. Output: %s", output)
 	}
@@ -1479,6 +1711,7 @@ analysis:
 	fixtureFilename := "reason_fixture.js"
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
 	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+
 	fixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     %s
@@ -1487,6 +1720,7 @@ function sensitiveData() {
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
+
 	gitAdd(t, tempDir, fixtureFilename)
 
 	t.Log("Indexing ADRs for E2E test...")
@@ -1498,6 +1732,7 @@ function sensitiveData() {
 
 	out, err := cmd.CombinedOutput()
 	exitCode := 0
+
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
@@ -1505,11 +1740,13 @@ function sensitiveData() {
 			t.Fatalf("Binary failed to execute: %v", err)
 		}
 	}
+
 	if exitCode != int(cli.ExitSuccess) {
 		t.Fatalf("expected exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
 	}
 
 	baselinePath := filepath.Join(tempDir, baseline.Path)
+
 	data, err := os.ReadFile(baselinePath)
 	if err != nil {
 		t.Fatalf("Failed to read baseline file %s: %v", baselinePath, err)
@@ -1519,9 +1756,11 @@ function sensitiveData() {
 	if err := json.Unmarshal(data, &b); err != nil {
 		t.Fatalf("Failed to unmarshal baseline file: %v\nContent: %s", err, data)
 	}
+
 	if len(b.Entries) != 1 {
 		t.Fatalf("expected exactly 1 baseline entry, got %d: %+v", len(b.Entries), b.Entries)
 	}
+
 	if b.Entries[0].Reason != "accepted-debt" {
 		t.Errorf("expected Reason %q, got %q", "accepted-debt", b.Entries[0].Reason)
 	}
@@ -1550,6 +1789,7 @@ analysis:
 	fixtureFilename := "corrupt_recovery_fixture.js"
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
 	violatingLine := fmt.Sprintf(`console.log("%s: 123");`, testutil.MockViolationTrigger)
+
 	fixtureContent := fmt.Sprintf(`
 function sensitiveData() {
     %s
@@ -1558,6 +1798,7 @@ function sensitiveData() {
 	if err := os.WriteFile(fixturePath, []byte(fixtureContent), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
+
 	gitAdd(t, tempDir, fixtureFilename)
 
 	baselinePath := filepath.Join(tempDir, baseline.Path)
@@ -1574,6 +1815,7 @@ function sensitiveData() {
 
 	out, err := cmd.CombinedOutput()
 	exitCode := 0
+
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
@@ -1581,9 +1823,11 @@ function sensitiveData() {
 			t.Fatalf("Binary failed to execute: %v", err)
 		}
 	}
+
 	if exitCode != int(cli.ExitSuccess) {
 		t.Fatalf("expected --update-baseline to recover from a corrupt baseline file with exit code %d, got %d. Output: %s", cli.ExitSuccess, exitCode, out)
 	}
+
 	if !strings.Contains(string(out), "baseline reasons will not carry forward") {
 		t.Errorf("expected output to warn that baseline reasons will not carry forward, got: %s", out)
 	}
@@ -1592,10 +1836,12 @@ function sensitiveData() {
 	if err != nil {
 		t.Fatalf("Failed to read regenerated baseline file %s: %v", baselinePath, err)
 	}
+
 	var b baseline.Baseline
 	if err := json.Unmarshal(data, &b); err != nil {
 		t.Fatalf("Regenerated baseline file is not valid JSON: %v\nContent: %s", err, data)
 	}
+
 	if len(b.Entries) != 1 {
 		t.Fatalf("expected exactly 1 regenerated baseline entry, got %d: %+v", len(b.Entries), b.Entries)
 	}
@@ -1620,10 +1866,12 @@ analysis:
 	writeNoSecretsADR(t, tempDir)
 
 	const nonASCIIFilename = "café_日本語.js"
+
 	fixturePath := filepath.Join(tempDir, nonASCIIFilename)
 	if err := os.WriteFile(fixturePath, []byte(violationFixtureContent()), 0644); err != nil {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
+
 	gitAdd(t, tempDir, nonASCIIFilename)
 
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
@@ -1649,8 +1897,10 @@ func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode
 		if exitError, ok := err.(*exec.ExitError); ok {
 			return outputStr, exitError.ExitCode()
 		}
+
 		t.Fatalf("Index binary failed to execute: %v", err)
 	}
+
 	return outputStr, 0
 }
 
@@ -1662,6 +1912,7 @@ func runIndexCmd(t *testing.T, dir, binaryPath string, expectedExitCode int) {
 	if exitCode != expectedExitCode {
 		t.Fatalf("expected index exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 	}
+
 	t.Logf("Index output: %s", output)
 }
 
@@ -1674,6 +1925,7 @@ func runIndexCmdCapture(t *testing.T, dir, binaryPath string, expectedExitCode i
 	if exitCode != expectedExitCode {
 		t.Fatalf("expected index exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 	}
+
 	return output
 }
 
@@ -1698,8 +1950,10 @@ func runCheckOnce(t *testing.T, dir, binaryPath, target string) (output string, 
 		if exitError, ok := err.(*exec.ExitError); ok {
 			return outputStr, exitError.ExitCode()
 		}
+
 		t.Fatalf("Binary failed to execute: %v", err)
 	}
+
 	return outputStr, 0
 }
 
@@ -1715,6 +1969,7 @@ func runCheck(t *testing.T, dir, binaryPath, target string, expectedExitCode int
 		if exitCode == expectedExitCode {
 			return
 		}
+
 		lastErr = fmt.Errorf("expected exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 
 		if i < maxRetries-1 {
@@ -1734,5 +1989,6 @@ func runCheckCapture(t *testing.T, dir, binaryPath, target string, expectedExitC
 	if exitCode != expectedExitCode {
 		t.Fatalf("expected check exit code %d, but got %d. Output: %s", expectedExitCode, exitCode, output)
 	}
+
 	return output
 }

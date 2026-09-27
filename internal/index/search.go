@@ -14,6 +14,7 @@ func (s *LocalStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 	for i := range s.ADRs {
 		candidates = append(candidates, SearchResult{ADR: &s.ADRs[i]})
 	}
+
 	return filterByScope(candidates, filePath), nil
 }
 
@@ -65,14 +66,17 @@ func cosineSimilarity(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0
 	}
+
 	var dotProduct, normA, normB float64
 	for i := range a {
 		dotProduct += float64(a[i] * b[i])
 		normA += float64(a[i] * a[i])
 		normB += float64(b[i] * b[i])
 	}
+
 	if normA == 0 || normB == 0 {
 		return 0
 	}
+
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }

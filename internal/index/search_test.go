@@ -23,6 +23,7 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 	if len(results) != 1 {
 		t.Fatalf("expected exactly 1 result (the scope-matching ADR), got %d: %+v", len(results), results)
 	}
+
 	if results[0].ADR.Title != "Scope Match" {
 		t.Errorf("expected the scope-matching ADR to be returned, got %q", results[0].ADR.Title)
 	}
@@ -57,6 +58,7 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected topK=1 result, got %d", len(results))
 	}
+
 	if results[0].ADR.Title != "high" {
 		t.Errorf("expected the highest-similarity ADR within threshold, got %q", results[0].ADR.Title)
 	}
@@ -114,9 +116,11 @@ func TestLocalStore_SearchRejected_ReturnsClosestBelowThreshold(t *testing.T) {
 	if len(rejected) != 2 {
 		t.Fatalf("expected 2 rejected candidates, got %d: %+v", len(rejected), rejected)
 	}
+
 	if rejected[0].ADR.Title != "near miss" {
 		t.Errorf("expected closest reject first, got %q", rejected[0].ADR.Title)
 	}
+
 	if rejected[1].ADR.Title != "far miss" {
 		t.Errorf("expected furthest reject last, got %q", rejected[1].ADR.Title)
 	}
@@ -135,6 +139,7 @@ func TestLocalStore_SearchRejected_RespectsScopeAndTopK(t *testing.T) {
 	if len(rejected) != 1 {
 		t.Fatalf("expected exactly 1 rejected candidate (scope filters out the other), got %d: %+v", len(rejected), rejected)
 	}
+
 	if rejected[0].ADR.Title != "right scope" {
 		t.Errorf("expected the scope-matching ADR, got %q", rejected[0].ADR.Title)
 	}
@@ -164,9 +169,11 @@ func TestLocalStore_Search_MultiPatternScopeSurvivesSaveLoadRoundTrip(t *testing
 	if len(results) != 1 {
 		t.Fatalf("expected exactly 1 result, got %d: %+v", len(results), results)
 	}
+
 	if results[0].ADR.Title != "Multi Scope" {
 		t.Errorf("expected 'Multi Scope' ADR, got %q", results[0].ADR.Title)
 	}
+
 	if len(results[0].ADR.Scope) != 2 || results[0].ADR.Scope[0] != "internal/api/**" || results[0].ADR.Scope[1] != "internal/handlers/**" {
 		t.Errorf("expected both scope patterns to survive save/load round-trip, got %+v", results[0].ADR.Scope)
 	}
@@ -201,10 +208,12 @@ func TestLocalStore_SearchTruncated_ReturnsAboveThresholdCandidatesCutByTopK(t *
 	if len(truncated) != 2 {
 		t.Fatalf("expected 2 truncated candidates, got %d: %+v", len(truncated), truncated)
 	}
+
 	hits := store.Search([]float32{1, 0}, 0.1, 2, "any.go")
 	if len(hits) != 2 {
 		t.Fatalf("expected 2 hits from Search, got %d: %+v", len(hits), hits)
 	}
+
 	for _, h := range hits {
 		for _, tr := range truncated {
 			if h.ADR.Title == tr.ADR.Title {
@@ -244,6 +253,7 @@ func TestLocalStore_SearchTruncated_RespectsScopeAndThreshold(t *testing.T) {
 	if len(truncated) != 1 {
 		t.Fatalf("expected exactly 1 truncated candidate, got %d: %+v", len(truncated), truncated)
 	}
+
 	if truncated[0].ADR.Title != "qualifies 2" {
 		t.Errorf("expected the lower-scoring qualifying ADR to be the truncated one, got %q", truncated[0].ADR.Title)
 	}
@@ -268,9 +278,11 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 		t.Fatalf("expected 2 hits, 1 rejected, 1 truncated, got hits=%d rejected=%d truncated=%d",
 			len(hits), len(rejected), len(truncated))
 	}
+
 	if rejected[0].ADR.Title != "below threshold" {
 		t.Errorf("expected 'below threshold' to be the rejected candidate, got %q", rejected[0].ADR.Title)
 	}
+
 	if truncated[0].ADR.Title != "third" {
 		t.Errorf("expected 'third' (lowest qualifying score) to be truncated, got %q", truncated[0].ADR.Title)
 	}
@@ -281,6 +293,7 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 			if seen[r.ADR.Title] {
 				t.Errorf("ADR %q appeared in more than one of hits/rejected/truncated", r.ADR.Title)
 			}
+
 			seen[r.ADR.Title] = true
 		}
 	}
@@ -289,6 +302,7 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 	// is deterministic (no approximate index), so this is guaranteed by
 	// construction, but the test pins the invariant explicitly.
 	independentHits := store.Search([]float32{1, 0}, 0.5, 2, "service.go")
+
 	independentTruncated := store.SearchTruncated([]float32{1, 0}, 0.5, 2, "service.go")
 	if len(independentHits) != len(hits) || len(independentTruncated) != len(truncated) {
 		t.Fatalf("SearchWithDebugInfo disagreed with independent Search/SearchTruncated calls")
@@ -321,6 +335,7 @@ func TestLocalStore_ScopedADRs_FiltersByScopeWithoutEmbeddings(t *testing.T) {
 	if len(results) != 2 || results[0].ADR.Title != "Go only" || results[1].ADR.Title != "Unscoped" {
 		t.Fatalf("expected [Go only, Unscoped], got %+v", results)
 	}
+
 	for _, r := range results {
 		if r.Score != 0 {
 			t.Errorf("expected unscored candidate, got score %v for %q", r.Score, r.ADR.Title)

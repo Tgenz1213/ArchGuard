@@ -25,6 +25,7 @@ func (p *UncommittedProvider) GetContent(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(b), nil
 }
 
@@ -59,6 +60,7 @@ func (p *AllProvider) GetContent(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(b), nil
 }
 
@@ -76,9 +78,11 @@ func (p *MultiFileProvider) GetFiles() ([]string, error) {
 		if _, ok := seen[path]; ok {
 			continue
 		}
+
 		seen[path] = struct{}{}
 		files = append(files, path)
 	}
+
 	return files, nil
 }
 
@@ -87,6 +91,7 @@ func (p *MultiFileProvider) GetContent(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(b), nil
 }
 

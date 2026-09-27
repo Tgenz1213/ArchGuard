@@ -21,14 +21,15 @@ func (f *fakeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 func TestCompositeProvider_GetADRs_MergesStatsAcrossProviders(t *testing.T) {
 	p1 := &fakeProvider{
 		adrs:  []ADR{{ID: "0001", RelPath: "0001-a.md"}},
-		stats: FetchStats{Discovered: 2, ParseFailed: []string{"bad-local.md"}, StatusRejected: 1},
+		stats: FetchStats{Discovered: 2, ParseFailed: []string{"bad-local.md"}, StatusRejected: 1, MalformedRules: []MalformedRules{{RelPath: "0001-a.md", Reason: "r1"}}},
 	}
 	p2 := &fakeProvider{
 		adrs:  []ADR{{ID: "confluence-1", RelPath: "confluence-1"}},
-		stats: FetchStats{Discovered: 3, ParseFailed: []string{"bad-confluence"}, StatusRejected: 2},
+		stats: FetchStats{Discovered: 3, ParseFailed: []string{"bad-confluence"}, StatusRejected: 2, MalformedRules: []MalformedRules{{RelPath: "confluence-1", Reason: "r2"}}},
 	}
 
 	composite := NewCompositeProvider(p1, p2)
+
 	adrs, stats, err := composite.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -37,14 +38,21 @@ func TestCompositeProvider_GetADRs_MergesStatsAcrossProviders(t *testing.T) {
 	if len(adrs) != 2 {
 		t.Fatalf("expected 2 merged ADRs, got %d", len(adrs))
 	}
+
 	if stats.Discovered != 5 {
 		t.Errorf("expected Discovered to sum to 5, got %d", stats.Discovered)
 	}
+
 	if stats.StatusRejected != 3 {
 		t.Errorf("expected StatusRejected to sum to 3, got %d", stats.StatusRejected)
 	}
+
 	if len(stats.ParseFailed) != 2 {
 		t.Errorf("expected ParseFailed to concatenate to 2 entries, got %v", stats.ParseFailed)
+	}
+
+	if len(stats.MalformedRules) != 2 {
+		t.Errorf("expected MalformedRules to concatenate to 2 entries, got %v", stats.MalformedRules)
 	}
 }
 
@@ -56,6 +64,7 @@ func TestCompositeProvider_GetADRs_PartialFailureKeepsOtherProviderStats(t *test
 	failing := &fakeProvider{err: errors.New("connection dropped")}
 
 	composite := NewCompositeProvider(ok, failing)
+
 	adrs, stats, err := composite.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error when only one of two providers fails, got: %v", err)

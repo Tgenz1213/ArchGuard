@@ -23,11 +23,13 @@ func (m *MockProvider) CreateEmbedding(ctx context.Context, text string, task Em
 	if m.EmbedFunc != nil {
 		return m.EmbedFunc(ctx, text, task)
 	}
+
 	// Return a non-zero vector to avoid NaN in cosine similarity (0/0)
 	dim := m.EmbeddingDim
 	if dim == 0 {
 		dim = 1536
 	}
+
 	v := make([]float32, dim)
 	v[0] = 1.0
 	return v, nil
@@ -37,6 +39,7 @@ func (m *MockProvider) Chat(ctx context.Context, system, user string) (string, e
 	if m.ChatFunc != nil {
 		return m.ChatFunc(ctx, system, user)
 	}
+
 	// Default mock response as a JSON string
 	return `{"violation": false, "reasoning": "default mock", "quoted_code": ""}`, nil
 }
@@ -45,5 +48,6 @@ func (m *MockProvider) CountTokens(ctx context.Context, text string) (int, error
 	if m.CountTokensFunc != nil {
 		return m.CountTokensFunc(ctx, text)
 	}
+
 	return len(text) / 4, nil
 }

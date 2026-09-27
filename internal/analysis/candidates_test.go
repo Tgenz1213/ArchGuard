@@ -22,10 +22,12 @@ func candidateStore() *index.LocalStore {
 
 func mustFor(t *testing.T, src candidateSource, file, content string, debug stage.Debug) []stage.Candidate {
 	t.Helper()
+
 	got, err := src.For(file, content, debug)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	return got
 }
 
@@ -34,6 +36,7 @@ func candidateIDs(cs []stage.Candidate) string {
 	for i, c := range cs {
 		ids[i] = c.ADR.ID
 	}
+
 	return strings.Join(ids, ",")
 }
 
@@ -43,6 +46,7 @@ func TestCandidateSource_KeepsOnlyScopeMatchedADRs(t *testing.T) {
 	if candidateIDs(got) != "0001,0003" {
 		t.Fatalf("got %s, want 0001,0003", candidateIDs(got))
 	}
+
 	for _, c := range got {
 		if c.Score != 0 {
 			t.Errorf("candidate %s arrived scored (%v); candidates start unscored", c.ADR.ID, c.Score)
@@ -58,6 +62,7 @@ func TestCandidateSource_DropsSuppressedADRsAndSaysSo(t *testing.T) {
 	if candidateIDs(got) != "0003" {
 		t.Fatalf("got %s, want only 0003", candidateIDs(got))
 	}
+
 	if !strings.Contains(buf.String(), "Skipping ADR Go only (Suppressed)") {
 		t.Fatalf("debug output %q lacks the suppression line", buf.String())
 	}

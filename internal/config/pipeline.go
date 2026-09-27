@@ -33,9 +33,11 @@ func (p *Pipeline) UnmarshalYAML(node *yaml.Node) error {
 		default:
 			err = fmt.Errorf("analysis.pipeline: unrecognized stage %q (expected rank or rerank)", key)
 		}
+
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

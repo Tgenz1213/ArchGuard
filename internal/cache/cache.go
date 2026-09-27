@@ -21,6 +21,7 @@ func NewCache(projectRoot string) (*Cache, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create cache dir: %w", err)
 	}
+
 	return &Cache{Dir: cacheDir}, nil
 }
 
@@ -39,15 +40,18 @@ func (c *Cache) Get(key string) (*llm.AnalysisResult, bool, error) {
 	if err := json.Unmarshal(data, &res); err != nil {
 		return nil, false, err // Corrupt cache? Treat as miss.
 	}
+
 	return &res, true, nil
 }
 
 func (c *Cache) Put(key string, res *llm.AnalysisResult) error {
 	path := filepath.Join(c.Dir, key+".json")
+
 	data, err := json.Marshal(res)
 	if err != nil {
 		return err
 	}
+
 	return os.WriteFile(path, data, 0644)
 }
 
@@ -61,6 +65,7 @@ func hashParts(parts ...string) string {
 		h.Write(lenBuf[:])
 		h.Write([]byte(part))
 	}
+
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -102,13 +107,16 @@ func (c *Cache) GetSuggestion(key string) (string, bool, error) {
 	if os.IsNotExist(err) {
 		return "", false, nil
 	}
+
 	if err != nil {
 		return "", false, err
 	}
+
 	var suggestion string
 	if err := json.Unmarshal(data, &suggestion); err != nil {
 		return "", false, err // Corrupt cache? Treat as miss.
 	}
+
 	return suggestion, true, nil
 }
 
@@ -117,9 +125,11 @@ func (c *Cache) PutSuggestion(key, suggestion string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
+
 	data, err := json.Marshal(suggestion)
 	if err != nil {
 		return err
 	}
+
 	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0644)
 }

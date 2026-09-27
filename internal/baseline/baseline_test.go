@@ -30,6 +30,7 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 		t.Fatal("loaded baseline is nil")
 		return
 	}
+
 	if len(loaded.Entries) != 2 {
 		t.Errorf("expected 2 entries, got %d", len(loaded.Entries))
 	}
@@ -37,6 +38,7 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 	if loaded.Entries[0].ADRID != "adr-001" || loaded.Entries[0].File != "file1.go" || loaded.Entries[0].QuotedCode != "func main()" {
 		t.Errorf("first entry mismatch: %+v", loaded.Entries[0])
 	}
+
 	if loaded.Entries[1].ADRID != "adr-002" || loaded.Entries[1].File != "file2.go" || loaded.Entries[1].QuotedCode != "" {
 		t.Errorf("second entry mismatch: %+v", loaded.Entries[1])
 	}
@@ -50,6 +52,7 @@ func TestLoad_MissingFile_ReturnsNilNoError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load should not return error for missing file, got: %v", err)
 	}
+
 	if loaded != nil {
 		t.Fatalf("Load should return nil for missing file, got: %+v", loaded)
 	}
@@ -198,6 +201,7 @@ func TestSave_NilBaseline_ReturnsNilError(t *testing.T) {
 	if err := baseline.Save(path); err != nil {
 		t.Fatalf("expected nil baseline Save to return nil, got: %v", err)
 	}
+
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("expected no file to be written for a nil baseline, got err: %v", err)
 	}
@@ -247,6 +251,7 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 	if err := json.Indent(&want, data, "", "  "); err != nil {
 		t.Fatalf("Failed to compute expected indentation: %v", err)
 	}
+
 	if want.String() != string(data) {
 		t.Errorf("saved file is not 2-space indented:\ngot:\n%s\nwant:\n%s", data, want.String())
 	}
@@ -271,6 +276,7 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
+
 	if loaded == nil {
 		t.Fatal("loaded baseline is nil")
 		return
@@ -285,6 +291,7 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 	if len(loaded.Entries) != len(want) {
 		t.Fatalf("expected %d entries, got %d", len(want), len(loaded.Entries))
 	}
+
 	for i, w := range want {
 		if loaded.Entries[i].File != w.File || loaded.Entries[i].ADRID != w.ADRID {
 			t.Errorf("entry %d: got (File=%q, ADRID=%q), want (File=%q, ADRID=%q)",
@@ -308,9 +315,11 @@ func TestEntry_ReasonField_RoundTripsThroughSaveAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
+
 	if loaded == nil || len(loaded.Entries) != 1 {
 		t.Fatalf("expected 1 loaded entry, got %+v", loaded)
 	}
+
 	if loaded.Entries[0].Reason != "accepted-debt" {
 		t.Errorf("expected Reason %q, got %q", "accepted-debt", loaded.Entries[0].Reason)
 	}
@@ -331,6 +340,7 @@ func TestEntry_ReasonField_OmittedWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read saved file: %v", err)
 	}
+
 	if strings.Contains(string(data), `"reason"`) {
 		t.Errorf("expected no \"reason\" key in JSON when Reason is empty, got:\n%s", data)
 	}
@@ -357,12 +367,15 @@ func TestLoad_PreReasonFieldBaselineFile_LoadsWithEmptyReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load failed on pre-reason-field file: %v", err)
 	}
+
 	if len(loaded.Entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(loaded.Entries))
 	}
+
 	if loaded.Entries[0].Reason != "" {
 		t.Errorf("expected empty Reason for legacy entry, got %q", loaded.Entries[0].Reason)
 	}
+
 	if loaded.Entries[0].QuotedCode != "func main()" {
 		t.Errorf("expected QuotedCode to still load correctly, got %q", loaded.Entries[0].QuotedCode)
 	}
@@ -376,6 +389,7 @@ func TestAdd_OverwriteReplacesReasonToo(t *testing.T) {
 	if len(b.Entries) != 1 {
 		t.Fatalf("expected 1 entry after overwrite, got %d", len(b.Entries))
 	}
+
 	if b.Entries[0].Reason != "" {
 		t.Errorf("expected overwrite to replace Reason with the new (empty) value, got %q", b.Entries[0].Reason)
 	}

@@ -31,10 +31,12 @@ func TestMultiFileProvider_GetFiles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &MultiFileProvider{Paths: tt.paths}
+
 			got, err := p.GetFiles()
 			if err != nil {
 				t.Fatalf("GetFiles() error = %v", err)
 			}
+
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetFiles() = %v, want %v", got, tt.want)
 			}

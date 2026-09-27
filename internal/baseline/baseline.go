@@ -36,6 +36,7 @@ func Load(path string) (*Baseline, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
+
 		return nil, err
 	}
 
@@ -43,6 +44,7 @@ func Load(path string) (*Baseline, error) {
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil, err
 	}
+
 	if b.Entries == nil {
 		b.Entries = []Entry{}
 	}
@@ -61,6 +63,7 @@ func (b *Baseline) Save(path string) error {
 		if b.Entries[i].File != b.Entries[j].File {
 			return b.Entries[i].File < b.Entries[j].File
 		}
+
 		return b.Entries[i].ADRID < b.Entries[j].ADRID
 	})
 
@@ -113,6 +116,7 @@ func (b *Baseline) IsSuppressed(adrID, file, currentFileContent string) bool {
 			if entry.QuotedCode == "" {
 				return true
 			}
+
 			return strings.Contains(currentFileContent, entry.QuotedCode)
 		}
 	}

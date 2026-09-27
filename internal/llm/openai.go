@@ -53,9 +53,11 @@ func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string,
 	if err != nil {
 		return "", fmt.Errorf("openai chat completion failed: %w", err)
 	}
+
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no choices returned")
 	}
+
 	return resp.Choices[0].Message.Content, nil
 }
 
@@ -67,6 +69,7 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 	if err != nil {
 		return nil, fmt.Errorf("openai embedding request failed: %w", err)
 	}
+
 	if len(resp.Data) == 0 {
 		return nil, fmt.Errorf("no embedding data returned")
 	}
@@ -76,6 +79,7 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 	for i, v := range src {
 		embedding[i] = float32(v)
 	}
+
 	return embedding, nil
 }
 

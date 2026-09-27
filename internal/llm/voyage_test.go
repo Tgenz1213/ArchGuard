@@ -17,9 +17,11 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if r.Header.Get("Authorization") != "Bearer test-api-key" {
 			t.Errorf("expected Bearer auth header, got %q", r.Header.Get("Authorization"))
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2,0.3],"index":0}],"model":"voyage-4","usage":{"total_tokens":5}}`))
 	}))
@@ -31,16 +33,20 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
+
 	if gotPath != "/v1/embeddings" {
 		t.Errorf("expected /v1/embeddings, got %s", gotPath)
 	}
+
 	if gotBody["input_type"] != "query" {
 		t.Errorf("expected input_type query, got %v", gotBody["input_type"])
 	}
+
 	expected := []float32{0.1, 0.2, 0.3}
 	if len(res) != len(expected) {
 		t.Fatalf("expected length %d, got %d", len(expected), len(res))
 	}
+
 	for i := range res {
 		if res[i] != expected[i] {
 			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
@@ -56,6 +62,7 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"data":[{"embedding":[0.4,0.5],"index":0}],"index":0}],"model":"voyage-context-3","usage":{"total_tokens":5}}`))
 	}))
@@ -67,24 +74,30 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
+
 	if gotPath != "/v1/contextualizedembeddings" {
 		t.Errorf("expected /v1/contextualizedembeddings, got %s", gotPath)
 	}
+
 	inputs, ok := gotBody["inputs"].([]interface{})
 	if !ok || len(inputs) != 1 {
 		t.Fatalf("expected inputs to be a single-chunk-list, got %v", gotBody["inputs"])
 	}
+
 	chunk, ok := inputs[0].([]interface{})
 	if !ok || len(chunk) != 1 || chunk[0] != "test text" {
 		t.Fatalf("expected single chunk [\"test text\"], got %v", inputs[0])
 	}
+
 	if gotBody["input_type"] != "document" {
 		t.Errorf("expected input_type document, got %v", gotBody["input_type"])
 	}
+
 	expected := []float32{0.4, 0.5}
 	if len(res) != len(expected) {
 		t.Fatalf("expected length %d, got %d", len(expected), len(res))
 	}
+
 	for i := range res {
 		if res[i] != expected[i] {
 			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
@@ -130,6 +143,7 @@ func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected CreateEmbedding to return an error for a 400 response")
 	}
+
 	if !strings.Contains(err.Error(), wantDetail) {
 		t.Errorf("expected error to contain response body detail %q, got: %v", wantDetail, err)
 	}

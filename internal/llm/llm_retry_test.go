@@ -18,6 +18,7 @@ func TestAnalyzeDrift_Retry(t *testing.T) {
 			if attempts < 3 {
 				return "", fmt.Errorf("simulated 429 error")
 			}
+
 			return `{"violation": false, "reasoning": "success", "quoted_code": ""}`, nil
 		},
 	}

@@ -36,6 +36,7 @@ func NewVoyageProviderWithBaseURL(apiKey, embedModel, baseURL string, httpClient
 	if embedModel == "" {
 		embedModel = defaultVoyageModel
 	}
+
 	return &VoyageProvider{
 		apiKey:     apiKey,
 		embedModel: embedModel,
@@ -63,6 +64,7 @@ func (p *VoyageProvider) CreateEmbedding(ctx context.Context, text string, task 
 	if strings.HasPrefix(p.embedModel, "voyage-context-") {
 		return p.contextualizedEmbed(ctx, text, task)
 	}
+
 	return p.embed(ctx, text, task)
 }
 
@@ -72,6 +74,7 @@ func (p *VoyageProvider) embed(ctx context.Context, text string, task EmbeddingT
 		"model":      p.embedModel,
 		"input_type": voyageInputType(task),
 	}
+
 	var respBody struct {
 		Data []struct {
 			Embedding []float32 `json:"embedding"`
@@ -80,9 +83,11 @@ func (p *VoyageProvider) embed(ctx context.Context, text string, task EmbeddingT
 	if err := p.doRequest(ctx, "/v1/embeddings", reqBody, &respBody); err != nil {
 		return nil, err
 	}
+
 	if len(respBody.Data) == 0 {
 		return nil, fmt.Errorf("voyage returned no embedding data")
 	}
+
 	return respBody.Data[0].Embedding, nil
 }
 
@@ -92,6 +97,7 @@ func (p *VoyageProvider) contextualizedEmbed(ctx context.Context, text string, t
 		"model":      p.embedModel,
 		"input_type": voyageInputType(task),
 	}
+
 	var respBody struct {
 		Data []struct {
 			Data []struct {
@@ -102,9 +108,11 @@ func (p *VoyageProvider) contextualizedEmbed(ctx context.Context, text string, t
 	if err := p.doRequest(ctx, "/v1/contextualizedembeddings", reqBody, &respBody); err != nil {
 		return nil, err
 	}
+
 	if len(respBody.Data) == 0 || len(respBody.Data[0].Data) == 0 {
 		return nil, fmt.Errorf("voyage returned no embedding data")
 	}
+
 	return respBody.Data[0].Data[0].Embedding, nil
 }
 
@@ -118,6 +126,7 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 	if err != nil {
 		return fmt.Errorf("failed to build voyage request: %w", err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
@@ -125,6 +134,7 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 	if err != nil {
 		return fmt.Errorf("voyage request failed: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -132,11 +142,13 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 		if readErr != nil || len(body) == 0 {
 			return fmt.Errorf("voyage api error: %s", resp.Status)
 		}
+
 		return fmt.Errorf("voyage api error: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(respBody); err != nil {
 		return fmt.Errorf("failed to decode voyage response: %w", err)
 	}
+
 	return nil
 }

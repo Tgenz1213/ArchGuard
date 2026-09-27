@@ -33,6 +33,7 @@ func candidates(ids ...string) []stage.Candidate {
 	for i, id := range ids {
 		out[i] = stage.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id}}
 	}
+
 	return out
 }
 
@@ -41,6 +42,7 @@ func ids(cs []stage.Candidate) string {
 	for i, c := range cs {
 		out[i] = c.ADR.ID
 	}
+
 	return strings.Join(out, ",")
 }
 
@@ -51,9 +53,11 @@ func TestStage_DropsBelowMinimumAndOrdersBestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if ids(got) != "b,d,a" {
 		t.Fatalf("got %s, want b,d,a", ids(got))
 	}
+
 	if got[0].Score != 0.9 {
 		t.Fatalf("survivor score = %v, want the scorer's 0.9 recorded on the candidate", got[0].Score)
 	}
@@ -96,10 +100,12 @@ func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
 	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	out := buf.String()
 	if !strings.Contains(out, "Below threshold: ADR d (score 0.10 < threshold 0.50)") {
 		t.Errorf("missing below-threshold line in %q", out)
 	}
+
 	if !strings.Contains(out, "Cut by top-K limit: ADR c (score 0.70, rank 3 of 3 qualifying ADRs)") {
 		t.Errorf("missing top-K cut line in %q", out)
 	}
@@ -122,6 +128,7 @@ func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
 	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	out := buf.String()
 	for _, want := range []string{
 		"Stage rerank: 4 candidate(s) received, 2 kept",
@@ -132,6 +139,7 @@ func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
 			t.Errorf("missing %q in %q", want, out)
 		}
 	}
+
 	if strings.Contains(out, "Kept: ADR c") {
 		t.Errorf("cut candidate c reported as kept in %q", out)
 	}
@@ -144,6 +152,7 @@ func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
 	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !strings.Contains(buf.String(), "Stage rank: 0 candidate(s) received, 0 kept") {
 		t.Errorf("missing zero-candidate summary in %q", buf.String())
 	}
@@ -166,6 +175,7 @@ func TestStage_NoDebugPrintsNothing(t *testing.T) {
 	if stage.NoDebug.Enabled() {
 		t.Fatal("NoDebug reports enabled")
 	}
+
 	stage.NoDebug.Printf("dropped %d", 1)
 }
 

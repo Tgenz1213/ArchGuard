@@ -14,6 +14,7 @@ func TestSummarizeCorpus_DetectsDuplicateIDs(t *testing.T) {
 	if len(summary.DuplicateIDs) != 1 {
 		t.Fatalf("expected 1 duplicate ID, got %d: %+v", len(summary.DuplicateIDs), summary.DuplicateIDs)
 	}
+
 	paths := summary.DuplicateIDs["0001"]
 	if len(paths) != 2 || paths[0] != "0001-a.md" || paths[1] != "0001-b.md" {
 		t.Errorf("unexpected paths for duplicate ID 0001: %v", paths)
@@ -38,6 +39,7 @@ func TestSummarizeCorpus_PassesThroughFetchStats(t *testing.T) {
 		Discovered:     5,
 		ParseFailed:    []string{"bad.md"},
 		StatusRejected: 2,
+		MalformedRules: []MalformedRules{{RelPath: "0002-b.md", Reason: "frontmatter: rules must be a list"}},
 	}
 	adrs := []ADR{{ID: "0001", RelPath: "0001-a.md"}, {ID: "0002", RelPath: "0002-b.md"}}
 
@@ -46,8 +48,13 @@ func TestSummarizeCorpus_PassesThroughFetchStats(t *testing.T) {
 	if summary.Discovered != 5 || summary.Valid != 2 || summary.StatusRejected != 2 {
 		t.Errorf("unexpected summary counts: %+v", summary)
 	}
+
 	if len(summary.ParseFailed) != 1 || summary.ParseFailed[0] != "bad.md" {
 		t.Errorf("expected ParseFailed to pass through, got %v", summary.ParseFailed)
+	}
+
+	if len(summary.MalformedRules) != 1 || summary.MalformedRules[0] != stats.MalformedRules[0] {
+		t.Errorf("expected MalformedRules to pass through, got %v", summary.MalformedRules)
 	}
 }
 

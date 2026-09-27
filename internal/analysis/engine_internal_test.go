@@ -126,9 +126,11 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
+
 	if mode != "truncated" {
 		t.Fatalf("expected mode truncated, got %s", mode)
 	}
+
 	expected := "AAAAAAAAAA" // exactly at the byte cutoff, no newline to roll back to
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
@@ -186,11 +188,13 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 			if len(text) == lastLen {
 				t.Errorf("CountTokens called twice with the same-length candidate (%d bytes) -- redundant call", len(text))
 			}
+
 			lastLen = len(text)
 
 			if len(text) > denseWindow {
 				return denseWindow, nil
 			}
+
 			return len(text), nil
 		},
 	}
@@ -205,15 +209,18 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
+
 	if mode != "truncated" {
 		t.Fatalf("expected mode truncated, got %s", mode)
 	}
 
 	lastLen = -1 // this verification call is expected to re-measure the final candidate
+
 	finalTokens, err := mockProvider.CountTokens(context.Background(), got)
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	if finalTokens > maxTokens {
 		t.Errorf("truncateToTokenLimit did not honor the token budget: got %d tokens (content length %d bytes), want <= %d", finalTokens, len(got), maxTokens)
 	}
@@ -426,9 +433,11 @@ func TestTruncateRuneSafe(t *testing.T) {
 			if got != c.want {
 				t.Errorf("truncateRuneSafe(%q, %d) = %q, want %q", c.s, c.limit, got, c.want)
 			}
+
 			if !utf8.ValidString(got) {
 				t.Errorf("truncateRuneSafe(%q, %d) = %q, not valid UTF-8", c.s, c.limit, got)
 			}
+
 			if len(got) > c.limit {
 				t.Errorf("truncateRuneSafe(%q, %d) = %q, exceeds limit (%d bytes)", c.s, c.limit, got, len(got))
 			}
@@ -469,9 +478,11 @@ func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("result is not valid UTF-8: %q", got)
 	}
+
 	if len(got) > limit {
 		t.Fatalf("result exceeds limit: %d bytes > %d", len(got), limit)
 	}
+
 	if got != prefix {
 		t.Errorf("expected rollback to prefix ending at newline (%q), got %q", prefix, got)
 	}
@@ -488,6 +499,7 @@ func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("result is not valid UTF-8: %q", got)
 	}
+
 	if len(got) > limit {
 		t.Fatalf("result exceeds limit: %d bytes > %d", len(got), limit)
 	}
@@ -510,6 +522,7 @@ func TestViolation_QuotedCodeAlwaysPresentInJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
+
 	if _, ok := decoded["quoted_code"]; !ok {
 		t.Fatalf("expected \"quoted_code\" key to be present even when empty, got: %s", data)
 	}

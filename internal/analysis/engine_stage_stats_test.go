@@ -21,6 +21,7 @@ func TestEngine_CollectsStageStatsInPipelineOrderUnderJSONOutput(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	got := h.engine.CollectedStages
 	if len(got) != 2 || got[0].Name != "rank" || got[0].Received != 2 || got[0].Kept != 2 || got[1].Name != "rerank" || got[1].Received != 2 || got[1].Kept != 1 {
 		t.Fatalf("stages = %+v, want rank 2/2 then rerank 2/1", got)
@@ -36,6 +37,7 @@ func TestEngine_ListsEveryStageEvenWhenThereAreNoFiles(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if got := h.engine.CollectedStages; len(got) != 2 || got[0].Name != "rank" || got[1].Name != "rerank" {
 		t.Fatalf("stages = %+v, want rank and rerank listed", got)
 	}
@@ -54,6 +56,7 @@ func TestEngine_ListsEveryStageWhenFileDiscoveryFails(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err == nil {
 		t.Fatal("expected the file discovery error")
 	}
+
 	if got := h.engine.CollectedStages; len(got) != 2 || got[0].Name != "rank" || got[1].Name != "rerank" {
 		t.Fatalf("stages = %+v, want rank and rerank listed with zeros", got)
 	}
@@ -66,6 +69,7 @@ func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	got := h.engine.CollectedStages
 	if len(got) != 1 || got[0].Name != "rank" || got[0].Received != 2 || got[0].Kept != 2 {
 		t.Fatalf("stages = %+v, want the default stage as rank with 2 received and 2 kept", got)
@@ -85,9 +89,11 @@ func TestEngine_FailedStageStillAppearsInStageStatsAlongsideItsFailure(t *testin
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "rerank" {
 		t.Fatalf("failures = %+v, want one failure from rerank", h.engine.StageFailures)
 	}
+
 	got := h.engine.CollectedStages
 	if len(got) != 2 || got[0].Kept != 2 || got[1].Name != "rerank" || got[1].Received != 2 || got[1].Kept != 0 {
 		t.Fatalf("stages = %+v, want rank kept 2 and rerank received 2 kept 0", got)
@@ -100,6 +106,7 @@ func TestEngine_CollectsNoStageStatsOutsideJSONOutput(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.engine.CollectedStages != nil {
 		t.Fatalf("stages = %+v, want none collected outside JSON mode", h.engine.CollectedStages)
 	}

@@ -55,6 +55,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 			return textBlock.Text, nil
 		}
 	}
+
 	return "", fmt.Errorf("claude returned no text content")
 }
 
@@ -73,5 +74,6 @@ func (p *ClaudeProvider) CountTokens(ctx context.Context, text string) (int, err
 	if err != nil {
 		return 0, fmt.Errorf("claude count_tokens request failed: %w", err)
 	}
+
 	return int(resp.InputTokens), nil
 }
