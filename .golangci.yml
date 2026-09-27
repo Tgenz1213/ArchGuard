@@ -1,6 +1,6 @@
 version: "2"
 linters:
-  default: none
+  default: standard
   enable: [wsl_v5]
   settings:
     wsl_v5:
