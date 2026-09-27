@@ -270,7 +270,7 @@ An ADR can state, as short rules, exactly what violating code looks like. ArchGu
 - There MUST NOT be hand rolled logic where a well-tested library exists to solve the same problem
 ```
 
-The section is found by its heading text (`Rules` by default, set `analysis.rules_heading` to use another), matched at any heading level and ignoring case, and it ends at the next heading of the same or a higher level. Only the top-level bullets are rules; nested bullets and prose around the list are ignored, so a rule can carry its own explanation underneath.
+The section is found by its heading text (`Rules` by default, set `analysis.rules_heading` to use another), matched at any heading level, ignoring case, inline formatting and a trailing colon (so `## **Rules:**` matches), and it ends at the next heading of the same or a higher level. Only the top-level bullets are rules, with any task-list checkbox (`[ ]`, `[x]`) dropped; nested bullets and prose around the list are ignored, so a rule can carry its own explanation underneath.
 
 Rules can also go in the frontmatter, as a list of statements. A rule written as a mapping can add examples of violating and compliant code:
 

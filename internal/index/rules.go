@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -208,7 +209,7 @@ func extractBodyRules(body, heading string) (Rules, error) {
 				return rules, nil
 			}
 
-			if !inSection && strings.EqualFold(blockText(n, src), heading) {
+			if !inSection && strings.EqualFold(headingText(n, src), normalizeHeading(heading)) {
 				inSection, startLevel = true, n.Level
 			}
 		case *ast.List:
@@ -230,11 +231,21 @@ func extractBodyRules(body, heading string) (Rules, error) {
 	return rules, nil
 }
 
+func headingText(n *ast.Heading, src []byte) string {
+	return normalizeHeading(string(n.Text(src)))
+}
+
+func normalizeHeading(heading string) string {
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(heading), ":"))
+}
+
+var taskMarker = regexp.MustCompile(`^\[[ xX]\](\s+|$)`)
+
 func itemStatement(item ast.Node, src []byte) string {
 	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
 		switch child.(type) {
 		case *ast.TextBlock, *ast.Paragraph:
-			return blockText(child, src)
+			return taskMarker.ReplaceAllString(blockText(child, src), "")
 		}
 	}
 

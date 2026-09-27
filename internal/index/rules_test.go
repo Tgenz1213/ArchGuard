@@ -329,6 +329,41 @@ func TestExtractBodyRules(t *testing.T) {
 			want:    statements("R"),
 		},
 		{
+			name:    "heading with a trailing colon",
+			heading: "Rules",
+			body:    "## Rules:\n- R\n",
+			want:    statements("R"),
+		},
+		{
+			name:    "bold heading",
+			heading: "Rules",
+			body:    "## **Rules**\n- R\n",
+			want:    statements("R"),
+		},
+		{
+			name:    "code-span heading",
+			heading: "Rules",
+			body:    "## `Rules`\n- R\n",
+			want:    statements("R"),
+		},
+		{
+			name:    "bare checkbox is an empty bullet",
+			heading: "Rules",
+			body:    "## Rules\n- R\n- [ ]\n",
+			wantErr: "rule 2: bullet has no statement text",
+		},
+		{
+			name:    "a colon inside the heading is not stripped",
+			heading: "Rules",
+			body:    "## Rules: overview\n- R\n",
+		},
+		{
+			name:    "task-list markers are dropped",
+			heading: "Rules",
+			body:    "## Rules\n- [ ] Open\n- [x] Done\n- [X] Also done\n- [link] stays\n",
+			want:    statements("Open", "Done", "Also done", "[link] stays"),
+		},
+		{
 			name:    "a longer heading is not a match",
 			heading: "Rules",
 			body:    "## Rules Overview\n- R\n",
@@ -478,6 +513,7 @@ func TestParseADRContent_RulesResolution(t *testing.T) {
 		{name: "custom heading", body: "\n## Detection\n- Custom\n", opts: ParseOptions{RulesHeading: "Detection"}, want: statements("Custom")},
 		{name: "custom heading ignores the default one", body: bodySection, opts: ParseOptions{RulesHeading: "Detection"}, want: nil},
 		{name: "blank heading option means the default", body: bodySection, opts: ParseOptions{RulesHeading: "  "}, want: wantBodyRules},
+		{name: "heading option with a trailing colon matches", body: "\n## Rules:\n- R\n", opts: ParseOptions{RulesHeading: "Rules:"}, want: statements("R")},
 		{name: "heading option is trimmed", body: "\n## Detection\n- Custom\n", opts: ParseOptions{RulesHeading: " Detection "}, want: statements("Custom")},
 	}
 	for _, tt := range tests {
