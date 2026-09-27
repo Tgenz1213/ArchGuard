@@ -206,23 +206,36 @@ func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) 
 	return adr, err
 }
 
+// The closing fence is the first line starting with "---", so a "---" inside a value can't end the
+// frontmatter; YAML lines never start with it.
+func splitFrontMatter(data []byte) (frontMatter, body []byte, ok bool) {
+	end := bytes.Index(data[3:], []byte("\n---"))
+	if end < 0 {
+		return nil, nil, false
+	}
+
+	closing := 3 + end + 1
+
+	return data[3:closing], data[closing+3:], true
+}
+
 // rulesErr means the ADR is usable but its rules were dropped; err means the ADR is unusable.
 func parseADR(data []byte, id string, relPath string, opts ParseOptions, contentOverride *string) (adr *ADR, rulesErr error, err error) {
 	if !bytes.HasPrefix(data, []byte("---")) {
 		return nil, nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
 
-	parts := bytes.SplitN(data, []byte("---"), 3)
-	if len(parts) < 3 {
+	frontMatter, body, ok := splitFrontMatter(data)
+	if !ok {
 		return nil, nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}
 
-	fm, err := decodeFrontMatter(parts[1], opts.FrontmatterMappings)
+	fm, err := decodeFrontMatter(frontMatter, opts.FrontmatterMappings)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
 	}
 
-	content := string(parts[2])
+	content := string(body)
 	if contentOverride != nil {
 		content = *contentOverride
 	}

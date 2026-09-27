@@ -1,11 +1,66 @@
 package index
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"testing"
 )
+
+func TestSplitFrontMatter_MatchesSplitNForWellFormedFiles(t *testing.T) {
+	inputs := []string{
+		"---\ntitle: T\nstatus: Accepted\n---\nBody",
+		"---\ntitle: T\n---\n\n## Context\n\nText with --- inside the body\n---\nmore",
+		"---\r\ntitle: T\r\n---\r\nCRLF body\r\n",
+		"---\n---\nEmpty frontmatter",
+		"---\ntitle: T\n---",
+		"---\ntitle: T\n---trailing text on the closing line",
+	}
+	for _, in := range inputs {
+		data := []byte(in)
+		want := bytes.SplitN(data, []byte("---"), 3)
+
+		frontMatter, body, ok := splitFrontMatter(data)
+		if !ok || !bytes.Equal(frontMatter, want[1]) || !bytes.Equal(body, want[2]) {
+			t.Errorf("splitFrontMatter(%q) = (%q, %q, %v), want (%q, %q, true)", in, frontMatter, body, ok, want[1], want[2])
+		}
+	}
+}
+
+func TestSplitFrontMatter_NoClosingFence(t *testing.T) {
+	if _, _, ok := splitFrontMatter([]byte("---\ntitle: T\nno closing fence")); ok {
+		t.Error("expected ok=false without a closing fence")
+	}
+}
+
+func TestParseADR_DashesInsideFrontMatterValues(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontMatter string
+		wantTitle   string
+		wantRules   Rules
+	}{
+		{"quoted --- in a rule example", "title: T\nrules:\n  - statement: S\n    violating: [\"a --- b\"]\n", "T", Rules{{Statement: "S", Violating: []string{"a --- b"}}}},
+		{"unquoted --- in a rule statement", "title: T\nrules:\n  - No separators like --- here\n", "T", Rules{{Statement: "No separators like --- here"}}},
+		{"--- in the title", "title: \"Pros --- cons\"\n", "Pros --- cons", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := []byte("---\nstatus: Accepted\n" + tt.frontMatter + "---\nBody")
+
+			adr, rulesErr, err := parseADR(data, "1", "x.md", ParseOptions{}, nil)
+			if err != nil || rulesErr != nil {
+				t.Fatalf("parseADR err = %v, rulesErr = %v", err, rulesErr)
+			}
+
+			if adr.Title != tt.wantTitle || !reflect.DeepEqual(adr.Rules, tt.wantRules) || adr.Content != "\nBody" {
+				t.Errorf("got title %q, rules %+v, content %q", adr.Title, adr.Rules, adr.Content)
+			}
+		})
+	}
+}
 
 func TestParseADRContent_SimilarityThresholdOverride(t *testing.T) {
 	data := []byte("---\ntitle: \"Strict ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.6\n---\nBody")
