@@ -89,7 +89,11 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 	for i, item := range node.Content {
 		item = resolveAlias(item)
 		if item.Kind == yaml.ScalarNode && !isNullNode(item) {
-			statement := strings.TrimSpace(item.Value)
+			statement, err := decodeStatement(item)
+			if err != nil {
+				return nil, fmt.Errorf("rule %d: %w", i+1, err)
+			}
+
 			if statement == "" {
 				return nil, fmt.Errorf("rule %d: statement is required", i+1)
 			}
@@ -151,7 +155,7 @@ func decodeStatement(node *yaml.Node) (string, error) {
 		return "", nil
 	}
 
-	if node.Kind != yaml.ScalarNode {
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
 		return "", errors.New("statement must be a string")
 	}
 
