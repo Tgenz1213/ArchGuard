@@ -841,6 +841,63 @@ analysis:
 	}
 }
 
+func TestE2E_CheckPrintsEachADRWarningOnceEvenWhenItRebuilds(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted"]
+`)
+	writeNoSecretsADR(t, tempDir)
+
+	adrDir := filepath.Join(tempDir, "docs", "arch")
+	badRules := filepath.Join(adrDir, "0001-bad-rules.md")
+
+	if err := os.WriteFile(badRules, []byte("---\ntitle: Bad\nstatus: Accepted\nrules: nope\n---\nBody"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(adrDir, "0002-unparseable.md"), []byte("not frontmatter"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	assertOnce := func(label, output string) {
+		t.Helper()
+
+		for _, warning := range []string{"ignoring rules in", "Warning: skipping"} {
+			if n := strings.Count(output, warning); n != 1 {
+				t.Errorf("%s: %q printed %d times, want 1. Output:\n%s", label, warning, n, output)
+			}
+		}
+	}
+
+	assertOnce("steady-state check", runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected)))
+
+	if err := os.WriteFile(badRules, []byte("---\ntitle: Bad\nstatus: Accepted\nrules: nope\n---\nBody edited"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rebuild := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+	if !strings.Contains(rebuild, "Triggering index rebuild") {
+		t.Fatalf("expected the edit to trigger a rebuild. Output:\n%s", rebuild)
+	}
+
+	assertOnce("rebuilding check", rebuild)
+}
+
 // TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
 // LLM-call failure (as opposed to a file/embedding failure) suppresses the
 // unqualified "No new architectural violations found." message.

@@ -633,11 +633,14 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
+	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
+	var fetchWarnings bytes.Buffer
+
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetWriter(human)
+	localProvider.SetWriter(&fetchWarnings)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
@@ -651,24 +654,28 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetWriter(human)
+		confluenceProvider.SetWriter(&fetchWarnings)
 		providers = append(providers, confluenceProvider)
 	}
 
 	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetWriter(human)
+	adrProvider.SetWriter(&fetchWarnings)
 
 	validADRs, _, err := adrProvider.GetADRs(context.Background())
 	if err != nil {
+		_, _ = human.Write(fetchWarnings.Bytes())
 		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
 	}
 
 	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
 	if err != nil {
+		_, _ = human.Write(fetchWarnings.Bytes())
 		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
 
-	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
+	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
+		_, _ = human.Write(fetchWarnings.Bytes())
+	} else {
 		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
 		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
