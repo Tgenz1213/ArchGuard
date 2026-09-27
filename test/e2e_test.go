@@ -1134,6 +1134,7 @@ analysis:
 	unparseable := "not frontmatter at all"
 	dup1 := "---\ntitle: \"Dup A\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
 	dup2 := "---\ntitle: \"Dup B\"\nstatus: \"Accepted\"\nscope: \"**\"\n---\nContent"
+	badRules := "---\ntitle: \"Bad Rules\"\nstatus: \"Accepted\"\nscope: \"**\"\nrules: nope\n---\nContent"
 
 	files := map[string]string{
 		"0001-valid.md":       valid,
@@ -1141,6 +1142,7 @@ analysis:
 		"0003-unparseable.md": unparseable,
 		"0004-first.md":       dup1,
 		"0004-second.md":      dup2,
+		"0005-bad-rules.md":   badRules,
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(adrDir, name), []byte(content), 0644); err != nil {
@@ -1150,8 +1152,12 @@ analysis:
 
 	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	if !strings.Contains(output, "5 discovered, 3 valid") {
-		t.Errorf("expected 5 discovered, 3 valid. Output: %s", output)
+	if !strings.Contains(output, "6 discovered, 4 valid") {
+		t.Errorf("expected 6 discovered, 4 valid (malformed rules still index the ADR). Output: %s", output)
+	}
+
+	if !strings.Contains(output, "Rules ignored (malformed): 1") || !strings.Contains(output, "0005-bad-rules.md: frontmatter: rules must be a list") {
+		t.Errorf("expected the malformed rules to be reported with the reason. Output: %s", output)
 	}
 
 	if !strings.Contains(output, "Skipped (parse failure): 1") || !strings.Contains(output, "0003-unparseable.md") {

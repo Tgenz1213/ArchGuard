@@ -19,6 +19,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
+	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
@@ -1054,5 +1055,35 @@ func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 
 	if strings.Contains(output, "Usage of check:") {
 		t.Fatalf("expected custom usage, not Go's default flag.PrintDefaults() output; got %q", output)
+	}
+}
+
+func TestPrintIndexSummary_MalformedRules(t *testing.T) {
+	var buf bytes.Buffer
+
+	printIndexSummary(index.BuildIndexResult{
+		Discovered: 2,
+		Valid:      2,
+		MalformedRules: []index.MalformedRules{
+			{RelPath: "0001-a.md", Reason: "frontmatter: rules must be a list"},
+			{RelPath: "0002-b.md", Reason: `"Rules" section: rule 1: bullet has no statement text`},
+		},
+	}, &buf)
+
+	want := "  Rules ignored (malformed): 2\n" +
+		"    - 0001-a.md: frontmatter: rules must be a list\n" +
+		"    - 0002-b.md: \"Rules\" section: rule 1: bullet has no statement text\n"
+	if !strings.Contains(buf.String(), want) {
+		t.Errorf("summary missing the malformed-rules section.\ngot:\n%s\nwant it to contain:\n%s", buf.String(), want)
+	}
+}
+
+func TestPrintIndexSummary_NoMalformedRulesSectionWhenNone(t *testing.T) {
+	var buf bytes.Buffer
+
+	printIndexSummary(index.BuildIndexResult{Discovered: 1, Valid: 1}, &buf)
+
+	if strings.Contains(buf.String(), "Rules ignored") {
+		t.Errorf("expected no malformed-rules section, got:\n%s", buf.String())
 	}
 }

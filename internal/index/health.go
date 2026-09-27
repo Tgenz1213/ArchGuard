@@ -7,6 +7,7 @@ type IndexSummary struct {
 	StatusRejected int
 	DuplicateIDs   map[string][]string // ADR ID -> RelPaths sharing it
 	NoScope        []string            // RelPaths of valid ADRs with no scope set
+	MalformedRules []MalformedRules
 }
 
 func (s IndexSummary) IsEmpty() bool {
@@ -38,5 +39,6 @@ func summarizeCorpus(validADRs []ADR, stats FetchStats) IndexSummary {
 		StatusRejected: stats.StatusRejected,
 		DuplicateIDs:   duplicates,
 		NoScope:        noScope,
+		MalformedRules: stats.MalformedRules,
 	}
 }

@@ -999,6 +999,13 @@ func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
 			_, _ = fmt.Fprintf(w, "    - %s\n", path)
 		}
 	}
+
+	if len(result.MalformedRules) > 0 {
+		_, _ = fmt.Fprintf(w, "  Rules ignored (malformed): %d\n", len(result.MalformedRules))
+		for _, m := range result.MalformedRules {
+			_, _ = fmt.Fprintf(w, "    - %s: %s\n", m.RelPath, m.Reason)
+		}
+	}
 }
 
 func printUsage() {

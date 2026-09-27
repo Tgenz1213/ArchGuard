@@ -39,6 +39,7 @@ func TestSummarizeCorpus_PassesThroughFetchStats(t *testing.T) {
 		Discovered:     5,
 		ParseFailed:    []string{"bad.md"},
 		StatusRejected: 2,
+		MalformedRules: []MalformedRules{{RelPath: "0002-b.md", Reason: "frontmatter: rules must be a list"}},
 	}
 	adrs := []ADR{{ID: "0001", RelPath: "0001-a.md"}, {ID: "0002", RelPath: "0002-b.md"}}
 
@@ -50,6 +51,10 @@ func TestSummarizeCorpus_PassesThroughFetchStats(t *testing.T) {
 
 	if len(summary.ParseFailed) != 1 || summary.ParseFailed[0] != "bad.md" {
 		t.Errorf("expected ParseFailed to pass through, got %v", summary.ParseFailed)
+	}
+
+	if len(summary.MalformedRules) != 1 || summary.MalformedRules[0] != stats.MalformedRules[0] {
+		t.Errorf("expected MalformedRules to pass through, got %v", summary.MalformedRules)
 	}
 }
 
