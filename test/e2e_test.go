@@ -784,6 +784,63 @@ analysis:
 	}
 }
 
+func TestE2E_CheckRebuildsLocalIndexAfterRulesOnlyEdit(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	configContent := `
+version: "1"
+llm:
+  provider: "ollama"
+vector_store:
+  provider: "ollama"
+  embedding_dim: 768
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+`
+	writeE2EConfig(t, tempDir, configContent)
+	writeNoSecretsADR(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
+
+	withRules := strings.Replace(noSecretsADRContent, "scope: \"**\"\n", "scope: \"**\"\nrules:\n  - Never log secrets\n", 1)
+	if withRules == noSecretsADRContent {
+		t.Fatal("failed to insert rules into the ADR frontmatter")
+	}
+
+	if err := os.WriteFile(adrPath, []byte(withRules), 0644); err != nil {
+		t.Fatalf("Failed to edit ADR: %v", err)
+	}
+
+	runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+
+	data, err := os.ReadFile(filepath.Join(tempDir, ".archguard", "index.json"))
+	if err != nil {
+		t.Fatalf("Failed to read index.json: %v", err)
+	}
+
+	var index struct {
+		ADRs []struct {
+			Rules []struct {
+				Statement string `json:"statement"`
+			} `json:"rules"`
+		} `json:"adrs"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatalf("Failed to parse index.json: %v", err)
+	}
+
+	if len(index.ADRs) != 1 || len(index.ADRs[0].Rules) != 1 || index.ADRs[0].Rules[0].Statement != "Never log secrets" {
+		t.Fatalf("expected check to rebuild the index with the new rule, got %s", data)
+	}
+}
+
 // TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
 // LLM-call failure (as opposed to a file/embedding failure) suppresses the
 // unqualified "No new architectural violations found." message.

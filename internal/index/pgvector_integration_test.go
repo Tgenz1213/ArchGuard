@@ -765,6 +765,97 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	assert.Equal(t, 0.3, *results[0].ADR.SimilarityThreshold)
 }
 
+func TestPgStore_Integration_RulesRoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "rules_round_trip_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	frontMatter := "---\ntitle: \"FM\"\nstatus: \"Accepted\"\nrules:\n  - Plain statement\n  - statement: With example\n    violating: bad()\n---\nBody"
+	body := "---\ntitle: \"Body\"\nstatus: \"Accepted\"\n---\n## Rules\n\n- From the body\n"
+	none := "---\ntitle: \"None\"\nstatus: \"Accepted\"\n---\nNo rules here"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0001-fm.md"), []byte(frontMatter), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0002-body.md"), []byte(body), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0003-none.md"), []byte(none), 0644))
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), index.NewLocalProvider(tmpDir, []string{"Accepted"}))
+	require.NoError(t, err)
+
+	want := map[string]index.Rules{
+		"FM":   {{Statement: "Plain statement"}, {Statement: "With example", Violating: []string{"bad()"}}},
+		"Body": {{Statement: "From the body"}},
+		"None": nil,
+	}
+
+	byTitle := func(results []index.SearchResult) map[string]index.Rules {
+		got := map[string]index.Rules{}
+		for _, r := range results {
+			got[r.ADR.Title] = r.ADR.Rules
+		}
+
+		return got
+	}
+
+	assert.Equal(t, want, byTitle(store.Search([]float32{0.1, 0.1}, 0.0, 5, "main.go")), "rules via Search")
+
+	scoped, err := store.ScopedADRs("main.go")
+	require.NoError(t, err)
+	assert.Equal(t, want, byTitle(scoped), "rules via ScopedADRs, the scoring pipeline's candidate source")
+}
+
+func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	connStr := setupPgContainer(t, ctx)
+
+	store, err := index.NewPgStore(connStr, "rules_only_edit_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	tmpDir := t.TempDir()
+	adrPath := filepath.Join(tmpDir, "0011-rules-edit.md")
+	require.NoError(t, os.WriteFile(adrPath, []byte("---\ntitle: \"Rules Edit ADR\"\nstatus: \"Accepted\"\n---\nBody unchanged."), 0644))
+
+	provider := mockEmbedProvider()
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	require.NoError(t, err)
+
+	edited := "---\ntitle: \"Rules Edit ADR\"\nstatus: \"Accepted\"\nrules:\n  - Added later\n---\nBody unchanged."
+	require.NoError(t, os.WriteFile(adrPath, []byte(edited), 0644))
+
+	output := captureStdout(t, func() {
+		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the rules-only change must route through the sync path")
+
+	scoped, err := store.ScopedADRs("main.go")
+	require.NoError(t, err)
+	require.Len(t, scoped, 1)
+	assert.Equal(t, index.Rules{{Statement: "Added later"}}, scoped[0].ADR.Rules, "sync path must pick up the new rules")
+
+	output = captureStdout(t, func() {
+		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, output, "Syncing", "unchanged rules must not trigger another sync")
+}
+
 // A single failing embed call must not abort the whole build (#133).
 func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	if testing.Short() {
@@ -1031,7 +1122,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	require.NoError(t, err)
 
 	tmpDir := t.TempDir()
-	adrContent := "---\ntitle: \"Legacy Pre-Migration ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nLegacy Pre-Migration Content"
+	adrContent := "---\ntitle: \"Legacy Pre-Migration ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\nrules:\n  - Legacy rule\n---\nLegacy Pre-Migration Content"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0009-legacy.md"), []byte(adrContent), 0644))
 
 	provider := mockEmbedProvider()
@@ -1046,6 +1137,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	require.Len(t, results, 1)
 	assert.Equal(t, "0009", results[0].ADR.ID)
 	assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope)
+	assert.Equal(t, index.Rules{{Statement: "Legacy rule"}}, results[0].ADR.Rules, "the rules column must be added to a legacy table and synced")
 }
 
 func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {

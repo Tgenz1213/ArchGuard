@@ -107,8 +107,8 @@ func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 	return store, nil
 }
 
-// Covers only the model name and each ADR's RelPath, Content, and ID;
-// changes to other fields don't trigger a rebuild.
+// Covers the model name and each ADR's RelPath, Content, ID and rules; changes to other
+// fields don't trigger a rebuild. Rules are only hashed when present so older indexes stay valid.
 func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write([]byte(modelName))
@@ -117,6 +117,15 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 		hasher.Write([]byte(adr.RelPath))
 		hasher.Write([]byte(adr.Content))
 		hasher.Write([]byte(adr.ID))
+
+		if len(adr.Rules) > 0 {
+			rules, err := json.Marshal(adr.Rules)
+			if err != nil {
+				return "", err
+			}
+
+			hasher.Write(rules)
+		}
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil

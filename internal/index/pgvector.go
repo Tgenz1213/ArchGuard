@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -215,7 +216,7 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT column_name FROM information_schema.columns
-		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold')
+		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold', 'rules')
 	`)
 	if err != nil {
 		return err
@@ -251,6 +252,10 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 		alters = append(alters, "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION")
 	}
 
+	if !present["rules"] {
+		alters = append(alters, "ADD COLUMN IF NOT EXISTS rules TEXT")
+	}
+
 	if len(alters) > 0 {
 		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
 		return err
@@ -276,6 +281,14 @@ func thresholdsEqual(a, b *float64) bool {
 	return *a == *b
 }
 
+func rulesEqual(a, b Rules) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+
+	return reflect.DeepEqual(a, b)
+}
+
 func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
 	defer s.dropADRCache()
 
@@ -288,7 +301,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		return BuildIndexResult{}, err
 	}
 
-	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold FROM archguard_adrs WHERE project_name = $1", s.projectName)
+	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold, rules FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
 		return BuildIndexResult{}, fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
@@ -299,7 +312,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		var relPath, title, status, content, adrID, scope string
 
 		var similarityThreshold *float64
-		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold); err != nil {
+
+		var rules Rules
+		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold, &rules); err != nil {
 			return BuildIndexResult{}, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 
@@ -310,6 +325,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			Content:             content,
 			Scope:               ParseScopePatterns(scope),
 			SimilarityThreshold: similarityThreshold,
+			Rules:               rules,
 		}
 	}
 
@@ -324,7 +340,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		switch {
 		case !ok || existing.Content != valid.Content || existing.Title != valid.Title || existing.Status != valid.Status:
 			adrsToEmbed = append(adrsToEmbed, i)
-		case existing.ID != valid.ID || !slices.Equal(existing.Scope, valid.Scope) || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold):
+		case existing.ID != valid.ID || !slices.Equal(existing.Scope, valid.Scope) || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold) ||
+			!rulesEqual(existing.Rules, valid.Rules):
 			adrsToSync = append(adrsToSync, i)
 		}
 	}
@@ -368,8 +385,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 				vec := pgvector.NewVector(emb)
 
 				_, upsertErr := s.pool.Exec(ctx, `
-					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 					ON CONFLICT (project_name, rel_path) DO UPDATE SET
 						title = EXCLUDED.title,
 						status = EXCLUDED.status,
@@ -377,8 +394,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 						embedding = EXCLUDED.embedding,
 						adr_id = EXCLUDED.adr_id,
 						scope = EXCLUDED.scope,
-						similarity_threshold = EXCLUDED.similarity_threshold
-				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold)
+						similarity_threshold = EXCLUDED.similarity_threshold,
+						rules = EXCLUDED.rules
+				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold, validADRs[idx].Rules)
 				if upsertErr != nil {
 					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
 					return nil
@@ -413,9 +431,9 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		batch := &pgx.Batch{}
 		for _, idx := range adrsToSync {
 			batch.Queue(`
-				UPDATE archguard_adrs SET adr_id = $1, scope = $2, similarity_threshold = $3
-				WHERE project_name = $4 AND rel_path = $5
-			`, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold, s.projectName, validADRs[idx].RelPath)
+				UPDATE archguard_adrs SET adr_id = $1, scope = $2, similarity_threshold = $3, rules = $4
+				WHERE project_name = $5 AND rel_path = $6
+			`, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold, validADRs[idx].Rules, s.projectName, validADRs[idx].RelPath)
 		}
 
 		br := s.pool.SendBatch(ctx, batch)
@@ -483,7 +501,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
 // query, instead of a copy that could drift; scope/threshold filtering happens in Go, not SQL.
 const SearchQuery = `
-	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, similarity_threshold, (1 - (embedding <=> $1)) as similarity
+	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, similarity_threshold, rules, (1 - (embedding <=> $1)) as similarity
 	FROM archguard_adrs
 	WHERE project_name = $2
 	ORDER BY embedding <=> $1
@@ -492,7 +510,7 @@ const SearchQuery = `
 
 // Scope is a glob Postgres can't evaluate, so it is filtered in Go.
 const scopedADRsQuery = `
-	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, similarity_threshold
+	SELECT rel_path, title, status, content, COALESCE(adr_id, '') AS adr_id, COALESCE(scope, '') AS scope, similarity_threshold, rules
 	FROM archguard_adrs
 	WHERE project_name = $1
 	ORDER BY rel_path
@@ -508,7 +526,7 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 		var adr ADR
 
 		var score float64
-		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &score); err != nil {
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &adr.Rules, &score); err != nil {
 			diagPrintf(w, "PgStore Row scan failed: %v\n", err)
 			continue
 		}
@@ -551,7 +569,7 @@ func (s *PgStore) projectADRs() ([]ADR, error) {
 	var adrs []ADR
 	for rows.Next() {
 		var adr ADR
-		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold); err != nil {
+		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &adr.Rules); err != nil {
 			return nil, fmt.Errorf("scanning ADR row: %w", err)
 		}
 
