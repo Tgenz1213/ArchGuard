@@ -23,7 +23,6 @@ type ADR struct {
 	Embedding           []float32     `json:"embedding"`
 	RelPath             string        `json:"rel_path"`
 	Rules               Rules         `json:"rules,omitempty"`
-	RulesError          string        `json:"-"`
 }
 
 type FrontMatter struct {
@@ -164,19 +163,25 @@ func (sp *ScopePatterns) Scan(src any) error {
 
 type ParseOptions struct {
 	FrontmatterMappings map[string]string
+	RulesHeading        string
 }
 
 func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (*ADR, error) {
+	adr, _, err := parseADRFile(path, rootDir, idPattern, opts)
+	return adr, err
+}
+
+func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (adr *ADR, rulesErr error, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	relPath, _ := filepath.Rel(rootDir, path)
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
-	return ParseADRContent(data, id, relPath, opts)
+	return parseADR(data, id, relPath, opts, nil)
 }
 
 func extractID(filename string, idPattern *regexp.Regexp) string {
@@ -197,37 +202,51 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 }
 
 func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
+	adr, _, err := parseADR(data, id, relPath, opts, nil)
+	return adr, err
+}
+
+// rulesErr means the ADR is usable but its rules were dropped; err means the ADR is unusable.
+func parseADR(data []byte, id string, relPath string, opts ParseOptions, contentOverride *string) (adr *ADR, rulesErr error, err error) {
 	if !bytes.HasPrefix(data, []byte("---")) {
-		return nil, fmt.Errorf("no frontmatter found in %s", relPath)
+		return nil, nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
 
 	parts := bytes.SplitN(data, []byte("---"), 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
+		return nil, nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}
 
 	fm, err := decodeFrontMatter(parts[1], opts.FrontmatterMappings)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
+		return nil, nil, fmt.Errorf("failed to parse frontmatter in %s: %w", relPath, err)
 	}
 
-	adr := &ADR{
+	content := string(parts[2])
+	if contentOverride != nil {
+		content = *contentOverride
+	}
+
+	heading := strings.TrimSpace(opts.RulesHeading)
+	if heading == "" {
+		heading = DefaultRulesHeading
+	}
+
+	rules, rulesErr := frontMatterRules(&fm.Rules)
+	if rulesErr == nil && len(rules) == 0 {
+		rules, rulesErr = bodyRules(content, heading)
+	}
+
+	return &ADR{
 		ID:                  id,
 		Title:               fm.Title,
 		Status:              fm.Status,
 		Scope:               fm.Scope,
 		SimilarityThreshold: fm.SimilarityThreshold,
-		Content:             string(parts[2]),
+		Content:             content,
 		RelPath:             relPath,
-	}
-
-	rules, rulesErr := decodeFrontMatterRules(&fm.Rules)
-	if rulesErr != nil {
-		adr.RulesError = rulesErr.Error()
-	}
-
-	adr.Rules = rules
-	return adr, nil
+		Rules:               rules,
+	}, rulesErr, nil
 }
 
 func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (FrontMatter, error) {

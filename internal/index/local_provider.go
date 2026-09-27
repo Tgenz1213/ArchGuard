@@ -32,6 +32,10 @@ func (p *LocalProvider) SetFrontmatterMappings(mappings map[string]string) {
 	p.parseOpts.FrontmatterMappings = mappings
 }
 
+func (p *LocalProvider) SetRulesHeading(heading string) {
+	p.parseOpts.RulesHeading = heading
+}
+
 // SetWriter routes GetADRs' parse-failure warnings to w instead of the
 // default os.Stdout. Passing nil restores the default.
 func (p *LocalProvider) SetWriter(w io.Writer) {
@@ -50,7 +54,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
 			stats.Discovered++
 
-			adr, err := ParseADR(path, p.dirPath, p.idPattern, p.parseOpts)
+			adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping %s: %v\n", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)
@@ -59,6 +63,11 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 
 			if isAcceptedStatus(adr.Status, p.acceptedStatuses) {
 				validADRs = append(validADRs, *adr)
+
+				if rulesErr != nil {
+					diagPrintf(p.writer, "Warning: ignoring rules in %s: %v\n", path, rulesErr)
+					stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
+				}
 			} else {
 				stats.StatusRejected++
 			}

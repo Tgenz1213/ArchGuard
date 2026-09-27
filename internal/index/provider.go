@@ -11,9 +11,15 @@ import (
 )
 
 type FetchStats struct {
-	Discovered     int      // total ADR files/pages found, valid or not
-	ParseFailed    []string // paths/IDs that failed to parse (frontmatter/YAML errors)
-	StatusRejected int      // count excluded by accepted_statuses filtering
+	Discovered     int              // total ADR files/pages found, valid or not
+	ParseFailed    []string         // paths/IDs that failed to parse (frontmatter/YAML errors)
+	StatusRejected int              // count excluded by accepted_statuses filtering
+	MalformedRules []MalformedRules // accepted ADRs that loaded without their rules
+}
+
+type MalformedRules struct {
+	RelPath string
+	Reason  string
 }
 
 func isAcceptedStatus(status string, accepted []string) bool {
@@ -73,6 +79,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 			stats.Discovered += s.Discovered
 			stats.ParseFailed = append(stats.ParseFailed, s.ParseFailed...)
 			stats.StatusRejected += s.StatusRejected
+			stats.MalformedRules = append(stats.MalformedRules, s.MalformedRules...)
 			return nil
 		})
 	}

@@ -1,10 +1,13 @@
 package index
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -144,6 +147,114 @@ We will use Go.</p>`
 
 	if len(adrs[0].Scope) != 1 || adrs[0].Scope[0] != "**/*.go" {
 		t.Errorf("expected scope [\"**/*.go\"] read via mapped applies_to key, got %+v", adrs[0].Scope)
+	}
+}
+
+func confluenceADRsFromStorage(t *testing.T, storage string, configure func(*ConfluenceProvider)) ([]ADR, FetchStats) {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := map[string]any{
+			"id":     "1",
+			"title":  "Use Go",
+			"body":   map[string]any{"storage": map[string]any{"value": storage}},
+			"_links": map[string]any{"webui": "/spaces/ARCH/pages/1/Use+Go"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{page}})
+	}))
+	t.Cleanup(ts.Close)
+
+	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
+	if configure != nil {
+		configure(provider)
+	}
+
+	adrs, stats, err := provider.GetADRs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	return adrs, stats
+}
+
+const confluenceRulesPage = `<p>---
+title: Use Go
+status: Accepted
+---</p><h2>Context</h2><p>We like Go.</p>` +
+	`<h2>%s</h2><p>Rules follow.</p><ul><li>All code MUST be written in Go.<ul><li>a nested detail</li></ul></li><li>Use <code>errors.Is</code>, never <code>==</code></li></ul>` +
+	`<h2>Consequences</h2><ul><li>Not a rule</li></ul>`
+
+func TestConfluenceProvider_GetADRs_BodySectionRules(t *testing.T) {
+	adrs, stats := confluenceADRsFromStorage(t, fmt.Sprintf(confluenceRulesPage, "Rules"), nil)
+	if len(adrs) != 1 {
+		t.Fatalf("expected 1 ADR, got %d", len(adrs))
+	}
+
+	want := statements("All code MUST be written in Go.", "Use `errors.Is`, never `==`")
+	if !reflect.DeepEqual(adrs[0].Rules, want) {
+		t.Errorf("Rules = %+v, want %+v", adrs[0].Rules, want)
+	}
+
+	if len(stats.MalformedRules) != 0 {
+		t.Errorf("unexpected malformed-rules entries: %+v", stats.MalformedRules)
+	}
+
+	if !strings.Contains(adrs[0].Content, "## Rules") {
+		t.Errorf("Content should stay the full converted markdown, got %q", adrs[0].Content)
+	}
+}
+
+func TestConfluenceProvider_GetADRs_CustomRulesHeading(t *testing.T) {
+	adrs, _ := confluenceADRsFromStorage(t, fmt.Sprintf(confluenceRulesPage, "Detection"), func(p *ConfluenceProvider) {
+		p.SetRulesHeading("Detection")
+	})
+	if len(adrs) != 1 || len(adrs[0].Rules) != 2 {
+		t.Fatalf("expected 2 rules under the custom heading, got %+v", adrs)
+	}
+}
+
+func TestConfluenceProvider_GetADRs_RulesSectionWithoutBulletsHasNoRules(t *testing.T) {
+	page := `<p>---
+title: Use Go
+status: Accepted
+---</p><h2>Rules</h2><p>Only prose here.</p>`
+
+	adrs, stats := confluenceADRsFromStorage(t, page, nil)
+	if len(adrs) != 1 || adrs[0].Rules != nil || len(stats.MalformedRules) != 0 {
+		t.Fatalf("expected the ADR to load with no rules and no report, got %+v %+v", adrs, stats)
+	}
+}
+
+func TestConfluenceProvider_GetADRs_WithoutRulesSectionHasNoRules(t *testing.T) {
+	adrs, stats := confluenceADRsFromStorage(t, fmt.Sprintf(confluenceRulesPage, "Notes"), nil)
+	if len(adrs) != 1 || adrs[0].Rules != nil || len(stats.MalformedRules) != 0 {
+		t.Fatalf("expected no rules and no report, got %+v %+v", adrs, stats)
+	}
+}
+
+func TestConfluenceProvider_GetADRs_MalformedRulesKeepTheADRAndAreReported(t *testing.T) {
+	page := `<p>---
+title: Use Go
+status: Accepted
+rules: nope
+---</p><p>Body</p>`
+	var warnings bytes.Buffer
+
+	adrs, stats := confluenceADRsFromStorage(t, page, func(p *ConfluenceProvider) { p.SetWriter(&warnings) })
+	if len(adrs) != 1 || adrs[0].Rules != nil {
+		t.Fatalf("expected the ADR to load without rules, got %+v", adrs)
+	}
+
+	if len(stats.MalformedRules) != 1 || !strings.Contains(stats.MalformedRules[0].Reason, "rules must be a list") {
+		t.Fatalf("MalformedRules = %+v, want one entry with the reason", stats.MalformedRules)
+	}
+
+	if !strings.HasSuffix(stats.MalformedRules[0].RelPath, "/spaces/ARCH/pages/1/Use+Go") {
+		t.Errorf("RelPath = %q, want the page link", stats.MalformedRules[0].RelPath)
+	}
+
+	if !strings.Contains(warnings.String(), "ignoring rules") {
+		t.Errorf("expected a warning on the configured writer, got %q", warnings.String())
 	}
 }
 

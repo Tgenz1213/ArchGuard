@@ -219,7 +219,15 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 		}
 
 		if owner, exists := sourceKeyOwner[sourceKey]; exists {
-			return nil, fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
+			err := fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
+
+			for _, field := range []string{owner, canonical} {
+				if field == sourceKey {
+					err = fmt.Errorf("%w; %q reads that key by default, so map %q to another key (e.g. %s: %s_field)", err, field, field, field, field)
+				}
+			}
+
+			return nil, err
 		}
 
 		sourceKeyOwner[sourceKey] = canonical
@@ -628,6 +636,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
+	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 	localProvider.SetWriter(human)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
@@ -641,6 +650,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 			cfg.Analysis.AcceptedStatuses,
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
+		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 		confluenceProvider.SetWriter(human)
 		providers = append(providers, confluenceProvider)
 	}
@@ -906,6 +916,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
+	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 	localProvider.SetWriter(w)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
@@ -919,6 +930,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 			cfg.Analysis.AcceptedStatuses,
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
+		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 		confluenceProvider.SetWriter(w)
 		providers = append(providers, confluenceProvider)
 	}

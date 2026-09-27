@@ -270,8 +270,24 @@ func TestValidateFrontmatterMappings_MappedKeyCollidesWithRulesDefaultErrors(t *
 	cfg := &config.Config{}
 
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "rules"}
-	if _, err := validateFrontmatterMappings(cfg); err == nil {
+
+	_, err := validateFrontmatterMappings(cfg)
+	if err == nil {
 		t.Fatal("expected collision error when a mapped key matches the rules field's default key, got nil")
+	}
+
+	if want := `"rules" reads that key by default, so map "rules" to another key (e.g. rules: rules_field)`; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to suggest %q", err, want)
+	}
+}
+
+func TestValidateFrontmatterMappings_CollisionBetweenTwoMappedKeysHasNoRemapHint(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "x", "title": "x"}
+
+	_, err := validateFrontmatterMappings(cfg)
+	if err == nil || strings.Contains(err.Error(), "reads that key by default") {
+		t.Fatalf("error = %v, want a collision error without the default-key hint", err)
 	}
 }
 

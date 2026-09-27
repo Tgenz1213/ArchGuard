@@ -7,8 +7,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 	"gopkg.in/yaml.v3"
 )
+
+const DefaultRulesHeading = "Rules"
 
 type Rule struct {
 	Statement string   `json:"statement"`
@@ -81,7 +86,19 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 
 	rules := make(Rules, 0, len(node.Content))
 	for i, item := range node.Content {
-		rule, err := decodeRule(resolveAlias(item))
+		item = resolveAlias(item)
+		if item.Kind == yaml.ScalarNode && !isNullNode(item) {
+			statement := strings.TrimSpace(item.Value)
+			if statement == "" {
+				return nil, fmt.Errorf("rule %d: statement is required", i+1)
+			}
+
+			rules = append(rules, Rule{Statement: statement})
+
+			continue
+		}
+
+		rule, err := decodeRule(item)
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", i+1, err)
 		}
@@ -98,7 +115,7 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 
 func decodeRule(node *yaml.Node) (Rule, error) {
 	if node.Kind != yaml.MappingNode {
-		return Rule{}, errors.New("must be a mapping")
+		return Rule{}, errors.New("must be a string or a mapping")
 	}
 
 	var rule Rule
@@ -176,4 +193,79 @@ func exampleList(field string, nodes []*yaml.Node) ([]string, error) {
 	}
 
 	return examples, nil
+}
+
+func extractBodyRules(body, heading string) (Rules, error) {
+	src := []byte(body)
+	doc := goldmark.DefaultParser().Parse(text.NewReader(src))
+
+	var rules Rules
+	inSection, startLevel := false, 0
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		switch n := node.(type) {
+		case *ast.Heading:
+			if inSection && n.Level <= startLevel {
+				return rules, nil
+			}
+
+			if !inSection && strings.EqualFold(blockText(n, src), heading) {
+				inSection, startLevel = true, n.Level
+			}
+		case *ast.List:
+			if !inSection {
+				continue
+			}
+
+			for item := n.FirstChild(); item != nil; item = item.NextSibling() {
+				statement := itemStatement(item, src)
+				if statement == "" {
+					return nil, fmt.Errorf("rule %d: bullet has no statement text", len(rules)+1)
+				}
+
+				rules = append(rules, Rule{Statement: statement})
+			}
+		}
+	}
+
+	return rules, nil
+}
+
+func itemStatement(item ast.Node, src []byte) string {
+	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+		switch child.(type) {
+		case *ast.TextBlock, *ast.Paragraph:
+			return blockText(child, src)
+		}
+	}
+
+	return ""
+}
+
+func blockText(n ast.Node, src []byte) string {
+	lines := n.Lines()
+	parts := make([]string, 0, lines.Len())
+	for i := 0; i < lines.Len(); i++ {
+		segment := lines.At(i)
+		parts = append(parts, string(segment.Value(src)))
+	}
+
+	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
+}
+
+func frontMatterRules(node *yaml.Node) (Rules, error) {
+	rules, err := decodeFrontMatterRules(node)
+	if err != nil {
+		return nil, fmt.Errorf("frontmatter: %w", err)
+	}
+
+	return rules, nil
+}
+
+func bodyRules(body, heading string) (Rules, error) {
+	rules, err := extractBodyRules(body, heading)
+	if err != nil {
+		return nil, fmt.Errorf("%q section: %w", heading, err)
+	}
+
+	return rules, nil
 }

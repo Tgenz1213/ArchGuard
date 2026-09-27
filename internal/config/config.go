@@ -57,6 +57,7 @@ type Analysis struct {
 	ADRIDPattern string `yaml:"adr_id_pattern"`
 	// Canonical field name -> the YAML key the corpus uses; see docs/arch/0021.
 	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
+	RulesHeading        string            `yaml:"rules_heading"`
 	Pipeline            *Pipeline         `yaml:"pipeline"`
 }
 

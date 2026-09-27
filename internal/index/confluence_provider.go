@@ -44,6 +44,10 @@ func (p *ConfluenceProvider) SetFrontmatterMappings(mappings map[string]string) 
 	p.parseOpts.FrontmatterMappings = mappings
 }
 
+func (p *ConfluenceProvider) SetRulesHeading(heading string) {
+	p.parseOpts.RulesHeading = heading
+}
+
 type ConfluenceSearchResponse struct {
 	Results []struct {
 		ID    string `json:"id"`
@@ -118,19 +122,22 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
+			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
 
-			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.parseOpts)
+			adr, rulesErr, err := parseADR([]byte(rawText), adrID, relPath, p.parseOpts, &markdown)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)
 				continue
 			}
 
-			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
-			adr.Content = markdown
-
 			if isAcceptedStatus(adr.Status, p.acceptedStatuses) {
 				allADRs = append(allADRs, *adr)
+
+				if rulesErr != nil {
+					diagPrintf(p.writer, "Warning: ignoring rules in Confluence page %s: %v\n", relPath, rulesErr)
+					stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: relPath, Reason: rulesErr.Error()})
+				}
 			} else {
 				stats.StatusRejected++
 			}

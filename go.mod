@@ -18,6 +18,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
+	github.com/yuin/goldmark v1.7.1
 	golang.org/x/sync v0.23.0
 	google.golang.org/genai v1.71.0
 	gopkg.in/yaml.v3 v3.0.1
