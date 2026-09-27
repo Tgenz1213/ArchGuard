@@ -46,8 +46,10 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		if err != nil {
 			return err
 		}
+
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
 			stats.Discovered++
+
 			adr, err := ParseADR(path, p.dirPath, p.idPattern, p.parseOpts)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping %s: %v\n", path, err)
@@ -61,11 +63,13 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 				stats.StatusRejected++
 			}
 		}
+
 		return nil
 	})
 
 	if err != nil {
 		return nil, FetchStats{}, err
 	}
+
 	return validADRs, stats, nil
 }

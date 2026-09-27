@@ -14,9 +14,11 @@ func TestGeminiProvider_Chat(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST method, got %s", r.Method)
 		}
+
 		if r.URL.Path != "/v1beta/models/gemini-1.5-flash:generateContent" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
+
 		if r.Header.Get("x-goog-api-key") != "test-api-key" {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
@@ -35,16 +37,20 @@ func TestGeminiProvider_Chat(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("Failed to decode request body: %v", err)
 		}
+
 		if len(reqBody.Contents) == 0 {
 			t.Fatal("Request body missing contents")
 		}
+
 		if len(reqBody.Contents[0].Parts) == 0 {
 			t.Fatal("Request body missing parts")
 		}
+
 		expectedPrompt := "system prompt\n\nuser prompt"
 		if reqBody.Contents[0].Parts[0].Text != expectedPrompt {
 			t.Errorf("Expected prompt %q, got %q", expectedPrompt, reqBody.Contents[0].Parts[0].Text)
 		}
+
 		if reqBody.GenerationConfig.ResponseMimeType != "application/json" {
 			t.Errorf("Expected responseMimeType 'application/json', got %q", reqBody.GenerationConfig.ResponseMimeType)
 		}
@@ -81,6 +87,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
+
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			t.Fatalf("Failed to encode response: %v", err)
 		}
@@ -111,9 +118,11 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST method, got %s", r.Method)
 		}
+
 		if r.URL.Path != "/v1beta/models/text-embedding-004:batchEmbedContents" {
 			t.Errorf("Unexpected path: %s", r.URL.Path)
 		}
+
 		if r.Header.Get("x-goog-api-key") != "test-api-key" {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
@@ -132,15 +141,19 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("Failed to decode request body: %v", err)
 		}
+
 		if len(reqBody.Requests) == 0 {
 			t.Fatal("Request body missing requests")
 		}
+
 		if len(reqBody.Requests[0].Content.Parts) == 0 {
 			t.Fatal("Request body missing parts")
 		}
+
 		if reqBody.Requests[0].Content.Parts[0].Text != "test text" {
 			t.Errorf("Expected text 'test text', got %q", reqBody.Requests[0].Content.Parts[0].Text)
 		}
+
 		if reqBody.Requests[0].Model != "models/text-embedding-004" {
 			t.Errorf("Expected model 'models/text-embedding-004', got %q", reqBody.Requests[0].Model)
 		}
@@ -157,6 +170,7 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
+
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			t.Fatalf("Failed to encode response: %v", err)
 		}
@@ -179,6 +193,7 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	if len(res) != len(expected) {
 		t.Fatalf("Expected length %d, got %d", len(expected), len(res))
 	}
+
 	for i := range res {
 		if res[i] != expected[i] {
 			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res[i])
@@ -210,9 +225,11 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 					t.Fatalf("Failed to decode request body: %v", err)
 				}
+
 				if len(reqBody.Requests) == 0 {
 					t.Fatal("Request body missing requests")
 				}
+
 				gotTaskType = reqBody.Requests[0].TaskType
 
 				resp := struct {
@@ -225,6 +242,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 					}{{Values: []float32{0.1}}},
 				}
 				w.Header().Set("Content-Type", "application/json")
+
 				if err := json.NewEncoder(w).Encode(resp); err != nil {
 					t.Fatalf("Failed to encode response: %v", err)
 				}
@@ -241,6 +259,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
 			}
+
 			if gotTaskType != c.wantTaskType {
 				t.Errorf("expected taskType %q, got %q", c.wantTaskType, gotTaskType)
 			}
@@ -289,6 +308,7 @@ func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
+
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			t.Fatalf("Failed to encode response: %v", err)
 		}
@@ -312,6 +332,7 @@ func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
+
 		_, errw := w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
 		if errw != nil {
 			t.Fatalf("Failed to write response: %v", errw)
@@ -335,6 +356,7 @@ func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 	if !strings.Contains(errMsg, "Invalid API key") {
 		t.Errorf("Expected error to contain 'Invalid API key', got: %s", errMsg)
 	}
+
 	if !strings.Contains(errMsg, "400 Bad Request") {
 		t.Errorf("Expected error to contain status code, got: %s", errMsg)
 	}
@@ -344,6 +366,7 @@ func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
+
 		_, errw := w.Write([]byte(`This is not valid JSON`))
 		if errw != nil {
 			t.Fatalf("Failed to write response: %v", errw)
@@ -367,6 +390,7 @@ func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
 	if !strings.Contains(errMsg, "This is not valid JSON") {
 		t.Errorf("Expected error to contain raw body, got: %s", errMsg)
 	}
+
 	if !strings.Contains(errMsg, "500 Internal Server Error") {
 		t.Errorf("Expected error to contain status code, got: %s", errMsg)
 	}
@@ -376,6 +400,7 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
+
 		_, errw := w.Write([]byte(`{"error": {"message": ""}}`))
 		if errw != nil {
 			t.Fatalf("Failed to write response: %v", errw)
@@ -400,6 +425,7 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 	if !strings.Contains(errMsg, `{"error": {"message": ""}}`) {
 		t.Errorf("Expected error to contain raw body when message is empty, got: %s", errMsg)
 	}
+
 	if !strings.Contains(errMsg, "403 Forbidden") {
 		t.Errorf("Expected error to contain status code, got: %s", errMsg)
 	}
@@ -421,9 +447,11 @@ func TestGeminiProvider_CountTokens(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("Failed to decode request body: %v", err)
 		}
+
 		if len(reqBody.Contents) == 0 || len(reqBody.Contents[0].Parts) == 0 {
 			t.Fatal("Request body missing contents/parts")
 		}
+
 		if reqBody.Contents[0].Parts[0].Text != "Hello, world!" {
 			t.Errorf("Expected text %q, got %q", "Hello, world!", reqBody.Contents[0].Parts[0].Text)
 		}
@@ -444,6 +472,7 @@ func TestGeminiProvider_CountTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	if n != 5 {
 		t.Errorf("expected 5 tokens, got %d", n)
 	}

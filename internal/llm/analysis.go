@@ -29,10 +29,12 @@ type suggestionResult struct {
 // Violation == true.
 func SuggestRemediation(ctx context.Context, p Provider, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
 	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
+
 	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt, "suggestion generation")
 	if err != nil {
 		return "", err
 	}
+
 	return result.Suggestion, nil
 }
 
@@ -56,6 +58,7 @@ func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt, 
 		}
 
 		cleaned := CleanJSON(raw)
+
 		var res T
 		if err := json.Unmarshal([]byte(cleaned), &res); err != nil {
 			if err2 := json.Unmarshal([]byte(raw), &res); err2 != nil {
@@ -63,6 +66,7 @@ func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt, 
 				return lastErr
 			}
 		}
+
 		final = res
 		return nil
 	}
@@ -72,6 +76,7 @@ func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt, 
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
+
 		return nil, fmt.Errorf("%s failed after %d retries: %w", operationLabel, maxRetries, lastErr)
 	}
 
@@ -86,5 +91,6 @@ func CleanJSON(input string) string {
 	if start != -1 && end != -1 && end > start {
 		return input[start : end+1]
 	}
+
 	return input
 }

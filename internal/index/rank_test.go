@@ -18,6 +18,7 @@ func TestFilterByScope(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 candidates to survive, got %d: %+v", len(got), got)
 	}
+
 	for _, c := range got {
 		if c.ADR.Title == "non-matching scope" {
 			t.Errorf("candidate with non-matching scope should have been filtered out, got %+v", c)
@@ -49,6 +50,7 @@ func TestRankAndLimit_SortsDescendingAndCuts(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected topK=2 results, got %d", len(got))
 	}
+
 	if got[0].ADR.Title != "high" || got[1].ADR.Title != "mid" {
 		t.Errorf("expected [high, mid] in descending-score order, got [%s, %s]", got[0].ADR.Title, got[1].ADR.Title)
 	}
@@ -78,6 +80,7 @@ func TestFilterByThreshold(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 candidates at or above threshold, got %d: %+v", len(got), got)
 	}
+
 	for _, c := range got {
 		if c.ADR.Title == "below" {
 			t.Errorf("candidate below threshold should have been filtered out, got %+v", c)
@@ -104,6 +107,7 @@ func TestFilterBelowThreshold_IsFilterByThresholdsComplement(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 candidate below threshold, got %d: %+v", len(got), got)
 	}
+
 	if got[0].ADR.Title != "below" {
 		t.Errorf("expected only the below-threshold candidate to survive, got %+v", got[0])
 	}
@@ -142,6 +146,7 @@ func TestFilterByThreshold_PerADROverrideAppliesInsteadOfGlobal(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 candidate to survive (only the lenient override), got %d: %+v", len(got), got)
 	}
+
 	if got[0].ADR.Title != "lenient override included" {
 		t.Errorf("expected the per-ADR override to be used instead of the global threshold, got %q", got[0].ADR.Title)
 	}
@@ -152,6 +157,7 @@ func TestTruncatedByTopK_ReturnsNilWhenWithinLimit(t *testing.T) {
 		{ADR: &ADR{Title: "a"}, Score: 0.9},
 		{ADR: &ADR{Title: "b"}, Score: 0.8},
 	}
+
 	result := truncatedByTopK(candidates, 3)
 	if result != nil {
 		t.Fatalf("expected nil when candidates fit within topK, got %+v", result)
@@ -166,10 +172,12 @@ func TestTruncatedByTopK_ReturnsComplementOfRankAndLimit(t *testing.T) {
 		{ADR: &ADR{Title: "fourth"}, Score: 0.6},
 		{ADR: &ADR{Title: "fifth"}, Score: 0.5},
 	}
+
 	result := truncatedByTopK(candidates, 3)
 	if len(result) != 2 {
 		t.Fatalf("expected 2 truncated candidates, got %d: %+v", len(result), result)
 	}
+
 	if result[0].ADR.Title != "fourth" || result[1].ADR.Title != "fifth" {
 		t.Errorf("expected [fourth, fifth] in descending score order, got %+v", result)
 	}
@@ -179,6 +187,7 @@ func TestTruncatedByTopK_NegativeTopKTreatedAsZero(t *testing.T) {
 	candidates := []SearchResult{
 		{ADR: &ADR{Title: "only"}, Score: 0.9},
 	}
+
 	result := truncatedByTopK(candidates, -1)
 	if len(result) != 1 {
 		t.Fatalf("expected topK<0 to behave like topK=0, got %d: %+v", len(result), result)

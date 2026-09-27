@@ -18,6 +18,7 @@ func (k Kind) String() string {
 	if k == KindPreconditionNotMet {
 		return "precondition_not_met"
 	}
+
 	return "unavailable"
 }
 
@@ -53,8 +54,10 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 		if errors.As(err, &stageErr) {
 			return nil, err
 		}
+
 		return nil, &Error{Action: "scoring candidates", Err: err}
 	}
+
 	if len(scores) != len(candidates) {
 		return nil, &Error{Action: "scoring candidates", Err: fmt.Errorf("scorer returned %d scores for %d candidates", len(scores), len(candidates))}
 	}
@@ -73,6 +76,7 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 			below = append(below, c)
 		}
 	}
+
 	sort.SliceStable(qualifying, func(i, j int) bool { return qualifying[i].Score > qualifying[j].Score })
 
 	kept := qualifying
@@ -85,10 +89,12 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 		for _, c := range kept {
 			debug.Printf("  Kept: %s (score %.2f)\n", c.ADR.Title, c.Score)
 		}
+
 		sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
 		for _, c := range below {
 			debug.Printf("  Below threshold: %s (score %.2f < threshold %.2f)\n", c.ADR.Title, c.Score, floor.For(c.ADR))
 		}
+
 		for i, c := range qualifying[len(kept):] {
 			debug.Printf("  Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)\n", c.ADR.Title, c.Score, len(kept)+i+1, len(qualifying))
 		}

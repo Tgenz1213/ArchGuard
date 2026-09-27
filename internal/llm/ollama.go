@@ -23,6 +23,7 @@ func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
+
 	return newOllamaProvider(baseURL, model, embedModel, temperature)
 }
 
@@ -39,6 +40,7 @@ func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 		// with a descriptive error rather than panicking on a nil base URL.
 		base = &url.URL{}
 	}
+
 	return &OllamaProvider{
 		host:        baseURL,
 		model:       model,
@@ -68,6 +70,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	}
 
 	var content string
+
 	err := p.client.Chat(ctx, req, func(res api.ChatResponse) error {
 		content = res.Message.Content
 		return nil
@@ -75,6 +78,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 	if err != nil {
 		return "", err
 	}
+
 	return content, nil
 }
 
@@ -95,11 +99,13 @@ func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
 	if i := strings.LastIndex(name, "/"); i != -1 {
 		name = name[i+1:]
 	}
+
 	for _, c := range embeddingPrefixConventions {
 		if strings.HasPrefix(name, c.modelPrefix) {
 			return task.Pick(c.documentPrefix, c.queryPrefix)
 		}
 	}
+
 	return ""
 }
 
@@ -118,6 +124,7 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 	for i, v := range res.Embedding {
 		embedding[i] = float32(v)
 	}
+
 	return embedding, nil
 }
 
@@ -134,6 +141,7 @@ func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, err
 	}
 
 	var count int
+
 	err := p.client.Generate(ctx, req, func(res api.GenerateResponse) error {
 		count = res.PromptEvalCount
 		return nil
@@ -141,5 +149,6 @@ func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, err
 	if err != nil {
 		return 0, err
 	}
+
 	return count, nil
 }

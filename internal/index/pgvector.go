@@ -48,20 +48,25 @@ func IterativeScanSupportedVersion(version string) bool {
 	if len(parts) < 1 {
 		return false
 	}
+
 	major, errMajor := strconv.Atoi(parts[0])
 	if errMajor != nil {
 		return false
 	}
+
 	if major > 0 {
 		return true
 	}
+
 	if len(parts) < 2 {
 		return false
 	}
+
 	minor, errMinor := strconv.Atoi(parts[1])
 	if errMinor != nil {
 		return false
 	}
+
 	return minor >= 8
 }
 
@@ -77,6 +82,7 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	if err != nil {
 		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
 	}
+
 	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
 	if err != nil {
 		_ = tempConn.Close(ctx)
@@ -110,11 +116,13 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
 			return err
 		}
+
 		if applyIterativeScan {
 			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
 				diagPrintf(w, "Warning: failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.\n", err)
 			}
 		}
+
 		return nil
 	}
 
@@ -145,6 +153,7 @@ func (s *PgStore) reindexEnabled() bool {
 	if s.hnsw.Enabled == nil {
 		return true
 	}
+
 	return *s.hnsw.Enabled
 }
 
@@ -152,6 +161,7 @@ func (s *PgStore) reindexThreshold() float64 {
 	if s.hnsw.Threshold == nil {
 		return defaultReindexThreshold
 	}
+
 	return *s.hnsw.Threshold
 }
 
@@ -159,6 +169,7 @@ func (s *PgStore) reindexConcurrently() bool {
 	if s.hnsw.Concurrently == nil {
 		return true
 	}
+
 	return *s.hnsw.Concurrently
 }
 
@@ -166,6 +177,7 @@ func (o HNSWOptions) iterativeScanConfigured() bool {
 	if o.IterativeScan == nil {
 		return true
 	}
+
 	return *o.IterativeScan
 }
 
@@ -173,6 +185,7 @@ func (s *PgStore) reindexStatement() string {
 	if s.reindexConcurrently() {
 		return "REINDEX INDEX CONCURRENTLY " + hnswIndexName
 	}
+
 	return "REINDEX INDEX " + hnswIndexName
 }
 
@@ -207,6 +220,7 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	if err != nil {
 		return err
 	}
+
 	present := make(map[string]bool)
 	for rows.Next() {
 		var col string
@@ -214,9 +228,12 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 			rows.Close()
 			return err
 		}
+
 		present[col] = true
 	}
+
 	rows.Close()
+
 	if err := rows.Err(); err != nil {
 		return err
 	}
@@ -225,16 +242,20 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	if !present["adr_id"] {
 		alters = append(alters, "ADD COLUMN IF NOT EXISTS adr_id TEXT")
 	}
+
 	if !present["scope"] {
 		alters = append(alters, "ADD COLUMN IF NOT EXISTS scope TEXT")
 	}
+
 	if !present["similarity_threshold"] {
 		alters = append(alters, "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION")
 	}
+
 	if len(alters) > 0 {
 		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
 		return err
 	}
+
 	return nil
 }
 
@@ -251,6 +272,7 @@ func thresholdsEqual(a, b *float64) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
+
 	return *a == *b
 }
 
@@ -275,10 +297,12 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	existingMap := make(map[string]ADR)
 	for rows.Next() {
 		var relPath, title, status, content, adrID, scope string
+
 		var similarityThreshold *float64
 		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold); err != nil {
 			return BuildIndexResult{}, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
+
 		existingMap[relPath] = ADR{
 			ID:                  adrID,
 			Title:               title,
@@ -288,6 +312,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			SimilarityThreshold: similarityThreshold,
 		}
 	}
+
 	if err := rows.Err(); err != nil {
 		return BuildIndexResult{}, fmt.Errorf("failed to read existing ADRs: %w", err)
 	}
@@ -331,14 +356,17 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
+
 				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
 					markFailed(idx, fmt.Errorf("embed: %w", embErr))
 					return nil
 				}
+
 				validADRs[idx].Embedding = emb
 
 				vec := pgvector.NewVector(emb)
+
 				_, upsertErr := s.pool.Exec(ctx, `
 					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold)
 					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -355,6 +383,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
 					return nil
 				}
+
 				mu.Lock()
 				diagPrintf(s.writer, ".")
 				mu.Unlock()
@@ -396,10 +425,12 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 				_ = br.Close()
 				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
+
 			if tag.RowsAffected() == 0 {
 				diagPrintf(s.writer, "Warning: sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)\n", validADRs[idx].RelPath)
 			}
 		}
+
 		if err := br.Close(); err != nil {
 			return result, fmt.Errorf("failed to close sync batch: %w", err)
 		}
@@ -430,13 +461,16 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 	if s.reindexEnabled() {
 		modifiedCount := (len(adrsToEmbed) - len(failed)) + len(toDelete)
 		totalCount := len(validADRs) + len(toDelete)
+
 		threshold := s.reindexThreshold()
 		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
 			mode := "blocking"
 			if s.reindexConcurrently() {
 				mode = "concurrently"
 			}
+
 			diagPrintf(s.writer, "Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...\n", threshold*100, mode)
+
 			if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
 				diagPrintf(s.writer, "Warning: failed to reindex HNSW graph: %v\n", err)
 			}
@@ -472,13 +506,16 @@ func scanSearchResults(rows pgx.Rows, w io.Writer) []SearchResult {
 	var candidates []SearchResult
 	for rows.Next() {
 		var adr ADR
+
 		var score float64
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold, &score); err != nil {
 			diagPrintf(w, "PgStore Row scan failed: %v\n", err)
 			continue
 		}
+
 		candidates = append(candidates, SearchResult{ADR: &adr, Score: score})
 	}
+
 	return candidates
 }
 
@@ -487,10 +524,12 @@ func (s *PgStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	candidates := make([]SearchResult, 0, len(adrs))
 	for i := range adrs {
 		candidates = append(candidates, SearchResult{ADR: &adrs[i]})
 	}
+
 	return filterByScope(candidates, filePath), nil
 }
 
@@ -498,6 +537,7 @@ func (s *PgStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 func (s *PgStore) projectADRs() ([]ADR, error) {
 	s.adrsMu.Lock()
 	defer s.adrsMu.Unlock()
+
 	if s.adrsLoaded {
 		return s.adrs, nil
 	}
@@ -514,11 +554,14 @@ func (s *PgStore) projectADRs() ([]ADR, error) {
 		if err := rows.Scan(&adr.RelPath, &adr.Title, &adr.Status, &adr.Content, &adr.ID, &adr.Scope, &adr.SimilarityThreshold); err != nil {
 			return nil, fmt.Errorf("scanning ADR row: %w", err)
 		}
+
 		adrs = append(adrs, adr)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading ADR rows: %w", err)
 	}
+
 	s.adrs, s.adrsLoaded = adrs, true
 	return adrs, nil
 }

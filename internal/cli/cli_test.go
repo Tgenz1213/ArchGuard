@@ -84,6 +84,7 @@ func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 		if other, dup := seen[code]; dup {
 			t.Errorf("%s and %s share exit code %d", name, other, code)
 		}
+
 		seen[code] = name
 	}
 }
@@ -93,6 +94,7 @@ func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
 	if err := writeCheckReport(&buf, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
+
 	if strings.Contains(buf.String(), "failures") {
 		t.Errorf("report %q should not mention failures when there are none", buf.String())
 	}
@@ -100,16 +102,19 @@ func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
 
 func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 	var buf bytes.Buffer
+
 	failures := []analysis.StageFailure{{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable, Error: "down"}}
 	if err := writeCheckReport(&buf, nil, nil, failures); err != nil {
 		t.Fatal(err)
 	}
+
 	var got struct {
 		Failures []map[string]string `json:"failures"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("report is not valid JSON: %v", err)
 	}
+
 	if len(got.Failures) != 1 || got.Failures[0]["kind"] != "unavailable" || got.Failures[0]["stage"] != "rank" || got.Failures[0]["file"] != "a.go" || got.Failures[0]["error"] != "down" {
 		t.Errorf("failures = %v", got.Failures)
 	}
@@ -158,10 +163,12 @@ func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
 
 func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
 	cfg := &config.Config{}
+
 	re, err := compileADRIDPattern(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if re != nil {
 		t.Errorf("re = %v, want nil", re)
 	}
@@ -170,10 +177,12 @@ func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
 func TestCompileADRIDPattern_ValidPatternCompiles(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.ADRIDPattern = `^adr-(\d+)-`
+
 	re, err := compileADRIDPattern(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if re == nil {
 		t.Fatal("re = nil, want compiled pattern")
 	}
@@ -182,6 +191,7 @@ func TestCompileADRIDPattern_ValidPatternCompiles(t *testing.T) {
 func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.ADRIDPattern = `[unterminated`
+
 	_, err := compileADRIDPattern(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid regex, got nil")
@@ -190,10 +200,12 @@ func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 
 func TestValidateFrontmatterMappings_EmptyIsNil(t *testing.T) {
 	cfg := &config.Config{}
+
 	mappings, err := validateFrontmatterMappings(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if mappings != nil {
 		t.Errorf("mappings = %v, want nil", mappings)
 	}
@@ -202,10 +214,12 @@ func TestValidateFrontmatterMappings_EmptyIsNil(t *testing.T) {
 func TestValidateFrontmatterMappings_ValidMappingPassesThrough(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "applies_to"}
+
 	mappings, err := validateFrontmatterMappings(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if mappings["scope"] != "applies_to" {
 		t.Errorf("mappings[scope] = %q, want %q", mappings["scope"], "applies_to")
 	}
@@ -213,6 +227,7 @@ func TestValidateFrontmatterMappings_ValidMappingPassesThrough(t *testing.T) {
 
 func TestValidateFrontmatterMappings_UnknownCanonicalFieldErrors(t *testing.T) {
 	cfg := &config.Config{}
+
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scop": "applies_to"}
 	if _, err := validateFrontmatterMappings(cfg); err == nil {
 		t.Fatal("expected error for unknown canonical field name, got nil")
@@ -221,6 +236,7 @@ func TestValidateFrontmatterMappings_UnknownCanonicalFieldErrors(t *testing.T) {
 
 func TestValidateFrontmatterMappings_TwoFieldsMappedToSameKeyErrors(t *testing.T) {
 	cfg := &config.Config{}
+
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "x", "title": "x"}
 	if _, err := validateFrontmatterMappings(cfg); err == nil {
 		t.Fatal("expected collision error when two canonical fields map to the same YAML key, got nil")
@@ -229,6 +245,7 @@ func TestValidateFrontmatterMappings_TwoFieldsMappedToSameKeyErrors(t *testing.T
 
 func TestValidateFrontmatterMappings_MappedKeyCollidesWithUnmappedDefaultErrors(t *testing.T) {
 	cfg := &config.Config{}
+
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "title"}
 	if _, err := validateFrontmatterMappings(cfg); err == nil {
 		t.Fatal("expected collision error when a mapped key matches an unmapped field's own default key, got nil")
@@ -238,10 +255,12 @@ func TestValidateFrontmatterMappings_MappedKeyCollidesWithUnmappedDefaultErrors(
 func TestValidateFrontmatterMappings_RulesFieldCanBeRemapped(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.FrontmatterMappings = map[string]string{"rules": "screening"}
+
 	mappings, err := validateFrontmatterMappings(cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if mappings["rules"] != "screening" {
 		t.Errorf("mappings[rules] = %q, want %q", mappings["rules"], "screening")
 	}
@@ -249,6 +268,7 @@ func TestValidateFrontmatterMappings_RulesFieldCanBeRemapped(t *testing.T) {
 
 func TestValidateFrontmatterMappings_MappedKeyCollidesWithRulesDefaultErrors(t *testing.T) {
 	cfg := &config.Config{}
+
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "rules"}
 	if _, err := validateFrontmatterMappings(cfg); err == nil {
 		t.Fatal("expected collision error when a mapped key matches the rules field's default key, got nil")
@@ -270,10 +290,12 @@ func TestResolveEmbedProvider_SameProviderReusesInstance(t *testing.T) {
 		LLM:         config.LLMConfig{Provider: "openai"},
 		VectorStore: config.VectorStore{Provider: ""},
 	}
+
 	name, _, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
 	if !reuse {
 		t.Error("expected reuse=true when vector_store.provider is unset")
 	}
+
 	if name != "openai" {
 		t.Errorf("expected name openai, got %q", name)
 	}
@@ -284,6 +306,7 @@ func TestResolveEmbedProvider_ExplicitSameProviderReusesInstance(t *testing.T) {
 		LLM:         config.LLMConfig{Provider: "openai"},
 		VectorStore: config.VectorStore{Provider: "openai"},
 	}
+
 	_, _, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
 	if !reuse {
 		t.Error("expected reuse=true when vector_store.provider explicitly matches llm.provider")
@@ -295,13 +318,16 @@ func TestResolveEmbedProvider_DifferentProviderUsesEmbedKey(t *testing.T) {
 		LLM:         config.LLMConfig{Provider: "claude"},
 		VectorStore: config.VectorStore{Provider: "openai"},
 	}
+
 	name, apiKey, reuse := resolveEmbedProvider(cfg, "chat-key", "embed-key")
 	if reuse {
 		t.Error("expected reuse=false for different providers")
 	}
+
 	if name != "openai" {
 		t.Errorf("expected name openai, got %q", name)
 	}
+
 	if apiKey != "embed-key" {
 		t.Errorf("expected embed-key, got %q", apiKey)
 	}
@@ -314,16 +340,20 @@ func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testin
 		LLM:         config.LLMConfig{Provider: "claude"},
 		VectorStore: config.VectorStore{Provider: "openai"},
 	}
+
 	name, apiKey, reuse := resolveEmbedProvider(cfg, "chat-key", "")
 	if reuse {
 		t.Error("expected reuse=false for different providers")
 	}
+
 	if name != "openai" {
 		t.Errorf("expected name openai, got %q", name)
 	}
+
 	if apiKey == "chat-key" {
 		t.Fatal("REGRESSION: embed provider fell back to the chat provider's API key -- this is the exact credential-leak bug fixed in fee5a7c")
 	}
+
 	if apiKey != "" {
 		t.Errorf("expected empty apiKey (embed key was unset, must not substitute chat key), got %q", apiKey)
 	}
@@ -337,6 +367,7 @@ func TestResolveEmbedProviderInstance_ReusesChatProviderWhenNamesMatch(t *testin
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if got != llm.Provider(chat) {
 		t.Error("expected the chat provider instance to be reused")
 	}
@@ -354,6 +385,7 @@ func TestResolveEmbedProviderInstance_BuildsFromFactoryWhenNamesDiffer(t *testin
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if got != llm.Provider(embed) {
 		t.Error("expected the embed factory's provider to be used, not the chat provider")
 	}
@@ -444,6 +476,7 @@ func TestResolveContentProvider(t *testing.T) {
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
+
 			if mfp, ok := got.(*analysis.MultiFileProvider); ok {
 				wantMFP := tt.want.(*analysis.MultiFileProvider)
 				if !slices.Equal(mfp.Paths, wantMFP.Paths) {
@@ -473,6 +506,7 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 			if _, ok := got.(*analysis.AllProvider); !ok {
 				t.Fatalf("expected *analysis.AllProvider, got %T", got)
 			}
+
 			if !strings.Contains(output, "internal/foo.go") {
 				t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", output)
 			}
@@ -490,6 +524,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildProvider(claude) failed: %v", err)
 	}
+
 	if _, ok := claude.(*llm.ClaudeProvider); !ok {
 		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
 	}
@@ -498,6 +533,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildProvider(voyage) failed: %v", err)
 	}
+
 	if _, ok := voyage.(*llm.VoyageProvider); !ok {
 		t.Errorf("expected *llm.VoyageProvider, got %T", voyage)
 	}
@@ -556,6 +592,7 @@ func TestNormalizePositionalArgPaths_RunsEvenWhenCwdEqualsRepoRoot(t *testing.T)
 	if args[2] != "file.go" {
 		t.Errorf("expected the uncleaned positional path to be cleaned to %q (proving the rewrite actually ran at cwd == repoRoot), got %q", "file.go", args[2])
 	}
+
 	if args[3] != "--debug" {
 		t.Errorf("flag argument must be left untouched, got %q", args[3])
 	}
@@ -577,6 +614,7 @@ func TestNormalizePositionalArgPaths_HandlesAbsolutePathArg(t *testing.T) {
 
 func TestNormalizePositionalArgPaths_LeavesValueFlagArgumentUntouched(t *testing.T) {
 	repoRoot := filepath.Clean(t.TempDir())
+
 	cwd := filepath.Join(repoRoot, "internal", "cli")
 	if err := os.MkdirAll(cwd, 0755); err != nil {
 		t.Fatalf("failed to create subdirectory: %v", err)
@@ -641,6 +679,7 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 // everything written to it. Mirrors internal/analysis's helper of the same name.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
@@ -657,10 +696,12 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
+
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
+
 	return buf.String()
 }
 
@@ -668,6 +709,7 @@ func captureStdout(t *testing.T, fn func()) string {
 // everything written to it. Mirrors captureStdout.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
@@ -684,10 +726,12 @@ func captureStderr(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
+
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
+
 	return buf.String()
 }
 
@@ -696,6 +740,7 @@ func setupExecuteTestRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
 	gitInit := exec.Command("git", "init")
+
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
 		t.Fatalf("failed to init git repo: %v\n%s", err, out)
@@ -705,22 +750,27 @@ func setupExecuteTestRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}
+
 	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
 
 	if err := os.Chdir(cleanRoot); err != nil {
 		t.Fatalf("failed to chdir into repo root: %v", err)
 	}
+
 	return cleanRoot
 }
 
 func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	origArgs := os.Args
+
 	origWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get original working directory: %v", err)
 	}
+
 	defer func() {
 		os.Args = origArgs
+
 		if err := os.Chdir(origWd); err != nil {
 			t.Fatalf("failed to restore working directory: %v", err)
 		}
@@ -744,12 +794,15 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 
 func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	origArgs := os.Args
+
 	origWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get original working directory: %v", err)
 	}
+
 	defer func() {
 		os.Args = origArgs
+
 		if err := os.Chdir(origWd); err != nil {
 			t.Fatalf("failed to restore working directory: %v", err)
 		}
@@ -786,9 +839,11 @@ func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("expected no error, got %v", runErr)
 	}
+
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
 	}
+
 	if !strings.Contains(output, "Usage: archguard index") {
 		t.Fatalf("expected index usage output, got %q", output)
 	}
@@ -850,12 +905,15 @@ func TestSubcommandHelpRequest(t *testing.T) {
 // Execute's call site, not just the extracted function, to running unconditionally.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
 	origArgs := os.Args
+
 	origWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get original working directory: %v", err)
 	}
+
 	defer func() {
 		os.Args = origArgs
+
 		if err := os.Chdir(origWd); err != nil {
 			t.Fatalf("failed to restore working directory: %v", err)
 		}
@@ -863,6 +921,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 
 	repoRoot := t.TempDir()
 	gitInit := exec.Command("git", "init")
+
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
 		t.Fatalf("failed to init git repo: %v\n%s", err, out)
@@ -874,6 +933,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}
+
 	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
 
 	if err := os.Chdir(cleanRoot); err != nil {
@@ -887,6 +947,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	if err != nil {
 		t.Fatalf("failed to get working directory after chdir: %v", err)
 	}
+
 	if !strings.EqualFold(filepath.Clean(gotWd), cleanRoot) {
 		t.Fatalf("precondition failed: cwd %q does not equal repoRoot %q", gotWd, cleanRoot)
 	}
@@ -919,15 +980,18 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 			os.Args = []string{"archguard", help}
 			var exitCode ExitCode
 			var err error
+
 			output := captureStdout(t, func() {
 				exitCode, err = Execute(ProviderFactories{})
 			})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
+
 			if exitCode != ExitSuccess {
 				t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
 			}
+
 			if !strings.Contains(output, "Usage: archguard") {
 				t.Fatalf("expected usage output, got %q", output)
 			}
@@ -937,15 +1001,18 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 
 func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 	tempDir := t.TempDir()
+
 	origWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
+
 	defer func() {
 		if err := os.Chdir(origWd); err != nil {
 			t.Fatalf("failed to restore working directory: %v", err)
 		}
 	}()
+
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("failed to chdir to temp dir: %v", err)
 	}
@@ -960,12 +1027,15 @@ func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("expected no error, got %v", runErr)
 	}
+
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
 	}
+
 	if !strings.Contains(output, "--staged") || !strings.Contains(output, "Scan staged files only") {
 		t.Fatalf("expected flag descriptions in help output, got %q", output)
 	}
+
 	if strings.Contains(output, "Usage of check:") {
 		t.Fatalf("expected custom usage, not Go's default flag.PrintDefaults() output; got %q", output)
 	}

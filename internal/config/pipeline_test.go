@@ -9,10 +9,12 @@ import (
 
 func loadFromYAML(t *testing.T, body string) (*Config, error) {
 	t.Helper()
+
 	path := filepath.Join(t.TempDir(), "archguard.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	return LoadConfig(path)
 }
 
@@ -21,6 +23,7 @@ func TestLoadConfig_PipelineAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cfg.Analysis.Pipeline != nil {
 		t.Errorf("Pipeline = %+v, want nil", cfg.Analysis.Pipeline)
 	}
@@ -39,16 +42,20 @@ func TestLoadConfig_PipelineValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	p := cfg.Analysis.Pipeline
 	if p == nil || p.Rank == nil || p.Rerank == nil {
 		t.Fatalf("Pipeline = %+v, want both stages", p)
 	}
+
 	if p.Rank.Scorer != ScorerCosine || p.Rank.Threshold == nil || *p.Rank.Threshold != 0.6 || p.Rank.TopK == nil || *p.Rank.TopK != 5 {
 		t.Errorf("Rank = %+v", p.Rank)
 	}
+
 	if p.Rerank.Scorer != ScorerCosine {
 		t.Errorf("Rerank.Scorer = %q, want default %q", p.Rerank.Scorer, ScorerCosine)
 	}
+
 	if p.Rerank.Threshold != nil || p.Rerank.TopK == nil || *p.Rerank.TopK != 2 {
 		t.Errorf("Rerank = %+v", p.Rerank)
 	}
@@ -59,9 +66,11 @@ func TestLoadConfig_PipelineRerankAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cfg.Analysis.Pipeline.Rank != nil {
 		t.Errorf("Rank = %+v, want nil", cfg.Analysis.Pipeline.Rank)
 	}
+
 	if cfg.Analysis.Pipeline.Rerank == nil {
 		t.Error("Rerank is nil")
 	}
@@ -72,6 +81,7 @@ func TestLoadConfig_PipelineEmptyStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cfg.Analysis.Pipeline.Rerank == nil || cfg.Analysis.Pipeline.Rerank.Scorer != ScorerCosine {
 		t.Errorf("Rerank = %+v, want present cosine stage", cfg.Analysis.Pipeline.Rerank)
 	}
@@ -88,6 +98,7 @@ func TestLoadConfig_PipelineAliasSharesStageSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	for name, stage := range map[string]*StageConfig{"rank": cfg.Analysis.Pipeline.Rank, "rerank": cfg.Analysis.Pipeline.Rerank} {
 		if stage == nil || stage.Threshold == nil || *stage.Threshold != 0.6 || stage.TopK == nil || *stage.TopK != 4 {
 			t.Errorf("%s = %+v, want threshold 0.6 and top_k 4", name, stage)
@@ -148,6 +159,7 @@ func TestLoadConfig_PipelineMergeKeys(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			rerank := cfg.Analysis.Pipeline.Rerank
 			if rerank == nil || rerank.Threshold == nil || *rerank.Threshold != *tt.wantThreshold || rerank.TopK == nil || *rerank.TopK != tt.wantTopK {
 				t.Errorf("rerank = %+v, want threshold %v and top_k %d", rerank, *tt.wantThreshold, tt.wantTopK)
@@ -172,6 +184,7 @@ func TestLoadConfig_PipelineOnError(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			if got := cfg.Analysis.Pipeline.Rank.OnError; got != tt.want {
 				t.Errorf("OnError = %q, want %q", got, tt.want)
 			}
@@ -212,6 +225,7 @@ func TestLoadConfig_PipelineInvalid(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
+
 			for _, want := range tt.want {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error %q does not contain %q", err, want)

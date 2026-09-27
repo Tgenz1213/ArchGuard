@@ -61,6 +61,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		case "index":
 			printIndexUsage(os.Stdout, newIndexFlagSet())
 		}
+
 		return ExitSuccess, nil
 	}
 
@@ -102,6 +103,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		if err := runInit(); err != nil {
 			return ExitError, err
 		}
+
 		return ExitSuccess, nil
 	case "check", "index":
 	default:
@@ -152,6 +154,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		}
 
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
+
 		chatProvider, err = buildProvider(providerWarnings, cfg.LLM.Provider, chatAPIKey, cfg)
 		if err != nil {
 			return ExitConfig, err
@@ -171,6 +174,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	if command == "check" {
 		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 	}
+
 	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 }
 
@@ -179,10 +183,12 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 	if cfg.Analysis.ADRIDPattern == "" {
 		return nil, nil
 	}
+
 	re, err := regexp.Compile(cfg.Analysis.ADRIDPattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid analysis.adr_id_pattern %q: %w", cfg.Analysis.ADRIDPattern, err)
 	}
+
 	return re, nil
 }
 
@@ -197,6 +203,7 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 	for _, field := range index.CanonicalFrontMatterFields {
 		canonicalFields[field] = true
 	}
+
 	for canonical := range mappings {
 		if !canonicalFields[canonical] {
 			return nil, fmt.Errorf("unknown analysis.frontmatter_mappings field %q: must be one of %s",
@@ -210,9 +217,11 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 		if mapped, ok := mappings[canonical]; ok && mapped != "" {
 			sourceKey = mapped
 		}
+
 		if owner, exists := sourceKeyOwner[sourceKey]; exists {
 			return nil, fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
 		}
+
 		sourceKeyOwner[sourceKey] = canonical
 	}
 
@@ -229,6 +238,7 @@ func checkWantsJSON(args []string) bool {
 	if len(args) < 2 || args[1] != "check" {
 		return false
 	}
+
 	valueFlagNames := valueFlagsBySubcommand["check"]
 	format := "text"
 	updateBaseline := false
@@ -237,6 +247,7 @@ func checkWantsJSON(args []string) bool {
 		if !strings.HasPrefix(arg, "-") {
 			break // flag stops parsing at the first positional arg
 		}
+
 		name := strings.TrimLeft(arg, "-")
 		if flagName, value, ok := strings.Cut(name, "="); ok {
 			switch flagName {
@@ -246,23 +257,29 @@ func checkWantsJSON(args []string) bool {
 				// Matches flag.Bool: only an explicit falsy value leaves it unset.
 				updateBaseline = value != "false" && value != "0"
 			}
+
 			continue
 		}
+
 		if name == "format" {
 			if i+1 < len(args) {
 				format = args[i+1]
 				i++
 			}
+
 			continue
 		}
+
 		if name == "update-baseline" {
 			updateBaseline = true
 			continue
 		}
+
 		if valueFlagNames[name] && i+1 < len(args) {
 			i++ // this flag's value, not another flag name
 		}
 	}
+
 	return format == "json" && !updateBaseline
 }
 
@@ -272,6 +289,7 @@ func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	if len(args) > 1 {
 		subcommand = args[1]
 	}
+
 	valueFlagNames := valueFlagsBySubcommand[subcommand]
 
 	for i := 2; i < len(args); i++ {
@@ -279,17 +297,21 @@ func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 		if arg == "" {
 			continue
 		}
+
 		if strings.HasPrefix(arg, "-") {
 			name := strings.TrimLeft(arg, "-")
 			if !strings.Contains(name, "=") && valueFlagNames[name] && i+1 < len(args) {
 				i++ // the next argument is this flag's value, not a path
 			}
+
 			continue
 		}
+
 		target := arg
 		if !filepath.IsAbs(arg) {
 			target = filepath.Join(cwd, arg)
 		}
+
 		relPath, err := filepath.Rel(repoRoot, target)
 		if err == nil {
 			args[i] = filepath.ToSlash(relPath)
@@ -302,12 +324,15 @@ func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
 		return fmt.Errorf("llm.provider cannot be \"voyage\": Voyage is an embeddings-only API with no chat capability; use vector_store.provider to configure it for embeddings instead")
 	}
+
 	if cfg.LLM.Provider == "claude" && cfg.VectorStore.Provider == "" {
 		return fmt.Errorf("vector_store.provider must be set when llm.provider is \"claude\": Claude has no embeddings API, so an embedding-capable provider (openai, ollama, gemini, or voyage) must be chosen explicitly")
 	}
+
 	if cfg.VectorStore.Provider == "claude" {
 		return fmt.Errorf("vector_store.provider cannot be \"claude\": Claude has no embeddings API; choose an embedding-capable provider (openai, ollama, gemini, or voyage)")
 	}
+
 	return nil
 }
 
@@ -317,9 +342,11 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 	if name == "" {
 		name = cfg.LLM.Provider
 	}
+
 	if name == cfg.LLM.Provider {
 		return name, chatAPIKey, true
 	}
+
 	return name, embedEnvKey, false
 }
 
@@ -342,6 +369,7 @@ func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) 
 		if apiKey == "" {
 			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
+
 		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "ollama":
 		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
@@ -349,16 +377,19 @@ func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) 
 		if apiKey == "" {
 			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
+
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "claude":
 		if apiKey == "" {
 			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
+
 		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
 	case "voyage":
 		if apiKey == "" {
 			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
 		}
+
 		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
@@ -370,25 +401,31 @@ func runInit() error {
 
 	fmt.Printf("Enter ADR directory path [%s]: ", defaultADRPath)
 	scanner.Scan()
+
 	if scanner.Err() != nil {
 		return fmt.Errorf("input error: %v", scanner.Err())
 	}
+
 	adrPath := strings.TrimSpace(scanner.Text())
 	if adrPath == "" {
 		adrPath = defaultADRPath
 	}
 
 	createdDir := false
+
 	if _, err := os.Stat(adrPath); os.IsNotExist(err) {
 		fmt.Printf("Directory '%s' does not exist. Create it now? (y/n): ", adrPath)
 		scanner.Scan()
+
 		if scanner.Err() != nil {
 			return fmt.Errorf("input error: %v", scanner.Err())
 		}
+
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
 			if err := os.MkdirAll(adrPath, 0755); err != nil {
 				return fmt.Errorf("failed to create ADR directory: %v", err)
 			}
+
 			fmt.Printf("Created directory: %s\n", adrPath)
 			createdDir = true
 		} else {
@@ -399,14 +436,17 @@ func runInit() error {
 	if createdDir {
 		fmt.Print("Would you like to include a standard ADR_TEMPLATE.md to get started? (y/n): ")
 		scanner.Scan()
+
 		if scanner.Err() != nil {
 			return fmt.Errorf("input error: %v", scanner.Err())
 		}
+
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
 			templatePath := filepath.Join(adrPath, "ADR_TEMPLATE.md")
 			if err := os.WriteFile(templatePath, []byte(adrTemplateContent), 0644); err != nil {
 				return fmt.Errorf("failed to create ADR template: %v", err)
 			}
+
 			fmt.Printf("Created template: %s\n", templatePath)
 		}
 	}
@@ -414,9 +454,11 @@ func runInit() error {
 	if _, err := os.Stat(configFilename); err == nil {
 		fmt.Printf("%s already exists. Overwrite with defaults? (y/n): ", configFilename)
 		scanner.Scan()
+
 		if scanner.Err() != nil {
 			return fmt.Errorf("input error: %v", scanner.Err())
 		}
+
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
 			fmt.Println("Initialization cancelled.")
 			return nil
@@ -427,11 +469,13 @@ func runInit() error {
 	if err := os.WriteFile(configFilename, []byte(configContent), 0644); err != nil {
 		return fmt.Errorf("failed to create config file: %v", err)
 	}
+
 	fmt.Printf("Created config: %s\n", configFilename)
 
 	if err := os.MkdirAll(".archguard/cache", 0755); err != nil {
 		return fmt.Errorf("failed to create .archguard directory: %v", err)
 	}
+
 	fmt.Println("Created directory: .archguard/cache")
 
 	if err := ensureGitignore(); err != nil {
@@ -496,6 +540,7 @@ func ensureGitignore() error {
 	if err != nil {
 		return err
 	}
+
 	defer func() {
 		closeErr := f.Close()
 		if err == nil {
@@ -549,9 +594,11 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 			printCheckUsage(os.Stdout, checkFlags)
 			return ExitSuccess, nil
 		}
+
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
 			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
 		}
+
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
@@ -568,6 +615,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	if jsonOutput {
 		human = os.Stderr
 	}
+
 	if *format == "json" && *updateBaseline {
 		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
 	}
@@ -596,6 +644,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		confluenceProvider.SetWriter(human)
 		providers = append(providers, confluenceProvider)
 	}
+
 	adrProvider := index.NewCompositeProvider(providers...)
 	adrProvider.SetWriter(human)
 
@@ -624,9 +673,11 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	if *updateBaseline && (len(files) > 0 || *staged) {
 		_, _ = fmt.Fprintln(human, "Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
+
 	if *baselineReason != "" && !*updateBaseline {
 		_, _ = fmt.Fprintln(human, "Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
+
 	contentProvider := resolveContentProvider(human, files, *staged, *all, *updateBaseline)
 
 	if *debug {
@@ -634,11 +685,13 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	}
 
 	var loadedBaseline *baseline.Baseline
+
 	loadedBaseline, err = baseline.Load(baseline.Path)
 	if err != nil {
 		if !*updateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
+
 		_, _ = fmt.Fprintf(human, "Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
 	}
 
@@ -659,12 +712,15 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		if runErr != nil {
 			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 		}
+
 		if stageFailureErr != nil {
 			return stageFailureCode, fmt.Errorf("%v; baseline not written", stageFailureErr)
 		}
+
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
+
 		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
 		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
@@ -695,6 +751,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	default:
 		_, _ = fmt.Fprintln(human, "No new architectural violations found.")
 	}
+
 	return ExitSuccess, nil
 }
 
@@ -732,9 +789,11 @@ func writeCheckReport(w io.Writer, violations []analysis.Violation, stages []sta
 	if violations == nil {
 		violations = []analysis.Violation{}
 	}
+
 	if stages == nil {
 		stages = []stage.Stats{}
 	}
+
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(checkReport{Violations: violations, Count: len(violations), Stages: stages, Failures: failures})
@@ -745,12 +804,14 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 	if len(failures) == 0 {
 		return ExitSuccess, nil
 	}
+
 	code := ExitStageUnavailable
 	for _, f := range failures {
 		if f.Kind == stage.KindPreconditionNotMet {
 			code = ExitStagePrecondition
 		}
 	}
+
 	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
@@ -758,6 +819,7 @@ func resolveContentProvider(human io.Writer, files []string, staged, all, update
 	if updateBaseline {
 		return &analysis.AllProvider{}
 	}
+
 	if len(files) > 0 {
 		if slices.Contains(files, ".") {
 			var extras []string
@@ -766,19 +828,25 @@ func resolveContentProvider(human io.Writer, files []string, staged, all, update
 					extras = append(extras, f)
 				}
 			}
+
 			if len(extras) > 0 {
 				_, _ = fmt.Fprintf(human, "Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
 			}
+
 			return &analysis.AllProvider{}
 		}
+
 		return &analysis.MultiFileProvider{Paths: files}
 	}
+
 	if staged {
 		return &analysis.StagedProvider{}
 	}
+
 	if all {
 		return &analysis.AllProvider{}
 	}
+
 	return &analysis.UncommittedProvider{}
 }
 
@@ -787,6 +855,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 	if errors.As(err, &driftErr) {
 		return ExitDriftDetected
 	}
+
 	return ExitError
 }
 
@@ -801,9 +870,11 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 			printIndexUsage(os.Stdout, indexFlags)
 			return ExitSuccess, nil
 		}
+
 		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
 			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
 		}
+
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
@@ -815,9 +886,11 @@ func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 	_, _ = fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
 	hasFlags := false
 	fs.VisitAll(func(*flag.Flag) { hasFlags = true })
+
 	if !hasFlags {
 		return
 	}
+
 	_, _ = fmt.Fprintln(w, "\nFlags:")
 	fs.VisitAll(func(f *flag.Flag) {
 		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
@@ -849,6 +922,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 		confluenceProvider.SetWriter(w)
 		providers = append(providers, confluenceProvider)
 	}
+
 	adrProvider := index.NewCompositeProvider(providers...)
 	adrProvider.SetWriter(w)
 
@@ -856,6 +930,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	if result.Attempted {
 		printIndexSummary(result, w)
 	}
+
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
 	}
@@ -868,6 +943,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	if err := store.Save(indexFile); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
+
 	return ExitSuccess, nil
 }
 
@@ -880,26 +956,31 @@ func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
 			_, _ = fmt.Fprintf(w, "    - %s\n", path)
 		}
 	}
+
 	if result.StatusRejected > 0 {
 		_, _ = fmt.Fprintf(w, "  Skipped (status not accepted): %d\n", result.StatusRejected)
 	}
+
 	if len(result.Skipped) > 0 {
 		_, _ = fmt.Fprintf(w, "  Failed to embed or persist: %d\n", len(result.Skipped))
 		for _, skipped := range result.Skipped {
 			_, _ = fmt.Fprintf(w, "    - %s: %v\n", skipped.RelPath, skipped.Err)
 		}
 	}
+
 	if len(result.DuplicateIDs) > 0 {
 		ids := make([]string, 0, len(result.DuplicateIDs))
 		for id := range result.DuplicateIDs {
 			ids = append(ids, id)
 		}
+
 		sort.Strings(ids)
 		_, _ = fmt.Fprintf(w, "  Duplicate ADR IDs: %d\n", len(ids))
 		for _, id := range ids {
 			_, _ = fmt.Fprintf(w, "    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
+
 	if len(result.NoScope) > 0 {
 		_, _ = fmt.Fprintf(w, "  No scope set (applies to every file): %d\n", len(result.NoScope))
 		for _, path := range result.NoScope {
@@ -937,6 +1018,7 @@ func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
 	if len(args) < 2 {
 		return "", false
 	}
+
 	subcommand = args[1]
 	var fs *flag.FlagSet
 	switch subcommand {
@@ -947,9 +1029,12 @@ func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
 	default:
 		return "", false
 	}
+
 	fs.SetOutput(io.Discard)
+
 	if errors.Is(fs.Parse(args[2:]), flag.ErrHelp) {
 		return subcommand, true
 	}
+
 	return "", false
 }

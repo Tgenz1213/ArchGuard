@@ -23,6 +23,7 @@ func diagWriter(w io.Writer) io.Writer {
 	if w == nil {
 		return os.Stdout
 	}
+
 	return w
 }
 
@@ -100,6 +101,7 @@ func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
 			IterativeScan: cfg.VectorStore.IterativeScan,
 		}, w)
 	}
+
 	store := NewLocalStore(cfg.VectorStore.EmbeddingConcurrency)
 	store.writer = w
 	return store, nil
@@ -116,6 +118,7 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 		hasher.Write([]byte(adr.Content))
 		hasher.Write([]byte(adr.ID))
 	}
+
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
@@ -125,6 +128,7 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		if os.IsNotExist(err) {
 			return fmt.Errorf("index file not found: %s", path)
 		}
+
 		return err
 	}
 
@@ -137,12 +141,15 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		if s.ModelName != modelName {
 			reasons = append(reasons, fmt.Sprintf("Model mismatch (Saved: %q, Config: %q)", s.ModelName, modelName))
 		}
+
 		if s.Dim != dim {
 			reasons = append(reasons, fmt.Sprintf("Dimension mismatch (Saved: %d, Config: %d)", s.Dim, dim))
 		}
+
 		if s.Hash != currentHash {
 			reasons = append(reasons, fmt.Sprintf("Hash mismatch\n    Saved:   %s\n    Current: %s", s.Hash, currentHash))
 		}
+
 		return fmt.Errorf("index metadata mismatch:\n  %s", strings.Join(reasons, "\n  "))
 	}
 
@@ -206,11 +213,13 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			idx := idx
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
+
 				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
 					markFailed(idx, embErr)
 					return nil
 				}
+
 				validADRs[idx].Embedding = emb
 				mu.Lock()
 				diagPrintf(s.writer, ".")
@@ -241,10 +250,12 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		if failed[i] {
 			continue
 		}
+
 		finalADRs = append(finalADRs, adr)
 	}
 
 	s.ADRs = finalADRs
+
 	s.ModelName = modelName
 	if dim > 0 {
 		s.Dim = dim
@@ -258,6 +269,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	if err != nil {
 		return result, fmt.Errorf("failed to calculate hash: %w", err)
 	}
+
 	s.Hash = hash
 
 	return result, nil

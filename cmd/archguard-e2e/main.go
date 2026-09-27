@@ -21,12 +21,15 @@ func main() {
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
+
 			if strings.Contains(system, "Remediation Advisor") {
 				return `{"suggestion": "Mock suggestion: move this logic into a Go service."}`, nil
 			}
+
 			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
 				return "", fmt.Errorf("mock chat failure (E2E trigger)")
 			}
+
 			result := llm.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
 			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
 				result = llm.AnalysisResult{
@@ -35,19 +38,23 @@ func main() {
 					QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
 				}
 			}
+
 			resp, err := json.Marshal(result)
 			if err != nil {
 				return "", err
 			}
+
 			return string(resp), nil
 		}
 
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
+
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
+
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 
@@ -63,9 +70,11 @@ func main() {
 		}
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
+
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
+
 			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
 		}
 
@@ -77,6 +86,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}
+
 	os.Exit(int(cli.ExitSuccess))
 }
 
@@ -85,6 +95,7 @@ func defaultMockEmbedding(dim int) []float32 {
 	if dim == 0 {
 		dim = 1536
 	}
+
 	v := make([]float32, dim)
 	v[0] = 1.0
 	return v
@@ -95,6 +106,7 @@ func codeContextContainsTrigger(prompt, trigger string) bool {
 	if start == -1 {
 		return false
 	}
+
 	start += len("<code_context>")
 
 	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
@@ -112,6 +124,7 @@ func extractTriggerLine(prompt, trigger string) string {
 	if start == -1 {
 		return ""
 	}
+
 	start += len("<code_context>")
 
 	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
@@ -125,5 +138,6 @@ func extractTriggerLine(prompt, trigger string) string {
 			return strings.TrimSpace(line)
 		}
 	}
+
 	return ""
 }

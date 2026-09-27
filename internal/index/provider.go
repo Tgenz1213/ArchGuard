@@ -22,6 +22,7 @@ func isAcceptedStatus(status string, accepted []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -67,6 +68,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 				errs = append(errs, err)
 				return nil
 			}
+
 			allADRs = append(allADRs, adrs...)
 			stats.Discovered += s.Discovered
 			stats.ParseFailed = append(stats.ParseFailed, s.ParseFailed...)
@@ -74,6 +76,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 			return nil
 		})
 	}
+
 	_ = g.Wait()
 
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {

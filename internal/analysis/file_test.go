@@ -34,6 +34,7 @@ func TestQueryFile_UpdateBaselineUsesWholeContentNotTheDiff(t *testing.T) {
 	if got := f.QueryText(); got != "whole file" {
 		t.Fatalf("QueryText = %q, want the whole file", got)
 	}
+
 	if provider.diffCalls != 0 {
 		t.Fatalf("GetDiff called %d times during a baseline scan, want 0", provider.diffCalls)
 	}

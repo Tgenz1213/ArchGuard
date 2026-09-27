@@ -30,6 +30,7 @@ func (m *MockContentProvider) GetFiles() ([]string, error) {
 	for k := range m.Files {
 		files = append(files, k)
 	}
+
 	return files, nil
 }
 
@@ -37,6 +38,7 @@ func (m *MockContentProvider) GetContent(path string) (string, error) {
 	if content, ok := m.Files[path]; ok {
 		return content, nil
 	}
+
 	return "", nil
 }
 
@@ -93,9 +95,11 @@ func TestDriftDetection(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected violation error, got nil")
 	}
+
 	if err.Error() != "found 1 architectural violations" {
 		t.Fatalf("Expected 'found 1 architectural violations', got '%v'", err)
 	}
+
 	if !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Expected error to match ErrDriftDetected, got '%v'", err)
 	}
@@ -134,6 +138,7 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	}
 
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+
 	engine.Cache = nil
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
@@ -198,6 +203,7 @@ func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
 	for k := range p.files {
 		files = append(files, k)
 	}
+
 	return files, nil
 }
 
@@ -252,6 +258,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	content := &fallbackOnlyContentProvider{files: map[string]string{"docs.md": diffLookalike}}
 
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+
 	engine.Cache = nil
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
@@ -308,6 +315,7 @@ func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, content, false, false)
 	engine.Cache = nil
+
 	engine.EmbedProvider = embedProvider
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
@@ -316,6 +324,7 @@ func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 	if !embedCalled {
 		t.Error("expected embedProvider.CreateEmbedding to be called")
 	}
+
 	if !chatCalled {
 		t.Error("expected chatProvider.Chat to be called (ADR similarity search still found the one seeded ADR)")
 	}
@@ -375,6 +384,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 	if capturedSystemPrompt != expectedSystemPrompt {
 		t.Errorf("Expected system prompt %q, got %q", expectedSystemPrompt, capturedSystemPrompt)
 	}
+
 	for _, leaked := range []string{"LOGICAL STEPS", "literal", "NO INFERENCE", "COMPLIANCE IS NOT A VIOLATION", "### TASK", "Determine whether"} {
 		if strings.Contains(capturedUserPrompt, leaked) {
 			t.Errorf("user prompt leaked ArchGuard judgment framing %q despite custom system_prompt:\n%s", leaked, capturedUserPrompt)
@@ -392,10 +402,12 @@ type concurrencyTrackingProvider struct {
 func (p *concurrencyTrackingProvider) GetFiles() ([]string, error) { return p.files, nil }
 func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
 	p.mu.Lock()
+
 	p.active++
 	if p.active > p.maxSeen {
 		p.maxSeen = p.active
 	}
+
 	p.mu.Unlock()
 
 	time.Sleep(10 * time.Millisecond)
@@ -412,6 +424,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	for i := range files {
 		files[i] = fmt.Sprintf("file%d.go", i)
 	}
+
 	content := &concurrencyTrackingProvider{files: files}
 
 	provider := &llm.MockProvider{}
@@ -430,6 +443,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 
 	content.mu.Lock()
 	defer content.mu.Unlock()
+
 	if content.maxSeen > 3 {
 		t.Errorf("expected at most 3 concurrent GetContent calls, saw %d", content.maxSeen)
 	}
@@ -526,10 +540,12 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected DriftDetectedError, got nil")
 	}
+
 	var driftErr *analysis.DriftDetectedError
 	if !errors.As(err, &driftErr) {
 		t.Fatalf("expected *analysis.DriftDetectedError, got: %v", err)
 	}
+
 	if driftErr.Count != 1 {
 		t.Errorf("expected Count 1, got %d", driftErr.Count)
 	}
@@ -580,10 +596,13 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	if engine.CollectedBaseline == nil {
 		t.Fatal("expected CollectedBaseline to be populated")
 	}
+
 	if len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry, got %d", len(engine.CollectedBaseline.Entries))
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
+
 	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
 	if got != want {
 		t.Errorf("expected entry %+v, got %+v", want, got)
@@ -640,6 +659,7 @@ func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
 	if got.Reason != "accepted-debt" {
 		t.Errorf("expected carried-forward Reason %q, got %q", "accepted-debt", got.Reason)
@@ -696,6 +716,7 @@ func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *t
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
 	if got.Reason != "false-positive" {
 		t.Errorf("expected explicit BaselineReason %q to override carry-forward, got %q", "false-positive", got.Reason)
@@ -748,6 +769,7 @@ func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testi
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
 	if got.Reason != "" {
 		t.Errorf("expected empty Reason for a brand-new entry, got %q", got.Reason)
@@ -803,10 +825,13 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	if engine.CollectedBaseline == nil {
 		t.Fatal("expected CollectedBaseline to be populated")
 	}
+
 	if len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected the violation to still be recorded despite pre-existing suppression, got %d entries", len(engine.CollectedBaseline.Entries))
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
+
 	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
 	if got != want {
 		t.Errorf("expected entry %+v, got %+v", want, got)
@@ -860,9 +885,11 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
 		t.Fatalf("expected a drift-detected error, got: %v", runErr)
 	}
+
 	if strings.Contains(output, "Line 0") {
 		t.Errorf("expected no fabricated Line 0, got: %q", output)
 	}
+
 	want := "    [VIOLATION] Use Golang [UNVERIFIED: quoted code not found in analyzed content]\n    Reasoning: Python is not allowed.\n    Code: this snippet was never in the file\n"
 	if !strings.Contains(output, want) {
 		t.Errorf("expected exact block %q, got: %q", want, output)
@@ -916,9 +943,11 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
 		t.Fatalf("expected a drift-detected error, got: %v", runErr)
 	}
+
 	if strings.Contains(output, "UNVERIFIED") {
 		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
 	}
+
 	want := "    [VIOLATION] Use Golang [Line 1]\n"
 	if !strings.Contains(output, want) {
 		t.Errorf("expected exact block %q, got: %q", want, output)
@@ -970,6 +999,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 	if engine.CollectedBaseline == nil {
 		t.Fatal("expected CollectedBaseline to be populated")
 	}
+
 	if len(engine.CollectedBaseline.Entries) != 0 {
 		t.Fatalf("expected the mismatched entry to be skipped, got %d entries: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
 	}
@@ -1022,10 +1052,13 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	if engine.CollectedBaseline == nil {
 		t.Fatal("expected CollectedBaseline to be populated")
 	}
+
 	if len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected the truncated file to still be analyzed and recorded under --ci --update-baseline, got %d entries", len(engine.CollectedBaseline.Entries))
 	}
+
 	got := engine.CollectedBaseline.Entries[0]
+
 	want := baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"}
 	if got != want {
 		t.Errorf("expected entry %+v, got %+v", want, got)
@@ -1036,6 +1069,7 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 // everything written to it. Mirrors internal/index's helper of the same name.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
@@ -1052,10 +1086,12 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
+
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
+
 	return buf.String()
 }
 
@@ -1073,6 +1109,7 @@ func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
 	if p.errFiles[path] {
 		return "", fmt.Errorf("simulated read error for %s", path)
 	}
+
 	return p.content[path], nil
 }
 
@@ -1093,6 +1130,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 			if strings.Contains(text, "badembed") {
 				return nil, errors.New("simulated embedding failure")
 			}
+
 			v := make([]float32, 1536)
 			v[0] = 1.0
 			return v, nil
@@ -1129,6 +1167,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	engine.UpdateBaseline = true
 
 	var runErr error
+
 	output := captureStdout(t, func() {
 		runErr = engine.Run(context.Background())
 	})
@@ -1139,6 +1178,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	if engine.CollectedBaseline == nil {
 		t.Fatal("expected CollectedBaseline to be populated")
 	}
+
 	if len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry, got %d: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
 	}
@@ -1146,6 +1186,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	if engine.SkippedFiles != 2 {
 		t.Fatalf("expected SkippedFiles to be 2, got %d", engine.SkippedFiles)
 	}
+
 	if !strings.Contains(output, "Error reading file badread.go") {
 		t.Fatalf("expected per-file error to still be logged, got output: %q", output)
 	}
@@ -1200,6 +1241,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if !errors.Is(runErr, analysis.ErrDriftDetected) {
 			t.Fatalf("expected a drift-detected error, got: %v", runErr)
 		}
+
 		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
@@ -1222,6 +1264,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
+
 		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
@@ -1241,6 +1284,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
+
 		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
@@ -1261,6 +1305,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		if runErr != nil {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
+
 		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
@@ -1276,6 +1321,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 			if strings.Contains(user, "BADADRMARKER") {
 				return "", errors.New("simulated LLM failure")
 			}
+
 			return `{
             "violation": true,
             "reasoning": "Python is not allowed.",
@@ -1330,9 +1376,11 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	if engine.SkippedADRChecks != 1 {
 		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
 	}
+
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
 		t.Fatalf("expected exactly 1 collected entry from the successful ADR, got %+v", engine.CollectedBaseline)
 	}
+
 	if engine.CollectedBaseline.Entries[0].ADRID != "0001" {
 		t.Errorf("expected the surviving entry to be from ADR 0001, got %+v", engine.CollectedBaseline.Entries[0])
 	}
@@ -1386,6 +1434,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
 		t.Fatalf("expected a drift-detected error from the one real violation, got: %v", runErr)
 	}
+
 	if !strings.Contains(output, "1 new violation(s), 0 baselined, 1 file(s) skipped due to errors, 0 ADR check(s) skipped due to LLM errors.") {
 		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
 	}
@@ -1437,9 +1486,11 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("expected no error (zero violations), got: %v", runErr)
 	}
+
 	if engine.SkippedADRChecks != 1 {
 		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
 	}
+
 	if !strings.Contains(output, "0 new violation(s), 0 baselined, 0 file(s) skipped due to errors, 1 ADR check(s) skipped due to LLM errors.") {
 		t.Fatalf("expected summary to report the skipped ADR check, got output: %q", output)
 	}
@@ -1488,6 +1539,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 	if !errors.As(err, &driftErr) {
 		t.Fatalf("expected a DriftDetectedError, got %v", err)
 	}
+
 	if driftErr.Count != 1 {
 		t.Errorf("expected exactly 1 violation (from service.go only), got %d", driftErr.Count)
 	}
@@ -1573,9 +1625,11 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 	if !strings.Contains(output, "Cut by top-K limit: Fourth ADR") {
 		t.Fatalf("expected a top-K-truncated debug line naming the 4th-ranked ADR, got: %q", output)
 	}
+
 	if !strings.Contains(output, "rank 4 of 4 qualifying ADRs") {
 		t.Fatalf("expected the truncated line to report rank 4 of 4, got: %q", output)
 	}
+
 	if strings.Contains(output, "Cut by top-K limit: First ADR") ||
 		strings.Contains(output, "Cut by top-K limit: Second ADR") ||
 		strings.Contains(output, "Cut by top-K limit: Third ADR") {
@@ -1797,6 +1851,7 @@ func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *tes
 	if store.searchWithDebugInfoCalls != 1 {
 		t.Fatalf("expected SearchWithDebugInfo to be called exactly once in debug mode, got %d calls", store.searchWithDebugInfoCalls)
 	}
+
 	if store.searchCalls != 0 || store.searchRejectedCalls != 0 || store.searchTruncatedCalls != 0 {
 		t.Fatalf("expected debug mode to derive hits/rejected/truncated from the single SearchWithDebugInfo call, not independent Search/SearchRejected/SearchTruncated calls (got Search=%d, SearchRejected=%d, SearchTruncated=%d)",
 			store.searchCalls, store.searchRejectedCalls, store.searchTruncatedCalls)
@@ -1841,6 +1896,7 @@ func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
 	if store.searchWithDebugInfoCalls != 0 {
 		t.Fatalf("expected SearchWithDebugInfo to never be called outside debug mode, got %d calls", store.searchWithDebugInfoCalls)
 	}
+
 	if store.searchCalls != 1 {
 		t.Fatalf("expected exactly one plain Search call outside debug mode, got %d", store.searchCalls)
 	}
@@ -1883,6 +1939,7 @@ func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.
 	if !errors.As(err, &driftErr) {
 		t.Fatalf("expected a DriftDetectedError: the ADR's own 0.5 threshold should admit the ~0.71-similarity match the global 0.9 would reject, got %v", err)
 	}
+
 	if driftErr.Count != 1 {
 		t.Errorf("expected exactly 1 violation, got %d", driftErr.Count)
 	}
@@ -2081,6 +2138,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	if chatCalls != 1 {
 		t.Errorf("expected exactly 1 chat call (no suggestion call) when SuggestFixes is off, got %d", chatCalls)
 	}
+
 	if strings.Contains(output, "Suggestion") {
 		t.Errorf("expected no Suggestion line in output when SuggestFixes is off, got: %s", output)
 	}
@@ -2091,9 +2149,11 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
+
 			if strings.Contains(system, "Remediation Advisor") {
 				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
 			}
+
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
@@ -2120,13 +2180,16 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	if chatCalls != 2 {
 		t.Fatalf("expected 2 chat calls (violation judgment + suggestion), got %d", chatCalls)
 	}
+
 	wantLine := "    Suggestion (unverified): Rewrite this in Go, not Python.\n"
 	if !strings.Contains(output, wantLine) {
 		t.Errorf("expected suggestion line %q in output, got: %s", wantLine, output)
 	}
+
 	if len(engine.CollectedViolations) != 1 {
 		t.Fatalf("expected 1 collected violation, got %d", len(engine.CollectedViolations))
 	}
+
 	if got := engine.CollectedViolations[0].Suggestion; got != "Rewrite this in Go, not Python." {
 		t.Errorf("expected Violation.Suggestion to be populated, got %q", got)
 	}
@@ -2198,6 +2261,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 	if chatCalls != 1 {
 		t.Errorf("expected exactly 1 chat call for an already-baselined violation, got %d", chatCalls)
 	}
+
 	if strings.Contains(output, "Suggestion") {
 		t.Errorf("expected no Suggestion line for a baselined violation, got: %s", output)
 	}
@@ -2214,6 +2278,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 			if strings.Contains(system, "Remediation Advisor") {
 				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
 			}
+
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
@@ -2250,9 +2315,11 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	if strings.Contains(secondOutput, "Suggestion") {
 		t.Errorf("expected no Suggestion line when SuggestFixes is off, even with a warm cache, got: %s", secondOutput)
 	}
+
 	if len(secondEngine.CollectedViolations) != 1 {
 		t.Fatalf("expected 1 collected violation, got %d", len(secondEngine.CollectedViolations))
 	}
+
 	if got := secondEngine.CollectedViolations[0].Suggestion; got != "" {
 		t.Errorf("expected empty Violation.Suggestion when SuggestFixes is off, got %q", got)
 	}
@@ -2286,6 +2353,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 				suggestionCalls++
 				return `{"suggestion": "NEW FRESH SUGGESTION"}`, nil
 			}
+
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
@@ -2311,9 +2379,11 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	if suggestionCalls != 1 {
 		t.Errorf("expected a fresh suggestion call when the cached entry's key doesn't match, got %d calls", suggestionCalls)
 	}
+
 	if !strings.Contains(output, "NEW FRESH SUGGESTION") {
 		t.Errorf("expected the fresh suggestion in output, got: %s", output)
 	}
+
 	if strings.Contains(output, "OLD STALE SUGGESTION") {
 		t.Errorf("expected the stale suggestion to never surface, got: %s", output)
 	}
@@ -2332,6 +2402,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 				suggestionCalls++
 				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
 			}
+
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
@@ -2361,6 +2432,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	if suggestionCalls != 1 {
 		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
 	}
+
 	if !strings.Contains(output, "Rewrite this in Go, not Python.") {
 		t.Errorf("expected the cached suggestion to appear in the second run's output, got: %s", output)
 	}
@@ -2380,11 +2452,14 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 				mu.Lock()
 				suggestionCalls++
 				mu.Unlock()
+
 				if strings.Contains(user, "File Path: a/service.py") {
 					return `{"suggestion": "Suggestion for a/service.py"}`, nil
 				}
+
 				return `{"suggestion": "Suggestion for b/service.py"}`, nil
 			}
+
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
@@ -2412,9 +2487,11 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	mu.Lock()
 	calls := suggestionCalls
 	mu.Unlock()
+
 	if calls != 2 {
 		t.Errorf("expected 2 independent suggestion calls for identical content under different paths, got %d", calls)
 	}
+
 	if !strings.Contains(output, "Suggestion for a/service.py") || !strings.Contains(output, "Suggestion for b/service.py") {
 		t.Errorf("expected each file to surface its own path-specific suggestion, got: %s", output)
 	}
@@ -2450,6 +2527,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	if chatCalls != 1 {
 		t.Errorf("expected exactly 1 chat call (no suggestion call) for an unverified violation, got %d", chatCalls)
 	}
+
 	if strings.Contains(output, "Suggestion") {
 		t.Errorf("expected no Suggestion line for an unverified violation, got: %s", output)
 	}
@@ -2468,6 +2546,7 @@ func fourEquallyRelevantADRs() *index.LocalStore {
 			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
 		})
 	}
+
 	return store
 }
 

@@ -126,6 +126,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 		require.NoError(t, rows.Scan(&line))
 		plan.WriteString(line)
 	}
+
 	require.NoError(t, rows.Err())
 	assert.NotContains(t, plan.String(), "Index Scan", "expected seqscan-forced ground truth query to avoid the HNSW index")
 }
@@ -162,6 +163,7 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// SET LOCAL: must override the role-level seqscan-off setting used
@@ -192,8 +194,10 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 		if err := rows.Scan(&relPath); err != nil {
 			return nil, err
 		}
+
 		relPaths = append(relPaths, relPath)
 	}
+
 	return relPaths, rows.Err()
 }
 
@@ -202,6 +206,7 @@ func randomVector(rng *rand.Rand, dim int) []float32 {
 	for i := range v {
 		v[i] = float32(rng.Float64()*2 - 1)
 	}
+
 	return v
 }
 
@@ -222,6 +227,7 @@ func computeRecall(hnswRelPaths, groundTruthRelPaths []string) float64 {
 			matched++
 		}
 	}
+
 	return float64(matched) / float64(len(groundTruthRelPaths))
 }
 
@@ -235,10 +241,12 @@ func latencyPercentiles(latencies []time.Duration) (p50, p95 time.Duration) {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 
 	p50 = sorted[len(sorted)*50/100]
+
 	idx95 := len(sorted) * 95 / 100
 	if idx95 >= len(sorted) {
 		idx95 = len(sorted) - 1
 	}
+
 	p95 = sorted[idx95]
 	return p50, p95
 }
@@ -289,6 +297,7 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, projectName string, count int, dim int) error {
 	for i := 0; i < count; i++ {
 		relPath := fmt.Sprintf("adr_%d.md", i)
+
 		vec := pgvector.NewVector(randomVector(rng, dim))
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
@@ -297,6 +306,7 @@ func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, pr
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -305,6 +315,7 @@ func probeIterativeScanSupport(ctx context.Context, pool *pgxpool.Pool) (availab
 	if err := pool.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion); err != nil {
 		return false, "", fmt.Errorf("failed to read pgvector extension version: %w", err)
 	}
+
 	return index.IterativeScanSupportedVersion(pgvectorVersion), pgvectorVersion, nil
 }
 
@@ -357,6 +368,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 		_, err := pool.Exec(ctx, stmt)
 		require.NoError(b, err)
 	}
+
 	b.Cleanup(func() {
 		for _, stmt := range []string{
 			"ALTER ROLE postgres RESET enable_seqscan",
@@ -442,7 +454,9 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = conn.Close(ctx) }()
+
 	if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
 		return err
 	}
@@ -461,9 +475,11 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 		if err := rows.Scan(&line); err != nil {
 			return err
 		}
+
 		plan.WriteString(line)
 		plan.WriteString("\n")
 	}
+
 	if err := rows.Err(); err != nil {
 		return err
 	}
@@ -471,6 +487,7 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	if !strings.Contains(plan.String(), "archguard_adrs_embedding_idx") {
 		return fmt.Errorf("measured query did not use the HNSW index; plan was:\n%s", plan.String())
 	}
+
 	return nil
 }
 
@@ -481,6 +498,7 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 	if err != nil {
 		return err
 	}
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, stmt := range []string{
@@ -509,9 +527,11 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 		if err := rows.Scan(&line); err != nil {
 			return err
 		}
+
 		plan.WriteString(line)
 		plan.WriteString("\n")
 	}
+
 	if err := rows.Err(); err != nil {
 		return err
 	}
@@ -519,6 +539,7 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 	if strings.Contains(plan.String(), "Index Scan") {
 		return fmt.Errorf("ground truth query used an index scan, not an exact scan; plan was:\n%s", plan.String())
 	}
+
 	return nil
 }
 
@@ -541,6 +562,7 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 		for j, r := range results {
 			relPaths[j] = r.ADR.RelPath
 		}
+
 		recallSum += computeRecall(relPaths, groundTruth[i])
 	}
 

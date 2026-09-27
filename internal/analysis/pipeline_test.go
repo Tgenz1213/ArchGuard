@@ -31,9 +31,11 @@ func scoresByID(scores map[string]float64, seen *[][]string) stage.Scorer {
 			ids[i] = c.ADR.ID
 			out[i] = scores[c.ADR.ID]
 		}
+
 		if seen != nil {
 			*seen = append(*seen, ids)
 		}
+
 		return out, nil
 	})
 }
@@ -57,6 +59,7 @@ func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) 
 					h.judged = append(h.judged, a.ID)
 				}
 			}
+
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
 		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
@@ -99,9 +102,11 @@ func TestPipeline_ScoresAllCandidatesInOneCall(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(calls) != 1 || len(calls[0]) != 3 {
 		t.Fatalf("scorer calls = %v, want one call with all 3 candidates", calls)
 	}
+
 	if len(h.judged) != 3 {
 		t.Fatalf("judged %v, want all 3", h.judged)
 	}
@@ -119,6 +124,7 @@ func TestPipeline_OnlyWhatTheStageKeepsIsJudged(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if strings.Join(h.judged, ",") != "0001,0004" {
 		t.Fatalf("judged %v, want the two best scorers above the minimum, best first (0001,0004)", h.judged)
 	}
@@ -136,9 +142,11 @@ func TestPipeline_StagesRunInOrderOverSurvivors(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(calls) != 2 || len(calls[1]) != 2 {
 		t.Fatalf("scorer calls = %v, want the second stage to see only the first stage's 2 survivors", calls)
 	}
+
 	if strings.Join(h.judged, ",") != "0001" {
 		t.Fatalf("judged %v, want only 0001", h.judged)
 	}
@@ -151,9 +159,11 @@ func TestPipeline_WithoutCosineMakesNoEmbeddingCalls(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.embeds != 0 {
 		t.Fatalf("made %d embedding calls with no cosine ranker, want 0", h.embeds)
 	}
+
 	if len(h.judged) != 1 {
 		t.Fatalf("judged %v, want the one candidate judged", h.judged)
 	}
@@ -172,6 +182,7 @@ func TestPipeline_OnlyScopeMatchedADRsAreCandidates(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0] != "0001" {
 		t.Fatalf("scorer calls = %v, want only the in-scope ADR 0001", calls)
 	}
@@ -186,9 +197,11 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(calls) != 1 || len(calls[0]) != 1 || calls[0][0] != "0002" {
 		t.Fatalf("scorer calls = %v, want only the unsuppressed ADR 0002", calls)
 	}
+
 	if len(h.judged) != 1 || h.judged[0] != "0002" {
 		t.Fatalf("judged %v, want only ADR 0002", h.judged)
 	}
@@ -204,10 +217,12 @@ func runRankWithOnError(t *testing.T, onError string, embed llm.Embedder) (*scor
 		VectorStore: config.VectorStore{SimilarityThreshold: 0},
 		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
 	}
+
 	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, io.Discard)
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	return h, out.String()
 }
 
@@ -217,6 +232,7 @@ func embedFailingOnBAD() llm.Embedder {
 			if strings.Contains(text, "BAD") {
 				return nil, errors.New("embedding service down")
 			}
+
 			return []float32{1, 0, 0, 0}, nil
 		},
 	}
@@ -229,9 +245,11 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 			if h.engine.SkippedFiles != 1 || len(h.engine.StageFailures) != 0 {
 				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", h.engine.SkippedFiles, h.engine.StageFailures)
 			}
+
 			if !strings.Contains(out, "Error generating embedding for bad.go: embedding service down") {
 				t.Errorf("output %q missing the skipped-file error", out)
 			}
+
 			if strings.Join(h.judged, ",") != "0001" {
 				t.Errorf("judged %v, want the healthy file still judged", h.judged)
 			}
@@ -244,15 +262,18 @@ func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 	if h.engine.SkippedFiles != 0 || len(h.engine.StageFailures) != 1 {
 		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", h.engine.SkippedFiles, h.engine.StageFailures)
 	}
+
 	f := h.engine.StageFailures[0]
 	if f.Stage != "rank" || f.File != "bad.go" || f.Kind != stage.KindUnavailable || !strings.Contains(f.Error, "embedding service down") {
 		t.Errorf("failure = %+v", f)
 	}
+
 	for _, want := range []string{"stage rank", "bad.go", "unavailable", "embedding service down"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output %q missing %q", out, want)
 		}
 	}
+
 	if strings.Join(h.judged, ",") != "0001" {
 		t.Errorf("judged %v, want the healthy file still judged", h.judged)
 	}
@@ -263,6 +284,7 @@ func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
 	if len(h.engine.StageFailures) != 2 || len(h.judged) != 0 {
 		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", h.engine.StageFailures, h.judged)
 	}
+
 	for _, f := range h.engine.StageFailures {
 		if f.Stage != "rank" || f.Kind != stage.KindPreconditionNotMet {
 			t.Errorf("failure = %+v, want a rank precondition failure", f)
@@ -293,6 +315,7 @@ func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
 		if file.Path() == "bad.go" {
 			return nil, errors.New("boom")
 		}
+
 		return make([]float64, len(candidates)), nil
 	})
 	second := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
@@ -309,9 +332,11 @@ func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].File != "bad.go" {
 		t.Fatalf("StageFailures = %v, want one failure for bad.go", h.engine.StageFailures)
 	}
+
 	if strings.Join(secondStageFiles, ",") != "good.go" {
 		t.Errorf("second stage ran for %v, want only good.go", secondStageFiles)
 	}
@@ -328,10 +353,12 @@ func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	var got []string
 	for _, f := range h.engine.StageFailures {
 		got = append(got, f.File)
 	}
+
 	if strings.Join(got, ",") != "a.go,m.go,z.go" {
 		t.Errorf("failure order = %v, want sorted by file", got)
 	}
@@ -342,6 +369,7 @@ func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	want := `{"stage":"rerank","file":"a.go","kind":"precondition_not_met","error":"boom"}`
 	if string(b) != want {
 		t.Errorf("json = %s, want %s", b, want)
@@ -357,6 +385,7 @@ func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.engine.SkippedFiles != 1 || len(h.judged) != 0 {
 		t.Fatalf("SkippedFiles = %d, judged = %v; want the file skipped with nothing judged", h.engine.SkippedFiles, h.judged)
 	}
@@ -369,6 +398,7 @@ func TestPipeline_DefaultCosineSuppressedADRDoesNotConsumeTopKSlot(t *testing.T)
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if strings.Join(h.judged, ",") != "0002,0003" {
 		t.Fatalf("judged %v, want the two highest-ranked unsuppressed ADRs (0002,0003)", h.judged)
 	}
@@ -380,9 +410,11 @@ func TestPipeline_DefaultCosineEmbedsOncePerFile(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.embeds != 1 {
 		t.Fatalf("made %d embedding calls, want 1 for one file", h.embeds)
 	}
+
 	if len(h.judged) != 2 {
 		t.Fatalf("judged %v, want both ADRs", h.judged)
 	}
@@ -396,6 +428,7 @@ func TestPipeline_EmptyStagesFallsBackToTheDefaultCosineStage(t *testing.T) {
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.embeds != 1 || len(h.judged) != 2 {
 		t.Fatalf("embeds = %d, judged = %v; want the default cosine stage (1 embed, top-2 judged), not every ADR", h.embeds, h.judged)
 	}
@@ -414,6 +447,7 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if h.engine.SkippedFiles != 1 || len(h.judged) != 0 || h.embeds != 0 {
 		t.Fatalf("SkippedFiles = %d, judged = %v, embeds = %d; want the file reported as skipped with nothing judged", h.engine.SkippedFiles, h.judged, h.embeds)
 	}

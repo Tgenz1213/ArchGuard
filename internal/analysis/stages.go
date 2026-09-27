@@ -26,24 +26,29 @@ func BuildStages(cfg *config.Config, store index.VectorStore, embed llm.Embedder
 	if pipeline.Rerank != nil {
 		stages = append(stages, rerankStage(pipeline.Rerank, store, embed, warnings))
 	}
+
 	return stages
 }
 
 func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed llm.Embedder) stage.Stage {
 	threshold := cfg.VectorStore.SimilarityThreshold
 	topK := cfg.Analysis.RelevantADRLimit()
+
 	if sc != nil {
 		if sc.Threshold != nil {
 			threshold = *sc.Threshold
 		}
+
 		if sc.TopK != nil {
 			topK = *sc.TopK
 		}
 	}
+
 	st := stage.NewCosineStage(store, embed, threshold, topK)
 	if sc != nil {
 		st.FailOnError = sc.OnError == config.OnErrorFail
 	}
+
 	return st
 }
 
@@ -61,6 +66,7 @@ func rerankStage(sc *config.StageConfig, store index.VectorStore, embed llm.Embe
 	} else {
 		_, _ = fmt.Fprintf(warnings, "Warning: analysis.pipeline.rerank.top_k not set, defaulting to %d\n", rerankDefaultTopK)
 	}
+
 	st := stage.NewCosineStage(store, embed, threshold, topK)
 	st.Name = "rerank"
 	st.FailOnError = sc.OnError == config.OnErrorFail

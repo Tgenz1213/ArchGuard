@@ -22,10 +22,12 @@ func (r Rules) Value() (driver.Value, error) {
 	if len(r) == 0 {
 		return nil, nil
 	}
+
 	data, err := json.Marshal([]Rule(r))
 	if err != nil {
 		return nil, err
 	}
+
 	return string(data), nil
 }
 
@@ -40,14 +42,17 @@ func (r *Rules) Scan(src any) error {
 	default:
 		return fmt.Errorf("unsupported scan type %T for Rules", src)
 	}
+
 	if len(data) == 0 {
 		*r = nil
 		return nil
 	}
+
 	var rules []Rule
 	if err := json.Unmarshal(data, &rules); err != nil {
 		return err
 	}
+
 	*r = Rules(rules)
 	return nil
 }
@@ -60,6 +65,7 @@ func resolveAlias(node *yaml.Node) *yaml.Node {
 	if node.Kind == yaml.AliasNode {
 		return node.Alias
 	}
+
 	return node
 }
 
@@ -68,20 +74,25 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 	if isNullNode(node) {
 		return nil, nil
 	}
+
 	if node.Kind != yaml.SequenceNode {
 		return nil, errors.New("rules must be a list")
 	}
+
 	rules := make(Rules, 0, len(node.Content))
 	for i, item := range node.Content {
 		rule, err := decodeRule(resolveAlias(item))
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", i+1, err)
 		}
+
 		rules = append(rules, rule)
 	}
+
 	if len(rules) == 0 {
 		return nil, nil
 	}
+
 	return rules, nil
 }
 
@@ -89,6 +100,7 @@ func decodeRule(node *yaml.Node) (Rule, error) {
 	if node.Kind != yaml.MappingNode {
 		return Rule{}, errors.New("must be a mapping")
 	}
+
 	var rule Rule
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key, value := node.Content[i].Value, resolveAlias(node.Content[i+1])
@@ -103,13 +115,16 @@ func decodeRule(node *yaml.Node) (Rule, error) {
 		default:
 			err = fmt.Errorf("unknown key %q", key)
 		}
+
 		if err != nil {
 			return Rule{}, err
 		}
 	}
+
 	if rule.Statement == "" {
 		return Rule{}, errors.New("statement is required")
 	}
+
 	return rule, nil
 }
 
@@ -117,9 +132,11 @@ func decodeStatement(node *yaml.Node) (string, error) {
 	if isNullNode(node) {
 		return "", nil
 	}
+
 	if node.Kind != yaml.ScalarNode {
 		return "", errors.New("statement must be a string")
 	}
+
 	return strings.TrimSpace(node.Value), nil
 }
 
@@ -127,12 +144,14 @@ func decodeExamples(field string, node *yaml.Node) ([]string, error) {
 	if isNullNode(node) {
 		return nil, nil
 	}
+
 	switch node.Kind {
 	case yaml.ScalarNode:
 		return exampleList(field, []*yaml.Node{node})
 	case yaml.SequenceNode:
 		return exampleList(field, node.Content)
 	}
+
 	return nil, fmt.Errorf("%s must be a string or a list of strings", field)
 }
 
@@ -140,17 +159,21 @@ func exampleList(field string, nodes []*yaml.Node) ([]string, error) {
 	if len(nodes) == 0 {
 		return nil, nil
 	}
+
 	examples := make([]string, 0, len(nodes))
 	for _, n := range nodes {
 		n = resolveAlias(n)
 		if n.Kind != yaml.ScalarNode || n.Tag == "!!null" {
 			return nil, fmt.Errorf("%s must be a string or a list of strings", field)
 		}
+
 		example := strings.TrimSpace(n.Value)
 		if example == "" {
 			return nil, fmt.Errorf("%s contains an empty example", field)
 		}
+
 		examples = append(examples, example)
 	}
+
 	return examples, nil
 }

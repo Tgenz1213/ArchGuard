@@ -30,7 +30,9 @@ func (c candidateSource) For(file, content string, debug stage.Debug) ([]stage.C
 			debug.Printf("  Skipping ADR %s (Suppressed)\n", r.ADR.Title)
 			continue
 		}
+
 		candidates = append(candidates, stage.Candidate{ADR: r.ADR})
 	}
+
 	return candidates, nil
 }

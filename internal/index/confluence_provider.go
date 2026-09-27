@@ -102,11 +102,13 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			_ = resp.Body.Close()
 			return nil, FetchStats{}, fmt.Errorf("failed to decode confluence response: %w", err)
 		}
+
 		_ = resp.Body.Close()
 
 		for _, result := range searchResp.Results {
 			stats.Discovered++
 			rawText := extractRawText(result.Body.Storage.Value)
+
 			var relPath string
 			if parsedWebUI, err := url.Parse(result.Links.WebUI); err == nil {
 				relPath = baseURL.ResolveReference(parsedWebUI).String()
@@ -116,6 +118,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
+
 			adr, err := ParseADRContent([]byte(rawText), adrID, relPath, p.parseOpts)
 			if err != nil {
 				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
@@ -138,6 +141,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			if err != nil {
 				return nil, FetchStats{}, fmt.Errorf("failed to parse pagination URL: %w", err)
 			}
+
 			resolvedURL := baseURL.ResolveReference(nextURL)
 			u = resolvedURL.String()
 		} else {
@@ -162,9 +166,11 @@ func extractRawText(htmlContent string) string {
 
 func convertHTMLToMarkdown(htmlContent string) string {
 	converter := md.NewConverter("", true, nil)
+
 	markdown, err := converter.ConvertString(htmlContent)
 	if err != nil {
 		return htmlContent
 	}
+
 	return markdown
 }

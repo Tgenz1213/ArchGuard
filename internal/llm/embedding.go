@@ -21,5 +21,6 @@ func (t EmbeddingTaskType) Pick(document, query string) string {
 	if t == EmbeddingTaskQuery {
 		return query
 	}
+
 	return document
 }

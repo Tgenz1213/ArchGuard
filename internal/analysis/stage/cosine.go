@@ -22,6 +22,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 	if c.Embed == nil {
 		return nil, &Error{Action: "generating embedding", Kind: KindPreconditionNotMet, Err: errors.New("no embedding provider configured")}
 	}
+
 	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(), llm.EmbeddingTaskQuery)
 	if err != nil {
 		return nil, &Error{Action: "generating embedding", Err: err}
@@ -29,6 +30,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 
 	// Unbounded topK: the Stage applies the top-K cut.
 	var found []index.SearchResult
+
 	if debug.Enabled() {
 		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding, c.Threshold, math.MaxInt32, file.Path())
 		found = append(hits, rejected...)
@@ -47,8 +49,10 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 		if !ok {
 			score = unscored
 		}
+
 		scores[i] = score
 	}
+
 	return scores, nil
 }
 

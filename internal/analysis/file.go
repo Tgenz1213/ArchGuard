@@ -15,6 +15,7 @@ func (f *queryFile) QueryText() string {
 	if f.built {
 		return f.text
 	}
+
 	f.built = true
 
 	// A diff only covers the uncommitted hunk, not the whole file --update-baseline needs.
@@ -24,9 +25,11 @@ func (f *queryFile) QueryText() string {
 			text = stripDiffMetadata(diff)
 		}
 	}
+
 	if len(text) > 6000 {
 		text = rollBackToNewline(truncateRuneSafe(text, 6000))
 	}
+
 	f.text = text
 	return f.text
 }

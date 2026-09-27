@@ -18,6 +18,7 @@ func TestClaudeProvider_Chat(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["model"] != "claude-sonnet-4-5" {
 			t.Errorf("expected model claude-sonnet-4-5, got %v", reqBody["model"])
 		}
@@ -41,6 +42,7 @@ func TestClaudeProvider_Chat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
+
 	if res != `{"violation": false}` {
 		t.Errorf("unexpected response: %q", res)
 	}
@@ -51,6 +53,7 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 		if r.URL.Path != "/v1/messages/count_tokens" {
 			t.Errorf("expected /v1/messages/count_tokens, got %s", r.URL.Path)
 		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"input_tokens": 42}`))
 	}))
@@ -62,6 +65,7 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	if n != 42 {
 		t.Errorf("expected 42 tokens, got %d", n)
 	}

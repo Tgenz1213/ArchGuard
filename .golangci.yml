@@ -1,0 +1,8 @@
+version: "2"
+linters:
+  default: none
+  enable: [wsl_v5]
+  settings:
+    wsl_v5:
+      default: none
+      enable: [if, after-block]

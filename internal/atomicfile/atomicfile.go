@@ -25,5 +25,6 @@ func Write(path string, data []byte) error {
 		_ = os.Remove(tmpPath) // best-effort cleanup; the rename error is what matters
 		return err
 	}
+
 	return nil
 }

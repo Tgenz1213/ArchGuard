@@ -19,6 +19,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["model"] != "llama3.2" {
 			t.Errorf("expected model llama3.2, got %v", reqBody["model"])
 		}
@@ -34,6 +35,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
+
 	if res != `{"violation": false}` {
 		t.Errorf("unexpected response: %q", res)
 	}
@@ -45,6 +47,7 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["model"] != "nomic-embed-text" {
 			t.Errorf("expected model nomic-embed-text, got %v", reqBody["model"])
 		}
@@ -60,10 +63,12 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
+
 	expected := []float32{0.1, 0.2, 0.3}
 	if len(res) != len(expected) {
 		t.Fatalf("expected length %d, got %d", len(expected), len(res))
 	}
+
 	for i := range res {
 		if res[i] != expected[i] {
 			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
@@ -97,6 +102,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 					t.Fatalf("failed to decode request body: %v", err)
 				}
+
 				gotPrompt, _ = reqBody["prompt"].(string)
 
 				w.Header().Set("Content-Type", "application/json")
@@ -109,6 +115,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
 			}
+
 			if gotPrompt != c.wantPrompt {
 				t.Errorf("expected prompt %q, got %q", c.wantPrompt, gotPrompt)
 			}
@@ -136,19 +143,24 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
+
 		if reqBody["model"] != "llama3.2" {
 			t.Errorf("expected model llama3.2, got %v", reqBody["model"])
 		}
+
 		if reqBody["prompt"] != representativeString {
 			t.Errorf("expected prompt %q, got %v", representativeString, reqBody["prompt"])
 		}
+
 		if reqBody["raw"] != true {
 			t.Errorf("expected raw=true, got %v", reqBody["raw"])
 		}
+
 		options, ok := reqBody["options"].(map[string]interface{})
 		if !ok {
 			t.Fatalf("expected options object, got %v", reqBody["options"])
 		}
+
 		if options["num_predict"] != float64(1) {
 			t.Errorf("expected num_predict=1, got %v", options["num_predict"])
 		}
@@ -164,6 +176,7 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
+
 	if n != realPromptEvalCount {
 		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, n)
 	}

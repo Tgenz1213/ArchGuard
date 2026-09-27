@@ -45,11 +45,13 @@ func (t *errorCapturingTransport) RoundTrip(req *http.Request) (*http.Response, 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := io.ReadAll(resp.Body)
+
 		_ = resp.Body.Close()
 		if readErr == nil {
 			t.lastStatus = resp.Status
 			t.lastBody = body
 		}
+
 		// Restore the body so the genai SDK can still read and report on it.
 		resp.Body = io.NopCloser(bytes.NewReader(body))
 	}
@@ -69,6 +71,7 @@ func (p *GeminiProvider) newClient(ctx context.Context) (*genai.Client, *errorCa
 	if base == nil {
 		base = http.DefaultTransport
 	}
+
 	transport := &errorCapturingTransport{base: base}
 
 	wrapped := &http.Client{
@@ -94,6 +97,7 @@ func (p *GeminiProvider) apiError(err error, transport *errorCapturingTransport)
 	if transport != nil && transport.lastStatus != "" {
 		return buildAPIError(transport.lastStatus, transport.lastBody)
 	}
+
 	return fmt.Errorf("gemini api error: %w", err)
 }
 
@@ -106,6 +110,7 @@ func buildAPIError(status string, body []byte) error {
 	if err := json.Unmarshal(body, &errRes); err != nil || errRes.Error.Message == "" {
 		return fmt.Errorf("gemini api error (%s): %s", status, string(body))
 	}
+
 	return fmt.Errorf("gemini api error (%s): %s", status, errRes.Error.Message)
 }
 

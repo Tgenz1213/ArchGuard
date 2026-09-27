@@ -10,10 +10,12 @@ import (
 func parseWithFrontMatter(t *testing.T, frontMatter string, opts ParseOptions) *ADR {
 	t.Helper()
 	data := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\n" + frontMatter + "---\nBody")
+
 	adr, err := ParseADRContent(data, "0001", "0001-t.md", opts)
 	if err != nil {
 		t.Fatalf("ParseADRContent failed: %v", err)
 	}
+
 	return adr
 }
 
@@ -90,14 +92,18 @@ func TestParseADRContent_FrontMatterRules(t *testing.T) {
 					if adr.Rules != nil {
 						t.Errorf("expected no rules for malformed input, got %+v", adr.Rules)
 					}
+
 					if !strings.Contains(adr.RulesError, tt.wantErr) {
 						t.Errorf("RulesError = %q, want it to contain %q", adr.RulesError, tt.wantErr)
 					}
+
 					return
 				}
+
 				if adr.RulesError != "" {
 					t.Errorf("unexpected RulesError %q", adr.RulesError)
 				}
+
 				if !reflect.DeepEqual(adr.Rules, tt.want) {
 					t.Errorf("Rules = %+v, want %+v", adr.Rules, tt.want)
 				}
@@ -115,6 +121,7 @@ func TestParseADRContent_MalformedRulesKeepTheRestOfTheADR(t *testing.T) {
 
 func TestParseADRContent_RulesKeyRemapped(t *testing.T) {
 	opts := ParseOptions{FrontmatterMappings: map[string]string{"rules": "screening"}}
+
 	adr := parseWithFrontMatter(t, "screening:\n  - statement: mapped\nrules:\n  - statement: ignored\n", opts)
 	if want := (Rules{{Statement: "mapped"}}); !reflect.DeepEqual(adr.Rules, want) {
 		t.Errorf("Rules = %+v, want %+v", adr.Rules, want)
@@ -123,6 +130,7 @@ func TestParseADRContent_RulesKeyRemapped(t *testing.T) {
 
 func TestParseADRContent_RulesUnmappedKeyStillReadWhenOtherFieldRemapped(t *testing.T) {
 	opts := ParseOptions{FrontmatterMappings: map[string]string{"scope": "applies_to"}}
+
 	adr := parseWithFrontMatter(t, "applies_to: \"**/*.go\"\nrules:\n  - statement: canonical\n", opts)
 	if want := (Rules{{Statement: "canonical"}}); !reflect.DeepEqual(adr.Rules, want) {
 		t.Errorf("Rules = %+v, want %+v", adr.Rules, want)
@@ -131,14 +139,17 @@ func TestParseADRContent_RulesUnmappedKeyStillReadWhenOtherFieldRemapped(t *test
 
 func TestRules_ValueScanRoundTrip(t *testing.T) {
 	in := Rules{{Statement: "S", Violating: []string{"v"}, Compliant: []string{"c1", "c2"}}, {Statement: "T"}}
+
 	v, err := in.Value()
 	if err != nil {
 		t.Fatalf("Value: %v", err)
 	}
+
 	var out Rules
 	if err := out.Scan(v); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
+
 	if !reflect.DeepEqual(in, out) {
 		t.Errorf("round trip = %+v, want %+v", out, in)
 	}
@@ -151,6 +162,7 @@ func TestRules_EmptyIsNullInTheDatabase(t *testing.T) {
 			t.Errorf("Value() of %#v = (%v, %v), want (nil, nil)", r, v, err)
 		}
 	}
+
 	for _, src := range []any{nil, "", []byte(nil)} {
 		out := Rules{{Statement: "stale"}}
 		if err := out.Scan(src); err != nil || out != nil {
@@ -172,6 +184,7 @@ func TestADR_JSONOmitsRulesWhenEmpty(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		if strings.Contains(string(data), "rules") {
 			t.Errorf("ADR without rules must not emit a rules key, got %s", data)
 		}
@@ -180,17 +193,21 @@ func TestADR_JSONOmitsRulesWhenEmpty(t *testing.T) {
 
 func TestADR_JSONRoundTripsRulesAndDropsRulesError(t *testing.T) {
 	in := ADR{ID: "1", Rules: Rules{{Statement: "S"}}, RulesError: "should not persist"}
+
 	data, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if strings.Contains(string(data), "should not persist") {
 		t.Errorf("RulesError leaked into JSON: %s", data)
 	}
+
 	var out ADR
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatal(err)
 	}
+
 	if !reflect.DeepEqual(out.Rules, in.Rules) || out.RulesError != "" {
 		t.Errorf("round trip = %+v", out)
 	}

@@ -64,6 +64,7 @@ func (a Analysis) RelevantADRLimit() int {
 	if a.MaxRelevantADRs <= 0 {
 		return 3
 	}
+
 	return a.MaxRelevantADRs
 }
 

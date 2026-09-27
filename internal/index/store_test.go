@@ -24,6 +24,7 @@ func TestLocalStore_CalculateHash_ChangesWhenIDChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CalculateHash failed: %v", err)
 	}
+
 	hashAfter, err := s.CalculateHash(adrsAfter, "model")
 	if err != nil {
 		t.Fatalf("CalculateHash failed: %v", err)
@@ -39,6 +40,7 @@ func TestStore_Save_Atomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+
 	defer func() {
 		if err := os.RemoveAll(tmpDir); err != nil {
 			t.Errorf("Failed to remove temp dir %s: %v", tmpDir, err)
@@ -74,6 +76,7 @@ func TestStore_Save_Atomic(t *testing.T) {
 	}
 
 	loadedStore := NewLocalStore(5)
+
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("Failed to read index.json: %v", err)
@@ -86,6 +89,7 @@ func TestStore_Save_Atomic(t *testing.T) {
 	if loadedStore.ModelName != store.ModelName {
 		t.Errorf("Expected ModelName %s, got %s", store.ModelName, loadedStore.ModelName)
 	}
+
 	if len(loadedStore.ADRs) != 1 {
 		t.Errorf("Expected 1 ADR, got %d", len(loadedStore.ADRs))
 	}
@@ -138,6 +142,7 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 	if len(store.ADRs) != 3 {
 		t.Fatalf("expected 3 ADRs, got %d", len(store.ADRs))
 	}
+
 	for _, adr := range store.ADRs {
 		if len(adr.Embedding) != 4 {
 			t.Errorf("ADR %s: expected embedding of length 4, got %d", adr.RelPath, len(adr.Embedding))
@@ -182,12 +187,14 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 			if strings.Contains(text, "Title: B") {
 				return nil, fmt.Errorf("simulated embedding failure")
 			}
+
 			return []float32{0.1, 0.2}, nil
 		},
 	}
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
+
 	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
 	if err != nil {
 		t.Fatalf("BuildIndex must not return an error for a single ADR embed failure, got: %v", err)
@@ -196,12 +203,15 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 	if len(result.Skipped) != 1 {
 		t.Fatalf("expected 1 skipped ADR, got %d: %+v", len(result.Skipped), result.Skipped)
 	}
+
 	if result.Skipped[0].RelPath != "0002-fails.md" {
 		t.Errorf("expected skipped ADR to be 0002-fails.md, got %s", result.Skipped[0].RelPath)
 	}
+
 	if !strings.Contains(result.Skipped[0].Err.Error(), "simulated embedding failure") {
 		t.Errorf("expected skipped ADR error to reference the underlying failure, got: %v", result.Skipped[0].Err)
 	}
+
 	if result.Valid != 2 {
 		t.Errorf("expected Valid to count only successfully-indexed ADRs (2), got %d", result.Valid)
 	}
@@ -209,10 +219,12 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 	if len(store.ADRs) != 2 {
 		t.Fatalf("expected 2 ADRs to remain in the corpus (the failed one excluded), got %d", len(store.ADRs))
 	}
+
 	for _, adr := range store.ADRs {
 		if adr.RelPath == "0002-fails.md" {
 			t.Errorf("failed ADR 0002-fails.md must be excluded from the corpus, but it is present")
 		}
+
 		if len(adr.Embedding) == 0 {
 			t.Errorf("ADR %s: expected a non-empty embedding, got none", adr.RelPath)
 		}
@@ -226,10 +238,12 @@ func TestLocalStore_BuildIndex_AttemptedFalseWhenFetchFails(t *testing.T) {
 	adrProvider := &mockADRProvider{err: fmt.Errorf("boom")}
 
 	store := NewLocalStore(2)
+
 	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
 	if err == nil {
 		t.Fatal("expected an error when the ADR provider fails")
 	}
+
 	if result.Attempted {
 		t.Error("expected Attempted to be false when GetADRs itself failed")
 	}
@@ -241,10 +255,12 @@ func TestLocalStore_BuildIndex_AttemptedTrueOnSuccess(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
+
 	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
 	if err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
+
 	if !result.Attempted {
 		t.Error("expected Attempted to be true once GetADRs succeeded")
 	}
@@ -272,6 +288,7 @@ func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T)
 	if err == nil {
 		t.Fatal("expected an error from a canceled context on a no-embed run, got nil")
 	}
+
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected the error to wrap context.Canceled, got: %v", err)
 	}
@@ -295,9 +312,11 @@ func TestLocalStore_BuildIndex_PreservesSimilarityThresholdOverride(t *testing.T
 	for _, adr := range store.ADRs {
 		byPath[adr.RelPath] = adr
 	}
+
 	if got := byPath["0001-a.md"].SimilarityThreshold; got == nil || *got != 0.6 {
 		t.Errorf("expected 0001-a.md to keep its similarity_threshold override, got %v", got)
 	}
+
 	if got := byPath["0002-b.md"].SimilarityThreshold; got != nil {
 		t.Errorf("expected 0002-b.md to have no override, got %v", *got)
 	}
@@ -339,6 +358,7 @@ func TestLocalStore_Load_MissingFileReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Load to return a non-nil error when the index file does not exist, got nil")
 	}
+
 	if len(s.ADRs) != 0 {
 		t.Fatalf("expected ADRs to remain empty on a missing-file Load, got %d", len(s.ADRs))
 	}

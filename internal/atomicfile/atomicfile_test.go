@@ -17,6 +17,7 @@ func TestWrite_CreatesFileAndCleansUpTmp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read written file: %v", err)
 	}
+
 	if string(data) != `{"key":"value"}` {
 		t.Errorf("expected written content %q, got %q", `{"key":"value"}`, data)
 	}
@@ -32,6 +33,7 @@ func TestWrite_CreatesMissingParentDirectory(t *testing.T) {
 	if err := Write(path, []byte("data")); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
+
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected file to exist at nested path: %v", err)
 	}

@@ -44,6 +44,7 @@ func setupPgContainer(tb testing.TB, ctx context.Context) string {
 		if strings.Contains(err.Error(), "failed to create Docker provider") || strings.Contains(err.Error(), "Cannot connect to the Docker daemon") {
 			tb.Skipf("Skipping integration test: Docker is not available on this host (%v)", err)
 		}
+
 		require.NoError(tb, err)
 	}
 
@@ -157,6 +158,7 @@ Test Content`
 	// Same ADR was inserted into two projects; scoping should return only 1.
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	assert.Len(t, results, 1)
+
 	if len(results) > 0 {
 		assert.Equal(t, "Integration Test ADR", results[0].ADR.Title)
 		assert.Equal(t, "Accepted", results[0].ADR.Status)
@@ -249,6 +251,7 @@ Far Content`
 			if strings.Contains(text, "Close Content") {
 				return []float32{1, 1}, nil
 			}
+
 			return []float32{0, 1}, nil
 		},
 	}
@@ -374,6 +377,7 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 			if strings.Contains(text, "Far Content") {
 				return []float32{0, 1}, nil
 			}
+
 			return []float32{1, 0}, nil
 		},
 	}
@@ -394,6 +398,7 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 			seen[r.ADR.Title]++
 		}
 	}
+
 	for title, count := range seen {
 		assert.Equal(t, 1, count, "ADR %q should appear in exactly one of hits/rejected/truncated", title)
 	}
@@ -556,6 +561,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	err = probeConn.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion)
 	_ = probeConn.Close(ctx)
 	require.NoError(t, err)
+
 	if !index.IterativeScanSupportedVersion(pgvectorVersion) {
 		t.Skipf("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+)", pgvectorVersion)
 	}
@@ -706,6 +712,7 @@ func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
 	for _, r := range results {
 		byTitle[r.ADR.Title] = r
 	}
+
 	require.NotNil(t, byTitle["Strict ADR"].ADR.SimilarityThreshold, "override should round-trip through PgStore")
 	assert.Equal(t, 0.6, *byTitle["Strict ADR"].ADR.SimilarityThreshold)
 	assert.Nil(t, byTitle["Default ADR"].ADR.SimilarityThreshold, "ADR without an override should round-trip as nil, not zero")
@@ -781,6 +788,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 			if strings.Contains(text, "Title: ADR 1") {
 				return nil, fmt.Errorf("simulated embedding failure")
 			}
+
 			return []float32{0.1, 0.1}, nil
 		},
 	}
@@ -802,6 +810,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	for _, r := range results {
 		gotPaths[r.ADR.RelPath] = true
 	}
+
 	assert.True(t, gotPaths["adr_0.md"], "adr_0.md must still be embedded and searchable")
 	assert.True(t, gotPaths["adr_2.md"], "adr_2.md must still be embedded and searchable")
 	assert.False(t, gotPaths["adr_1.md"], "adr_1.md must not appear -- its embed failed, so it was never inserted")
@@ -902,6 +911,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 			if strings.Contains(text, "Title: ADR 1") {
 				return []float32{0.1, 0.1, 0.1}, nil
 			}
+
 			return []float32{0.1, 0.1}, nil
 		},
 	}
@@ -923,6 +933,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	for _, r := range results {
 		gotPaths[r.ADR.RelPath] = true
 	}
+
 	assert.True(t, gotPaths["adr_0.md"], "adr_0.md must still be embedded and searchable")
 	assert.True(t, gotPaths["adr_2.md"], "adr_2.md must still be embedded and searchable")
 	assert.False(t, gotPaths["adr_1.md"], "adr_1.md must not appear -- its INSERT failed, so no row exists")
@@ -1086,6 +1097,7 @@ func (f *fakeContentProvider) GetFiles() ([]string, error) {
 	for name := range f.files {
 		names = append(names, name)
 	}
+
 	return names, nil
 }
 
@@ -1225,6 +1237,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 			if strings.Contains(text, "Scope Match") {
 				return []float32{1, 1}, nil
 			}
+
 			return []float32{1, 0}, nil
 		},
 	}
@@ -1272,6 +1285,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 			if strings.Contains(text, "Scope Match") {
 				return []float32{0, 1}, nil
 			}
+
 			return []float32{1, 0}, nil
 		},
 	}
@@ -1342,6 +1356,7 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 		if def.scope != "" {
 			scopeLine = fmt.Sprintf("scope: %q\n", def.scope)
 		}
+
 		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n%s---\n%s content", def.title, scopeLine, def.title)
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644))
 	}
@@ -1363,6 +1378,7 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 		titles = append(titles, r.ADR.Title)
 		assert.Zero(t, r.Score)
 	}
+
 	assert.ElementsMatch(t, []string{"Go ADR", "Any ADR"}, titles)
 }
 

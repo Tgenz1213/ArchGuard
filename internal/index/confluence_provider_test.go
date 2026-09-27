@@ -83,12 +83,15 @@ We will use Python.</p>`
 	if len(adrs) != 1 || adrs[0].ID != "confluence-1" || adrs[0].Title != "Use Go" {
 		t.Errorf("unexpected ADR contents: %+v", adrs[0])
 	}
+
 	if stats.Discovered != 3 {
 		t.Errorf("expected 3 discovered pages, got %d", stats.Discovered)
 	}
+
 	if stats.StatusRejected != 1 {
 		t.Errorf("expected 1 status-rejected page, got %d", stats.StatusRejected)
 	}
+
 	if len(stats.ParseFailed) != 1 {
 		t.Errorf("expected 1 parse-failed page, got %v", stats.ParseFailed)
 	}
@@ -138,6 +141,7 @@ We will use Go.</p>`
 	if len(adrs) != 1 {
 		t.Fatalf("expected 1 ADR, got %d", len(adrs))
 	}
+
 	if len(adrs[0].Scope) != 1 || adrs[0].Scope[0] != "**/*.go" {
 		t.Errorf("expected scope [\"**/*.go\"] read via mapped applies_to key, got %+v", adrs[0].Scope)
 	}
@@ -189,6 +193,7 @@ Content 2</p>`
 	defer ts.Close()
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
+
 	adrs, _, err := provider.GetADRs(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -197,6 +202,7 @@ Content 2</p>`
 	if len(adrs) != 2 {
 		t.Fatalf("expected 2 ADRs across pagination, got %d", len(adrs))
 	}
+
 	if requests != 2 {
 		t.Fatalf("expected 2 HTTP requests, got %d", requests)
 	}
@@ -212,12 +218,15 @@ func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseADRContent failed on extracted text (got: %q): %v", raw, err)
 	}
+
 	if adr.Title != "Use Go" {
 		t.Errorf("expected title 'Use Go', got %q", adr.Title)
 	}
+
 	if adr.Status != "Accepted" {
 		t.Errorf("expected status 'Accepted', got %q", adr.Status)
 	}
+
 	if !strings.Contains(adr.Content, "We will use Go for all services.") {
 		t.Errorf("expected content to contain body text, got %q", adr.Content)
 	}
@@ -231,10 +240,12 @@ func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 	defer ts.Close()
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
+
 	_, _, err := provider.GetADRs(context.Background())
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
+
 	if !strings.Contains(err.Error(), "confluence returned 500") {
 		t.Errorf("unexpected error message: %v", err)
 	}

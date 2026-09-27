@@ -47,11 +47,13 @@ func (sp ScopePatterns) Matches(filePath string) bool {
 	if len(sp) == 0 {
 		return true
 	}
+
 	for _, pattern := range sp {
 		if MatchGlob(pattern, filePath) {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -75,12 +77,14 @@ func ParseScopePatterns(s string) ScopePatterns {
 	if s == "" {
 		return nil
 	}
+
 	if strings.HasPrefix(strings.TrimSpace(s), "[") {
 		var patterns []string
 		if err := json.Unmarshal([]byte(s), &patterns); err == nil {
 			return ScopePatterns(patterns)
 		}
 	}
+
 	return ScopePatterns{s}
 }
 
@@ -88,6 +92,7 @@ func (sp ScopePatterns) MarshalJSON() ([]byte, error) {
 	if len(sp) <= 1 {
 		return json.Marshal(sp.Serialize())
 	}
+
 	return json.Marshal([]string(sp))
 }
 
@@ -97,10 +102,12 @@ func (sp *ScopePatterns) UnmarshalJSON(data []byte) error {
 		*sp = ParseScopePatterns(single)
 		return nil
 	}
+
 	var multi []string
 	if err := json.Unmarshal(data, &multi); err != nil {
 		return err
 	}
+
 	*sp = ScopePatterns(multi)
 	return nil
 }
@@ -112,17 +119,20 @@ func (sp *ScopePatterns) UnmarshalYAML(node *yaml.Node) error {
 		if err := node.Decode(&s); err != nil {
 			return err
 		}
+
 		if s == "" {
 			*sp = nil
 		} else {
 			*sp = ScopePatterns{s}
 		}
+
 		return nil
 	case yaml.SequenceNode:
 		var list []string
 		if err := node.Decode(&list); err != nil {
 			return err
 		}
+
 		*sp = ScopePatterns(list)
 		return nil
 	case 0:
@@ -148,6 +158,7 @@ func (sp *ScopePatterns) Scan(src any) error {
 	default:
 		return fmt.Errorf("unsupported scan type %T for ScopePatterns", src)
 	}
+
 	return nil
 }
 
@@ -175,11 +186,13 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 			if len(m) > 1 {
 				id = m[1]
 			}
+
 			if id != "" {
 				return id
 			}
 		}
 	}
+
 	return strings.Split(filename, "-")[0]
 }
 
@@ -207,10 +220,12 @@ func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) 
 		Content:             string(parts[2]),
 		RelPath:             relPath,
 	}
+
 	rules, rulesErr := decodeFrontMatterRules(&fm.Rules)
 	if rulesErr != nil {
 		adr.RulesError = rulesErr.Error()
 	}
+
 	adr.Rules = rules
 	return adr, nil
 }
@@ -221,6 +236,7 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		if err := yaml.Unmarshal(raw, &fm); err != nil {
 			return FrontMatter{}, err
 		}
+
 		return fm, nil
 	}
 
@@ -233,6 +249,7 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		if mapped, ok := frontmatterMappings[canonical]; ok && mapped != "" {
 			return mapped
 		}
+
 		return canonical
 	}
 
@@ -241,23 +258,28 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("status")]; ok {
 		if err := node.Decode(&fm.Status); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("scope")]; ok {
 		if err := node.Decode(&fm.Scope); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("similarity_threshold")]; ok {
 		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
 			return FrontMatter{}, err
 		}
 	}
+
 	if node, ok := nodes[sourceKey("rules")]; ok {
 		fm.Rules = node
 	}
+
 	return fm, nil
 }

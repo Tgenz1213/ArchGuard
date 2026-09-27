@@ -22,9 +22,11 @@ func initTestRepo(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
 	}
+
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("failed to chdir into fixture repo: %v", err)
 	}
+
 	t.Cleanup(func() {
 		if err := os.Chdir(origWd); err != nil {
 			t.Fatalf("failed to restore working directory: %v", err)
@@ -37,6 +39,7 @@ func initTestRepo(t *testing.T) string {
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
+
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\noutput: %s", args, err, out)
@@ -45,6 +48,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
+
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write %s: %v", name, err)
 	}
@@ -62,12 +66,14 @@ func TestGetAllTrackedFiles_NonASCIINames(t *testing.T) {
 		writeFile(t, dir, name, "package main\n")
 		runGit(t, dir, "add", "--", name)
 	}
+
 	runGit(t, dir, "commit", "-m", "add non-ascii files")
 
 	got, err := GetAllTrackedFiles()
 	if err != nil {
 		t.Fatalf("GetAllTrackedFiles failed: %v", err)
 	}
+
 	assertContainsExactly(t, got, nonASCIINames)
 }
 
@@ -83,6 +89,7 @@ func TestGetStagedFiles_NonASCIINames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStagedFiles failed: %v", err)
 	}
+
 	assertContainsExactly(t, got, nonASCIINames)
 }
 
@@ -93,6 +100,7 @@ func TestGetUncommittedFiles_NonASCIINames(t *testing.T) {
 		writeFile(t, dir, name, "package main\n")
 		runGit(t, dir, "add", "--", name)
 	}
+
 	runGit(t, dir, "commit", "-m", "add non-ascii files")
 
 	for _, name := range nonASCIINames {
@@ -103,6 +111,7 @@ func TestGetUncommittedFiles_NonASCIINames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUncommittedFiles failed: %v", err)
 	}
+
 	assertContainsExactly(t, got, nonASCIINames)
 }
 
@@ -116,6 +125,7 @@ func assertContainsExactly(t *testing.T, got, want []string) {
 	if len(gotSorted) != len(wantSorted) {
 		t.Fatalf("expected %v, got %v", wantSorted, gotSorted)
 	}
+
 	for i := range gotSorted {
 		if gotSorted[i] != wantSorted[i] {
 			t.Fatalf("expected %v, got %v (path not exact match -- likely still C-quoted/escaped)", wantSorted, gotSorted)

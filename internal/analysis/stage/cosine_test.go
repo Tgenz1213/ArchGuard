@@ -36,6 +36,7 @@ func candidatesFor(store *index.LocalStore) []stage.Candidate {
 	for i, r := range scoped {
 		out[i] = stage.Candidate{ADR: r.ADR}
 	}
+
 	return out
 }
 
@@ -47,6 +48,7 @@ func TestCosineStage_KeepsAboveThresholdBestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if ids(got) != "near,mid" {
 		t.Fatalf("got %s, want near,mid", ids(got))
 	}
@@ -86,6 +88,7 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 	if _, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NewDebug(&buf), candidatesFor(store)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !strings.Contains(buf.String(), "Below threshold: ADR mid (score 0.71 < threshold 0.90)") {
 		t.Fatalf("debug output %q lacks mid's real cosine score", buf.String())
 	}
@@ -107,6 +110,7 @@ func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.
 	if !errors.As(err, &stageErr) || stageErr.Action != "generating embedding" || !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want a *stage.Error with action generating embedding wrapping the cause", err)
 	}
+
 	if stageErr.Kind != stage.KindUnavailable {
 		t.Errorf("Kind = %v, want %v", stageErr.Kind, stage.KindUnavailable)
 	}
@@ -128,6 +132,7 @@ func TestKind_String(t *testing.T) {
 	if got := stage.KindUnavailable.String(); got != "unavailable" {
 		t.Errorf("KindUnavailable = %q", got)
 	}
+
 	if got := stage.KindPreconditionNotMet.String(); got != "precondition_not_met" {
 		t.Errorf("KindPreconditionNotMet = %q", got)
 	}

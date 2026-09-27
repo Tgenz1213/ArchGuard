@@ -11,6 +11,7 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 			filtered = append(filtered, c)
 		}
 	}
+
 	return filtered
 }
 
@@ -20,6 +21,7 @@ func EffectiveThreshold(adr *ADR, global float64) float64 {
 	if adr.SimilarityThreshold != nil {
 		return *adr.SimilarityThreshold
 	}
+
 	return global
 }
 
@@ -38,6 +40,7 @@ func filterByThreshold(candidates []SearchResult, threshold float64) []SearchRes
 			filtered = append(filtered, c)
 		}
 	}
+
 	return filtered
 }
 
@@ -50,6 +53,7 @@ func filterBelowThreshold(candidates []SearchResult, threshold float64) []Search
 			filtered = append(filtered, c)
 		}
 	}
+
 	return filtered
 }
 
@@ -59,10 +63,13 @@ func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
 	if topK < 0 {
 		topK = 0
 	}
+
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
+
 	if len(candidates) > topK {
 		return candidates[:topK]
 	}
+
 	return candidates
 }
 
@@ -72,9 +79,12 @@ func truncatedByTopK(candidates []SearchResult, topK int) []SearchResult {
 	if topK < 0 {
 		topK = 0
 	}
+
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
+
 	if len(candidates) > topK {
 		return candidates[topK:]
 	}
+
 	return nil
 }
