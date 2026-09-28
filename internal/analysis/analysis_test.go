@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
@@ -1281,7 +1282,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(user, "BADADRMARKER") {
-				return "", errors.New("simulated LLM failure")
+				return "", backoff.Permanent(errors.New("simulated LLM failure"))
 			}
 
 			return `{
@@ -1324,12 +1325,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	// Pre-cancelled so AnalyzeDrift's retry backoff returns at once instead of
-	// sleeping ~14s; MockProvider ignores ctx otherwise.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if err := engine.Run(ctx); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -1402,7 +1398,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return "", fmt.Errorf("mock LLM failure")
+			return "", backoff.Permanent(fmt.Errorf("mock LLM failure"))
 		},
 	}
 
@@ -1430,14 +1426,9 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
 
-	// Already-cancelled context short-circuits AnalyzeDrift's ~14s real
-	// backoff retry; MockProvider ignores ctx otherwise.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
 	var runErr error
 	output := captureStdout(t, func() {
-		runErr = engine.Run(ctx)
+		runErr = engine.Run(t.Context())
 	})
 
 	if runErr != nil {

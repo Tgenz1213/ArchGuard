@@ -331,6 +331,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 - **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
 - **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
+- **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no summary or `--format json` report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
 
 Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file and the run exits `0` (see [Ranking Stages](#ranking-stages)).
 

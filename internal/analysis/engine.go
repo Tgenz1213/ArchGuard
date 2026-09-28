@@ -167,6 +167,10 @@ func (e *Engine) Run(ctx context.Context) error {
 
 		file := file
 		g.Go(func() error {
+			if ctx.Err() != nil {
+				return nil
+			}
+
 			// Buffered so each file's output prints atomically.
 			var sb strings.Builder
 
@@ -428,6 +432,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	_ = g.Wait()
+
+	// Checked before any summary or baseline snapshot: a partial scan must never look complete.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	e.SkippedFiles = skippedFiles
 	e.SkippedADRChecks = skippedADRChecks

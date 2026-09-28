@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -68,6 +69,48 @@ func TestRun_CancelKillsInFlightGit(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run still blocked 10s after cancel: the git subprocess was not killed")
+	}
+}
+
+type cancelOnReadProvider struct {
+	files  []string
+	cancel context.CancelFunc
+	reads  atomic.Int32
+}
+
+func (p *cancelOnReadProvider) GetFiles(context.Context) ([]string, error) { return p.files, nil }
+
+func (p *cancelOnReadProvider) GetContent(context.Context, string) (string, error) {
+	p.reads.Add(1)
+	p.cancel()
+
+	return "content", nil
+}
+
+func (p *cancelOnReadProvider) GetDiff(context.Context, string) (string, error) { return "", nil }
+
+func TestRun_CancelStopsSchedulingAndSkipsBaseline(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	content := &cancelOnReadProvider{files: []string{"a.go", "b.go", "c.go"}, cancel: cancel}
+
+	cfg := &config.Config{Analysis: config.Analysis{MaxConcurrency: 1}}
+
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), &llm.MockProvider{}, content, false, false)
+	engine.Cache = nil
+	engine.Writer = io.Discard
+	engine.UpdateBaseline = true
+
+	err := engine.Run(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+
+	if got := content.reads.Load(); got != 1 {
+		t.Errorf("files read after cancel: got %d reads, want 1 (no new files scheduled once cancelled)", got)
+	}
+
+	if engine.CollectedBaseline != nil {
+		t.Errorf("CollectedBaseline = %+v, want nil so a partial scan is never saved", engine.CollectedBaseline)
 	}
 }
 

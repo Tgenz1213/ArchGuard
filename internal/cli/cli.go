@@ -37,7 +37,11 @@ const (
 	ExitIndexError        ExitCode = 5
 	ExitStageUnavailable  ExitCode = 6
 	ExitStagePrecondition ExitCode = 7
+	// 128 + SIGINT, the shell convention for a run stopped by a signal.
+	ExitInterrupted ExitCode = 130
 )
+
+var errInterrupted = errors.New("interrupted")
 
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
@@ -49,6 +53,15 @@ type ProviderFactories struct {
 }
 
 func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
+	code, err := execute(ctx, factories)
+	if err != nil && ctx.Err() != nil {
+		return ExitInterrupted, errInterrupted
+	}
+
+	return code, err
+}
+
+func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
 	if isTopLevelHelpRequest(os.Args) {
 		printUsage()
 		return ExitSuccess, nil
@@ -721,7 +734,11 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	engine.JSONOutput = jsonOutput
 	engine.Writer = human
 	engine.SuggestFixes = *suggestFixes
+
 	runErr := engine.Run(ctx)
+	if runErr != nil && ctx.Err() != nil {
+		return ExitInterrupted, errInterrupted
+	}
 
 	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
 

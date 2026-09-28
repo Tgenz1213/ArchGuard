@@ -81,6 +81,7 @@ func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 		"success": ExitSuccess, "error": ExitError, "usage": ExitUsage, "config": ExitConfig,
 		"drift": ExitDriftDetected, "index": ExitIndexError,
 		"unavailable": ExitStageUnavailable, "precondition": ExitStagePrecondition,
+		"interrupted": ExitInterrupted,
 	} {
 		if other, dup := seen[code]; dup {
 			t.Errorf("%s and %s share exit code %d", name, other, code)
