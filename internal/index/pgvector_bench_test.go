@@ -137,9 +137,7 @@ func newBenchAdminPool(tb testing.TB, ctx context.Context, connStr string) *pgxp
 
 	config, err := pgxpool.ParseConfig(connStr)
 	require.NoError(tb, err)
-	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvec.RegisterTypes(ctx, conn)
-	}
+	config.AfterConnect = pgxvec.RegisterTypes
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	require.NoError(tb, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
@@ -33,7 +34,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 
 	if debug.Enabled() {
 		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding, c.Threshold, math.MaxInt32, file.Path())
-		found = append(hits, rejected...)
+		found = slices.Concat(hits, rejected)
 	} else {
 		found = c.Store.Search(embedding, c.Threshold, math.MaxInt32, file.Path())
 	}
