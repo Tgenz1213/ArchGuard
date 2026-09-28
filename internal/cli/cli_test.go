@@ -81,6 +81,7 @@ func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 		"success": ExitSuccess, "error": ExitError, "usage": ExitUsage, "config": ExitConfig,
 		"drift": ExitDriftDetected, "index": ExitIndexError,
 		"unavailable": ExitStageUnavailable, "precondition": ExitStagePrecondition,
+		"interrupted": ExitInterrupted,
 	} {
 		if other, dup := seen[code]; dup {
 			t.Errorf("%s and %s share exit code %d", name, other, code)
@@ -350,8 +351,6 @@ func TestResolveEmbedProvider_DifferentProviderUsesEmbedKey(t *testing.T) {
 	}
 }
 
-// TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey asserts
-// an unset embed API key never falls back to the chat provider's key.
 func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "claude"},
@@ -556,9 +555,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	}
 }
 
-// TestBuildProvider_MissingAPIKeyWarningRespectsWriter guards --format
-// json's stdout purity: a missing-API-key warning must go wherever the
-// caller points it (stderr in JSON mode), not always to stdout.
+// Under --format json, stdout must carry only the JSON document.
 func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Model: "gpt-4"}}
 
@@ -692,8 +689,6 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 	}
 }
 
-// captureStdout redirects os.Stdout for the duration of fn and returns
-// everything written to it. Mirrors internal/analysis's helper of the same name.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -722,8 +717,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// captureStderr redirects os.Stderr for the duration of fn and returns
-// everything written to it. Mirrors captureStdout.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -752,18 +745,17 @@ func captureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// setupExecuteTestRepo creates a temp git repo, chdirs into it, and returns its resolved root.
 func setupExecuteTestRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
-	gitInit := exec.Command("git", "init")
+	gitInit := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
 		t.Fatalf("failed to init git repo: %v\n%s", err, out)
 	}
 
-	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	resolvedRoot, err := exec.CommandContext(t.Context(), "git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}
@@ -800,7 +792,7 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(ProviderFactories{})
+			_, _ = Execute(t.Context(), ProviderFactories{})
 		})
 	})
 
@@ -836,7 +828,7 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(ProviderFactories{})
+			_, _ = Execute(t.Context(), ProviderFactories{})
 		})
 	})
 
@@ -918,8 +910,7 @@ func TestSubcommandHelpRequest(t *testing.T) {
 	}
 }
 
-// TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
-// Execute's call site, not just the extracted function, to running unconditionally.
+// Exercises Execute itself, not just the extracted helper, so its call stays unconditional.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
 	origArgs := os.Args
 
@@ -937,7 +928,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	}()
 
 	repoRoot := t.TempDir()
-	gitInit := exec.Command("git", "init")
+	gitInit := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
@@ -946,7 +937,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 
 	// Resolve the same way Execute's git.GetRepoRoot() does, so cwd == repoRoot
 	// stays exact even where TMPDIR is a symlink.
-	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	resolvedRoot, err := exec.CommandContext(t.Context(), "git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}
@@ -957,9 +948,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 		t.Fatalf("failed to chdir into repo root: %v", err)
 	}
 
-	// Confirms this test actually exercises cwd == repoRoot, the same way
-	// Execute computes and compares them -- otherwise a path-canonicalization
-	// difference could silently degrade this into testing the wrong branch.
+	// Guards against path canonicalization quietly sending this test down the wrong branch.
 	gotWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory after chdir: %v", err)
@@ -980,7 +969,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	// Execute fails shortly after (no archguard.yaml here) -- irrelevant,
 	// since os.Args is already mutated by then.
 	captureStdout(t, func() {
-		_, _ = Execute(ProviderFactories{})
+		_, _ = Execute(t.Context(), ProviderFactories{})
 	})
 
 	if os.Args[2] != "file.go" {
@@ -999,7 +988,7 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 			var err error
 
 			output := captureStdout(t, func() {
-				exitCode, err = Execute(ProviderFactories{})
+				exitCode, err = Execute(t.Context(), ProviderFactories{})
 			})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
@@ -1038,7 +1027,7 @@ func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 	var exitCode ExitCode
 	var runErr error
 	output := captureStdout(t, func() {
-		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, nil, []string{"--help"})
+		exitCode, runErr = runCheck(t.Context(), cfg, nil, nil, "", nil, nil, []string{"--help"})
 	})
 
 	if runErr != nil {

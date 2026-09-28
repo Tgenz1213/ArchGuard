@@ -45,7 +45,9 @@ func TestEngine_ListsEveryStageEvenWhenThereAreNoFiles(t *testing.T) {
 
 type failingFilesProvider struct{ MockContentProvider }
 
-func (failingFilesProvider) GetFiles() ([]string, error) { return nil, errors.New("git failed") }
+func (failingFilesProvider) GetFiles(context.Context) ([]string, error) {
+	return nil, errors.New("git failed")
+}
 
 func TestEngine_ListsEveryStageWhenFileDiscoveryFails(t *testing.T) {
 	h := newScorerHarness(t, nil, "a.go", "package a")

@@ -13,7 +13,7 @@ type Candidate struct {
 
 type File interface {
 	Path() string
-	QueryText() string
+	QueryText(ctx context.Context) string
 }
 
 // Scorers only score (one value per candidate, in candidate order, on the scale of their stage's Threshold); dropping is a Stage's job.

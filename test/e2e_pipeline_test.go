@@ -213,7 +213,7 @@ func TestE2E_PipelineOnErrorFail_TakesPrecedenceOverDrift(t *testing.T) {
 		t.Fatalf("Failed to create fixture: %v", err)
 	}
 
-	cmd := exec.Command(binaryPath, "check", "--format", "json", fixtureFilename, failing)
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--format", "json", fixtureFilename, failing)
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 	var outBuf, errBuf bytes.Buffer
@@ -250,7 +250,7 @@ func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T
 
 	gitAdd(t, tempDir, failing)
 
-	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--update-baseline")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 	out, err := cmd.CombinedOutput()

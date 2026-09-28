@@ -32,7 +32,7 @@ func TestMultiFileProvider_GetFiles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &MultiFileProvider{Paths: tt.paths}
 
-			got, err := p.GetFiles()
+			got, err := p.GetFiles(t.Context())
 			if err != nil {
 				t.Fatalf("GetFiles() error = %v", err)
 			}

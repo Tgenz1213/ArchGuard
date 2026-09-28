@@ -14,6 +14,8 @@ import (
 )
 
 func main() {
+	ctx, stop := cli.NotifyContext(context.Background())
+
 	// Markers print on invocation, not construction, so tests can prove a
 	// call was routed to the right provider.
 	chatProviderFactory := func(cfg *config.Config) llm.Provider {
@@ -24,6 +26,11 @@ func main() {
 
 			if strings.Contains(system, "Remediation Advisor") {
 				return `{"suggestion": "Mock suggestion: move this logic into a Go service."}`, nil
+			}
+
+			if codeContextContainsTrigger(user, testutil.MockInterruptTrigger) {
+				stop()
+				return "", ctx.Err()
 			}
 
 			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
@@ -51,6 +58,11 @@ func main() {
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
 
+			if strings.Contains(text, testutil.MockInterruptTrigger) {
+				stop()
+				return nil, ctx.Err()
+			}
+
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
@@ -71,6 +83,11 @@ func main() {
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
 
+			if strings.Contains(text, testutil.MockInterruptTrigger) {
+				stop()
+				return nil, ctx.Err()
+			}
+
 			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
 				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
 			}
@@ -82,7 +99,11 @@ func main() {
 	}
 
 	factories := cli.ProviderFactories{Chat: chatProviderFactory, Embed: embedProviderFactory}
-	if exitCode, err := cli.Execute(factories); err != nil {
+	exitCode, err := cli.Execute(ctx, factories)
+
+	stop()
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}

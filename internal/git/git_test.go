@@ -38,7 +38,7 @@ func initTestRepo(t *testing.T) string {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(t.Context(), "git", args...)
 
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -69,7 +69,7 @@ func TestGetAllTrackedFiles_NonASCIINames(t *testing.T) {
 
 	runGit(t, dir, "commit", "-m", "add non-ascii files")
 
-	got, err := GetAllTrackedFiles()
+	got, err := GetAllTrackedFiles(t.Context())
 	if err != nil {
 		t.Fatalf("GetAllTrackedFiles failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestGetStagedFiles_NonASCIINames(t *testing.T) {
 		runGit(t, dir, "add", "--", name)
 	}
 
-	got, err := GetStagedFiles()
+	got, err := GetStagedFiles(t.Context())
 	if err != nil {
 		t.Fatalf("GetStagedFiles failed: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestGetUncommittedFiles_NonASCIINames(t *testing.T) {
 		writeFile(t, dir, name, "package main\n\nfunc main() {}\n")
 	}
 
-	got, err := GetUncommittedFiles()
+	got, err := GetUncommittedFiles(t.Context())
 	if err != nil {
 		t.Fatalf("GetUncommittedFiles failed: %v", err)
 	}

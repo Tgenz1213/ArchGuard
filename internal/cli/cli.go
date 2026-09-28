@@ -37,7 +37,11 @@ const (
 	ExitIndexError        ExitCode = 5
 	ExitStageUnavailable  ExitCode = 6
 	ExitStagePrecondition ExitCode = 7
+	// 128 + SIGINT, the shell convention for a run stopped by a signal.
+	ExitInterrupted ExitCode = 130
 )
+
+var errInterrupted = errors.New("interrupted")
 
 const defaultADRPath = "./docs/arch"
 const configFilename = "archguard.yaml"
@@ -48,7 +52,16 @@ type ProviderFactories struct {
 	Embed func(*config.Config) llm.Provider
 }
 
-func Execute(factories ProviderFactories) (ExitCode, error) {
+func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
+	code, err := execute(ctx, factories)
+	if err != nil && ctx.Err() != nil {
+		return ExitInterrupted, errInterrupted
+	}
+
+	return code, err
+}
+
+func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
 	if isTopLevelHelpRequest(os.Args) {
 		printUsage()
 		return ExitSuccess, nil
@@ -71,7 +84,7 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
 	}
 
-	repoRoot, err := git.GetRepoRoot()
+	repoRoot, err := git.GetRepoRoot(ctx)
 	if err != nil {
 		return ExitError, fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
 	}
@@ -172,10 +185,10 @@ func Execute(factories ProviderFactories) (ExitCode, error) {
 	}
 
 	if command == "check" {
-		return runCheck(cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 	}
 
-	return runIndexCommand(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -291,7 +304,7 @@ func checkWantsJSON(args []string) bool {
 	return format == "json" && !updateBaseline
 }
 
-// Runs unconditionally: a backslash-style arg typed from the repo root needs it too (#80).
+// Runs unconditionally: a backslash-style arg typed from the repo root needs it too.
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	var subcommand string
 	if len(args) > 1 {
@@ -591,7 +604,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
@@ -661,7 +674,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	adrProvider := index.NewCompositeProvider(providers...)
 	adrProvider.SetWriter(&fetchWarnings)
 
-	validADRs, _, err := adrProvider.GetADRs(context.Background())
+	validADRs, _, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		_, _ = human.Write(fetchWarnings.Bytes())
 		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
@@ -677,7 +690,7 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 		_, _ = human.Write(fetchWarnings.Bytes())
 	} else {
 		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(context.Background(), cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
+		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -721,7 +734,11 @@ func runCheck(cfg *config.Config, chatProvider, embedProvider llm.Provider, inde
 	engine.JSONOutput = jsonOutput
 	engine.Writer = human
 	engine.SuggestFixes = *suggestFixes
-	runErr := engine.Run(context.Background())
+
+	runErr := engine.Run(ctx)
+	if runErr != nil && ctx.Err() != nil {
+		return ExitInterrupted, errInterrupted
+	}
 
 	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
 

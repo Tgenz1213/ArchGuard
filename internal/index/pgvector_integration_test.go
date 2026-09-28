@@ -26,8 +26,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
-// setupPgContainer starts a pgvector container, returning its connection
-// string. Skips the test if Docker isn't available.
+// setupPgContainer skips the test when Docker isn't available.
 func setupPgContainer(tb testing.TB, ctx context.Context) string {
 	tb.Helper()
 
@@ -59,7 +58,6 @@ func setupPgContainer(tb testing.TB, ctx context.Context) string {
 	return connStr
 }
 
-// writeADRFiles creates n valid ADR markdown files (adr_0.md .. adr_{n-1}.md) in dir.
 func writeADRFiles(t *testing.T, dir string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
@@ -69,8 +67,6 @@ func writeADRFiles(t *testing.T, dir string, n int) {
 	}
 }
 
-// modifyADRFile rewrites adr_{i}.md in dir with different content, so a
-// subsequent BuildIndex sees it as a modified (churned) ADR.
 func modifyADRFile(t *testing.T, dir string, i int) {
 	t.Helper()
 	content := fmt.Sprintf("---\ntitle: \"ADR %d\"\nstatus: \"Accepted\"\n---\nModified Content %d", i, i)
@@ -78,8 +74,6 @@ func modifyADRFile(t *testing.T, dir string, i int) {
 	require.NoError(t, err)
 }
 
-// captureStdout redirects os.Stdout for the duration of fn and returns
-// everything written to it.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -117,15 +111,12 @@ func TestPgStore_Integration(t *testing.T) {
 	ctx := context.Background()
 	connStr := setupPgContainer(t, ctx)
 
-	// 2. Initialize PgStore
 	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 
-	// 3. Load Store
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	// 4. Create Mock ADRs
 	tmpDir, err := os.MkdirTemp("", "archguard_integration")
 	require.NoError(t, err)
 	defer func() {
@@ -143,7 +134,6 @@ Test Content`
 	err = os.WriteFile(filepath.Join(tmpDir, "0001-test-adr.md"), []byte(adrContent), 0644)
 	require.NoError(t, err)
 
-	// 5. Build Index
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 	_, err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
@@ -165,7 +155,6 @@ Test Content`
 		assert.Contains(t, results[0].ADR.Content, "Test Content")
 		assert.Equal(t, "0001", results[0].ADR.ID, "ADR ID (derived from the 0001- filename prefix) should round-trip through PgStore")
 		assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope, "ADR scope glob should round-trip through PgStore")
-		// Similarity score should be very high
 		assert.Greater(t, results[0].Score, 0.9)
 	}
 }
@@ -368,9 +357,8 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// First/Second/Third embed to [1,0] (clear a 0.5 threshold); Far embeds
-	// to [0,1] (rejected). topK=2 leaves 2 hits, 1 truncated, 1 rejected --
-	// all derived from ONE query via SearchWithDebugInfo.
+	// First/Second/Third embed to [1,0] and clear 0.5; Far embeds to [0,1]. topK=2
+	// leaves 2 hits, 1 truncated, 1 rejected, all from one SearchWithDebugInfo query.
 	provider := &llm.MockProvider{
 		EmbeddingDim: 2,
 		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
@@ -856,7 +844,7 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	assert.NotContains(t, output, "Syncing", "unchanged rules must not trigger another sync")
 }
 
-// A single failing embed call must not abort the whole build (#133).
+// A single failing embed call must not abort the whole build.
 func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -908,7 +896,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 }
 
 // A failed re-embed must leave the ADR's already-indexed row as it was --
-// not update it to the new content, and not delete it (#133).
+// not update it to the new content, and not delete it.
 func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -977,9 +965,8 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	assert.Contains(t, results[0].ADR.Content, originalBody)
 }
 
-// A failed INSERT (not a failed embed) must be isolated the same way: the
-// embedding call succeeds, but the write is rejected -- exercises the
-// upsertErr branch specifically, distinct from the embedErr branch above.
+// A failed INSERT, not a failed embed, must be isolated the same way:
+// this exercises the upsertErr branch rather than embedErr.
 func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1030,12 +1017,8 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	assert.False(t, gotPaths["adr_1.md"], "adr_1.md must not appear -- its INSERT failed, so no row exists")
 }
 
-// The all-embeds-failed guard measures the RESULTING corpus, not the
-// attempt count: when an already-indexed, unchanged ADR survives via delta
-// reuse, a build where every *newly attempted* ADR fails must still report
-// success (with the failures listed in Skipped), not a build-wide error --
-// the corpus isn't empty, so this isn't the catastrophic case the guard
-// exists to catch.
+// The all-embeds-failed guard checks the resulting corpus, not attempts: an
+// unchanged ADR kept by delta reuse means new failures go to Skipped, not an error.
 func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADRSurvives(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1084,10 +1067,8 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	assert.Equal(t, "0011-unchanged.md", results[0].ADR.RelPath)
 }
 
-// TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad reproduces
-// cli.runIndex's call pattern (BuildIndex with no preceding Load) against a
-// table created with the pre-migration schema, to prove BuildIndex can bring
-// its own schema up to date rather than depending on Load having run first.
+// Mirrors cli.runIndex (BuildIndex without Load) on a pre-migration table, to
+// prove BuildIndex brings its own schema up to date.
 func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1128,8 +1109,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	// Deliberately skip store.Load() -- this is what broke before BuildIndex
-	// started ensuring its own schema (cli.runIndex never calls Load).
+	// No store.Load(): cli.runIndex never calls it before BuildIndex.
 	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err, "BuildIndex must create/alter its own schema when Load was never called")
 
@@ -1184,7 +1164,7 @@ type fakeContentProvider struct {
 	files map[string]string
 }
 
-func (f *fakeContentProvider) GetFiles() ([]string, error) {
+func (f *fakeContentProvider) GetFiles(context.Context) ([]string, error) {
 	names := make([]string, 0, len(f.files))
 	for name := range f.files {
 		names = append(names, name)
@@ -1193,20 +1173,16 @@ func (f *fakeContentProvider) GetFiles() ([]string, error) {
 	return names, nil
 }
 
-func (f *fakeContentProvider) GetContent(path string) (string, error) {
+func (f *fakeContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	return f.files[path], nil
 }
 
-func (f *fakeContentProvider) GetDiff(path string) (string, error) {
+func (f *fakeContentProvider) GetDiff(_ context.Context, path string) (string, error) {
 	return "", nil
 }
 
-// buildTwoADREngineFixture indexes two broadly-matching ADRs ("0001-a.md",
-// "0002-b.md") into a fresh PgStore-backed project and returns an Engine
-// wired to it, a MockProvider that always reports a violation, and the
-// project name -- shared setup for the archguard-ignore and baseline
-// scoping tests below, which both need two ADRs relevant to the same file
-// so suppressing one doesn't accidentally suppress the other.
+// buildTwoADREngineFixture indexes two ADRs that both match the same file, so
+// suppressing one can't accidentally suppress the other.
 func buildTwoADREngineFixture(t *testing.T, ctx context.Context, connStr, projectName, fileContent string) (*analysis.Engine, *index.PgStore) {
 	t.Helper()
 
@@ -1245,11 +1221,8 @@ func buildTwoADREngineFixture(t *testing.T, ctx context.Context, connStr, projec
 	return engine, store
 }
 
-// TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR proves
-// archguard-ignore against a PgStore-backed index suppresses only the named
-// ADR. Before PgStore persisted adr_id, every hit's ADR.ID was "", collapsing
-// the "archguard-ignore: %s" match to a bare "archguard-ignore: " substring
-// check -- which would suppress both ADRs here, not just the named one.
+// Without a persisted adr_id every ID is "", so "archguard-ignore: <id>"
+// would collapse to a bare prefix match and suppress both ADRs.
 func TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1268,11 +1241,8 @@ func TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR(t *test
 	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be suppressed by archguard-ignore while ADR B (0002) still surfaces as a violation")
 }
 
-// TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR proves
-// baseline suppression against a PgStore-backed index suppresses only the
-// ADR named in the baseline entry, not every ADR on the file. Before
-// PgStore persisted adr_id, every hit's ADR.ID was "", so a baseline entry
-// meant for one ADR would key-match every ADR on that file.
+// Without a persisted adr_id every ID is "", so one baseline entry would
+// key-match every ADR on the file.
 func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1295,8 +1265,7 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be baselined while ADR B (0002) still surfaces as a new violation")
 }
 
-// mirrors search_test.go's LocalStore regression test for #134 against a
-// real PgStore -- see that test for the scope-before-topK rationale.
+// mirrors search_test.go's LocalStore scope-before-topK regression test against a real PgStore.
 func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

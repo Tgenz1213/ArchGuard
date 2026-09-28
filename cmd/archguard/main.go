@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -19,7 +20,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	if exitCode, err := cli.Execute(cli.ProviderFactories{}); err != nil {
+	ctx, stop := cli.NotifyContext(context.Background())
+
+	exitCode, err := cli.Execute(ctx, cli.ProviderFactories{})
+
+	stop()
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}

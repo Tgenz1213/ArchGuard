@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
@@ -20,12 +21,11 @@ import (
 	"github.com/tgenz1213/archguard/internal/llm"
 )
 
-// MockContentProvider for testing
 type MockContentProvider struct {
 	Files map[string]string
 }
 
-func (m *MockContentProvider) GetFiles() ([]string, error) {
+func (m *MockContentProvider) GetFiles(context.Context) ([]string, error) {
 	var files []string
 	for k := range m.Files {
 		files = append(files, k)
@@ -34,7 +34,7 @@ func (m *MockContentProvider) GetFiles() ([]string, error) {
 	return files, nil
 }
 
-func (m *MockContentProvider) GetContent(path string) (string, error) {
+func (m *MockContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	if content, ok := m.Files[path]; ok {
 		return content, nil
 	}
@@ -42,16 +42,13 @@ func (m *MockContentProvider) GetContent(path string) (string, error) {
 	return "", nil
 }
 
-func (m *MockContentProvider) GetDiff(path string) (string, error) {
-	// For testing, just return content as diff
-	return m.GetContent(path)
+func (m *MockContentProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return m.GetContent(ctx, path)
 }
 
 func TestDriftDetection(t *testing.T) {
-	// 1. Setup Mock Provider
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			// We simulate the LLM returning a JSON violation
 			return `{
             "violation": true,
             "reasoning": "Python is not allowed.",
@@ -60,7 +57,6 @@ func TestDriftDetection(t *testing.T) {
 		},
 	}
 
-	// 2. Setup Store with one ADR
 	store := index.NewLocalStore(5)
 	store.ADRs = []index.ADR{
 		{
@@ -72,26 +68,21 @@ func TestDriftDetection(t *testing.T) {
 		},
 	}
 
-	// 3. Setup Config
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0}, // Force match
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
 
-	// 4. Setup Mock Content
 	content := &MockContentProvider{
 		Files: map[string]string{
 			"service.py": "// content ignored by mock",
 		},
 	}
 
-	// 5. Run Engine
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
-	engine.Cache = nil // Disable cache for testing
+	engine.Cache = nil
 	err := engine.Run(context.Background())
 
-	// 6. Verify Results
-	// Expect failure due to violation
 	if err == nil {
 		t.Fatal("Expected violation error, got nil")
 	}
@@ -105,8 +96,6 @@ func TestDriftDetection(t *testing.T) {
 	}
 }
 
-// TestRun_EmbedsFileContentAsQuery asserts Run embeds with
-// EmbeddingTaskQuery, not EmbeddingTaskDocument.
 func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	var gotTask llm.EmbeddingTaskType
 	provider := &llm.MockProvider{
@@ -149,8 +138,6 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff asserts the
-// ADR-relevance embedding uses full file content, not a partial diff.
 func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	var gotText string
 	provider := &llm.MockProvider{
@@ -198,7 +185,7 @@ type fallbackOnlyContentProvider struct {
 	files map[string]string
 }
 
-func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
+func (p *fallbackOnlyContentProvider) GetFiles(context.Context) ([]string, error) {
 	var files []string
 	for k := range p.files {
 		files = append(files, k)
@@ -207,11 +194,11 @@ func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
 	return files, nil
 }
 
-func (p *fallbackOnlyContentProvider) GetContent(path string) (string, error) {
+func (p *fallbackOnlyContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	return p.files[path], nil
 }
 
-func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
+func (p *fallbackOnlyContentProvider) GetDiff(_ context.Context, path string) (string, error) {
 	return "", nil
 }
 
@@ -222,14 +209,19 @@ type diffCapableContentProvider struct {
 	diff    string
 }
 
-func (p *diffCapableContentProvider) GetFiles() ([]string, error) {
+func (p *diffCapableContentProvider) GetFiles(context.Context) ([]string, error) {
 	return []string{"service.py"}, nil
 }
-func (p *diffCapableContentProvider) GetContent(path string) (string, error) { return p.content, nil }
-func (p *diffCapableContentProvider) GetDiff(path string) (string, error)    { return p.diff, nil }
 
-// TestRun_NeverStripsFallbackContent asserts stripDiffMetadata never runs
-// on whole-file fallback content, even when it looks diff-shaped.
+func (p *diffCapableContentProvider) GetContent(_ context.Context, path string) (string, error) {
+	return p.content, nil
+}
+
+func (p *diffCapableContentProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return p.diff, nil
+}
+
+// Fallback content that merely looks like a diff must still be left intact.
 func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	diffLookalike := "diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n real content that must survive untouched\n more real content"
 
@@ -269,8 +261,6 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	}
 }
 
-// TestRun_UsesEmbedProviderWhenSet asserts Run embeds via EmbedProvider,
-// not Provider, when EmbedProvider is set.
 func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 	chatCalled := false
 	chatProvider := &llm.MockProvider{
@@ -334,7 +324,6 @@ func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
 	var capturedSystemPrompt, capturedUserPrompt string
 
-	// 1. Setup Mock Provider
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			capturedSystemPrompt = system
@@ -343,7 +332,6 @@ func TestCustomSystemPrompt(t *testing.T) {
 		},
 	}
 
-	// 2. Setup Store with one ADR
 	store := index.NewLocalStore(5)
 	store.ADRs = []index.ADR{
 		{
@@ -355,7 +343,6 @@ func TestCustomSystemPrompt(t *testing.T) {
 		},
 	}
 
-	// 3. Setup Config with custom system prompt
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
 			SystemPrompt: expectedSystemPrompt,
@@ -364,23 +351,20 @@ func TestCustomSystemPrompt(t *testing.T) {
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
 
-	// 4. Setup Mock Content
 	content := &MockContentProvider{
 		Files: map[string]string{
 			"test.go": "package test",
 		},
 	}
 
-	// 5. Run Engine
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
-	engine.Cache = nil // Disable cache for testing
+	engine.Cache = nil
 	err := engine.Run(context.Background())
 
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	// 6. Verify captured system prompt, and that it fully replaces judgment framing
 	if capturedSystemPrompt != expectedSystemPrompt {
 		t.Errorf("Expected system prompt %q, got %q", expectedSystemPrompt, capturedSystemPrompt)
 	}
@@ -399,8 +383,11 @@ type concurrencyTrackingProvider struct {
 	files   []string
 }
 
-func (p *concurrencyTrackingProvider) GetFiles() ([]string, error) { return p.files, nil }
-func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
+func (p *concurrencyTrackingProvider) GetFiles(context.Context) ([]string, error) {
+	return p.files, nil
+}
+
+func (p *concurrencyTrackingProvider) GetContent(_ context.Context, path string) (string, error) {
 	p.mu.Lock()
 
 	p.active++
@@ -417,7 +404,10 @@ func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
 	p.mu.Unlock()
 	return "package main", nil
 }
-func (p *concurrencyTrackingProvider) GetDiff(path string) (string, error) { return "", nil }
+
+func (p *concurrencyTrackingProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return "", nil
+}
 
 func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	files := make([]string, 10)
@@ -449,8 +439,6 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	}
 }
 
-// TestRun_SuppressesBaselinedViolation asserts a violation matching a
-// seeded Baseline entry is suppressed rather than surfaced as drift.
 func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -495,8 +483,6 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	}
 }
 
-// TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile asserts a Baseline entry
-// stops suppressing once its QuotedCode is no longer in the file.
 func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -551,8 +537,6 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors asserts
-// UpdateBaseline never fails on a violation, only records it.
 func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -609,9 +593,6 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_CarriesForwardPreviousReason asserts that a
-// re-run of --update-baseline preserves a human-set Reason for an
-// (ADR, file) pair that was already baselined, instead of wiping it.
 func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -666,8 +647,6 @@ func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward
-// asserts --baseline-reason wins over whatever reason a previous entry had.
 func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -723,9 +702,6 @@ func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *t
 	}
 }
 
-// TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason asserts
-// a brand-new entry (no matching prior baseline entry, no --baseline-reason)
-// gets an empty Reason rather than erroring or inventing one.
 func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -776,8 +752,6 @@ func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testi
 	}
 }
 
-// TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression asserts
-// UpdateBaseline records a violation even if a pre-existing Baseline would suppress it.
 func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -838,10 +812,8 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	}
 }
 
-// TestRun_ViolationOutputFlagsUnverifiedQuotedCode asserts a VIOLATION whose
-// QuotedCode isn't actually present in the analyzed content (i.e. a
-// hallucinated LLM quote) is surfaced with a visible warning marker instead
-// of a fabricated-looking "Line 0".
+// A QuotedCode absent from the content is a hallucinated quote: flag it
+// visibly instead of printing a fabricated-looking "Line 0".
 func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -896,10 +868,8 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	}
 }
 
-// TestRun_ViolationOutputVerifiesAgainstEscapedContent asserts a legitimate
-// quote containing a prompt delimiter (e.g. triple backticks) is verified
-// correctly: the LLM sees content run through llm.EscapePromptDelimiter, so
-// its quote reflects the escaped form, not the raw file's.
+// The LLM sees content after llm.EscapePromptDelimiter, so a quote containing
+// a delimiter such as triple backticks must be verified against the escaped form.
 func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -954,8 +924,6 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	}
 }
 
-// TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile asserts a
-// quoted_code that doesn't match the file verbatim is skipped, not baselined.
 func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1005,8 +973,6 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 	}
 }
 
-// TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile asserts CI Warn-Open
-// doesn't drop a file from --update-baseline's snapshot.
 func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1065,8 +1031,6 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	}
 }
 
-// captureStdout redirects os.Stdout for the duration of fn and returns
-// everything written to it. Mirrors internal/index's helper of the same name.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -1103,9 +1067,11 @@ type partialErrorContentProvider struct {
 	errFiles map[string]bool
 }
 
-func (p *partialErrorContentProvider) GetFiles() ([]string, error) { return p.files, nil }
+func (p *partialErrorContentProvider) GetFiles(context.Context) ([]string, error) {
+	return p.files, nil
+}
 
-func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
+func (p *partialErrorContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	if p.errFiles[path] {
 		return "", fmt.Errorf("simulated read error for %s", path)
 	}
@@ -1113,8 +1079,8 @@ func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
 	return p.content[path], nil
 }
 
-func (p *partialErrorContentProvider) GetDiff(path string) (string, error) {
-	return p.GetContent(path)
+func (p *partialErrorContentProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return p.GetContent(ctx, path)
 }
 
 func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
@@ -1192,8 +1158,6 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	}
 }
 
-// TestRun_ViolationOutputFormat locks in the exact printed text for each of
-// Run's three violation-handling switch arms, since no prior test did.
 func TestRun_ViolationOutputFormat(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1313,13 +1277,12 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	})
 }
 
-// TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount asserts a failed
-// ADR check is counted without blocking other ADRs for the same file.
+// A failed ADR check is counted without blocking the file's other ADRs.
 func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(user, "BADADRMARKER") {
-				return "", errors.New("simulated LLM failure")
+				return "", backoff.Permanent(errors.New("simulated LLM failure"))
 			}
 
 			return `{
@@ -1362,14 +1325,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	// Already-cancelled context: llm.AnalyzeDrift's real exponential-backoff
-	// retry short-circuits to zero delay once ctx is done, instead of ~14s
-	// of real sleep across 3 retries. MockProvider ignores ctx everywhere
-	// else, so this has no effect on the ADR that succeeds.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if err := engine.Run(ctx); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -1386,8 +1342,6 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsSkippedFileCount asserts that a non-baseline Run
-// reports files skipped due to per-file errors.
 func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1440,12 +1394,11 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsSkippedADRCheckCount asserts that per-ADR LLM failures are
-// surfaced in Engine.SkippedADRChecks even with zero violations to report.
+// Skipped ADR checks must be reported even when there are no violations.
 func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return "", fmt.Errorf("mock LLM failure")
+			return "", backoff.Permanent(fmt.Errorf("mock LLM failure"))
 		},
 	}
 
@@ -1473,14 +1426,9 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = nil
 
-	// Already-cancelled context short-circuits AnalyzeDrift's ~14s real
-	// backoff retry; MockProvider ignores ctx otherwise.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
 	var runErr error
 	output := captureStdout(t, func() {
-		runErr = engine.Run(ctx)
+		runErr = engine.Run(t.Context())
 	})
 
 	if runErr != nil {
@@ -1780,11 +1728,8 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 	}
 }
 
-// countingDebugInfoStore wraps a VectorStore to record how many times each of
-// Search, SearchRejected, SearchTruncated, and SearchWithDebugInfo is called,
-// so debug-mode runs can be proven to use the single consolidated call
-// instead of three independent queries that could disagree with each other
-// (see the VectorStore interface doc on SearchWithDebugInfo).
+// countingDebugInfoStore counts each Search* call, to prove debug runs make one
+// SearchWithDebugInfo query rather than three that could disagree.
 type countingDebugInfoStore struct {
 	index.VectorStore
 	searchCalls              int
@@ -2014,9 +1959,8 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 	}
 }
 
-// TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage
-// guards against a misleading message: the baseline file is always excluded
-// regardless of exclude_patterns, so it must not be reported as such.
+// The baseline file is excluded regardless of exclude_patterns, so its
+// skip message must not blame exclude_patterns.
 func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -2045,11 +1989,8 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 	}
 }
 
-// TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage guards the
-// false branch of the explicitFiles check: a broad scan (AllProvider,
-// UncommittedProvider, StagedProvider, or any other non-MultiFileProvider)
-// must stay silent about excluded files even in --debug mode, since that
-// noise is only warranted for a file the user explicitly named.
+// Only a file the user named explicitly gets a --debug skip message;
+// broad scans stay silent about excluded files.
 func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.T) {
 	provider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {

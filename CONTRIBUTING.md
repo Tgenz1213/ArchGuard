@@ -53,4 +53,7 @@ When contributing to the CLI, ensure that behavioral changes respect standard ex
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected.
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
+- **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs.
+- **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met.
+- **130**: Interrupted by SIGINT or SIGTERM; nothing partial (summary, JSON report, baseline) is written. See `docs/arch/0024-run-context-cancellation.md`.
 - **--ci flag**: Changes that result in truncated context should only trigger warnings in CI mode to maintain pipeline stability.

@@ -126,7 +126,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	telemetry := stage.NewTelemetry(stages)
 
-	files, err := e.Content.GetFiles()
+	files, err := e.Content.GetFiles(ctx)
 	if err != nil {
 		if e.JSONOutput {
 			e.CollectedStages = telemetry.Stats()
@@ -167,6 +167,10 @@ func (e *Engine) Run(ctx context.Context) error {
 
 		file := file
 		g.Go(func() error {
+			if ctx.Err() != nil {
+				return nil
+			}
+
 			// Buffered so each file's output prints atomically.
 			var sb strings.Builder
 
@@ -429,6 +433,11 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	_ = g.Wait()
 
+	// Checked before any summary or baseline snapshot: a partial scan must never look complete.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	e.SkippedFiles = skippedFiles
 	e.SkippedADRChecks = skippedADRChecks
 	sort.Slice(stageFailures, func(i, j int) bool {
@@ -493,7 +502,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		maxTokens = 8000
 	}
 
-	fullContent, err = e.Content.GetContent(path)
+	fullContent, err = e.Content.GetContent(ctx, path)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -510,7 +519,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	// A diff only covers the uncommitted-vs-HEAD hunk, which can't satisfy
 	// --update-baseline's whole-file snapshot contract (docs/arch/0006).
 	if !e.UpdateBaseline {
-		diff, err := e.Content.GetDiff(path)
+		diff, err := e.Content.GetDiff(ctx, path)
 		if err == nil && diff != "" {
 			return diff, fullContent, "diff", nil
 		}
