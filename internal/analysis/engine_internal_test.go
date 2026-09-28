@@ -17,18 +17,34 @@ type MockTruncationProvider struct {
 	Content string
 }
 
-func (m *MockTruncationProvider) GetFiles() ([]string, error)            { return []string{"test.go"}, nil }
-func (m *MockTruncationProvider) GetContent(path string) (string, error) { return m.Content, nil }
-func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
+func (m *MockTruncationProvider) GetFiles(context.Context) ([]string, error) {
+	return []string{"test.go"}, nil
+}
+
+func (m *MockTruncationProvider) GetContent(_ context.Context, path string) (string, error) {
+	return m.Content, nil
+}
+
+func (m *MockTruncationProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return "", nil
+}
 
 type MockDiffCapableProvider struct {
 	Content string
 	Diff    string
 }
 
-func (m *MockDiffCapableProvider) GetFiles() ([]string, error)            { return []string{"test.go"}, nil }
-func (m *MockDiffCapableProvider) GetContent(path string) (string, error) { return m.Content, nil }
-func (m *MockDiffCapableProvider) GetDiff(path string) (string, error)    { return m.Diff, nil }
+func (m *MockDiffCapableProvider) GetFiles(context.Context) ([]string, error) {
+	return []string{"test.go"}, nil
+}
+
+func (m *MockDiffCapableProvider) GetContent(_ context.Context, path string) (string, error) {
+	return m.Content, nil
+}
+
+func (m *MockDiffCapableProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return m.Diff, nil
+}
 
 func TestFetchContext_SmartTruncation(t *testing.T) {
 	longContent := "Line1\nLine2\nLine3"

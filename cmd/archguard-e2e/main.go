@@ -82,7 +82,7 @@ func main() {
 	}
 
 	factories := cli.ProviderFactories{Chat: chatProviderFactory, Embed: embedProviderFactory}
-	if exitCode, err := cli.Execute(factories); err != nil {
+	if exitCode, err := cli.Execute(context.Background(), factories); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(int(exitCode))
 	}

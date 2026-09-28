@@ -126,7 +126,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	telemetry := stage.NewTelemetry(stages)
 
-	files, err := e.Content.GetFiles()
+	files, err := e.Content.GetFiles(ctx)
 	if err != nil {
 		if e.JSONOutput {
 			e.CollectedStages = telemetry.Stats()
@@ -493,7 +493,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		maxTokens = 8000
 	}
 
-	fullContent, err = e.Content.GetContent(path)
+	fullContent, err = e.Content.GetContent(ctx, path)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -510,7 +510,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	// A diff only covers the uncommitted-vs-HEAD hunk, which can't satisfy
 	// --update-baseline's whole-file snapshot contract (docs/arch/0006).
 	if !e.UpdateBaseline {
-		diff, err := e.Content.GetDiff(path)
+		diff, err := e.Content.GetDiff(ctx, path)
 		if err == nil && diff != "" {
 			return diff, fullContent, "diff", nil
 		}

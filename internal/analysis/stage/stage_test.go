@@ -25,8 +25,8 @@ func fixedScores(scores ...float64) stage.Scorer {
 
 type fakeFile struct{ path, text string }
 
-func (f fakeFile) Path() string      { return f.path }
-func (f fakeFile) QueryText() string { return f.text }
+func (f fakeFile) Path() string                     { return f.path }
+func (f fakeFile) QueryText(context.Context) string { return f.text }
 
 func candidates(ids ...string) []stage.Candidate {
 	out := make([]stage.Candidate, len(ids))

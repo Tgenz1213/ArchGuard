@@ -1,5 +1,7 @@
 package analysis
 
+import "context"
+
 type queryFile struct {
 	path           string
 	content        string
@@ -11,7 +13,7 @@ type queryFile struct {
 
 func (f *queryFile) Path() string { return f.path }
 
-func (f *queryFile) QueryText() string {
+func (f *queryFile) QueryText(ctx context.Context) string {
 	if f.built {
 		return f.text
 	}
@@ -21,7 +23,7 @@ func (f *queryFile) QueryText() string {
 	// A diff only covers the uncommitted hunk, not the whole file --update-baseline needs.
 	text := f.content
 	if !f.updateBaseline {
-		if diff, err := f.provider.GetDiff(f.path); err == nil && diff != "" {
+		if diff, err := f.provider.GetDiff(ctx, f.path); err == nil && diff != "" {
 			text = stripDiffMetadata(diff)
 		}
 	}

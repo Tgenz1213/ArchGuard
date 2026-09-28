@@ -1164,7 +1164,7 @@ type fakeContentProvider struct {
 	files map[string]string
 }
 
-func (f *fakeContentProvider) GetFiles() ([]string, error) {
+func (f *fakeContentProvider) GetFiles(context.Context) ([]string, error) {
 	names := make([]string, 0, len(f.files))
 	for name := range f.files {
 		names = append(names, name)
@@ -1173,11 +1173,11 @@ func (f *fakeContentProvider) GetFiles() ([]string, error) {
 	return names, nil
 }
 
-func (f *fakeContentProvider) GetContent(path string) (string, error) {
+func (f *fakeContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	return f.files[path], nil
 }
 
-func (f *fakeContentProvider) GetDiff(path string) (string, error) {
+func (f *fakeContentProvider) GetDiff(_ context.Context, path string) (string, error) {
 	return "", nil
 }
 

@@ -1,28 +1,27 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
 )
 
-func GetStagedFiles() ([]string, error) {
-	return runGitLines("diff", "--cached", "--name-only", "--diff-filter=ACMR")
+func GetStagedFiles(ctx context.Context) ([]string, error) {
+	return runGitLines(ctx, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
 }
 
-func GetUncommittedFiles() ([]string, error) {
-	return runGitLines("diff", "--name-only", "--diff-filter=ACMR")
+func GetUncommittedFiles(ctx context.Context) ([]string, error) {
+	return runGitLines(ctx, "diff", "--name-only", "--diff-filter=ACMR")
 }
 
-func GetAllTrackedFiles() ([]string, error) {
-	return runGitLines("ls-files")
+func GetAllTrackedFiles(ctx context.Context) ([]string, error) {
+	return runGitLines(ctx, "ls-files")
 }
 
-func GetStagedFileContent(path string) (string, error) {
+func GetStagedFileContent(ctx context.Context, path string) (string, error) {
 	// The leading ':' makes git show read the staged (index) copy, not HEAD.
-	cmd := exec.Command("git", "show", ":"+path)
-
-	out, err := cmd.Output()
+	out, err := output(ctx, "show", ":"+path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get staged content for %s: %w", path, err)
 	}
@@ -30,10 +29,8 @@ func GetStagedFileContent(path string) (string, error) {
 	return string(out), nil
 }
 
-func GetStagedDiff(path string) (string, error) {
-	cmd := exec.Command("git", "diff", "--cached", "--unified=100", "--", path)
-
-	out, err := cmd.Output()
+func GetStagedDiff(ctx context.Context, path string) (string, error) {
+	out, err := output(ctx, "diff", "--cached", "--unified=100", "--", path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get staged diff for %s: %w", path, err)
 	}
@@ -41,10 +38,8 @@ func GetStagedDiff(path string) (string, error) {
 	return string(out), nil
 }
 
-func GetWorktreeDiff(path string) (string, error) {
-	cmd := exec.Command("git", "diff", "--unified=100", "--", path)
-
-	out, err := cmd.Output()
+func GetWorktreeDiff(ctx context.Context, path string) (string, error) {
+	out, err := output(ctx, "diff", "--unified=100", "--", path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree diff for %s: %w", path, err)
 	}
@@ -52,8 +47,8 @@ func GetWorktreeDiff(path string) (string, error) {
 	return string(out), nil
 }
 
-func GetRepoRoot() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+func GetRepoRoot(ctx context.Context) (string, error) {
+	out, err := output(ctx, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("failed to find git root (are you in a git repo?): %w", err)
 	}
@@ -61,10 +56,8 @@ func GetRepoRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func runGitLines(args ...string) ([]string, error) {
-	cmd := exec.Command("git", append(args, "-z")...)
-
-	out, err := cmd.Output()
+func runGitLines(ctx context.Context, args ...string) ([]string, error) {
+	out, err := output(ctx, append(args, "-z")...)
 	if err != nil {
 		return nil, fmt.Errorf("git command failed %v: %w", args, err)
 	}
@@ -77,4 +70,14 @@ func runGitLines(args ...string) ([]string, error) {
 	}
 
 	return result, nil
+}
+
+// A killed git surfaces as a bare exit error; report the cancellation that caused it instead.
+func output(ctx context.Context, args ...string) ([]byte, error) {
+	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	return out, err
 }

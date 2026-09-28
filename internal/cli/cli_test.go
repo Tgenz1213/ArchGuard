@@ -791,7 +791,7 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(ProviderFactories{})
+			_, _ = Execute(t.Context(), ProviderFactories{})
 		})
 	})
 
@@ -827,7 +827,7 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(ProviderFactories{})
+			_, _ = Execute(t.Context(), ProviderFactories{})
 		})
 	})
 
@@ -968,7 +968,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	// Execute fails shortly after (no archguard.yaml here) -- irrelevant,
 	// since os.Args is already mutated by then.
 	captureStdout(t, func() {
-		_, _ = Execute(ProviderFactories{})
+		_, _ = Execute(t.Context(), ProviderFactories{})
 	})
 
 	if os.Args[2] != "file.go" {
@@ -987,7 +987,7 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 			var err error
 
 			output := captureStdout(t, func() {
-				exitCode, err = Execute(ProviderFactories{})
+				exitCode, err = Execute(t.Context(), ProviderFactories{})
 			})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
@@ -1026,7 +1026,7 @@ func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
 	var exitCode ExitCode
 	var runErr error
 	output := captureStdout(t, func() {
-		exitCode, runErr = runCheck(cfg, nil, nil, "", nil, nil, []string{"--help"})
+		exitCode, runErr = runCheck(t.Context(), cfg, nil, nil, "", nil, nil, []string{"--help"})
 	})
 
 	if runErr != nil {

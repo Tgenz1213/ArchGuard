@@ -24,7 +24,7 @@ type MockContentProvider struct {
 	Files map[string]string
 }
 
-func (m *MockContentProvider) GetFiles() ([]string, error) {
+func (m *MockContentProvider) GetFiles(context.Context) ([]string, error) {
 	var files []string
 	for k := range m.Files {
 		files = append(files, k)
@@ -33,7 +33,7 @@ func (m *MockContentProvider) GetFiles() ([]string, error) {
 	return files, nil
 }
 
-func (m *MockContentProvider) GetContent(path string) (string, error) {
+func (m *MockContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	if content, ok := m.Files[path]; ok {
 		return content, nil
 	}
@@ -41,8 +41,8 @@ func (m *MockContentProvider) GetContent(path string) (string, error) {
 	return "", nil
 }
 
-func (m *MockContentProvider) GetDiff(path string) (string, error) {
-	return m.GetContent(path)
+func (m *MockContentProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return m.GetContent(ctx, path)
 }
 
 func TestDriftDetection(t *testing.T) {
@@ -184,7 +184,7 @@ type fallbackOnlyContentProvider struct {
 	files map[string]string
 }
 
-func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
+func (p *fallbackOnlyContentProvider) GetFiles(context.Context) ([]string, error) {
 	var files []string
 	for k := range p.files {
 		files = append(files, k)
@@ -193,11 +193,11 @@ func (p *fallbackOnlyContentProvider) GetFiles() ([]string, error) {
 	return files, nil
 }
 
-func (p *fallbackOnlyContentProvider) GetContent(path string) (string, error) {
+func (p *fallbackOnlyContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	return p.files[path], nil
 }
 
-func (p *fallbackOnlyContentProvider) GetDiff(path string) (string, error) {
+func (p *fallbackOnlyContentProvider) GetDiff(_ context.Context, path string) (string, error) {
 	return "", nil
 }
 
@@ -208,11 +208,17 @@ type diffCapableContentProvider struct {
 	diff    string
 }
 
-func (p *diffCapableContentProvider) GetFiles() ([]string, error) {
+func (p *diffCapableContentProvider) GetFiles(context.Context) ([]string, error) {
 	return []string{"service.py"}, nil
 }
-func (p *diffCapableContentProvider) GetContent(path string) (string, error) { return p.content, nil }
-func (p *diffCapableContentProvider) GetDiff(path string) (string, error)    { return p.diff, nil }
+
+func (p *diffCapableContentProvider) GetContent(_ context.Context, path string) (string, error) {
+	return p.content, nil
+}
+
+func (p *diffCapableContentProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return p.diff, nil
+}
 
 // Fallback content that merely looks like a diff must still be left intact.
 func TestRun_NeverStripsFallbackContent(t *testing.T) {
@@ -376,8 +382,11 @@ type concurrencyTrackingProvider struct {
 	files   []string
 }
 
-func (p *concurrencyTrackingProvider) GetFiles() ([]string, error) { return p.files, nil }
-func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
+func (p *concurrencyTrackingProvider) GetFiles(context.Context) ([]string, error) {
+	return p.files, nil
+}
+
+func (p *concurrencyTrackingProvider) GetContent(_ context.Context, path string) (string, error) {
 	p.mu.Lock()
 
 	p.active++
@@ -394,7 +403,10 @@ func (p *concurrencyTrackingProvider) GetContent(path string) (string, error) {
 	p.mu.Unlock()
 	return "package main", nil
 }
-func (p *concurrencyTrackingProvider) GetDiff(path string) (string, error) { return "", nil }
+
+func (p *concurrencyTrackingProvider) GetDiff(_ context.Context, path string) (string, error) {
+	return "", nil
+}
 
 func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	files := make([]string, 10)
@@ -1054,9 +1066,11 @@ type partialErrorContentProvider struct {
 	errFiles map[string]bool
 }
 
-func (p *partialErrorContentProvider) GetFiles() ([]string, error) { return p.files, nil }
+func (p *partialErrorContentProvider) GetFiles(context.Context) ([]string, error) {
+	return p.files, nil
+}
 
-func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
+func (p *partialErrorContentProvider) GetContent(_ context.Context, path string) (string, error) {
 	if p.errFiles[path] {
 		return "", fmt.Errorf("simulated read error for %s", path)
 	}
@@ -1064,8 +1078,8 @@ func (p *partialErrorContentProvider) GetContent(path string) (string, error) {
 	return p.content[path], nil
 }
 
-func (p *partialErrorContentProvider) GetDiff(path string) (string, error) {
-	return p.GetContent(path)
+func (p *partialErrorContentProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return p.GetContent(ctx, path)
 }
 
 func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
