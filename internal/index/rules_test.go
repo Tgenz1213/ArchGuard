@@ -353,6 +353,12 @@ func TestExtractBodyRules(t *testing.T) {
 			want:    statements("R"),
 		},
 		{
+			name:    "partly emphasized heading",
+			heading: "Screening Rules",
+			body:    "## Screening *Rules*\n- R\n",
+			want:    statements("R"),
+		},
+		{
 			name:    "bare checkbox is an empty bullet",
 			heading: "Rules",
 			body:    "## Rules\n- R\n- [ ]\n",

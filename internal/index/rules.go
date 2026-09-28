@@ -236,7 +236,27 @@ func extractBodyRules(body, heading string) (Rules, error) {
 }
 
 func headingText(n *ast.Heading, src []byte) string {
-	return normalizeHeading(string(n.Text(src)))
+	return normalizeHeading(inlineText(n, src))
+}
+
+func inlineText(n ast.Node, src []byte) string {
+	var b strings.Builder
+	_ = ast.Walk(n, func(child ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		switch t := child.(type) {
+		case *ast.Text:
+			b.Write(t.Segment.Value(src))
+		case *ast.String:
+			b.Write(t.Value)
+		}
+
+		return ast.WalkContinue, nil
+	})
+
+	return b.String()
 }
 
 func normalizeHeading(heading string) string {
