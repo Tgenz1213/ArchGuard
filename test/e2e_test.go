@@ -113,7 +113,6 @@ func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 	return tempDir, buildSharedE2EBinary(t)
 }
 
-// writeE2EConfig writes archguard.yaml and an empty .env into dir.
 func writeE2EConfig(t *testing.T, dir, configContent string) {
 	t.Helper()
 
@@ -126,7 +125,6 @@ func writeE2EConfig(t *testing.T, dir, configContent string) {
 	}
 }
 
-// writeNoSecretsADR writes the shared "no secrets in logs" ADR fixture.
 func writeNoSecretsADR(t *testing.T, dir string) {
 	t.Helper()
 
@@ -150,8 +148,6 @@ function sensitiveData() {
 `, testutil.MockViolationTrigger)
 }
 
-// TestE2E_ScanJS verifies that the CLI correctly identifies violations in a JS file
-// and passes when the file is removed.
 func TestE2E_ScanJS(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -271,7 +267,6 @@ analysis:
 	})
 
 	t.Run("Index command fails on invalid ADR path", func(t *testing.T) {
-		// Change config to point to a non-existent path
 		badConfigContent := `
 version: "1"
 llm:
@@ -325,9 +320,7 @@ analysis:
 	})
 }
 
-// TestE2E_SubcommandHelpWorksWithoutConfig verifies check/index --help exit
-// success even with no archguard.yaml, ADRs, or API key -- unlike
-// TestE2E_ScanJS's "Help flags" subtest, this fixture is never configured.
+// Unlike TestE2E_ScanJS's help subtest, this repo has no config, ADRs, or API key.
 func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	gitInitCmd := exec.Command("git", "init")
@@ -394,9 +387,7 @@ type checkReport struct {
 	} `json:"stages"`
 }
 
-// runCheckJSON runs `archguard check --format json [target]`, capturing
-// stdout and stderr separately -- stdout purity is exactly what this
-// format exists to guarantee (see issue #70).
+// Captures stdout and stderr separately, since --format json promises a clean stdout.
 func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
@@ -425,10 +416,6 @@ func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr 
 	return outBuf.String(), errBuf.String(), 0
 }
 
-// TestE2E_CheckFormatJSON verifies --format json: stdout carries only a
-// single valid JSON document (no banner, no debug/progress text), the
-// violation count matches the exit-code-driving DriftDetectedError.Count,
-// and exit codes are unaffected by the flag.
 func TestE2E_CheckFormatJSON(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -572,9 +559,6 @@ function sensitiveData() {
 	})
 }
 
-// TestE2E_SuggestFixes verifies --suggest-fixes: off by default (no second
-// LLM call, no suggestion text/field), on when passed (adds the Suggestion
-// text line and the JSON suggestion field for a new violation only).
 func TestE2E_SuggestFixes(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -687,8 +671,6 @@ analysis:
 	})
 }
 
-// TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout proves an index rebuild
-// triggered from inside `check --format json` doesn't leak text onto stdout (#163).
 func TestE2E_CheckFormatJSON_IndexRebuildStaysOffStdout(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -744,8 +726,6 @@ analysis:
 	}
 }
 
-// TestE2E_CheckRebuildsIndexWhenIndexFileMissing regresses issue #174:
-// a missing index.json used to silently pass with zero ADRs loaded.
 func TestE2E_CheckRebuildsIndexWhenIndexFileMissing(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -775,8 +755,6 @@ analysis:
 		t.Fatalf("Failed to delete index.json: %v", err)
 	}
 
-	// Before the fix: this silently exited 0 with zero ADRs loaded. After the
-	// fix: the missing file triggers a rebuild, and the violation is caught.
 	runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
 
 	if _, err := os.Stat(indexPath); err != nil {
@@ -898,8 +876,7 @@ analysis:
 	assertOnce("rebuilding check", rebuild)
 }
 
-// TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage verifies that an
-// LLM-call failure (as opposed to a file/embedding failure) suppresses the
+// An LLM-call failure (not a file or embedding failure) must suppress the
 // unqualified "No new architectural violations found." message.
 func TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
@@ -946,8 +923,6 @@ function sensitiveData() {
 	}
 }
 
-// TestE2E_CheckMultipleFileArgs verifies that `check` analyzes every file
-// argument, not just the first (regression test for #132).
 func TestE2E_CheckMultipleFileArgs(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1016,9 +991,6 @@ analysis:
 	}
 }
 
-// TestE2E_CheckExplicitExcludedFile verifies that an explicitly-named file
-// matching exclude_patterns is silently skipped outside --debug, but named
-// in a debug-mode skip line (issue #150).
 func TestE2E_CheckExplicitExcludedFile(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1165,8 +1137,7 @@ analysis:
 		t.Errorf("expected the skipped ADR to be named. Output: %s", indexOutput)
 	}
 
-	// Two separate invocations: pre-fix, the saved hash excluded the skipped
-	// ADR while check hashed the full set, so every run rebuilt and exited 5.
+	// Two runs, since a saved hash that skipped the unembeddable ADR would mismatch and rebuild every time.
 	for i := 1; i <= 2; i++ {
 		output, exitCode := runCheckOnce(t, tempDir, binaryPath, "clean.js")
 		if exitCode != int(cli.ExitSuccess) {
@@ -1179,8 +1150,6 @@ analysis:
 	}
 }
 
-// TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed verifies the summary
-// still prints when BuildIndex errors (every ADR failed to embed).
 func TestE2E_IndexPrintsSummaryWhenAllADRsFailToEmbed(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1220,8 +1189,6 @@ analysis:
 	}
 }
 
-// TestE2E_IndexReportsFullCorpusHealthSummary exercises a valid ADR, a parse
-// failure, a status rejection, and a duplicate ID together, in one corpus.
 func TestE2E_IndexReportsFullCorpusHealthSummary(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1287,8 +1254,7 @@ analysis:
 	}
 }
 
-// TestE2E_IndexReportsDuplicateADRIDs verifies the summary flags two ADRs
-// sharing an ID, since a duplicate breaks archguard-ignore/baseline scoping.
+// Duplicate IDs break archguard-ignore and baseline scoping, so the summary must flag them.
 func TestE2E_IndexReportsDuplicateADRIDs(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1334,7 +1300,6 @@ analysis:
 	}
 }
 
-// Verifies analysis.adr_id_pattern is threaded through cli.Execute to LocalProvider.SetIDPattern.
 func TestE2E_IndexADRIDPatternAvoidsCollision(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1380,8 +1345,6 @@ analysis:
 	}
 }
 
-// TestE2E_IndexNoValidADRsExitsWithError verifies a corpus where every
-// discovered ADR was excluded (accepted_statuses) exits non-zero, not success.
 func TestE2E_IndexNoValidADRsExitsWithError(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1415,8 +1378,6 @@ analysis:
 	}
 }
 
-// TestE2E_IndexEmptyADRDirectoryExitsWithError verifies discovering nothing
-// (e.g. a misconfigured adr_path) fails loudly rather than reporting success.
 func TestE2E_IndexEmptyADRDirectoryExitsWithError(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1445,8 +1406,6 @@ analysis:
 	}
 }
 
-// TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched verifies a failed
-// empty-corpus rebuild doesn't overwrite a previously-healthy local index.
 func TestE2E_IndexFailedRebuildLeavesPriorLocalIndexUntouched(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1515,7 +1474,6 @@ func gitAdd(t *testing.T, dir, path string) {
 	}
 }
 
-// TestE2E_BaselineMode verifies the full lifecycle: write, suppress, re-surface.
 func TestE2E_BaselineMode(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1627,8 +1585,6 @@ function sensitiveData() {
 	})
 }
 
-// TestE2E_BaselineMode_SaveFailureDoesNotPrintSuccess asserts the success
-// message never prints if the baseline file write itself fails.
 func TestE2E_BaselineMode_SaveFailureDoesNotPrintSuccess(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1689,8 +1645,6 @@ analysis:
 	}
 }
 
-// TestE2E_BaselineMode_BaselineReasonFlagIsRecorded asserts --baseline-reason
-// is written onto every entry --update-baseline collects in that run.
 func TestE2E_BaselineMode_BaselineReasonFlagIsRecorded(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1766,9 +1720,7 @@ function sensitiveData() {
 	}
 }
 
-// TestE2E_BaselineMode_UpdateBaselineRecoversFromCorruptBaselineFile asserts
-// --update-baseline still succeeds when the existing baseline file is
-// corrupt, since it's the documented recovery path for that situation.
+// --update-baseline is the documented recovery path for a corrupt baseline file.
 func TestE2E_BaselineMode_UpdateBaselineRecoversFromCorruptBaselineFile(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1847,7 +1799,7 @@ function sensitiveData() {
 	}
 }
 
-// TestE2E_ScanNonASCIIFilename regresses issue #186's silent file drop under git's default core.quotepath.
+// git's default core.quotepath escapes non-ASCII paths; such files must still be scanned.
 func TestE2E_ScanNonASCIIFilename(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1876,13 +1828,10 @@ analysis:
 
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	// "." triggers AllProvider, which lists files via `git ls-files` --
-	// exactly the code path issue #186 fixed.
+	// "." triggers AllProvider, which lists files via `git ls-files`.
 	runCheck(t, tempDir, binaryPath, ".", int(cli.ExitDriftDetected))
 }
 
-// runIndexOnce executes `archguard index` once and returns its output
-// alongside the exit code actually observed.
 func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {
 	t.Helper()
 
@@ -1904,7 +1853,6 @@ func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode
 	return outputStr, 0
 }
 
-// runIndexCmd runs archguard index and fails the test if the exit code doesn't match.
 func runIndexCmd(t *testing.T, dir, binaryPath string, expectedExitCode int) {
 	t.Helper()
 
@@ -1916,8 +1864,6 @@ func runIndexCmd(t *testing.T, dir, binaryPath string, expectedExitCode int) {
 	t.Logf("Index output: %s", output)
 }
 
-// runIndexCmdCapture is runIndexCmd but returns the output for assertions
-// beyond the exit code.
 func runIndexCmdCapture(t *testing.T, dir, binaryPath string, expectedExitCode int) string {
 	t.Helper()
 
@@ -1929,8 +1875,6 @@ func runIndexCmdCapture(t *testing.T, dir, binaryPath string, expectedExitCode i
 	return output
 }
 
-// runCheckOnce executes `archguard check [target]` once and returns its
-// output alongside the exit code actually observed.
 func runCheckOnce(t *testing.T, dir, binaryPath, target string) (output string, exitCode int) {
 	t.Helper()
 

@@ -350,8 +350,6 @@ func TestResolveEmbedProvider_DifferentProviderUsesEmbedKey(t *testing.T) {
 	}
 }
 
-// TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey asserts
-// an unset embed API key never falls back to the chat provider's key.
 func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "claude"},
@@ -556,9 +554,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 	}
 }
 
-// TestBuildProvider_MissingAPIKeyWarningRespectsWriter guards --format
-// json's stdout purity: a missing-API-key warning must go wherever the
-// caller points it (stderr in JSON mode), not always to stdout.
+// Under --format json, stdout must carry only the JSON document.
 func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Model: "gpt-4"}}
 
@@ -692,8 +688,6 @@ func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlas
 	}
 }
 
-// captureStdout redirects os.Stdout for the duration of fn and returns
-// everything written to it. Mirrors internal/analysis's helper of the same name.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -722,8 +716,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// captureStderr redirects os.Stderr for the duration of fn and returns
-// everything written to it. Mirrors captureStdout.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -752,7 +744,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// setupExecuteTestRepo creates a temp git repo, chdirs into it, and returns its resolved root.
 func setupExecuteTestRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
@@ -918,8 +909,7 @@ func TestSubcommandHelpRequest(t *testing.T) {
 	}
 }
 
-// TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot pins
-// Execute's call site, not just the extracted function, to running unconditionally.
+// Exercises Execute itself, not just the extracted helper, so its call stays unconditional.
 func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
 	origArgs := os.Args
 
@@ -957,9 +947,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 		t.Fatalf("failed to chdir into repo root: %v", err)
 	}
 
-	// Confirms this test actually exercises cwd == repoRoot, the same way
-	// Execute computes and compares them -- otherwise a path-canonicalization
-	// difference could silently degrade this into testing the wrong branch.
+	// Guards against path canonicalization quietly sending this test down the wrong branch.
 	gotWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory after chdir: %v", err)

@@ -21,8 +21,6 @@ func (m *MockTruncationProvider) GetFiles() ([]string, error)            { retur
 func (m *MockTruncationProvider) GetContent(path string) (string, error) { return m.Content, nil }
 func (m *MockTruncationProvider) GetDiff(path string) (string, error)    { return "", nil }
 
-// MockDiffCapableProvider is like MockTruncationProvider but returns a
-// non-empty diff, simulating a real ContentProvider with local edits.
 type MockDiffCapableProvider struct {
 	Content string
 	Diff    string
@@ -59,15 +57,12 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 
 	t.Logf("Truncated content: %q", content)
 
-	// We expect the content to be rolled back to the newline.
 	expected := "Line1\n"
 	if content != expected {
 		t.Errorf("Expected content to be rolled back to newline (%q), but got %q", expected, content)
 	}
 }
 
-// TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff asserts
-// UpdateBaseline never falls back to a diff, even when one is available.
 func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T) {
 	fullContent := "Line1\nLine2\nLine3\nLine4\nLine5\n"
 	// A diff that only touches one line -- nowhere near the whole file.
@@ -97,8 +92,6 @@ func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T)
 	}
 }
 
-// TestFetchContext_NonOpenAI_UsesProviderTokenCount asserts truncation
-// uses the provider's own CountTokens, not a hardcoded tiktoken fallback.
 func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	content := "AAAAAAAAAA\nBBBBBBBBB" // mock counts 1 token/2 bytes = 10 tokens
 
@@ -137,8 +130,6 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	}
 }
 
-// TestFetchContext_CountTokensError_PropagatesLoudly asserts a CountTokens
-// failure returns an error instead of falling back to a length heuristic.
 func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
@@ -166,8 +157,7 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	}
 }
 
-// TestFetchContext_TruncationGuaranteesTokenBudget asserts truncation
-// always converges to maxTokens, even against non-uniform token density.
+// Truncation must converge within maxTokens even when token density varies across the file.
 func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	const denseWindow = 1000
 	const maxTokens = denseWindow - 1
@@ -385,7 +375,7 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 		want bool
 	}{
 		{"foo_test.go", true},
-		{"internal/analysis/glob_test.go", true}, // regression: previously only matched exactly 2 path segments deep
+		{"internal/analysis/glob_test.go", true}, // deeper than two path segments
 		{"internal/analysis/glob.go", false},
 		{"vendor/pkg/sub/file.go", true},
 	}
@@ -397,8 +387,6 @@ func TestShouldExclude_RecursiveTestPattern(t *testing.T) {
 	}
 }
 
-// TestShouldExclude_BaselineFileAlwaysExcluded ensures the baseline file
-// is excluded even when exclude_patterns doesn't mention it.
 func TestShouldExclude_BaselineFileAlwaysExcluded(t *testing.T) {
 	cfg := &config.Config{
 		Analysis: config.Analysis{
@@ -466,8 +454,6 @@ func TestRollBackToNewline(t *testing.T) {
 	}
 }
 
-// TestEmbeddingTruncation_MultiByteBoundary asserts the 6000-byte
-// embedding truncation never splits a multi-byte UTF-8 rune.
 func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
 	const limit = 6000
 	prefix := strings.Repeat("x", limit-2) + "\n"
@@ -488,8 +474,6 @@ func TestEmbeddingTruncation_MultiByteBoundary(t *testing.T) {
 	}
 }
 
-// TestIgnoreHeaderTruncation_MultiByteBoundary asserts the 2000-byte
-// archguard-ignore header truncation never splits a multi-byte UTF-8 rune.
 func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
 	const limit = 2000
 	content := strings.Repeat("x", limit-2) + "日本語" + strings.Repeat("y", 100)
@@ -505,11 +489,8 @@ func TestIgnoreHeaderTruncation_MultiByteBoundary(t *testing.T) {
 	}
 }
 
-// TestViolation_QuotedCodeAlwaysPresentInJSON guards the --format json
-// schema: an empty QuotedCode is a valid violation (Engine treats "" as
-// trivially verified), so the key must survive marshaling, not be dropped
-// via `omitempty` -- consumers shouldn't see the object shape change based
-// on whether the LLM happened to quote code.
+// An empty QuotedCode is valid, so the key must not be omitempty: JSON
+// consumers shouldn't see the object shape change with the LLM's output.
 func TestViolation_QuotedCodeAlwaysPresentInJSON(t *testing.T) {
 	v := Violation{File: "a.go", ADRID: "0001", ADRTitle: "Some ADR", Line: 1, Reasoning: "why", QuotedCode: ""}
 

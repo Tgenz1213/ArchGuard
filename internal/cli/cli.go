@@ -291,7 +291,7 @@ func checkWantsJSON(args []string) bool {
 	return format == "json" && !updateBaseline
 }
 
-// Runs unconditionally: a backslash-style arg typed from the repo root needs it too (#80).
+// Runs unconditionally: a backslash-style arg typed from the repo root needs it too.
 func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
 	var subcommand string
 	if len(args) > 1 {
