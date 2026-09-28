@@ -747,14 +747,14 @@ func captureStderr(t *testing.T, fn func()) string {
 func setupExecuteTestRepo(t *testing.T) string {
 	t.Helper()
 	repoRoot := t.TempDir()
-	gitInit := exec.Command("git", "init")
+	gitInit := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
 		t.Fatalf("failed to init git repo: %v\n%s", err, out)
 	}
 
-	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	resolvedRoot, err := exec.CommandContext(t.Context(), "git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}
@@ -927,7 +927,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 	}()
 
 	repoRoot := t.TempDir()
-	gitInit := exec.Command("git", "init")
+	gitInit := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInit.Dir = repoRoot
 	if out, err := gitInit.CombinedOutput(); err != nil {
@@ -936,7 +936,7 @@ func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testin
 
 	// Resolve the same way Execute's git.GetRepoRoot() does, so cwd == repoRoot
 	// stays exact even where TMPDIR is a symlink.
-	resolvedRoot, err := exec.Command("git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
+	resolvedRoot, err := exec.CommandContext(t.Context(), "git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		t.Fatalf("failed to resolve repo root: %v", err)
 	}

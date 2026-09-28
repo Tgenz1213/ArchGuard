@@ -63,7 +63,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 	t.Helper()
 
 	sharedBinaryOnce.Do(func() {
-		cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
+		cmd := exec.CommandContext(t.Context(), "go", "list", "-m", "-f", "{{.Dir}}")
 
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -81,7 +81,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 
 		sharedBinaryPath = filepath.Join(binDir, getBinaryName())
 
-		buildCmd := exec.Command("go", "build", "-o", sharedBinaryPath, "./cmd/archguard-e2e")
+		buildCmd := exec.CommandContext(t.Context(), "go", "build", "-o", sharedBinaryPath, "./cmd/archguard-e2e")
 
 		buildCmd.Dir = sourceRoot
 		if out, err := buildCmd.CombinedOutput(); err != nil {
@@ -103,7 +103,7 @@ func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 
 	tempDir = t.TempDir()
 
-	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInitCmd.Dir = tempDir
 	if out, err := gitInitCmd.CombinedOutput(); err != nil {
@@ -186,7 +186,7 @@ analysis:
 			}
 		}()
 
-		cmd := exec.Command(binaryPath, "typo")
+		cmd := exec.CommandContext(t.Context(), binaryPath, "typo")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -219,7 +219,7 @@ analysis:
 		for _, args := range cases {
 			args := args
 			t.Run(strings.Join(args, " "), func(t *testing.T) {
-				cmd := exec.Command(binaryPath, args...)
+				cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 				cmd.Dir = tempDir
 				cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -246,7 +246,7 @@ analysis:
 	})
 
 	t.Run("Check command invalid flag returns usage exit code", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "check", "--not-a-real-flag")
+		cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--not-a-real-flag")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -323,7 +323,7 @@ analysis:
 // Unlike TestE2E_ScanJS's help subtest, this repo has no config, ADRs, or API key.
 func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	tempDir := t.TempDir()
-	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd := exec.CommandContext(t.Context(), "git", "init")
 
 	gitInitCmd.Dir = tempDir
 	if out, err := gitInitCmd.CombinedOutput(); err != nil {
@@ -341,7 +341,7 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	for _, args := range cases {
 		args := args
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			cmd := exec.Command(binaryPath, args...)
+			cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 			cmd.Dir = tempDir
 			cmd.Env = os.Environ()
 
@@ -396,7 +396,7 @@ func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr 
 		args = append(args, target)
 	}
 
-	cmd := exec.Command(binaryPath, args...)
+	cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -494,7 +494,7 @@ analysis:
 	})
 
 	t.Run("debug mode routes progress text to stderr, keeping stdout JSON-only", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "check", "--format", "json", "--debug", fixtureFilename)
+		cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--format", "json", "--debug", fixtureFilename)
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -609,7 +609,7 @@ analysis:
 
 	t.Run("enabled: suggestion appears in JSON output", func(t *testing.T) {
 		args := []string{"check", "--format", "json", "--suggest-fixes", fixtureFilename}
-		cmd := exec.Command(binaryPath, args...)
+		cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -957,7 +957,7 @@ analysis:
 
 	// --debug is required for the CLI to print per-file "Analyzing <path>..."
 	// lines; the normal violation output has no filename in it at all.
-	cmd := exec.Command(binaryPath, "check", "--debug", "a.js", "b.js")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--debug", "a.js", "b.js")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1025,7 +1025,7 @@ analysis:
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
 	t.Run("debug mode names the skipped file", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "check", "--debug", "excluded.js", "b.js")
+		cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--debug", "excluded.js", "b.js")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1056,7 +1056,7 @@ analysis:
 	})
 
 	t.Run("non-debug mode stays silent about the skip", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "check", "excluded.js", "b.js")
+		cmd := exec.CommandContext(t.Context(), binaryPath, "check", "excluded.js", "b.js")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1466,7 +1466,7 @@ analysis:
 func gitAdd(t *testing.T, dir, path string) {
 	t.Helper()
 
-	cmd := exec.Command("git", "add", "--", path)
+	cmd := exec.CommandContext(t.Context(), "git", "add", "--", path)
 
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -1511,7 +1511,7 @@ function sensitiveData() {
 
 	var writtenEntry baseline.Entry
 	t.Run("update-baseline writes baseline file", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "check", "--update-baseline")
+		cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--update-baseline")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1616,7 +1616,7 @@ analysis:
 		t.Fatalf("Failed to create obstruction placeholder file: %v", err)
 	}
 
-	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--update-baseline")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1680,7 +1680,7 @@ function sensitiveData() {
 	t.Log("Indexing ADRs for E2E test...")
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	cmd := exec.Command(binaryPath, "check", "--update-baseline", "--baseline-reason", "accepted-debt")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--update-baseline", "--baseline-reason", "accepted-debt")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1761,7 +1761,7 @@ function sensitiveData() {
 	t.Log("Indexing ADRs for E2E test...")
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	cmd := exec.Command(binaryPath, "check", "--update-baseline")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--update-baseline")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1835,7 +1835,7 @@ analysis:
 func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode int) {
 	t.Helper()
 
-	cmd := exec.Command(binaryPath, "index")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "index")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -1883,7 +1883,7 @@ func runCheckOnce(t *testing.T, dir, binaryPath, target string) (output string, 
 		args = append(args, target)
 	}
 
-	cmd := exec.Command(binaryPath, args...)
+	cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
