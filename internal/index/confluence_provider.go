@@ -12,6 +12,8 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type ConfluenceProvider struct {
@@ -21,7 +23,7 @@ type ConfluenceProvider struct {
 	token            string
 	acceptedStatuses []string
 	parseOpts        ParseOptions
-	writer           io.Writer
+	out              *output.Printer
 }
 
 func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStatuses []string) *ConfluenceProvider {
@@ -34,10 +36,8 @@ func NewConfluenceProvider(domain, spaceID, username, token string, acceptedStat
 	}
 }
 
-// SetWriter routes GetADRs' parse-failure warnings to w instead of the
-// default os.Stdout. Passing nil restores the default.
-func (p *ConfluenceProvider) SetWriter(w io.Writer) {
-	p.writer = w
+func (p *ConfluenceProvider) SetPrinter(out *output.Printer) {
+	p.out = out
 }
 
 func (p *ConfluenceProvider) SetFrontmatterMappings(mappings map[string]string) {
@@ -126,7 +126,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 
 			adr, rulesErr, err := parseADR([]byte(rawText), adrID, relPath, p.parseOpts, &markdown)
 			if err != nil {
-				diagPrintf(p.writer, "Warning: skipping Confluence page %s: %v\n", relPath, err)
+				p.out.Warn("skipping Confluence page %s: %v", relPath, err)
 				stats.ParseFailed = append(stats.ParseFailed, relPath)
 				continue
 			}
@@ -135,7 +135,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 				allADRs = append(allADRs, *adr)
 
 				if rulesErr != nil {
-					diagPrintf(p.writer, "Warning: ignoring rules in Confluence page %s: %v\n", relPath, rulesErr)
+					p.out.Warn("ignoring rules in Confluence page %s: %v", relPath, rulesErr)
 					stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: relPath, Reason: rulesErr.Error()})
 				}
 			} else {

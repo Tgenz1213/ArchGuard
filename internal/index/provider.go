@@ -3,11 +3,12 @@ package index
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type FetchStats struct {
@@ -38,7 +39,7 @@ type Provider interface {
 
 type CompositeProvider struct {
 	providers []Provider
-	writer    io.Writer
+	out       *output.Printer
 }
 
 func NewCompositeProvider(providers ...Provider) *CompositeProvider {
@@ -47,10 +48,8 @@ func NewCompositeProvider(providers ...Provider) *CompositeProvider {
 	}
 }
 
-// SetWriter routes GetADRs' provider-fetch warnings to w instead of the
-// default os.Stdout. Passing nil restores the default.
-func (c *CompositeProvider) SetWriter(w io.Writer) {
-	c.writer = w
+func (c *CompositeProvider) SetPrinter(out *output.Printer) {
+	c.out = out
 }
 
 func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
@@ -70,7 +69,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 
 			if err != nil {
 				// Do not crash the entire run if one remote provider drops connection.
-				diagPrintf(c.writer, "Warning: failed to fetch ADRs from a provider: %v\n", err)
+				c.out.Warn("failed to fetch ADRs from a provider: %v", err)
 				errs = append(errs, err)
 				return nil
 			}

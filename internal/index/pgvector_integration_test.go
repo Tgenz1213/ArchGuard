@@ -24,6 +24,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 // setupPgContainer skips the test when Docker isn't available.
@@ -74,14 +75,14 @@ func modifyADRFile(t *testing.T, dir string, i int) {
 	require.NoError(t, err)
 }
 
-func captureStdout(t *testing.T, fn func()) string {
+func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 
-	orig := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
 	defer func() { _ = r.Close() }()
 	defer func() { _ = w.Close() }()
 
@@ -411,7 +412,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	// 100% churn, well over the default threshold, but Enabled=false.
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -443,7 +444,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 
 	modifyADRFile(t, highTmpDir, 0) // 1 of 10 changed = 10% churn
 
-	outputHigh := captureStdout(t, func() {
+	outputHigh := captureStderr(t, func() {
 		_, err = storeHigh.BuildIndex(ctx, "test-model", 3, provider, highLocalProvider)
 	})
 	require.NoError(t, err)
@@ -463,7 +464,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 
 	modifyADRFile(t, lowTmpDir, 0)
 
-	outputLow := captureStdout(t, func() {
+	outputLow := captureStderr(t, func() {
 		_, err = storeLow.BuildIndex(ctx, "test-model", 3, provider, lowLocalProvider)
 	})
 	require.NoError(t, err)
@@ -489,7 +490,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, storeDefault.Load("", "test-model", 2, ""))
 
-	outputDefault := captureStdout(t, func() {
+	outputDefault := captureStderr(t, func() {
 		_, err = storeDefault.BuildIndex(ctx, "test-model", 3, provider, defaultLocalProvider)
 	})
 	require.NoError(t, err)
@@ -506,7 +507,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, storeBlocking.Load("", "test-model", 2, ""))
 
-	outputBlocking := captureStdout(t, func() {
+	outputBlocking := captureStderr(t, func() {
 		_, err = storeBlocking.BuildIndex(ctx, "test-model", 3, provider, blockingLocalProvider)
 	})
 	require.NoError(t, err)
@@ -610,7 +611,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -657,7 +658,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -740,7 +741,7 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Threshold Edit ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.3\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -825,7 +826,7 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	edited := "---\ntitle: \"Rules Edit ADR\"\nstatus: \"Accepted\"\nrules:\n  - Added later\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(edited), 0644))
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -837,7 +838,7 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	require.Len(t, scoped, 1)
 	assert.Equal(t, index.Rules{{Statement: "Added later"}}, scoped[0].ADR.Rules, "sync path must pick up the new rules")
 
-	output = captureStdout(t, func() {
+	output = captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
@@ -874,7 +875,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err, "a single ADR embed failure must not fail the whole build")
@@ -937,7 +938,7 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	}
 
 	var result index.BuildIndexResult
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	})
 	// This ADR is the whole corpus, so the all-embeds-failed guard fires --
@@ -996,7 +997,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err, "a single ADR upsert failure must not fail the whole build")
@@ -1055,7 +1056,7 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	}
 
 	var result index.BuildIndexResult
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	})
 	require.NoError(t, err, "the unchanged ADR keeps the corpus non-empty, so this must not be treated as build-wide failure")
@@ -1368,7 +1369,7 @@ func TestSearchQuery_HasNoDistanceThresholdPredicate(t *testing.T) {
 	}
 }
 
-func TestPgStore_Integration_ExplicitWriterReceivesProgressNotStdout(t *testing.T) {
+func TestPgStore_Integration_ExplicitPrinterReceivesProgressNotStderr(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -1377,7 +1378,7 @@ func TestPgStore_Integration_ExplicitWriterReceivesProgressNotStdout(t *testing.
 	connStr := setupPgContainer(t, ctx)
 
 	var buf bytes.Buffer
-	store, err := index.NewPgStore(connStr, "explicit_writer_project", 5, index.HNSWOptions{}, &buf)
+	store, err := index.NewPgStore(connStr, "explicit_writer_project", 5, index.HNSWOptions{}, output.New(&buf, false))
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
@@ -1385,13 +1386,13 @@ func TestPgStore_Integration_ExplicitWriterReceivesProgressNotStdout(t *testing.
 	writeADRFiles(t, tmpDir, 1)
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	stdoutDuring := captureStdout(t, func() {
+	stderrDuring := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
 	})
 	require.NoError(t, err)
 
-	assert.Contains(t, buf.String(), "Found 1 valid ADRs", "progress text should land on the explicit writer")
-	assert.NotContains(t, stdoutDuring, "Found 1 valid ADRs", "progress text must not also leak to the real stdout")
+	assert.Contains(t, buf.String(), "Found 1 valid ADRs", "progress text should land on the explicit printer")
+	assert.NotContains(t, stderrDuring, "Found 1 valid ADRs", "progress text must not also go to the default stderr")
 }
 
 func TestPgStore_Integration_ScopedADRs(t *testing.T) {

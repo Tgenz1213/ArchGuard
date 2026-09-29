@@ -24,6 +24,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type ExitCode int
@@ -641,7 +642,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg, human)
+	store, err := index.NewVectorStore(cfg, output.New(human, false))
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
@@ -649,11 +650,13 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
 	var fetchWarnings bytes.Buffer
 
+	fetchOut := output.New(&fetchWarnings, false)
+
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetWriter(&fetchWarnings)
+	localProvider.SetPrinter(fetchOut)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
@@ -667,12 +670,12 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetWriter(&fetchWarnings)
+		confluenceProvider.SetPrinter(fetchOut)
 		providers = append(providers, confluenceProvider)
 	}
 
 	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetWriter(&fetchWarnings)
+	adrProvider.SetPrinter(fetchOut)
 
 	validADRs, _, err := adrProvider.GetADRs(ctx)
 	if err != nil {
@@ -932,7 +935,9 @@ func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 }
 
 func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, w io.Writer) (ExitCode, error) {
-	store, err := index.NewVectorStore(cfg, w)
+	out := output.New(w, false)
+
+	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
@@ -941,7 +946,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetWriter(w)
+	localProvider.SetPrinter(out)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
@@ -955,12 +960,12 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetWriter(w)
+		confluenceProvider.SetPrinter(out)
 		providers = append(providers, confluenceProvider)
 	}
 
 	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetWriter(w)
+	adrProvider.SetPrinter(out)
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
 	if result.Attempted {

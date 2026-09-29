@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func TestConfluenceProvider_GetADRs_Success(t *testing.T) {
@@ -240,7 +242,7 @@ rules: nope
 ---</p><p>Body</p>`
 	var warnings bytes.Buffer
 
-	adrs, stats := confluenceADRsFromStorage(t, page, func(p *ConfluenceProvider) { p.SetWriter(&warnings) })
+	adrs, stats := confluenceADRsFromStorage(t, page, func(p *ConfluenceProvider) { p.SetPrinter(output.New(&warnings, false)) })
 	if len(adrs) != 1 || adrs[0].Rules != nil {
 		t.Fatalf("expected the ADR to load without rules, got %+v", adrs)
 	}

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func TestLocalStore_CalculateHash_ChangesWhenIDChanges(t *testing.T) {
@@ -336,7 +337,7 @@ func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
 
 	var buf bytes.Buffer
 	store := NewLocalStore(1)
-	store.writer = &buf
+	store.out = output.New(&buf, false)
 
 	_, err := store.BuildIndex(context.Background(), "model", 2, embedProvider, provider)
 	if err != nil {

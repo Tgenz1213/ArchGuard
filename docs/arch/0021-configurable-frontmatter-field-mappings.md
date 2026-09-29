@@ -21,7 +21,7 @@ An unset or empty `frontmatter_mappings` validates to `(nil, nil)`, preserving t
 
 The ADR parser takes the validated mapping (as `ParseOptions.FrontmatterMappings`) and decodes frontmatter through a generic `map[string]yaml.Node` instead of directly into the `FrontMatter` struct whenever any mapping is configured (with no mappings, it decodes via `FrontMatter`'s own yaml tags exactly as before). Each canonical field is resolved to its source key -- the mapped key if remapped, its own canonical key otherwise -- and decoded from that key's node if present; a field with no matching key stays at its zero value, so `similarity_threshold`'s nil-vs-explicit-zero distinction (docs/arch/0011) is preserved for a remapped key exactly as it already is for the default key. `ParseADR` and `ParseADRContent` both take it through the same `ParseOptions`.
 
-`LocalProvider` and `ConfluenceProvider` each gain a `SetFrontmatterMappings(map[string]string)` setter, mirroring the existing `SetIDPattern`/`SetWriter` plumbing pattern; `internal/cli.runCheck` and `runIndex` call it on each provider they construct, the same way they already call `SetIDPattern` on `LocalProvider`. Both providers funnel through the shared ADR parser, so the mapping applies identically regardless of ADR source.
+`LocalProvider` and `ConfluenceProvider` each gain a `SetFrontmatterMappings(map[string]string)` setter, mirroring the existing `SetIDPattern`/`SetPrinter` plumbing pattern; `internal/cli.runCheck` and `runIndex` call it on each provider they construct, the same way they already call `SetIDPattern` on `LocalProvider`. Both providers funnel through the shared ADR parser, so the mapping applies identically regardless of ADR source.
 
 ## Consequences
 
