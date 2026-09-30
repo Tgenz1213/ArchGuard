@@ -10,6 +10,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -17,7 +18,7 @@ func ptr[T any](v T) *T { return &v }
 func buildStages(t *testing.T, cfg *config.Config) ([]stage.Stage, string) {
 	t.Helper()
 	var warnings bytes.Buffer
-	stages := analysis.BuildStages(cfg, index.NewLocalStore(1), &llm.MockProvider{}, &warnings)
+	stages := analysis.BuildStages(cfg, index.NewLocalStore(1), &llm.MockProvider{}, output.New(&warnings, false))
 	return stages, warnings.String()
 }
 

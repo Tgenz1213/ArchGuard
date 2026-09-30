@@ -9,6 +9,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type scorerFunc func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error)
@@ -97,7 +98,7 @@ func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -115,7 +116,7 @@ func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	_, _ = s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d"))
+	_, _ = s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d"))
 	if n := strings.Count(buf.String(), "Below threshold"); n != 4 {
 		t.Fatalf("printed %d below-threshold lines, want 4", n)
 	}
@@ -125,7 +126,7 @@ func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Name: "rerank", Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -149,7 +150,7 @@ func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Name: "rank", Scorer: fixedScores()}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, stage.NewDebug(&buf), nil); err != nil {
+	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -172,11 +173,11 @@ func TestStage_DoesNotScoreWhenThereAreNoCandidates(t *testing.T) {
 }
 
 func TestStage_NoDebugPrintsNothing(t *testing.T) {
-	if stage.NoDebug.Enabled() {
+	if stage.NoDebug.DebugEnabled() {
 		t.Fatal("NoDebug reports enabled")
 	}
 
-	stage.NoDebug.Printf("dropped %d", 1)
+	stage.NoDebug.Debug("dropped %d", 1)
 }
 
 func TestStage_WrapsScorerErrorsWithAScoringAction(t *testing.T) {

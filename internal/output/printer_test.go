@@ -166,13 +166,13 @@ func TestViolation(t *testing.T) {
 				Line: 12, Verified: true, Title: "No globals", Reasoning: "uses a global",
 				Code: "var x", Suggestion: "inject it", BaselineReason: "accepted-debt",
 			},
-			want: "[VIOLATION] No globals [Line 12]\nReasoning: uses a global\nCode: var x\n" +
-				"Suggestion (unverified): inject it\nBaseline Reason: accepted-debt\n",
+			want: "[VIOLATION] No globals [Line 12]\n  Reasoning: uses a global\n  Code: var x\n" +
+				"  Suggestion (unverified): inject it\n  Baseline Reason: accepted-debt\n",
 		},
 		{
 			name: "baselined and unverified",
 			v:    output.Violation{Baselined: true, Title: "No globals", Reasoning: "r"},
-			want: "[BASELINED] No globals [UNVERIFIED: quoted code not found in analyzed content]\nReasoning: r\n",
+			want: "[BASELINED] No globals [UNVERIFIED: quoted code not found in analyzed content]\n  Reasoning: r\n",
 		},
 	}
 

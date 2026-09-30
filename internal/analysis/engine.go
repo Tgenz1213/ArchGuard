@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,6 +16,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -38,7 +37,7 @@ type Engine struct {
 	SkippedFiles        int
 	SkippedADRChecks    int
 	JSONOutput          bool
-	Writer              io.Writer
+	Out                 *output.Printer
 	CollectedViolations []Violation
 	CollectedStages     []stage.Stats
 	StageFailures       []StageFailure
@@ -100,25 +99,17 @@ func (e *Engine) embedProvider() llm.Embedder {
 	return e.Provider
 }
 
-func (e *Engine) Log(format string, args ...interface{}) {
-	if e.Debug {
-		_, _ = fmt.Fprintf(e.writer(), "[DEBUG] "+format+"\n", args...)
-	}
-}
-
-func (e *Engine) Info(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(e.writer(), format+"\n", args...)
-}
-
-func (e *Engine) writer() io.Writer {
-	if e.Writer != nil {
-		return e.Writer
+func (e *Engine) printer() *output.Printer {
+	if e.Out != nil {
+		return e.Out
 	}
 
-	return os.Stdout
+	return output.New(nil, e.Debug)
 }
 
 func (e *Engine) Run(ctx context.Context) error {
+	out := e.printer()
+
 	stages := e.Stages
 	if len(stages) == 0 {
 		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
@@ -159,7 +150,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	for _, file := range files {
 		if e.shouldExclude(file) {
 			if explicitFiles && file != baseline.Path {
-				e.Log("Skipping %s: explicitly requested but matches exclude_patterns", file)
+				out.Debug("Skipping %s: explicitly requested but matches exclude_patterns", file)
 			}
 
 			continue
@@ -171,49 +162,33 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			// Buffered so each file's output prints atomically.
-			var sb strings.Builder
-
-			if e.Debug {
-				fmt.Fprintf(&sb, "Analyzing %s...\n", file)
-			}
+			fileOut := out.Group(file)
+			defer fileOut.Flush()
 
 			content, fullContent, diffMode, err := e.fetchContext(ctx, file)
 			if err != nil {
-				fmt.Fprintf(&sb, "Error reading file %s: %v\n", file, err)
+				fileOut.Error("reading file: %v", err)
 				mu.Lock()
-				_, _ = fmt.Fprint(e.writer(), sb.String())
 				skippedFiles++
 				mu.Unlock()
 				return nil
 			}
 
-			if e.Debug {
-				fmt.Fprintf(&sb, "  Context mode: %s\n", diffMode)
-			}
+			fileOut.Debug("Context mode: %s", diffMode)
 
 			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
-				fmt.Fprintf(&sb, "  [WARN-OPEN] File %s was truncated for analysis. In CI mode this is treated as a warning (no failure).\n", file)
-				mu.Lock()
-				_, _ = fmt.Fprint(e.writer(), sb.String())
-				mu.Unlock()
+				fileOut.Warn("truncated for analysis; in CI mode this is a warning, not a failure")
 				return nil
 			}
 
 			if diffMode == "truncated" && e.UpdateBaseline {
-				fmt.Fprintf(&sb, "  Warning: %s was truncated for the baseline scan; only the visible portion was captured.\n", file)
+				fileOut.Warn("truncated for the baseline scan; only the visible portion was captured")
 			}
 
-			debug := stage.NoDebug
-			if e.Debug {
-				debug = stage.NewDebug(&sb)
-			}
-
-			hits, err := candidateSource{store: e.Store}.For(file, content, debug)
+			hits, err := candidateSource{store: e.Store}.For(file, content, fileOut)
 			if err != nil {
-				fmt.Fprintf(&sb, "Error loading candidate ADRs for %s: %v\n", file, err)
+				fileOut.Error("loading candidate ADRs: %v", err)
 				mu.Lock()
-				_, _ = fmt.Fprint(e.writer(), sb.String())
 				skippedFiles++
 				mu.Unlock()
 				return nil
@@ -221,32 +196,25 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
 			for i, st := range stages {
-				hits, err = telemetry.Apply(ctx, i, query, debug, hits)
+				hits, err = telemetry.Apply(ctx, i, query, fileOut, hits)
 				if err != nil {
 					mu.Lock()
 					if st.FailOnError {
 						failure := newStageFailure(st.Name, file, err)
-						sb.WriteString(failureMessage(failure))
+						fileOut.Error("%s", failureMessage(failure))
 						stageFailures = append(stageFailures, failure)
 					} else {
-						sb.WriteString(scoringErrorMessage(file, err))
+						fileOut.Error("%s", scoringErrorMessage(err))
 						skippedFiles++
 					}
 
-					_, _ = fmt.Fprint(e.writer(), sb.String())
 					mu.Unlock()
 					return nil
 				}
 			}
 
 			if len(hits) == 0 {
-				if e.Debug {
-					fmt.Fprintf(&sb, "  No relevant ADRs found.\n")
-				}
-
-				mu.Lock()
-				_, _ = fmt.Fprint(e.writer(), sb.String())
-				mu.Unlock()
+				fileOut.Debug("No relevant ADRs found.")
 				return nil
 			}
 
@@ -260,9 +228,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			var localBaselineEntries []baseline.Entry
 			var localViolationRecords []Violation
 			for _, hit := range hits {
-				if e.Debug {
-					fmt.Fprintf(&sb, "  Checking against ADR: %s (%.2f)\n", hit.ADR.Title, hit.Score)
-				}
+				fileOut.Debug("Checking against ADR: %s (%.2f)", hit.ADR.Title, hit.Score)
 
 				systemPrompt := e.Config.LLM.SystemPrompt
 				if systemPrompt == "" {
@@ -282,29 +248,24 @@ func (e *Engine) Run(ctx context.Context) error {
 				if e.Cache != nil {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
 					if err == nil && found {
-						if e.Debug {
-							fmt.Fprintf(&sb, "[DEBUG]   Cache Hit for %s\n", hit.ADR.Title)
-						}
-
+						fileOut.Debug("Cache Hit for %s", hit.ADR.Title)
 						res = cachedRes
 					}
 				}
 
 				if res == nil {
-					if e.Debug {
-						fmt.Fprintf(&sb, "[DEBUG]   Cache Miss. Calling LLM...\n")
-					}
+					fileOut.Debug("Cache Miss. Calling LLM...")
 
 					res, err = llm.AnalyzeDrift(ctx, e.Provider, hit.ADR.Content, content, file, systemPrompt)
 					if err != nil {
-						fmt.Fprintf(&sb, "    Warning: LLM analysis failed: %v\n", err)
+						fileOut.Warn("LLM analysis failed: %v", err)
 						localSkippedADRChecks++
 						continue
 					}
 
 					if e.Cache != nil {
 						if err := e.Cache.Put(cacheKey, res); err != nil {
-							e.Log("Failed to cache analysis result: %v", err)
+							fileOut.Debug("Failed to cache analysis result: %v", err)
 						}
 					}
 				}
@@ -322,14 +283,16 @@ func (e *Engine) Run(ctx context.Context) error {
 							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
 						}
 
-						writeViolationOutput(&sb, violationOutput{
-							Label:          "VIOLATION",
+						fileOut.Violation(output.Violation{
+							File:           file,
+							Line:           lineNum,
+							Verified:       verified,
+							ADRID:          hit.ADR.ID,
 							Title:          hit.ADR.Title,
-							LineNum:        lineNum,
 							Reasoning:      res.Reasoning,
-							QuotedCode:     res.QuotedCode,
+							Code:           res.QuotedCode,
 							BaselineReason: reason,
-						}, verified)
+						})
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -340,17 +303,20 @@ func (e *Engine) Run(ctx context.Context) error {
 								Reason:     reason,
 							})
 						} else {
-							fmt.Fprintf(&sb, "    Warning: quoted code not found verbatim in file; skipping baseline entry\n")
+							fileOut.Warn("quoted code not found verbatim in file; skipping baseline entry")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						writeViolationOutput(&sb, violationOutput{
-							Label:          "BASELINED",
+						fileOut.Violation(output.Violation{
+							File:           file,
+							Line:           lineNum,
+							Verified:       verified,
+							Baselined:      true,
+							ADRID:          hit.ADR.ID,
 							Title:          hit.ADR.Title,
-							LineNum:        lineNum,
 							Reasoning:      res.Reasoning,
-							QuotedCode:     res.QuotedCode,
+							Code:           res.QuotedCode,
 							BaselineReason: e.Baseline.ReasonFor(hit.ADR.ID, file),
-						}, verified)
+						})
 						localBaselined++
 					default:
 						var suggestion string
@@ -376,28 +342,30 @@ func (e *Engine) Run(ctx context.Context) error {
 								s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
 								switch {
 								case sErr != nil:
-									fmt.Fprintf(&sb, "    Warning: suggestion generation failed: %v\n", sErr)
+									fileOut.Warn("suggestion generation failed: %v", sErr)
 								case s == "":
-									fmt.Fprintf(&sb, "    Warning: suggestion generation returned an empty suggestion\n")
+									fileOut.Warn("suggestion generation returned an empty suggestion")
 								default:
 									suggestion = s
 									if e.Cache != nil {
 										if err := e.Cache.PutSuggestion(suggestionKey, s); err != nil {
-											e.Log("Failed to cache suggestion: %v", err)
+											fileOut.Debug("Failed to cache suggestion: %v", err)
 										}
 									}
 								}
 							}
 						}
 
-						writeViolationOutput(&sb, violationOutput{
-							Label:      "VIOLATION",
+						fileOut.Violation(output.Violation{
+							File:       file,
+							Line:       lineNum,
+							Verified:   verified,
+							ADRID:      hit.ADR.ID,
 							Title:      hit.ADR.Title,
-							LineNum:    lineNum,
 							Reasoning:  res.Reasoning,
-							QuotedCode: res.QuotedCode,
+							Code:       res.QuotedCode,
 							Suggestion: suggestion,
-						}, verified)
+						})
 						localViolations++
 
 						if e.JSONOutput {
@@ -416,7 +384,6 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 
 			mu.Lock()
-			_, _ = fmt.Fprint(e.writer(), sb.String())
 			violations += localViolations
 			baselinedCount += localBaselined
 			skippedADRChecks += localSkippedADRChecks
@@ -469,7 +436,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || skippedFiles > 0 || skippedADRChecks > 0 {
-		e.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, skippedFiles, skippedADRChecks)
+		out.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, skippedFiles, skippedADRChecks)
 	}
 
 	if violations > 0 {
@@ -659,38 +626,6 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-type violationOutput struct {
-	Label          string
-	Title          string
-	LineNum        int
-	Reasoning      string
-	QuotedCode     string
-	Suggestion     string
-	BaselineReason string
-}
-
-func writeViolationOutput(sb *strings.Builder, v violationOutput, verified bool) {
-	if verified {
-		fmt.Fprintf(sb, "    [%s] %s [Line %d]\n", v.Label, v.Title, v.LineNum)
-	} else {
-		fmt.Fprintf(sb, "    [%s] %s [UNVERIFIED: quoted code not found in analyzed content]\n", v.Label, v.Title)
-	}
-
-	fmt.Fprintf(sb, "    Reasoning: %s\n", v.Reasoning)
-
-	if v.QuotedCode != "" {
-		fmt.Fprintf(sb, "    Code: %s\n", v.QuotedCode)
-	}
-
-	if v.Suggestion != "" {
-		fmt.Fprintf(sb, "    Suggestion (unverified): %s\n", v.Suggestion)
-	}
-
-	if v.BaselineReason != "" {
-		fmt.Fprintf(sb, "    Baseline Reason: %s\n", v.BaselineReason)
-	}
-}
-
 func newStageFailure(name, file string, err error) StageFailure {
 	failure := StageFailure{Stage: name, File: file, Error: err.Error()}
 
@@ -703,14 +638,14 @@ func newStageFailure(name, file string, err error) StageFailure {
 }
 
 func failureMessage(f StageFailure) string {
-	return fmt.Sprintf("Error: stage %s failed for %s (%s): %s\n", f.Stage, f.File, f.Kind, f.Error)
+	return fmt.Sprintf("stage %s failed (%s): %s", f.Stage, f.Kind, f.Error)
 }
 
-func scoringErrorMessage(file string, err error) string {
+func scoringErrorMessage(err error) string {
 	var stageErr *stage.Error
 	if errors.As(err, &stageErr) {
-		return fmt.Sprintf("Error %s for %s: %v\n", stageErr.Action, file, stageErr.Err)
+		return fmt.Sprintf("%s: %v", stageErr.Action, stageErr.Err)
 	}
 
-	return fmt.Sprintf("Error scoring candidates for %s: %v\n", file, err)
+	return fmt.Sprintf("scoring candidates: %v", err)
 }

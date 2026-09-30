@@ -11,12 +11,11 @@ ArchGuard sits between your code and your commit. When it detects code that viol
 
 ```text
 $ archguard check --staged
-Analyzing internal/db/conn.js...
-  Checking against ADR: Use Golang for Backend Services (0.92)
-
+internal/db/conn.js
   [VIOLATION] Use Golang for Backend Services [Line 1]
-  Reasoning: The file uses '.js' extension and contains JavaScript code, which violates the mandatory requirement to use Go for all backend logic.
-  Code: const express = require('express');
+    Reasoning: The file uses '.js' extension and contains JavaScript code, which violates the mandatory requirement to use Go for all backend logic.
+    Code: const express = require('express');
+1 new violation(s), 0 baselined, 0 file(s) skipped due to errors, 0 ADR check(s) skipped due to LLM errors.
 ```
 
 ## ⚡ Quick Start

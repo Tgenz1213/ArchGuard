@@ -850,7 +850,7 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		runErr = engine.Run(context.Background())
 	})
 
@@ -862,7 +862,7 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 		t.Errorf("expected no fabricated Line 0, got: %q", output)
 	}
 
-	want := "    [VIOLATION] Use Golang [UNVERIFIED: quoted code not found in analyzed content]\n    Reasoning: Python is not allowed.\n    Code: this snippet was never in the file\n"
+	want := "  [VIOLATION] Use Golang [UNVERIFIED: quoted code not found in analyzed content]\n    Reasoning: Python is not allowed.\n    Code: this snippet was never in the file\n"
 	if !strings.Contains(output, want) {
 		t.Errorf("expected exact block %q, got: %q", want, output)
 	}
@@ -906,7 +906,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		runErr = engine.Run(context.Background())
 	})
 
@@ -918,7 +918,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
 	}
 
-	want := "    [VIOLATION] Use Golang [Line 1]\n"
+	want := "  [VIOLATION] Use Golang [Line 1]\n"
 	if !strings.Contains(output, want) {
 		t.Errorf("expected exact block %q, got: %q", want, output)
 	}
@@ -1031,7 +1031,7 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	}
 }
 
-func captureStdout(t *testing.T, fn func()) string {
+func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
 	r, w, err := os.Pipe()
@@ -1039,9 +1039,9 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
 
-	orig := os.Stdout
-	os.Stdout = w
-	defer func() { os.Stdout = orig }()
+	orig := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = orig }()
 	defer func() { _ = r.Close() }()
 	defer func() { _ = w.Close() }()
 
@@ -1134,7 +1134,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 
 	var runErr error
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		runErr = engine.Run(context.Background())
 	})
 	if runErr != nil {
@@ -1153,7 +1153,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected SkippedFiles to be 2, got %d", engine.SkippedFiles)
 	}
 
-	if !strings.Contains(output, "Error reading file badread.go") {
+	if !strings.Contains(output, "badread.go\n  Error: reading file: ") {
 		t.Fatalf("expected per-file error to still be logged, got output: %q", output)
 	}
 }
@@ -1198,7 +1198,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.Cache = nil
 
 		var runErr error
-		output := captureStdout(t, func() {
+		output := captureStderr(t, func() {
 			runErr = engine.Run(context.Background())
 		})
 
@@ -1206,7 +1206,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected a drift-detected error, got: %v", runErr)
 		}
 
-		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
@@ -1221,7 +1221,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.Baseline = b
 
 		var runErr error
-		output := captureStdout(t, func() {
+		output := captureStderr(t, func() {
 			runErr = engine.Run(context.Background())
 		})
 
@@ -1229,7 +1229,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
 
-		want := "    [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
+		want := "  [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
@@ -1241,7 +1241,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.UpdateBaseline = true
 
 		var runErr error
-		output := captureStdout(t, func() {
+		output := captureStderr(t, func() {
 			runErr = engine.Run(context.Background())
 		})
 
@@ -1249,7 +1249,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
+		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
@@ -1262,7 +1262,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		engine.BaselineReason = "accepted-debt"
 
 		var runErr error
-		output := captureStdout(t, func() {
+		output := captureStderr(t, func() {
 			runErr = engine.Run(context.Background())
 		})
 
@@ -1270,7 +1270,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "    [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
+		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
 		if !strings.Contains(output, want) {
 			t.Errorf("expected exact block %q, got: %q", want, output)
 		}
@@ -1381,7 +1381,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		runErr = engine.Run(context.Background())
 	})
 
@@ -1427,7 +1427,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		runErr = engine.Run(t.Context())
 	})
 
@@ -1523,7 +1523,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -1566,7 +1566,7 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -1615,7 +1615,7 @@ func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T)
 	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -1922,7 +1922,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -1948,7 +1948,7 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		if err := engine.Run(context.Background()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1978,7 +1978,7 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		if err := engine.Run(context.Background()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2010,7 +2010,7 @@ func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		if err := engine.Run(context.Background()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2038,7 +2038,7 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, false, false)
 	engine.Cache = nil
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		if err := engine.Run(context.Background()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -2072,7 +2072,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	engine.Cache = nil
 	// engine.SuggestFixes left at its zero value (false) -- this is the default-off assertion.
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -2114,7 +2114,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	engine.SuggestFixes = true
 	engine.JSONOutput = true
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -2159,7 +2159,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
-	_ = captureStdout(t, func() {
+	_ = captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -2195,7 +2195,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 	engine.SuggestFixes = true
 	engine.Baseline = b
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -2238,7 +2238,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
 
-	firstOutput := captureStdout(t, func() {
+	firstOutput := captureStderr(t, func() {
 		_ = firstEngine.Run(context.Background())
 	})
 	if !strings.Contains(firstOutput, "Suggestion") {
@@ -2250,7 +2250,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	secondEngine.SuggestFixes = false
 	secondEngine.JSONOutput = true
 
-	secondOutput := captureStdout(t, func() {
+	secondOutput := captureStderr(t, func() {
 		_ = secondEngine.Run(context.Background())
 	})
 	if strings.Contains(secondOutput, "Suggestion") {
@@ -2313,7 +2313,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	engine.Cache = c
 	engine.SuggestFixes = true
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 
@@ -2361,14 +2361,14 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
-	_ = captureStdout(t, func() { _ = firstEngine.Run(context.Background()) })
+	_ = captureStderr(t, func() { _ = firstEngine.Run(context.Background()) })
 
 	// Debug toggles between runs but isn't part of the suggestion key, so
 	// the cached suggestion should still be reused.
 	secondEngine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = true
-	output := captureStdout(t, func() { _ = secondEngine.Run(context.Background()) })
+	output := captureStderr(t, func() { _ = secondEngine.Run(context.Background()) })
 
 	if suggestionCalls != 1 {
 		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
@@ -2423,7 +2423,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = c
 	engine.SuggestFixes = true
-	output := captureStdout(t, func() { _ = engine.Run(context.Background()) })
+	output := captureStderr(t, func() { _ = engine.Run(context.Background()) })
 
 	mu.Lock()
 	calls := suggestionCalls
@@ -2461,7 +2461,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
-	output := captureStdout(t, func() {
+	output := captureStderr(t, func() {
 		_ = engine.Run(context.Background())
 	})
 

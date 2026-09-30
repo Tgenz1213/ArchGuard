@@ -8,6 +8,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func candidateStore() *index.LocalStore {
@@ -57,7 +58,7 @@ func TestCandidateSource_KeepsOnlyScopeMatchedADRs(t *testing.T) {
 func TestCandidateSource_DropsSuppressedADRsAndSaysSo(t *testing.T) {
 	var buf bytes.Buffer
 
-	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", "// archguard-ignore: 0001\npackage svc", stage.NewDebug(&buf))
+	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", "// archguard-ignore: 0001\npackage svc", output.New(&buf, true))
 
 	if candidateIDs(got) != "0003" {
 		t.Fatalf("got %s, want only 0003", candidateIDs(got))

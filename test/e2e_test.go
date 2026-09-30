@@ -955,9 +955,7 @@ analysis:
 	t.Log("Indexing ADRs for E2E test...")
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	// --debug is required for the CLI to print per-file "Analyzing <path>..."
-	// lines; the normal violation output has no filename in it at all.
-	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "--debug", "a.js", "b.js")
+	cmd := exec.CommandContext(t.Context(), binaryPath, "check", "a.js", "b.js")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 
@@ -978,11 +976,11 @@ analysis:
 		t.Fatalf("expected exit code %d (drift detected), got %d. Output: %s", cli.ExitDriftDetected, exitCode, output)
 	}
 
-	if !strings.Contains(output, "Analyzing a.js") {
+	if !strings.Contains(output, "a.js\n  [VIOLATION]") {
 		t.Errorf("expected output to mention a.js's violation, got:\n%s", output)
 	}
 
-	if !strings.Contains(output, "Analyzing b.js") {
+	if !strings.Contains(output, "b.js\n  [VIOLATION]") {
 		t.Errorf("expected output to mention b.js's violation, got:\n%s", output)
 	}
 
@@ -1050,7 +1048,7 @@ analysis:
 			t.Errorf("expected a debug line naming the skipped excluded file, got:\n%s", output)
 		}
 
-		if !strings.Contains(output, "Analyzing b.js") {
+		if !strings.Contains(output, "b.js\n  [DEBUG] Context mode:") {
 			t.Errorf("expected b.js to still be analyzed, got:\n%s", output)
 		}
 	})

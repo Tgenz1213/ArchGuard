@@ -72,9 +72,9 @@ func TestTelemetry_StageThatReceivesNothingReportsZeros(t *testing.T) {
 
 type slowDebug struct{ delay time.Duration }
 
-func (d slowDebug) Enabled() bool { return true }
+func (d slowDebug) DebugEnabled() bool { return true }
 
-func (d slowDebug) Printf(string, ...any) { time.Sleep(d.delay) }
+func (d slowDebug) Debug(string, ...any) { time.Sleep(d.delay) }
 
 func TestTelemetry_EmptyInputAddsNoTimeEvenWhenDebugOutputIsSlow(t *testing.T) {
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores()}})

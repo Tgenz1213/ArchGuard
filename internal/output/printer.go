@@ -131,25 +131,27 @@ func (p *Printer) Violation(v Violation) {
 		label = "BASELINED"
 	}
 
-	if v.Verified {
-		p.Info("[%s] %s [Line %d]", label, v.Title, v.Line)
-	} else {
-		p.Info("[%s] %s [UNVERIFIED: quoted code not found in analyzed content]", label, v.Title)
+	header := fmt.Sprintf("[%s] %s [Line %d]", label, v.Title, v.Line)
+	if !v.Verified {
+		header = fmt.Sprintf("[%s] %s [UNVERIFIED: quoted code not found in analyzed content]", label, v.Title)
 	}
 
-	p.Field("Reasoning", "%s", v.Reasoning)
+	details := p.Group(header)
+	details.Field("Reasoning", "%s", v.Reasoning)
 
 	if v.Code != "" {
-		p.Field("Code", "%s", v.Code)
+		details.Field("Code", "%s", v.Code)
 	}
 
 	if v.Suggestion != "" {
-		p.Field("Suggestion (unverified)", "%s", v.Suggestion)
+		details.Field("Suggestion (unverified)", "%s", v.Suggestion)
 	}
 
 	if v.BaselineReason != "" {
-		p.Field("Baseline Reason", "%s", v.BaselineReason)
+		details.Field("Baseline Reason", "%s", v.BaselineReason)
 	}
+
+	details.Flush()
 }
 
 func (p *Printer) line(label, format string, args ...any) {

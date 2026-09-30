@@ -638,11 +638,13 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		human = os.Stderr
 	}
 
+	out := output.New(human, *debug)
+
 	if *format == "json" && *updateBaseline {
 		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg, output.New(human, false))
+	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
@@ -730,12 +732,12 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
 	engine.EmbedProvider = embedProvider
-	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, human)
+	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, out)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = *updateBaseline
 	engine.BaselineReason = *baselineReason
 	engine.JSONOutput = jsonOutput
-	engine.Writer = human
+	engine.Out = out
 	engine.SuggestFixes = *suggestFixes
 
 	runErr := engine.Run(ctx)

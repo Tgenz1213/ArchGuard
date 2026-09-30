@@ -10,6 +10,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func cosineStore(adrs ...index.ADR) *index.LocalStore {
@@ -85,7 +86,7 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.9, 5)
 	var buf bytes.Buffer
 
-	if _, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NewDebug(&buf), candidatesFor(store)); err != nil {
+	if _, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, output.New(&buf, true), candidatesFor(store)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

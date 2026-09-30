@@ -40,10 +40,10 @@ normally and complements `rankAndLimit` instead, via `truncatedByTopK`. In
 `--debug` mode, `Engine.Run` logs each one as:
 
 ```
-  Cut by top-K limit: <title> (score X.XX, rank Y of Z qualifying ADRs)
+  [DEBUG] Cut by top-K limit: <title> (score X.XX, rank Y of Z qualifying ADRs)
 ```
 
-distinct from the existing `"  Below threshold: ..."` line. Non-debug
+under the file's header, distinct from the existing `[DEBUG] Below threshold: ...` line. Non-debug
 behavior and cost are unaffected, same as the original decision above.
 `SearchTruncated`'s result is intentionally uncapped (unlike `SearchRejected`,
 which still ends in `rankAndLimit`) -- every qualifying ADR beyond topK is

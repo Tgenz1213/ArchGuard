@@ -3,7 +3,6 @@ package analysis_test
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +14,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 const fakeGitStartedEnv = "ARCHGUARD_FAKE_GIT_STARTED"
@@ -51,7 +51,7 @@ func TestRun_CancelKillsInFlightGit(t *testing.T) {
 
 	engine := analysis.NewEngine(&config.Config{}, index.NewLocalStore(5), &llm.MockProvider{}, &analysis.StagedProvider{}, false, false)
 	engine.Cache = nil
-	engine.Writer = io.Discard
+	engine.Out = output.Discard()
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -97,7 +97,7 @@ func TestRun_CancelStopsSchedulingAndSkipsBaseline(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), &llm.MockProvider{}, content, false, false)
 	engine.Cache = nil
-	engine.Writer = io.Discard
+	engine.Out = output.Discard()
 	engine.UpdateBaseline = true
 
 	err := engine.Run(ctx)
