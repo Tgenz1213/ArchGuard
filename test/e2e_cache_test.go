@@ -10,6 +10,21 @@ import (
 	"github.com/tgenz1213/archguard/internal/cli"
 )
 
+func TestE2E_CheckWritesAnalysisCache(t *testing.T) {
+	dir, binaryPath := setupOutputErrorsRepo(t)
+	runIndexCmd(t, dir, binaryPath, int(cli.ExitSuccess))
+	runCheck(t, dir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
+
+	entries, err := filepath.Glob(filepath.Join(dir, ".archguard", "cache", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(entries) == 0 {
+		t.Fatal("a check that called the LLM wrote no analysis cache entry")
+	}
+}
+
 func TestE2E_UnusableCacheDirWarnsAndRunsUncached(t *testing.T) {
 	dir, binaryPath := setupOutputErrorsRepo(t)
 	runIndexCmd(t, dir, binaryPath, int(cli.ExitSuccess))

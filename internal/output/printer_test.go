@@ -193,6 +193,21 @@ func TestProgressEndsLineBeforeNextMessage(t *testing.T) {
 	}
 }
 
+func TestFlushEndsAGroupsUnfinishedProgressLine(t *testing.T) {
+	var buf bytes.Buffer
+
+	p := output.New(&buf, false)
+	g := p.Group("a.go")
+	g.Progress().Tick()
+	g.Flush()
+	p.Info("next")
+
+	want := "a.go\n.\nnext\n"
+	if got := buf.String(); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestViolation(t *testing.T) {
 	tests := []struct {
 		name string
