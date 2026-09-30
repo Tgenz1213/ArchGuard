@@ -18,10 +18,10 @@ All human-readable output goes through `internal/output.Printer`, passed down fr
 
 - A nil `*Printer` writes to stderr, never stdout, so a component nobody wired up can't corrupt a JSON report.
 - The `Printer` owns labels (`Warning:`, `Note:`, `Error:`, `[DEBUG]`) and indentation. `Group` buffers one file's block until `Flush`, `Indented` writes one level deeper, and `Violation` renders a violation. It locks around every write.
-- **Primary output is fatal.** `Result` lines, `Violation` blocks, and any `Group` holding one are primary; `Err()` reports their first failed write. `cli` turns it into exit `1`, which takes precedence over `4`, `6` and `7` because the verdict never reached the reader; only an interrupt (`130`) wins over it. Help, usage and `--version` return their write errors to the same effect, and a failed write of the JSON document exits `1`.
+- **Primary output is fatal.** `Result` lines, `Violation` blocks, and any `Group` holding one are primary; `Err()` reports their first failed write. `cli` turns it into exit `1`, which takes precedence over every other exit code because the reader never got the output; only an interrupt (`130`) wins over it. Help, usage and `--version` return their write errors to the same effect, and a failed write of the JSON document exits `1`.
 - **Diagnostics are best-effort.** Every other `Printer` write ignores its error, so a broken stderr can't turn a clean check into a failure, which also protects the GitHub Action's exit codes.
 - Under `--format json` the human lines are on stderr and only the JSON document is primary.
-- `init`'s interactive prompts and the startup banner use `fmt` directly; kong prints help and usage (`docs/arch/0025-kong-command-line.md`).
+- `init`'s prompts and status lines, the startup banner, `--version` and `main`'s final `Error:` line use `fmt` directly; kong prints help and usage (`docs/arch/0025-kong-command-line.md`).
 - errcheck runs with `check-blank: true`. A discarded error is allowed only for cleanup after an error that already wins, or a call whose error can't occur or can't change the result, and each carries `//nolint:errcheck // <reason>` on the same line.
 
 ## Consequences
