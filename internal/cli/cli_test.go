@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -570,123 +569,167 @@ func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
 	}
 }
 
-func TestCheckWantsJSON(t *testing.T) {
+func TestParseCommandLine(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want bool
+		name        string
+		args        []string
+		wantCommand string
+		wantCode    ExitCode
+		wantErr     bool
+		wantOut     string
+		check       func(t *testing.T, c checkCmd)
 	}{
-		{name: "not check", args: []string{"archguard", "index", "--format", "json"}, want: false},
-		{name: "text default", args: []string{"archguard", "check"}, want: false},
-		{name: "format json space-separated", args: []string{"archguard", "check", "--format", "json"}, want: true},
-		{name: "format=json", args: []string{"archguard", "check", "--format=json"}, want: true},
-		{name: "format json with update-baseline", args: []string{"archguard", "check", "--format", "json", "--update-baseline"}, want: false},
-		{name: "format=json with update-baseline=true", args: []string{"archguard", "check", "--format=json", "--update-baseline=true"}, want: false},
-		{name: "format=json with update-baseline=false", args: []string{"archguard", "check", "--format=json", "--update-baseline=false"}, want: true},
-		{name: "format text with update-baseline", args: []string{"archguard", "check", "--format", "text", "--update-baseline"}, want: false},
-		{name: "baseline-reason value not mistaken for a flag", args: []string{"archguard", "check", "--baseline-reason", "--format", "--format", "json"}, want: true},
-		{name: "format after positional stops parsing", args: []string{"archguard", "check", "a.go", "--format", "json"}, want: false},
+		{name: "check with paths", args: []string{"check", "a.go", "b.go"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if len(c.Paths) != 2 || c.Paths[0] != "a.go" || c.Paths[1] != "b.go" {
+				t.Errorf("Paths = %v", c.Paths)
+			}
+		}},
+		{name: "flags after paths are parsed", args: []string{"check", "a.go", "--debug"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if !c.Debug || len(c.Paths) != 1 {
+				t.Errorf("Debug = %v, Paths = %v", c.Debug, c.Paths)
+			}
+		}},
+		{name: "value flag is not a path", args: []string{"check", "--update-baseline", "--baseline-reason", "accepted-debt"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if c.BaselineReason != "accepted-debt" || len(c.Paths) != 0 {
+				t.Errorf("BaselineReason = %q, Paths = %v", c.BaselineReason, c.Paths)
+			}
+		}},
+		{name: "format json", args: []string{"check", "--format", "json"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if !c.jsonOutput() {
+				t.Error("jsonOutput() = false, want true")
+			}
+		}},
+		{name: "format json ignored with update-baseline", args: []string{"check", "--format=json", "--update-baseline"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if c.jsonOutput() {
+				t.Error("jsonOutput() = true, want false")
+			}
+		}},
+		{name: "index", args: []string{"index"}, wantCommand: "index"},
+		{name: "init", args: []string{"init"}, wantCommand: "init"},
+		{name: "--help", args: []string{"--help"}, wantOut: "Usage: archguard <command>"},
+		{name: "-h", args: []string{"-h"}, wantOut: "Usage: archguard <command>"},
+		{name: "help", args: []string{"help"}, wantOut: "Usage: archguard <command>"},
+		{name: "check --help after flags", args: []string{"check", "--format", "json", "--help"}, wantOut: "Scan staged files only"},
+		{name: "index --help", args: []string{"index", "--help"}, wantOut: "Usage: archguard index"},
+		{name: "--version", args: []string{"--version"}, wantOut: "ArchGuard version"},
+		{name: "no command", args: nil, wantCode: ExitUsage, wantErr: true, wantOut: "Usage: archguard <command>"},
+		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true},
+		{name: "invalid format", args: []string{"check", "--format", "xml"}, wantCode: ExitUsage, wantErr: true},
+		{name: "single-dash long flag", args: []string{"check", "-debug"}, wantCode: ExitUsage, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := checkWantsJSON(tt.args); got != tt.want {
-				t.Errorf("checkWantsJSON(%v) = %v, want %v", tt.args, got, tt.want)
+			var out bytes.Buffer
+
+			inv, code, err := parseCommandLine(tt.args, &out)
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !strings.Contains(out.String(), tt.wantOut) {
+				t.Errorf("output missing %q, got:\n%s", tt.wantOut, out.String())
+			}
+
+			if tt.wantCommand == "" {
+				if inv != nil {
+					t.Fatalf("expected the command line to be handled during parsing, got command %q", inv.command)
+				}
+
+				if code != tt.wantCode {
+					t.Errorf("exit code = %d, want %d", code, tt.wantCode)
+				}
+
+				return
+			}
+
+			if inv == nil || inv.command != tt.wantCommand {
+				t.Fatalf("invocation = %+v, want command %q", inv, tt.wantCommand)
+			}
+
+			if tt.check != nil {
+				tt.check(t, inv.check)
 			}
 		})
 	}
 }
 
-func TestNormalizePositionalArgPaths_RunsEvenWhenCwdEqualsRepoRoot(t *testing.T) {
-	repoRoot := filepath.Clean(t.TempDir())
-	cwd := repoRoot
+type failingWriter struct{}
 
-	args := []string{"archguard", "check", "./sub/../file.go", "--debug"}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-	if args[2] != "file.go" {
-		t.Errorf("expected the uncleaned positional path to be cleaned to %q (proving the rewrite actually ran at cwd == repoRoot), got %q", "file.go", args[2])
-	}
-
-	if args[3] != "--debug" {
-		t.Errorf("flag argument must be left untouched, got %q", args[3])
-	}
-}
-
-func TestNormalizePositionalArgPaths_HandlesAbsolutePathArg(t *testing.T) {
-	repoRoot := filepath.Clean(t.TempDir())
-	cwd := repoRoot
-
-	absArg := filepath.Join(repoRoot, "sub", "file.go")
-	args := []string{"archguard", "check", absArg}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
-
-	want := filepath.ToSlash(filepath.Join("sub", "file.go"))
-	if args[2] != want {
-		t.Errorf("expected an absolute in-repo path arg to normalize to the repo-relative form %q, got %q (this is the case that broke: filepath.Join(cwd, arg) mangles an already-absolute arg instead of using it directly)", want, args[2])
+func TestParseCommandLine_OutputWriteFailureExitsOne(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"check", "--help"}, {"--version"}, {"typo"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			inv, code, err := parseCommandLine(args, failingWriter{})
+			if inv != nil || code != ExitError || err == nil {
+				t.Fatalf("got (%v, %d, %v), want (nil, %d, error)", inv, code, err, ExitError)
+			}
+		})
 	}
 }
 
-func TestNormalizePositionalArgPaths_LeavesValueFlagArgumentUntouched(t *testing.T) {
+func TestNormalizePaths_CleansRelativePathAtRepoRoot(t *testing.T) {
 	repoRoot := filepath.Clean(t.TempDir())
 
+	paths := []string{"./sub/../file.go"}
+	normalizePaths(paths, repoRoot, repoRoot)
+
+	if paths[0] != "file.go" {
+		t.Errorf("got %q, want %q", paths[0], "file.go")
+	}
+}
+
+func TestNormalizePaths_ResolvesFromSubdirectory(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
 	cwd := filepath.Join(repoRoot, "internal", "cli")
-	if err := os.MkdirAll(cwd, 0755); err != nil {
-		t.Fatalf("failed to create subdirectory: %v", err)
-	}
 
-	args := []string{"archguard", "check", "--update-baseline", "--baseline-reason", "accepted-debt"}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
+	paths := []string{"cli.go"}
+	normalizePaths(paths, cwd, repoRoot)
 
-	if args[4] != "accepted-debt" {
-		t.Errorf("expected --baseline-reason's value to be left untouched when run from a subdirectory, got %q (it was being mangled into a bogus repo-relative path derived from cwd, since it doesn't start with \"-\" and the rewrite couldn't tell a flag value from a positional file path)", args[4])
+	if paths[0] != "internal/cli/cli.go" {
+		t.Errorf("got %q, want %q", paths[0], "internal/cli/cli.go")
 	}
 }
 
-func TestNormalizePositionalArgPaths_LeavesEmptyArgUntouched(t *testing.T) {
+func TestNormalizePaths_HandlesAbsolutePath(t *testing.T) {
 	repoRoot := filepath.Clean(t.TempDir())
-	cwd := repoRoot
 
-	args := []string{"archguard", "check", ""}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
+	paths := []string{filepath.Join(repoRoot, "sub", "file.go")}
+	normalizePaths(paths, repoRoot, repoRoot)
 
-	if args[2] != "" {
-		t.Errorf("expected an empty positional arg to be left untouched (not resolved to %q, which resolveContentProvider treats as a whole-repo scan), got %q", ".", args[2])
+	if paths[0] != "sub/file.go" {
+		t.Errorf("got %q, want %q", paths[0], "sub/file.go")
 	}
 }
 
-func TestNormalizePositionalArgPaths_ConvertsBackslashesOnWindows(t *testing.T) {
+func TestNormalizePaths_LeavesEmptyPathUntouched(t *testing.T) {
+	repoRoot := filepath.Clean(t.TempDir())
+
+	paths := []string{""}
+	normalizePaths(paths, repoRoot, repoRoot)
+
+	if paths[0] != "" {
+		t.Errorf("an empty path must stay empty, not become %q (a whole-repo scan), got %q", ".", paths[0])
+	}
+}
+
+func TestNormalizePaths_MatchesBaselineEntryRecordedWithForwardSlashes(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("backslash-as-separator is a Windows-only path.filepath behavior")
 	}
 
 	repoRoot := filepath.Clean(t.TempDir())
-	cwd := repoRoot
 
-	args := []string{"archguard", "check", `internal\analysis\engine.go`}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
-
-	if args[2] != "internal/analysis/engine.go" {
-		t.Errorf("expected backslash-style arg to normalize to forward slashes at cwd == repoRoot, got %q", args[2])
-	}
-}
-
-func TestNormalizePositionalArgPaths_MatchesBaselineEntryRecordedWithForwardSlashes(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("backslash-as-separator is a Windows-only path.filepath behavior")
-	}
-
-	repoRoot := filepath.Clean(t.TempDir())
-	cwd := repoRoot
-
-	args := []string{"archguard", "check", `internal\analysis\engine.go`}
-	normalizePositionalArgPaths(args, cwd, repoRoot)
+	paths := []string{`internal\analysis\engine.go`}
+	normalizePaths(paths, repoRoot, repoRoot)
 
 	b := baseline.New()
 	b.Add(baseline.Entry{ADRID: "0001", File: "internal/analysis/engine.go", QuotedCode: "quoted violating code"})
 
-	if !b.IsSuppressed("0001", args[2], "some context\nquoted violating code\nmore context") {
-		t.Errorf("expected the normalized path %q to match a baseline entry recorded with forward slashes, but IsSuppressed returned false", args[2])
+	if !b.IsSuppressed("0001", paths[0], "some context\nquoted violating code\nmore context") {
+		t.Errorf("normalized path %q should match a baseline entry recorded with forward slashes", paths[0])
 	}
 }
 
@@ -838,146 +881,6 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	}
 }
 
-func TestRunIndexCommand_HelpFlagExitsSuccess(t *testing.T) {
-	cfg := &config.Config{}
-	var exitCode ExitCode
-	var runErr error
-	output := captureStdout(t, func() {
-		exitCode, runErr = runIndexCommand(context.Background(), cfg, nil, "", nil, nil, []string{"--help"})
-	})
-
-	if runErr != nil {
-		t.Fatalf("expected no error, got %v", runErr)
-	}
-
-	if exitCode != ExitSuccess {
-		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
-	}
-
-	if !strings.Contains(output, "Usage: archguard index") {
-		t.Fatalf("expected index usage output, got %q", output)
-	}
-}
-
-func TestIsTopLevelHelpRequest(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want bool
-	}{
-		{name: "--help", args: []string{"archguard", "--help"}, want: true},
-		{name: "-h", args: []string{"archguard", "-h"}, want: true},
-		{name: "help", args: []string{"archguard", "help"}, want: true},
-		{name: "no args", args: []string{"archguard"}, want: false},
-		{name: "check subcommand", args: []string{"archguard", "check"}, want: false},
-		{name: "check --help is not top-level help", args: []string{"archguard", "check", "--help"}, want: false},
-		{name: "unknown command", args: []string{"archguard", "typo"}, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isTopLevelHelpRequest(tt.args); got != tt.want {
-				t.Errorf("isTopLevelHelpRequest(%v) = %v, want %v", tt.args, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSubcommandHelpRequest(t *testing.T) {
-	tests := []struct {
-		name       string
-		args       []string
-		wantSubcmd string
-		wantOK     bool
-	}{
-		{name: "check --help", args: []string{"archguard", "check", "--help"}, wantSubcmd: "check", wantOK: true},
-		{name: "check -h", args: []string{"archguard", "check", "-h"}, wantSubcmd: "check", wantOK: true},
-		{name: "index --help", args: []string{"archguard", "index", "--help"}, wantSubcmd: "index", wantOK: true},
-		{name: "index -h", args: []string{"archguard", "index", "-h"}, wantSubcmd: "index", wantOK: true},
-		{name: "check --help after other flags", args: []string{"archguard", "check", "--debug", "--help"}, wantSubcmd: "check", wantOK: true},
-		{name: "check with no help", args: []string{"archguard", "check", "--debug"}, wantSubcmd: "", wantOK: false},
-		{name: "help stops at first positional arg", args: []string{"archguard", "check", "foo.go", "--help"}, wantSubcmd: "", wantOK: false},
-		{name: "help detected after a value-taking flag", args: []string{"archguard", "check", "--format", "json", "--help"}, wantSubcmd: "check", wantOK: true},
-		{name: "init is not a help-eligible subcommand", args: []string{"archguard", "init", "--help"}, wantSubcmd: "", wantOK: false},
-		{name: "no args", args: []string{"archguard"}, wantSubcmd: "", wantOK: false},
-		{name: "top-level help is not subcommand help", args: []string{"archguard", "--help"}, wantSubcmd: "", wantOK: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotSubcmd, gotOK := subcommandHelpRequest(tt.args)
-			if gotSubcmd != tt.wantSubcmd || gotOK != tt.wantOK {
-				t.Errorf("subcommandHelpRequest(%v) = (%q, %v), want (%q, %v)", tt.args, gotSubcmd, gotOK, tt.wantSubcmd, tt.wantOK)
-			}
-		})
-	}
-}
-
-// Exercises Execute itself, not just the extracted helper, so its call stays unconditional.
-func TestExecute_NormalizesPositionalArgPath_EvenWhenCwdEqualsRepoRoot(t *testing.T) {
-	origArgs := os.Args
-
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get original working directory: %v", err)
-	}
-
-	defer func() {
-		os.Args = origArgs
-
-		if err := os.Chdir(origWd); err != nil {
-			t.Fatalf("failed to restore working directory: %v", err)
-		}
-	}()
-
-	repoRoot := t.TempDir()
-	gitInit := exec.CommandContext(t.Context(), "git", "init")
-
-	gitInit.Dir = repoRoot
-	if out, err := gitInit.CombinedOutput(); err != nil {
-		t.Fatalf("failed to init git repo: %v\n%s", err, out)
-	}
-
-	// Resolve the same way Execute's git.GetRepoRoot() does, so cwd == repoRoot
-	// stays exact even where TMPDIR is a symlink.
-	resolvedRoot, err := exec.CommandContext(t.Context(), "git", "-C", repoRoot, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		t.Fatalf("failed to resolve repo root: %v", err)
-	}
-
-	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
-
-	if err := os.Chdir(cleanRoot); err != nil {
-		t.Fatalf("failed to chdir into repo root: %v", err)
-	}
-
-	// Guards against path canonicalization quietly sending this test down the wrong branch.
-	gotWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory after chdir: %v", err)
-	}
-
-	if !strings.EqualFold(filepath.Clean(gotWd), cleanRoot) {
-		t.Fatalf("precondition failed: cwd %q does not equal repoRoot %q", gotWd, cleanRoot)
-	}
-
-	// Avoids a "failed to load .env" stderr warning from godotenv.Load,
-	// unrelated to what this test is checking.
-	if err := os.WriteFile(filepath.Join(cleanRoot, ".env"), []byte(""), 0644); err != nil {
-		t.Fatalf("failed to write empty .env: %v", err)
-	}
-
-	os.Args = []string{"archguard", "check", "./sub/../file.go"}
-
-	// Execute fails shortly after (no archguard.yaml here) -- irrelevant,
-	// since os.Args is already mutated by then.
-	captureStdout(t, func() {
-		_, _ = Execute(t.Context(), ProviderFactories{})
-	})
-
-	if os.Args[2] != "file.go" {
-		t.Errorf("expected the uncleaned positional path to be normalized to %q by Execute itself even though cwd == repoRoot, got %q", "file.go", os.Args[2])
-	}
-}
-
 func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
@@ -1003,48 +906,6 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 				t.Fatalf("expected usage output, got %q", output)
 			}
 		})
-	}
-}
-
-func TestRunCheck_HelpFlagExitsSuccessWithCustomUsage(t *testing.T) {
-	tempDir := t.TempDir()
-
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
-	}
-
-	defer func() {
-		if err := os.Chdir(origWd); err != nil {
-			t.Fatalf("failed to restore working directory: %v", err)
-		}
-	}()
-
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("failed to chdir to temp dir: %v", err)
-	}
-
-	cfg := &config.Config{}
-	var exitCode ExitCode
-	var runErr error
-	output := captureStdout(t, func() {
-		exitCode, runErr = runCheck(t.Context(), cfg, nil, nil, "", nil, nil, []string{"--help"})
-	})
-
-	if runErr != nil {
-		t.Fatalf("expected no error, got %v", runErr)
-	}
-
-	if exitCode != ExitSuccess {
-		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
-	}
-
-	if !strings.Contains(output, "--staged") || !strings.Contains(output, "Scan staged files only") {
-		t.Fatalf("expected flag descriptions in help output, got %q", output)
-	}
-
-	if strings.Contains(output, "Usage of check:") {
-		t.Fatalf("expected custom usage, not Go's default flag.PrintDefaults() output; got %q", output)
 	}
 }
 

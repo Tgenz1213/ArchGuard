@@ -2,11 +2,9 @@ package cli
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -63,33 +61,13 @@ func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 }
 
 func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
-	if isTopLevelHelpRequest(os.Args) {
-		if err := printUsage(os.Stdout); err != nil {
-			return ExitError, usageWriteError(err)
-		}
-
-		return ExitSuccess, nil
+	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout)
+	if inv == nil {
+		return code, err
 	}
 
-	if subcommand, ok := subcommandHelpRequest(os.Args); ok {
-		var err error
-
-		switch subcommand {
-		case "check":
-			err = printCheckUsage(os.Stdout, newCheckFlagSet())
-		case "index":
-			err = printIndexUsage(os.Stdout, newIndexFlagSet())
-		}
-
-		if err != nil {
-			return ExitError, usageWriteError(err)
-		}
-
-		return ExitSuccess, nil
-	}
-
-	// Decided before checkFlags.Parse so the banner and provider warnings stay off stdout in JSON mode.
-	jsonOutput := checkWantsJSON(os.Args)
+	// Decided from the parsed flags so the banner and provider warnings stay off stdout in JSON mode.
+	jsonOutput := inv.command == "check" && inv.check.jsonOutput()
 	if !jsonOutput {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
 	}
@@ -99,11 +77,15 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return ExitError, fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ExitError, fmt.Errorf("error reading the working directory: %w", err)
+	}
+
 	repoRoot = filepath.Clean(repoRoot)
 	cwd = filepath.Clean(cwd)
 
-	normalizePositionalArgPaths(os.Args, cwd, repoRoot)
+	normalizePaths(inv.check.Paths, cwd, repoRoot)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
@@ -115,29 +97,12 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		output.New(os.Stderr, false).Warn("failed to load .env: %v", err)
 	}
 
-	if len(os.Args) < 2 {
-		if err := printUsage(os.Stdout); err != nil {
-			return ExitError, usageWriteError(err)
-		}
-
-		return ExitUsage, fmt.Errorf("no command provided")
-	}
-
-	command := os.Args[1]
-	switch command {
-	case "init":
+	if inv.command == "init" {
 		if err := runInit(); err != nil {
 			return ExitError, err
 		}
 
 		return ExitSuccess, nil
-	case "check", "index":
-	default:
-		if err := printUsage(os.Stdout); err != nil {
-			return ExitError, usageWriteError(err)
-		}
-
-		return ExitUsage, fmt.Errorf("unknown command: %s", command)
 	}
 
 	cfg, err := config.LoadConfig(configFilename)
@@ -200,11 +165,11 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		}
 	}
 
-	if command == "check" {
-		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+	if inv.command == "check" {
+		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check)
 	}
 
-	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings)
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -263,97 +228,6 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 	}
 
 	return mappings, nil
-}
-
-// Flags that consume the next argument, which must not be rewritten as a path.
-var valueFlagsBySubcommand = map[string]map[string]bool{
-	"check": {"baseline-reason": true, "format": true},
-}
-
-// Mirrors normalizePositionalArgPaths' flag handling to read --format before checkFlags.Parse runs (docs/arch/0014).
-func checkWantsJSON(args []string) bool {
-	if len(args) < 2 || args[1] != "check" {
-		return false
-	}
-
-	valueFlagNames := valueFlagsBySubcommand["check"]
-	format := "text"
-	updateBaseline := false
-	for i := 2; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "-") {
-			break // flag stops parsing at the first positional arg
-		}
-
-		name := strings.TrimLeft(arg, "-")
-		if flagName, value, ok := strings.Cut(name, "="); ok {
-			switch flagName {
-			case "format":
-				format = value
-			case "update-baseline":
-				// Matches flag.Bool: only an explicit falsy value leaves it unset.
-				updateBaseline = value != "false" && value != "0"
-			}
-
-			continue
-		}
-
-		if name == "format" {
-			if i+1 < len(args) {
-				format = args[i+1]
-				i++
-			}
-
-			continue
-		}
-
-		if name == "update-baseline" {
-			updateBaseline = true
-			continue
-		}
-
-		if valueFlagNames[name] && i+1 < len(args) {
-			i++ // this flag's value, not another flag name
-		}
-	}
-
-	return format == "json" && !updateBaseline
-}
-
-// Runs unconditionally: a backslash-style arg typed from the repo root needs it too.
-func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
-	var subcommand string
-	if len(args) > 1 {
-		subcommand = args[1]
-	}
-
-	valueFlagNames := valueFlagsBySubcommand[subcommand]
-
-	for i := 2; i < len(args); i++ {
-		arg := args[i]
-		if arg == "" {
-			continue
-		}
-
-		if strings.HasPrefix(arg, "-") {
-			name := strings.TrimLeft(arg, "-")
-			if !strings.Contains(name, "=") && valueFlagNames[name] && i+1 < len(args) {
-				i++ // the next argument is this flag's value, not a path
-			}
-
-			continue
-		}
-
-		target := arg
-		if !filepath.IsAbs(arg) {
-			target = filepath.Join(cwd, arg)
-		}
-
-		relPath, err := filepath.Rel(repoRoot, target)
-		if err == nil {
-			args[i] = filepath.ToSlash(relPath)
-		}
-	}
 }
 
 // Invariants the YAML schema can't express (docs/arch/0004).
@@ -620,43 +494,17 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (code ExitCode, err error) {
-	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
-	var flagParseOutput bytes.Buffer
-	checkFlags.SetOutput(&flagParseOutput)
-	staged, all, debug, ci, updateBaseline, baselineReason, format, suggestFixes := registerCheckFlags(checkFlags)
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
+	files := opts.Paths
 
-	if err := checkFlags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			if err := printCheckUsage(os.Stdout, checkFlags); err != nil {
-				return ExitError, usageWriteError(err)
-			}
-
-			return ExitSuccess, nil
-		}
-
-		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
-			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
-		}
-
-		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
-	}
-
-	if *format != "text" && *format != "json" {
-		return ExitUsage, fmt.Errorf(`invalid --format value %q: must be "text" or "json"`, *format)
-	}
-
-	files := checkFlags.Args()
-
-	// --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.
-	jsonOutput := *format == "json" && !*updateBaseline
+	jsonOutput := opts.jsonOutput()
 	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
 	human := io.Writer(os.Stdout)
 	if jsonOutput {
 		human = os.Stderr
 	}
 
-	out := output.New(human, *debug)
+	out := output.New(human, opts.Debug)
 
 	// In JSON mode the human lines are on stderr and the JSON document is the primary output.
 	defer func() {
@@ -665,7 +513,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		}
 	}()
 
-	if *format == "json" && *updateBaseline {
+	if opts.Format == "json" && opts.UpdateBaseline {
 		out.Note("--format json has no effect with --update-baseline; ignoring it.")
 	}
 
@@ -729,15 +577,15 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		}
 	}
 
-	if *updateBaseline && (len(files) > 0 || *staged) {
+	if opts.UpdateBaseline && (len(files) > 0 || opts.Staged) {
 		out.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 
-	if *baselineReason != "" && !*updateBaseline {
+	if opts.BaselineReason != "" && !opts.UpdateBaseline {
 		out.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
 
-	contentProvider := resolveContentProvider(out, files, *staged, *all, *updateBaseline)
+	contentProvider := resolveContentProvider(out, files, opts.Staged, opts.All, opts.UpdateBaseline)
 
 	out.Debug("Mode Enabled")
 
@@ -745,22 +593,22 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	loadedBaseline, err = baseline.Load(baseline.Path)
 	if err != nil {
-		if !*updateBaseline {
+		if !opts.UpdateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
 
 		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
+	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, opts.Debug, opts.CI)
 	engine.EmbedProvider = embedProvider
 	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, out)
 	engine.Baseline = loadedBaseline
-	engine.UpdateBaseline = *updateBaseline
-	engine.BaselineReason = *baselineReason
+	engine.UpdateBaseline = opts.UpdateBaseline
+	engine.BaselineReason = opts.BaselineReason
 	engine.JSONOutput = jsonOutput
 	engine.Out = out
-	engine.SuggestFixes = *suggestFixes
+	engine.SuggestFixes = opts.SuggestFixes
 
 	runErr := engine.Run(ctx)
 	if runErr != nil && ctx.Err() != nil {
@@ -769,7 +617,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
 
-	if *updateBaseline {
+	if opts.UpdateBaseline {
 		if runErr != nil {
 			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 		}
@@ -814,29 +662,6 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	return ExitSuccess, nil
-}
-
-// Single source of truth for check's flags, shared with the --help path.
-func registerCheckFlags(fs *flag.FlagSet) (staged, all, debug, ci, updateBaseline *bool, baselineReason, format *string, suggestFixes *bool) {
-	staged = fs.Bool("staged", false, "Scan staged files only")
-	all = fs.Bool("all", false, "Scan all tracked files")
-	debug = fs.Bool("debug", false, "Enable debug logging")
-	ci = fs.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
-	updateBaseline = fs.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
-	baselineReason = fs.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
-	format = fs.String("format", "text", `Output format: "text" (default) or "json"`)
-	suggestFixes = fs.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
-	return
-}
-
-func newCheckFlagSet() *flag.FlagSet {
-	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	registerCheckFlags(fs)
-	return fs
-}
-
-func newIndexFlagSet() *flag.FlagSet {
-	return flag.NewFlagSet("index", flag.ContinueOnError)
 }
 
 type checkReport struct {
@@ -920,28 +745,8 @@ func exitCodeForAnalysisError(err error) ExitCode {
 	return ExitError
 }
 
-// Separate from runIndex so runCheck's auto-rebuild skips CLI-arg/help parsing.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
-	indexFlags := newIndexFlagSet()
-	var flagParseOutput bytes.Buffer
-	indexFlags.SetOutput(&flagParseOutput)
-
-	if err := indexFlags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			if err := printIndexUsage(os.Stdout, indexFlags); err != nil {
-				return ExitError, usageWriteError(err)
-			}
-
-			return ExitSuccess, nil
-		}
-
-		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
-			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
-		}
-
-		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
-	}
-
+// Separate from runIndex, which check's auto-rebuild calls with its own printer.
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
 	out := output.New(os.Stdout, false)
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
@@ -954,17 +759,6 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 
 func outputWriteError(err error) error {
 	return fmt.Errorf("failed to write output: %w", err)
-}
-
-func printIndexUsage(w io.Writer, fs *flag.FlagSet) error {
-	var b strings.Builder
-
-	b.WriteString("Usage: archguard index\n\nRebuilds the ADR index from the configured ADR source(s).\n")
-	writeFlagUsage(&b, fs)
-
-	_, err := io.WriteString(w, b.String())
-
-	return err
 }
 
 func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
@@ -1069,98 +863,4 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 			item.Result("- %s: %s", m.RelPath, m.Reason)
 		}
 	}
-}
-
-type usageEntry struct{ name, summary string }
-
-var commands = []usageEntry{
-	{"init", "Initialize ArchGuard in the current repository (local setup)"},
-	{"check", "Check for architectural violations"},
-	{"index", "Rebuild the ADR index"},
-}
-
-// Handled in cmd/archguard, before Execute runs.
-var globalFlags = []usageEntry{
-	{"-v, --version", "Print version information"},
-}
-
-func printUsage(w io.Writer) error {
-	var b strings.Builder
-
-	b.WriteString("Usage: archguard <command> [arguments]\n\nCommands:\n")
-
-	for _, c := range commands {
-		fmt.Fprintf(&b, "  %-8s %s\n", c.name, c.summary)
-	}
-
-	b.WriteString("\nGlobal Flags:\n")
-
-	for _, f := range globalFlags {
-		fmt.Fprintf(&b, "  %-14s %s\n", f.name, f.summary)
-	}
-
-	_, err := io.WriteString(w, b.String())
-
-	return err
-}
-
-func usageWriteError(err error) error {
-	return fmt.Errorf("failed to write usage: %w", err)
-}
-
-func printCheckUsage(w io.Writer, fs *flag.FlagSet) error {
-	var b strings.Builder
-
-	b.WriteString("Usage: archguard check [flags] [path...]\n\n")
-	b.WriteString("Scans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.\n")
-	writeFlagUsage(&b, fs)
-
-	_, err := io.WriteString(w, b.String())
-
-	return err
-}
-
-func writeFlagUsage(b *strings.Builder, fs *flag.FlagSet) {
-	first := true
-
-	fs.VisitAll(func(f *flag.Flag) {
-		if first {
-			b.WriteString("\nFlags:\n")
-
-			first = false
-		}
-
-		fmt.Fprintf(b, "  --%-20s %s\n", f.Name, f.Usage)
-	})
-}
-
-// Subcommand help is flag.FlagSet's job, not this.
-func isTopLevelHelpRequest(args []string) bool {
-	return len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
-}
-
-// Delegates to the real FlagSet so a value flag like --format ahead of --help is consumed correctly.
-func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
-	if len(args) < 2 {
-		return "", false
-	}
-
-	subcommand = args[1]
-	var fs *flag.FlagSet
-	switch subcommand {
-	case "check":
-		fs = newCheckFlagSet()
-	case "index":
-		fs = newIndexFlagSet()
-	default:
-		return "", false
-	}
-
-	fs.SetOutput(io.Discard)
-
-	if errors.Is(fs.Parse(args[2:]), flag.ErrHelp) {
-		return subcommand, true
-	}
-
-	return "", false
 }

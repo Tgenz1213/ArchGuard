@@ -95,6 +95,7 @@ func TestE2E_PrimaryOutputWriteFailureExitsOne(t *testing.T) {
 		args []string
 	}{
 		{"help", []string{"--help"}},
+		{"version", []string{"--version"}},
 		{"check help", []string{"check", "--help"}},
 		{"index summary", []string{"index"}},
 		{"clean check result", []string{"check", "clean.js"}},
