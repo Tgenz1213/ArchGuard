@@ -2,11 +2,12 @@ package index
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type LocalProvider struct {
@@ -14,7 +15,7 @@ type LocalProvider struct {
 	acceptedStatuses []string
 	idPattern        *regexp.Regexp
 	parseOpts        ParseOptions
-	writer           io.Writer
+	out              *output.Printer
 }
 
 func NewLocalProvider(dirPath string, acceptedStatuses []string) *LocalProvider {
@@ -36,10 +37,8 @@ func (p *LocalProvider) SetRulesHeading(heading string) {
 	p.parseOpts.RulesHeading = heading
 }
 
-// SetWriter routes GetADRs' parse-failure warnings to w instead of the
-// default os.Stdout. Passing nil restores the default.
-func (p *LocalProvider) SetWriter(w io.Writer) {
-	p.writer = w
+func (p *LocalProvider) SetPrinter(out *output.Printer) {
+	p.out = out
 }
 
 func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
@@ -56,7 +55,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 
 			adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
 			if err != nil {
-				diagPrintf(p.writer, "Warning: skipping %s: %v\n", path, err)
+				p.out.Warn("skipping %s: %v", path, err)
 				stats.ParseFailed = append(stats.ParseFailed, path)
 				return nil
 			}
@@ -65,7 +64,7 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 				validADRs = append(validADRs, *adr)
 
 				if rulesErr != nil {
-					diagPrintf(p.writer, "Warning: ignoring rules in %s: %v\n", path, rulesErr)
+					p.out.Warn("ignoring rules in %s: %v", path, rulesErr)
 					stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
 				}
 			} else {

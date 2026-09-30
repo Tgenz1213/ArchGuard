@@ -182,7 +182,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 			wantStderr := "generating embedding"
 			if tt.wantFailures == 1 {
-				wantStderr = "stage rank failed for " + fixtureFilename
+				wantStderr = fixtureFilename + "\n  Error: stage rank failed"
 			}
 
 			if !strings.Contains(stderr, wantStderr) || !strings.Contains(stderr, "mock embed failure") {

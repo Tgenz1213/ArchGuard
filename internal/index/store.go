@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -14,34 +13,9 @@ import (
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 	"golang.org/x/sync/errgroup"
 )
-
-// diagWriter resolves w to os.Stdout when nil, evaluated at each call rather
-// than cached, so tests that redirect os.Stdout after construction still work.
-func diagWriter(w io.Writer) io.Writer {
-	if w == nil {
-		return os.Stdout
-	}
-
-	return w
-}
-
-var diagMu sync.Mutex
-
-// diagPrintf and diagPrintln serialize writes: a caller-supplied writer (unlike os.Stdout)
-// isn't guaranteed safe for this package's concurrent writers.
-func diagPrintf(w io.Writer, format string, args ...any) {
-	diagMu.Lock()
-	defer diagMu.Unlock()
-	_, _ = fmt.Fprintf(diagWriter(w), format, args...)
-}
-
-func diagPrintln(w io.Writer) {
-	diagMu.Lock()
-	defer diagMu.Unlock()
-	_, _ = fmt.Fprintln(diagWriter(w))
-}
 
 type SkippedADR struct {
 	RelPath string
@@ -77,12 +51,12 @@ type VectorStore interface {
 }
 
 type LocalStore struct {
-	ADRs        []ADR     `json:"adrs"`
-	Hash        string    `json:"hash"`
-	ModelName   string    `json:"model_name"`
-	Dim         int       `json:"dim"`
-	concurrency int       `json:"-"`
-	writer      io.Writer `json:"-"`
+	ADRs        []ADR           `json:"adrs"`
+	Hash        string          `json:"hash"`
+	ModelName   string          `json:"model_name"`
+	Dim         int             `json:"dim"`
+	concurrency int             `json:"-"`
+	out         *output.Printer `json:"-"`
 }
 
 func NewLocalStore(concurrency int) *LocalStore {
@@ -92,18 +66,18 @@ func NewLocalStore(concurrency int) *LocalStore {
 	}
 }
 
-func NewVectorStore(cfg *config.Config, w io.Writer) (VectorStore, error) {
+func NewVectorStore(cfg *config.Config, out *output.Printer) (VectorStore, error) {
 	if cfg.VectorStore.ConnectionString != "" {
 		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
 			Enabled:       cfg.VectorStore.ReindexEnabled,
 			Threshold:     cfg.VectorStore.ReindexThreshold,
 			Concurrently:  cfg.VectorStore.ReindexConcurrently,
 			IterativeScan: cfg.VectorStore.IterativeScan,
-		}, w)
+		}, out)
 	}
 
 	store := NewLocalStore(cfg.VectorStore.EmbeddingConcurrency)
-	store.writer = w
+	store.out = out
 	return store, nil
 }
 
@@ -195,7 +169,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 	}
 
-	diagPrintf(s.writer, "Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...\n", len(validADRs), len(adrsToEmbed))
+	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
@@ -209,13 +183,14 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		var mu sync.Mutex
 		g := new(errgroup.Group)
 		g.SetLimit(concurrency)
+		progress := s.out.Progress()
 
 		markFailed := func(idx int, err error) {
 			mu.Lock()
 			failed[idx] = true
 			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			diagPrintf(s.writer, "\nWarning: skipping ADR %s: %v\n", validADRs[idx].RelPath, err)
 			mu.Unlock()
+			s.out.Warn("skipping ADR %s: %v", validADRs[idx].RelPath, err)
 		}
 
 		for _, idx := range adrsToEmbed {
@@ -230,15 +205,17 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 				}
 
 				validADRs[idx].Embedding = emb
-				mu.Lock()
-				diagPrintf(s.writer, ".")
-				mu.Unlock()
+				progress.Tick()
 				return nil
 			})
 		}
 
-		_ = g.Wait()
-		diagPrintln(s.writer)
+		err := g.Wait()
+		progress.Done()
+
+		if err != nil {
+			return result, err
+		}
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.

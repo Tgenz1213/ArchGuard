@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/alecthomas/kong v1.16.1
 	github.com/anthropics/anthropic-sdk-go v1.75.0
 	github.com/bmatcuk/doublestar/v4 v4.10.2
 	github.com/cenkalti/backoff/v4 v4.3.0

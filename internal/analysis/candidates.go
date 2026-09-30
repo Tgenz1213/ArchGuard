@@ -27,7 +27,7 @@ func (c candidateSource) For(file, content string, debug stage.Debug) ([]stage.C
 	var candidates []stage.Candidate
 	for _, r := range scoped {
 		if strings.Contains(header, fmt.Sprintf("archguard-ignore: %s", r.ADR.ID)) {
-			debug.Printf("  Skipping ADR %s (Suppressed)\n", r.ADR.Title)
+			debug.Debug("Skipping ADR %s (Suppressed)", r.ADR.Title)
 			continue
 		}
 

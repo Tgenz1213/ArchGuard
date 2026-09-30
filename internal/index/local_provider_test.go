@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func writeADRFile(t *testing.T, dir, name, content string) {
@@ -57,7 +59,7 @@ func TestLocalProvider_GetADRs_MalformedRulesAreDroppedReportedAndWarned(t *test
 
 	var buf bytes.Buffer
 	provider := NewLocalProvider(dir, []string{"Accepted"})
-	provider.SetWriter(&buf)
+	provider.SetPrinter(output.New(&buf, false))
 
 	adrs, stats, err := provider.GetADRs(context.Background())
 	if err != nil {
@@ -132,13 +134,13 @@ func TestLocalProvider_CustomIDPatternAvoidsCollision(t *testing.T) {
 	}
 }
 
-func TestLocalProvider_SetWriter_RoutesParseWarningsThere(t *testing.T) {
+func TestLocalProvider_SetPrinter_RoutesParseWarningsThere(t *testing.T) {
 	dir := t.TempDir()
 	writeADRFile(t, dir, "0001-bad.md", "not frontmatter at all")
 
 	var buf bytes.Buffer
 	provider := NewLocalProvider(dir, []string{"Accepted"})
-	provider.SetWriter(&buf)
+	provider.SetPrinter(output.New(&buf, false))
 
 	_, _, err := provider.GetADRs(context.Background())
 	if err != nil {

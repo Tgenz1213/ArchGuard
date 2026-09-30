@@ -106,7 +106,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 	// Confirm the seqscan actually avoided the HNSW index, or this isn't independent ground truth.
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op after Commit; Commit's error is checked
 	_, err = tx.Exec(ctx, "SET LOCAL enable_indexscan = off")
 	require.NoError(t, err)
 	_, err = tx.Exec(ctx, "SET LOCAL enable_bitmapscan = off")
@@ -162,7 +162,7 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 		return nil, err
 	}
 
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op after Commit; Commit's error is checked
 
 	// SET LOCAL: must override the role-level seqscan-off setting used
 	// elsewhere to force PgStore.Search onto the HNSW index.
@@ -373,7 +373,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 			"ALTER ROLE postgres RESET enable_bitmapscan",
 			"ALTER ROLE postgres RESET enable_sort",
 		} {
-			_, _ = pool.Exec(ctx, stmt)
+			_, _ = pool.Exec(ctx, stmt) //nolint:errcheck // best-effort reset during cleanup
 		}
 	})
 
@@ -432,7 +432,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	_, err = pool.Exec(ctx, "ALTER ROLE postgres SET hnsw.iterative_scan = 'relaxed_order'")
 	require.NoError(b, err)
 	defer func() {
-		_, _ = pool.Exec(ctx, "ALTER ROLE postgres RESET hnsw.iterative_scan")
+		_, _ = pool.Exec(ctx, "ALTER ROLE postgres RESET hnsw.iterative_scan") //nolint:errcheck // best-effort reset during cleanup
 	}()
 
 	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, index.MaxSearchCandidates))
@@ -453,7 +453,7 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 		return err
 	}
 
-	defer func() { _ = conn.Close(ctx) }()
+	defer func() { _ = conn.Close(ctx) }() //nolint:errcheck // cleanup; the benchmark's own errors are checked
 
 	if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
 		return err
@@ -497,7 +497,7 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 		return err
 	}
 
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op after Commit; Commit's error is checked
 
 	for _, stmt := range []string{
 		"SET LOCAL enable_seqscan = on",

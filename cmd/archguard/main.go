@@ -15,10 +15,7 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("ArchGuard version %s, commit %s, built at %s\n", version, commit, date)
-		os.Exit(0)
-	}
+	cli.Version = fmt.Sprintf("%s, commit %s, built at %s", version, commit, date)
 
 	ctx, stop := cli.NotifyContext(context.Background())
 
@@ -28,8 +25,7 @@ func main() {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(int(exitCode))
 	}
 
-	os.Exit(int(cli.ExitSuccess))
+	os.Exit(int(exitCode))
 }

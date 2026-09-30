@@ -2,11 +2,9 @@ package cli
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -20,10 +18,12 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
+	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type ExitCode int
@@ -62,24 +62,13 @@ func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 }
 
 func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
-	if isTopLevelHelpRequest(os.Args) {
-		printUsage()
-		return ExitSuccess, nil
+	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout, os.Stderr)
+	if inv == nil {
+		return code, err
 	}
 
-	if subcommand, ok := subcommandHelpRequest(os.Args); ok {
-		switch subcommand {
-		case "check":
-			printCheckUsage(os.Stdout, newCheckFlagSet())
-		case "index":
-			printIndexUsage(os.Stdout, newIndexFlagSet())
-		}
-
-		return ExitSuccess, nil
-	}
-
-	// Decided before checkFlags.Parse so the banner and provider warnings stay off stdout in JSON mode.
-	jsonOutput := checkWantsJSON(os.Args)
+	// Keeps the banner and provider warnings off stdout in JSON mode.
+	jsonOutput := inv.command == "check" && inv.check.jsonOutput()
 	if !jsonOutput {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
 	}
@@ -89,11 +78,15 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return ExitError, fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
 	}
 
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ExitError, fmt.Errorf("error reading the working directory: %w", err)
+	}
+
 	repoRoot = filepath.Clean(repoRoot)
 	cwd = filepath.Clean(cwd)
 
-	normalizePositionalArgPaths(os.Args, cwd, repoRoot)
+	normalizePaths(inv.check.Paths, cwd, repoRoot)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
@@ -102,26 +95,15 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
+		output.New(os.Stderr, false).Warn("failed to load .env: %v", err)
 	}
 
-	if len(os.Args) < 2 {
-		printUsage()
-		return ExitUsage, fmt.Errorf("no command provided")
-	}
-
-	command := os.Args[1]
-	switch command {
-	case "init":
+	if inv.command == "init" {
 		if err := runInit(); err != nil {
 			return ExitError, err
 		}
 
 		return ExitSuccess, nil
-	case "check", "index":
-	default:
-		printUsage()
-		return ExitUsage, fmt.Errorf("unknown command: %s", command)
 	}
 
 	cfg, err := config.LoadConfig(configFilename)
@@ -161,9 +143,9 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 			return ExitConfig, err
 		}
 	} else {
-		providerWarnings := io.Writer(os.Stdout)
+		providerWarnings := output.New(os.Stdout, false)
 		if jsonOutput {
-			providerWarnings = os.Stderr
+			providerWarnings = output.New(os.Stderr, false)
 		}
 
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
@@ -184,11 +166,11 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		}
 	}
 
-	if command == "check" {
-		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+	if inv.command == "check" {
+		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check)
 	}
 
-	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Args[2:])
+	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings)
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -249,97 +231,6 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 	return mappings, nil
 }
 
-// Flags that consume the next argument, which must not be rewritten as a path.
-var valueFlagsBySubcommand = map[string]map[string]bool{
-	"check": {"baseline-reason": true, "format": true},
-}
-
-// Mirrors normalizePositionalArgPaths' flag handling to read --format before checkFlags.Parse runs (docs/arch/0014).
-func checkWantsJSON(args []string) bool {
-	if len(args) < 2 || args[1] != "check" {
-		return false
-	}
-
-	valueFlagNames := valueFlagsBySubcommand["check"]
-	format := "text"
-	updateBaseline := false
-	for i := 2; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "-") {
-			break // flag stops parsing at the first positional arg
-		}
-
-		name := strings.TrimLeft(arg, "-")
-		if flagName, value, ok := strings.Cut(name, "="); ok {
-			switch flagName {
-			case "format":
-				format = value
-			case "update-baseline":
-				// Matches flag.Bool: only an explicit falsy value leaves it unset.
-				updateBaseline = value != "false" && value != "0"
-			}
-
-			continue
-		}
-
-		if name == "format" {
-			if i+1 < len(args) {
-				format = args[i+1]
-				i++
-			}
-
-			continue
-		}
-
-		if name == "update-baseline" {
-			updateBaseline = true
-			continue
-		}
-
-		if valueFlagNames[name] && i+1 < len(args) {
-			i++ // this flag's value, not another flag name
-		}
-	}
-
-	return format == "json" && !updateBaseline
-}
-
-// Runs unconditionally: a backslash-style arg typed from the repo root needs it too.
-func normalizePositionalArgPaths(args []string, cwd, repoRoot string) {
-	var subcommand string
-	if len(args) > 1 {
-		subcommand = args[1]
-	}
-
-	valueFlagNames := valueFlagsBySubcommand[subcommand]
-
-	for i := 2; i < len(args); i++ {
-		arg := args[i]
-		if arg == "" {
-			continue
-		}
-
-		if strings.HasPrefix(arg, "-") {
-			name := strings.TrimLeft(arg, "-")
-			if !strings.Contains(name, "=") && valueFlagNames[name] && i+1 < len(args) {
-				i++ // the next argument is this flag's value, not a path
-			}
-
-			continue
-		}
-
-		target := arg
-		if !filepath.IsAbs(arg) {
-			target = filepath.Join(cwd, arg)
-		}
-
-		relPath, err := filepath.Rel(repoRoot, target)
-		if err == nil {
-			args[i] = filepath.ToSlash(relPath)
-		}
-	}
-}
-
 // Invariants the YAML schema can't express (docs/arch/0004).
 func validateProviderConfig(cfg *config.Config) error {
 	if cfg.LLM.Provider == "voyage" {
@@ -384,11 +275,11 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	}
 }
 
-func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
+func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
 	switch name {
 	case "openai":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
@@ -396,19 +287,19 @@ func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) 
 		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
 	case "gemini":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "claude":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
 	case "voyage":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
@@ -604,56 +495,41 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
-	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
-	var flagParseOutput bytes.Buffer
-	checkFlags.SetOutput(&flagParseOutput)
-	staged, all, debug, ci, updateBaseline, baselineReason, format, suggestFixes := registerCheckFlags(checkFlags)
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
+	files := opts.Paths
 
-	if err := checkFlags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			printCheckUsage(os.Stdout, checkFlags)
-			return ExitSuccess, nil
-		}
-
-		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
-			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
-		}
-
-		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
-	}
-
-	if *format != "text" && *format != "json" {
-		return ExitUsage, fmt.Errorf(`invalid --format value %q: must be "text" or "json"`, *format)
-	}
-
-	files := checkFlags.Args()
-
-	// --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.
-	jsonOutput := *format == "json" && !*updateBaseline
+	jsonOutput := opts.jsonOutput()
 	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
 	human := io.Writer(os.Stdout)
 	if jsonOutput {
 		human = os.Stderr
 	}
 
-	if *format == "json" && *updateBaseline {
-		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
+	out := output.New(human, opts.Debug)
+
+	defer func() {
+		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
+			code, err = ExitError, errors.Join(outputWriteError(werr), err)
+		}
+	}()
+
+	if opts.Format == "json" && opts.UpdateBaseline {
+		out.Note("--format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg, human)
+	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
 	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
-	var fetchWarnings bytes.Buffer
+	fetchOut := out.Group("")
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetWriter(&fetchWarnings)
+	localProvider.SetPrinter(fetchOut)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
@@ -667,73 +543,84 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetWriter(&fetchWarnings)
+		confluenceProvider.SetPrinter(fetchOut)
 		providers = append(providers, confluenceProvider)
 	}
 
 	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetWriter(&fetchWarnings)
+	adrProvider.SetPrinter(fetchOut)
 
 	validADRs, _, err := adrProvider.GetADRs(ctx)
 	if err != nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
 	}
 
 	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
 	if err != nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 	} else {
-		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
+		out.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
+
+		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
-		currentHash, _ = store.CalculateHash(validADRs, cfg.VectorStore.Model)
+		currentHash, err = store.CalculateHash(validADRs, cfg.VectorStore.Model)
+		if err != nil {
+			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %v", err)
+		}
+
 		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
 		}
 	}
 
-	if *updateBaseline && (len(files) > 0 || *staged) {
-		_, _ = fmt.Fprintln(human, "Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
+	if opts.UpdateBaseline && (len(files) > 0 || opts.Staged) {
+		out.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 
-	if *baselineReason != "" && !*updateBaseline {
-		_, _ = fmt.Fprintln(human, "Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
+	if opts.BaselineReason != "" && !opts.UpdateBaseline {
+		out.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
 
-	contentProvider := resolveContentProvider(human, files, *staged, *all, *updateBaseline)
+	contentProvider := resolveContentProvider(out, files, opts.Staged, opts.All, opts.UpdateBaseline)
 
-	if *debug {
-		_, _ = fmt.Fprintln(human, "[DEBUG] Mode Enabled")
-	}
+	out.Debug("Mode Enabled")
 
 	var loadedBaseline *baseline.Baseline
 
 	loadedBaseline, err = baseline.Load(baseline.Path)
 	if err != nil {
-		if !*updateBaseline {
+		if !opts.UpdateBaseline {
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
 
-		_, _ = fmt.Fprintf(human, "Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
+		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
+	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, opts.Debug, opts.CI)
 	engine.EmbedProvider = embedProvider
-	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, human)
+
+	analysisCache, cacheErr := cache.NewCache(".")
+	if cacheErr != nil {
+		out.Warn("analysis cache disabled: %v", cacheErr)
+	}
+
+	engine.Cache = analysisCache
+
+	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, out)
 	engine.Baseline = loadedBaseline
-	engine.UpdateBaseline = *updateBaseline
-	engine.BaselineReason = *baselineReason
+	engine.UpdateBaseline = opts.UpdateBaseline
+	engine.BaselineReason = opts.BaselineReason
 	engine.JSONOutput = jsonOutput
-	engine.Writer = human
-	engine.SuggestFixes = *suggestFixes
+	engine.Out = out
+	engine.SuggestFixes = opts.SuggestFixes
 
 	runErr := engine.Run(ctx)
 	if runErr != nil && ctx.Err() != nil {
@@ -742,7 +629,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
 
-	if *updateBaseline {
+	if opts.UpdateBaseline {
 		if runErr != nil {
 			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
 		}
@@ -755,14 +642,19 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
-		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
+		out.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
+		out.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
+	}
+
+	var analysisErr error
+	if runErr != nil {
+		analysisErr = fmt.Errorf("analysis failed: %v", runErr)
 	}
 
 	if jsonOutput {
 		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
-			return ExitError, fmt.Errorf("failed to write json report: %v", err)
+			return ExitError, errors.Join(fmt.Errorf("failed to write json report: %w", err), stageFailureErr, analysisErr)
 		}
 	}
 
@@ -771,45 +663,22 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	if runErr != nil {
-		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+		return exitCodeForAnalysisError(runErr), analysisErr
 	}
 
 	// Reached only without drift, in either format.
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedADRChecks, engine.SkippedFiles)
 	case engine.SkippedADRChecks > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", engine.SkippedADRChecks)
 	case engine.SkippedFiles > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
+		out.Result("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedFiles)
 	default:
-		_, _ = fmt.Fprintln(human, "No new architectural violations found.")
+		out.Result("No new architectural violations found.")
 	}
 
 	return ExitSuccess, nil
-}
-
-// Single source of truth for check's flags, shared with the --help path.
-func registerCheckFlags(fs *flag.FlagSet) (staged, all, debug, ci, updateBaseline *bool, baselineReason, format *string, suggestFixes *bool) {
-	staged = fs.Bool("staged", false, "Scan staged files only")
-	all = fs.Bool("all", false, "Scan all tracked files")
-	debug = fs.Bool("debug", false, "Enable debug logging")
-	ci = fs.Bool("ci", false, "Enable CI-safe mode (Warn-Open behavior)")
-	updateBaseline = fs.Bool("update-baseline", false, "Scan the full repository and (re)write the baseline file, replacing any existing baseline")
-	baselineReason = fs.String("baseline-reason", "", "Reason recorded on baseline entries written by --update-baseline (e.g. \"accepted-debt\" or \"false-positive\"); applies to EVERY entry collected this run, overwriting any previously carried-forward reason on entries other than the one you intended to annotate -- not just filling in blanks. When omitted, a re-run keeps whatever reason a matching (ADR ID, file) entry already had")
-	format = fs.String("format", "text", `Output format: "text" (default) or "json"`)
-	suggestFixes = fs.Bool("suggest-fixes", false, "Generate a short, unverified LLM-suggested remediation pointer for each new violation via a second LLM call (off by default: doubles LLM calls per violation)")
-	return
-}
-
-func newCheckFlagSet() *flag.FlagSet {
-	fs := flag.NewFlagSet("check", flag.ContinueOnError)
-	registerCheckFlags(fs)
-	return fs
-}
-
-func newIndexFlagSet() *flag.FlagSet {
-	return flag.NewFlagSet("index", flag.ContinueOnError)
 }
 
 type checkReport struct {
@@ -849,7 +718,7 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
-func resolveContentProvider(human io.Writer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
+func resolveContentProvider(out *output.Printer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
 	if updateBaseline {
 		return &analysis.AllProvider{}
 	}
@@ -864,7 +733,7 @@ func resolveContentProvider(human io.Writer, files []string, staged, all, update
 			}
 
 			if len(extras) > 0 {
-				_, _ = fmt.Fprintf(human, "Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
+				out.Note("\".\" scans the whole repository; ignoring extra path argument(s): %v", extras)
 			}
 
 			return &analysis.AllProvider{}
@@ -893,46 +762,24 @@ func exitCodeForAnalysisError(err error) ExitCode {
 	return ExitError
 }
 
-// Separate from runIndex so runCheck's auto-rebuild skips CLI-arg/help parsing.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
-	indexFlags := newIndexFlagSet()
-	var flagParseOutput bytes.Buffer
-	indexFlags.SetOutput(&flagParseOutput)
+// Separate from runIndex, which check's auto-rebuild calls with its own printer.
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
+	out := output.New(os.Stdout, false)
 
-	if err := indexFlags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			printIndexUsage(os.Stdout, indexFlags)
-			return ExitSuccess, nil
-		}
-
-		if details := strings.TrimSpace(flagParseOutput.String()); details != "" {
-			return ExitUsage, fmt.Errorf("error parsing flags: %v\n%s", err, details)
-		}
-
-		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
+	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
+	if werr := out.Err(); werr != nil && code != ExitInterrupted {
+		return ExitError, errors.Join(outputWriteError(werr), err)
 	}
 
-	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Stdout)
+	return code, err
 }
 
-func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
-	_, _ = fmt.Fprintln(w, "Usage: archguard index")
-	_, _ = fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
-	hasFlags := false
-	fs.VisitAll(func(*flag.Flag) { hasFlags = true })
-
-	if !hasFlags {
-		return
-	}
-
-	_, _ = fmt.Fprintln(w, "\nFlags:")
-	fs.VisitAll(func(f *flag.Flag) {
-		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
-	})
+func outputWriteError(err error) error {
+	return fmt.Errorf("failed to write output: %w", err)
 }
 
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, w io.Writer) (ExitCode, error) {
-	store, err := index.NewVectorStore(cfg, w)
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
+	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
@@ -941,7 +788,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	localProvider.SetIDPattern(adrIDPattern)
 	localProvider.SetFrontmatterMappings(frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetWriter(w)
+	localProvider.SetPrinter(out)
 	var providers []index.Provider
 	providers = append(providers, localProvider)
 
@@ -955,16 +802,16 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 		)
 		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetWriter(w)
+		confluenceProvider.SetPrinter(out)
 		providers = append(providers, confluenceProvider)
 	}
 
 	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetWriter(w)
+	adrProvider.SetPrinter(out)
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
 	if result.Attempted {
-		printIndexSummary(result, w)
+		printIndexSummary(result, out)
 	}
 
 	if err != nil {
@@ -983,24 +830,27 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	return ExitSuccess, nil
 }
 
-func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
-	_, _ = fmt.Fprintf(w, "ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
+func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
+	section := out.Indented()
+	item := section.Indented()
+
+	out.Result("ADR Index: %d discovered, %d valid.", result.Discovered, result.Valid)
 
 	if len(result.ParseFailed) > 0 {
-		_, _ = fmt.Fprintf(w, "  Skipped (parse failure): %d\n", len(result.ParseFailed))
+		section.Result("Skipped (parse failure): %d", len(result.ParseFailed))
 		for _, path := range result.ParseFailed {
-			_, _ = fmt.Fprintf(w, "    - %s\n", path)
+			item.Result("- %s", path)
 		}
 	}
 
 	if result.StatusRejected > 0 {
-		_, _ = fmt.Fprintf(w, "  Skipped (status not accepted): %d\n", result.StatusRejected)
+		section.Result("Skipped (status not accepted): %d", result.StatusRejected)
 	}
 
 	if len(result.Skipped) > 0 {
-		_, _ = fmt.Fprintf(w, "  Failed to embed or persist: %d\n", len(result.Skipped))
+		section.Result("Failed to embed or persist: %d", len(result.Skipped))
 		for _, skipped := range result.Skipped {
-			_, _ = fmt.Fprintf(w, "    - %s: %v\n", skipped.RelPath, skipped.Err)
+			item.Result("- %s: %v", skipped.RelPath, skipped.Err)
 		}
 	}
 
@@ -1011,73 +861,23 @@ func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
 		}
 
 		sort.Strings(ids)
-		_, _ = fmt.Fprintf(w, "  Duplicate ADR IDs: %d\n", len(ids))
+		section.Result("Duplicate ADR IDs: %d", len(ids))
 		for _, id := range ids {
-			_, _ = fmt.Fprintf(w, "    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
+			item.Result("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
 
 	if len(result.NoScope) > 0 {
-		_, _ = fmt.Fprintf(w, "  No scope set (applies to every file): %d\n", len(result.NoScope))
+		section.Result("No scope set (applies to every file): %d", len(result.NoScope))
 		for _, path := range result.NoScope {
-			_, _ = fmt.Fprintf(w, "    - %s\n", path)
+			item.Result("- %s", path)
 		}
 	}
 
 	if len(result.MalformedRules) > 0 {
-		_, _ = fmt.Fprintf(w, "  Rules ignored (malformed): %d\n", len(result.MalformedRules))
+		section.Result("Rules ignored (malformed): %d", len(result.MalformedRules))
 		for _, m := range result.MalformedRules {
-			_, _ = fmt.Fprintf(w, "    - %s: %s\n", m.RelPath, m.Reason)
+			item.Result("- %s: %s", m.RelPath, m.Reason)
 		}
 	}
-}
-
-func printUsage() {
-	fmt.Println("Usage: archguard <command> [arguments]")
-	fmt.Println("\nCommands:")
-	fmt.Println("  init     Initialize ArchGuard in the current repository (local setup)")
-	fmt.Println("  check    Check for architectural violations")
-	fmt.Println("  index    Rebuild the ADR index")
-	fmt.Println("\nGlobal Flags:")
-	fmt.Println("  -v, --version  Print version information")
-}
-
-func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
-	_, _ = fmt.Fprintln(w, "Usage: archguard check [flags] [path...]")
-	_, _ = fmt.Fprintln(w, "\nScans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.")
-	_, _ = fmt.Fprintln(w, "\nFlags:")
-	fs.VisitAll(func(f *flag.Flag) {
-		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
-	})
-}
-
-// Subcommand help is flag.FlagSet's job, not this.
-func isTopLevelHelpRequest(args []string) bool {
-	return len(args) >= 2 && (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
-}
-
-// Delegates to the real FlagSet so a value flag like --format ahead of --help is consumed correctly.
-func subcommandHelpRequest(args []string) (subcommand string, ok bool) {
-	if len(args) < 2 {
-		return "", false
-	}
-
-	subcommand = args[1]
-	var fs *flag.FlagSet
-	switch subcommand {
-	case "check":
-		fs = newCheckFlagSet()
-	case "index":
-		fs = newIndexFlagSet()
-	default:
-		return "", false
-	}
-
-	fs.SetOutput(io.Discard)
-
-	if errors.Is(fs.Parse(args[2:]), flag.ErrHelp) {
-		return subcommand, true
-	}
-
-	return "", false
 }

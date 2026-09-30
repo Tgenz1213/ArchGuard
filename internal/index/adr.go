@@ -65,7 +65,7 @@ func (sp ScopePatterns) Serialize() string {
 	case 1:
 		return sp[0]
 	default:
-		data, _ := json.Marshal([]string(sp))
+		data, _ := json.Marshal([]string(sp)) //nolint:errcheck // marshaling a []string can't fail
 		return string(data)
 	}
 }
@@ -167,7 +167,7 @@ type ParseOptions struct {
 }
 
 func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (*ADR, error) {
-	adr, _, err := parseADRFile(path, rootDir, idPattern, opts)
+	adr, _, err := parseADRFile(path, rootDir, idPattern, opts) //nolint:errcheck // malformed rules are reported by providers, not here
 	return adr, err
 }
 
@@ -177,7 +177,11 @@ func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts Pa
 		return nil, nil, err
 	}
 
-	relPath, _ := filepath.Rel(rootDir, path)
+	relPath, err := filepath.Rel(rootDir, path)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
@@ -202,7 +206,7 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 }
 
 func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
-	adr, _, err := parseADR(data, id, relPath, opts, nil)
+	adr, _, err := parseADR(data, id, relPath, opts, nil) //nolint:errcheck // malformed rules are reported by providers, not here
 	return adr, err
 }
 

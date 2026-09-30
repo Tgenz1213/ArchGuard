@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func TestConfluenceProvider_GetADRs_Success(t *testing.T) {
@@ -70,7 +72,10 @@ We will use Python.</p>`
 		response.Results = append(response.Results, validPage, rejectedPage, invalidPage)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("encoding response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
@@ -129,7 +134,10 @@ We will use Go.</p>`
 		response.Results = append(response.Results, page)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("encoding response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
@@ -160,7 +168,10 @@ func confluenceADRsFromStorage(t *testing.T, storage string, configure func(*Con
 			"_links": map[string]any{"webui": "/spaces/ARCH/pages/1/Use+Go"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{page}})
+
+		if err := json.NewEncoder(w).Encode(map[string]any{"results": []any{page}}); err != nil {
+			t.Errorf("encoding response: %v", err)
+		}
 	}))
 	t.Cleanup(ts.Close)
 
@@ -240,7 +251,7 @@ rules: nope
 ---</p><p>Body</p>`
 	var warnings bytes.Buffer
 
-	adrs, stats := confluenceADRsFromStorage(t, page, func(p *ConfluenceProvider) { p.SetWriter(&warnings) })
+	adrs, stats := confluenceADRsFromStorage(t, page, func(p *ConfluenceProvider) { p.SetPrinter(output.New(&warnings, false)) })
 	if len(adrs) != 1 || adrs[0].Rules != nil {
 		t.Fatalf("expected the ADR to load without rules, got %+v", adrs)
 	}
@@ -299,7 +310,10 @@ Content 2</p>`
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(response)
+
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Errorf("encoding response: %v", err)
+		}
 	}))
 	defer ts.Close()
 
@@ -346,7 +360,10 @@ func TestExtractRawText_RealisticMultiParagraphFrontmatter(t *testing.T) {
 func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("Internal Server Error"))
+
+		if _, err := w.Write([]byte("Internal Server Error")); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer ts.Close()
 

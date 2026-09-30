@@ -6,3 +6,5 @@ linters:
     wsl_v5:
       default: none
       enable: [if, after-block]
+    errcheck:
+      check-blank: true

@@ -11,12 +11,10 @@ ArchGuard sits between your code and your commit. When it detects code that viol
 
 ```text
 $ archguard check --staged
-Analyzing internal/db/conn.js...
-  Checking against ADR: Use Golang for Backend Services (0.92)
-
+internal/db/conn.js
   [VIOLATION] Use Golang for Backend Services [Line 1]
-  Reasoning: The file uses '.js' extension and contains JavaScript code, which violates the mandatory requirement to use Go for all backend logic.
-  Code: const express = require('express');
+    Reasoning: The file uses '.js' extension and contains JavaScript code, which violates the mandatory requirement to use Go for all backend logic.
+    Code: const express = require('express');
 ```
 
 ## ⚡ Quick Start
@@ -324,7 +322,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 ### Automation & Exit Codes
 
 - **0**: Success (no new violations found; baselined violations still exit 0).
-- **1**: General error (e.g. not run inside a git repository, baseline file I/O failure).
+- **1**: General error (e.g. not run inside a git repository, baseline file I/O failure), or the command's primary output (results, help, the JSON document) could not be written, e.g. a closed stdout. This takes precedence over every other code except an interrupt.
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected.
@@ -365,8 +363,6 @@ Codes `6` and `7` take precedence over `4`: a run that also found drift still ex
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
-
-> **Note:** run `archguard index` before a `--format json` check. If the index needs an automatic rebuild during `check` (e.g. a stale/missing index, or an ADR provider warning), that rebuild's own progress text currently still prints to stdout ahead of the JSON document (tracked in [#163](https://github.com/Tgenz1213/ArchGuard/issues/163)). With an up-to-date index this doesn't happen.
 
 ### Suppression
 

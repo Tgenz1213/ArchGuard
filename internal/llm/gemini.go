@@ -46,7 +46,7 @@ func (t *errorCapturingTransport) RoundTrip(req *http.Request) (*http.Response, 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := io.ReadAll(resp.Body)
 
-		_ = resp.Body.Close()
+		_ = resp.Body.Close() //nolint:errcheck // the body is already read and replaced below
 		if readErr == nil {
 			t.lastStatus = resp.Status
 			t.lastBody = body
@@ -120,7 +120,6 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 		return "", fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
-	// Combine system and user prompts for Gemini
 	fullPrompt := fmt.Sprintf("%s\n\n%s", system, user)
 	contents := []*genai.Content{genai.NewContentFromText(fullPrompt, genai.RoleUser)}
 	config := &genai.GenerateContentConfig{

@@ -24,7 +24,8 @@ func TestClaudeProvider_Chat(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
+
+		if _, err := w.Write([]byte(`{
 			"id": "msg_123",
 			"type": "message",
 			"role": "assistant",
@@ -32,7 +33,9 @@ func TestClaudeProvider_Chat(t *testing.T) {
 			"model": "claude-sonnet-4-5",
 			"stop_reason": "end_turn",
 			"usage": {"input_tokens": 10, "output_tokens": 5}
-		}`))
+		}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -55,7 +58,10 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"input_tokens": 42}`))
+
+		if _, err := w.Write([]byte(`{"input_tokens": 42}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 

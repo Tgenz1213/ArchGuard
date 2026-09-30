@@ -32,7 +32,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 	// Unbounded topK: the Stage applies the top-K cut.
 	var found []index.SearchResult
 
-	if debug.Enabled() {
+	if debug.DebugEnabled() {
 		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding, c.Threshold, math.MaxInt32, file.Path())
 		found = slices.Concat(hits, rejected)
 	} else {

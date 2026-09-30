@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type fakeProvider struct {
@@ -87,13 +89,13 @@ func TestCompositeProvider_GetADRs_AllProvidersFail(t *testing.T) {
 	}
 }
 
-func TestCompositeProvider_SetWriter_RoutesFetchWarningThere(t *testing.T) {
+func TestCompositeProvider_SetPrinter_RoutesFetchWarningThere(t *testing.T) {
 	ok := &fakeProvider{adrs: []ADR{{RelPath: "a.md"}}}
 	failing := &fakeProvider{err: errors.New("connection dropped")}
 
 	var buf bytes.Buffer
 	composite := NewCompositeProvider(ok, failing)
-	composite.SetWriter(&buf)
+	composite.SetPrinter(output.New(&buf, false))
 
 	_, _, err := composite.GetADRs(context.Background())
 	if err != nil {

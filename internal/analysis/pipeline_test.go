@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type scorerFunc func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error)
@@ -212,13 +212,13 @@ func runRankWithOnError(t *testing.T, onError string, embed llm.Embedder) (*scor
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
 	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
 	var out bytes.Buffer
-	h.engine.Writer = &out
+	h.engine.Out = output.New(&out, h.engine.Debug)
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0},
 		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
 	}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, io.Discard)
+	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, output.Discard())
 	if err := h.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", h.engine.SkippedFiles, h.engine.StageFailures)
 			}
 
-			if !strings.Contains(out, "Error generating embedding for bad.go: embedding service down") {
+			if !strings.Contains(out, "bad.go\n  Error: generating embedding: embedding service down") {
 				t.Errorf("output %q missing the skipped-file error", out)
 			}
 

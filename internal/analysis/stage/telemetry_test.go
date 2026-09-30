@@ -25,7 +25,11 @@ func TestTelemetry_SumsReceivedKeptAndTimeAcrossCalls(t *testing.T) {
 	})
 
 	for range 2 {
-		kept, _ := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+		kept, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+		if err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+
 		if _, err := tel.Apply(context.Background(), 1, fakeFile{}, stage.NoDebug, kept); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -72,9 +76,9 @@ func TestTelemetry_StageThatReceivesNothingReportsZeros(t *testing.T) {
 
 type slowDebug struct{ delay time.Duration }
 
-func (d slowDebug) Enabled() bool { return true }
+func (d slowDebug) DebugEnabled() bool { return true }
 
-func (d slowDebug) Printf(string, ...any) { time.Sleep(d.delay) }
+func (d slowDebug) Debug(string, ...any) { time.Sleep(d.delay) }
 
 func TestTelemetry_EmptyInputAddsNoTimeEvenWhenDebugOutputIsSlow(t *testing.T) {
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores()}})
@@ -126,7 +130,9 @@ func TestTelemetry_ConcurrentCallsDoNotLoseCounts(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 50 {
 		wg.Go(func() {
-			_, _ = tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b"))
+			if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b")); err != nil {
+				t.Errorf("Apply: %v", err)
+			}
 		})
 	}
 

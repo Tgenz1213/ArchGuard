@@ -16,7 +16,10 @@ func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 
 	defer func() {
 		os.Args = origArgs
-		_ = os.Chdir(origWd)
+
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("restoring working directory: %v", err)
+		}
 	}()
 
 	setupExecuteTestRepo(t)
@@ -56,7 +59,12 @@ func TestExecute_NilErrorIsNotRemappedWhenCancelled(t *testing.T) {
 	var code ExitCode
 
 	captureStdout(t, func() {
-		code, _ = Execute(ctx, ProviderFactories{})
+		var err error
+
+		code, err = Execute(ctx, ProviderFactories{})
+		if err != nil {
+			t.Errorf("Execute() error = %v, want nil", err)
+		}
 	})
 
 	if code != ExitSuccess {

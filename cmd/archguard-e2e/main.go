@@ -105,10 +105,9 @@ func main() {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(int(exitCode))
 	}
 
-	os.Exit(int(cli.ExitSuccess))
+	os.Exit(int(exitCode))
 }
 
 // defaultMockEmbedding replicates llm.MockProvider's own zero-value CreateEmbedding fallback (non-zero vector, avoids NaN in cosine similarity).
