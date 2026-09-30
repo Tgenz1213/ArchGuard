@@ -10,7 +10,6 @@ import (
 	"strings"
 )
 
-// maxVoyageErrorBodyBytes bounds how much of an error response body we buffer.
 const maxVoyageErrorBodyBytes = 4096
 
 const voyageBaseURL = "https://api.voyageai.com"
