@@ -83,8 +83,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	orig := os.Stderr
 	os.Stderr = w
 	defer func() { os.Stderr = orig }()
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
 
 	fn()
 
@@ -92,6 +90,7 @@ func captureStderr(t *testing.T, fn func()) string {
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, r)
 	require.NoError(t, err)
+	require.NoError(t, r.Close())
 	return buf.String()
 }
 
@@ -548,7 +547,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	require.NoError(t, err)
 	var pgvectorVersion string
 	err = probeConn.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion)
-	_ = probeConn.Close(ctx)
+	require.NoError(t, probeConn.Close(ctx))
 	require.NoError(t, err)
 
 	if !index.IterativeScanSupportedVersion(pgvectorVersion) {

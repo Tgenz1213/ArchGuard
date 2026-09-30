@@ -123,7 +123,11 @@ func TestParseADRContent_FrontMatterRules(t *testing.T) {
 }
 
 func TestParseADRContent_MalformedRulesKeepTheRestOfTheADR(t *testing.T) {
-	adr, _ := parseWithFrontMatter(t, "scope: \"**/*.go\"\nrules: nope\n", ParseOptions{})
+	adr, rulesErr := parseWithFrontMatter(t, "scope: \"**/*.go\"\nrules: nope\n", ParseOptions{})
+	if rulesErr == nil {
+		t.Fatal("expected a rules error for malformed rules")
+	}
+
 	if adr.Title != "T" || adr.Status != "Accepted" || len(adr.Scope) != 1 {
 		t.Fatalf("ADR fields lost alongside malformed rules: %+v", adr)
 	}
@@ -141,7 +145,11 @@ func TestParseADRContent_ExportedWrapperStillReturnsTheADRWhenRulesAreMalformed(
 func TestParseADRContent_RulesKeyRemapped(t *testing.T) {
 	opts := ParseOptions{FrontmatterMappings: map[string]string{"rules": "screening"}}
 
-	adr, _ := parseWithFrontMatter(t, "screening:\n  - statement: mapped\nrules:\n  - statement: ignored\n", opts)
+	adr, rulesErr := parseWithFrontMatter(t, "screening:\n  - statement: mapped\nrules:\n  - statement: ignored\n", opts)
+	if rulesErr != nil {
+		t.Fatalf("rules error: %v", rulesErr)
+	}
+
 	if want := (Rules{{Statement: "mapped"}}); !reflect.DeepEqual(adr.Rules, want) {
 		t.Errorf("Rules = %+v, want %+v", adr.Rules, want)
 	}
@@ -150,7 +158,11 @@ func TestParseADRContent_RulesKeyRemapped(t *testing.T) {
 func TestParseADRContent_RulesUnmappedKeyStillReadWhenOtherFieldRemapped(t *testing.T) {
 	opts := ParseOptions{FrontmatterMappings: map[string]string{"scope": "applies_to"}}
 
-	adr, _ := parseWithFrontMatter(t, "applies_to: \"**/*.go\"\nrules:\n  - statement: canonical\n", opts)
+	adr, rulesErr := parseWithFrontMatter(t, "applies_to: \"**/*.go\"\nrules:\n  - statement: canonical\n", opts)
+	if rulesErr != nil {
+		t.Fatalf("rules error: %v", rulesErr)
+	}
+
 	if want := (Rules{{Statement: "canonical"}}); !reflect.DeepEqual(adr.Rules, want) {
 		t.Errorf("Rules = %+v, want %+v", adr.Rules, want)
 	}
@@ -551,7 +563,11 @@ func TestParseADRContent_RulesResolution(t *testing.T) {
 }
 
 func TestParseADRContent_RulesSectionStaysInContent(t *testing.T) {
-	adr, _ := parseWithBody(t, "", bodySection, ParseOptions{})
+	adr, rulesErr := parseWithBody(t, "", bodySection, ParseOptions{})
+	if rulesErr != nil {
+		t.Fatalf("rules error: %v", rulesErr)
+	}
+
 	if !strings.Contains(adr.Content, "## Rules") {
 		t.Errorf("the rules section must remain in Content so LLM prompts are unchanged, got %q", adr.Content)
 	}

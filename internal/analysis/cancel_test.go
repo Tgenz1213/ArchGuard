@@ -22,7 +22,9 @@ const fakeGitStartedEnv = "ARCHGUARD_FAKE_GIT_STARTED"
 // Re-executed as a fake git binary by TestRun_CancelKillsInFlightGit.
 func TestMain(m *testing.M) {
 	if marker := os.Getenv(fakeGitStartedEnv); marker != "" {
-		_ = os.WriteFile(marker, nil, 0o600)
+		if err := os.WriteFile(marker, nil, 0o600); err != nil {
+			os.Exit(1)
+		}
 
 		time.Sleep(30 * time.Second)
 		os.Exit(0)

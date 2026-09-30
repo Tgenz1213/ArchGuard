@@ -23,7 +23,10 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2,0.3],"index":0}],"model":"voyage-4","usage":{"total_tokens":5}}`))
+
+		if _, err := w.Write([]byte(`{"data":[{"embedding":[0.1,0.2,0.3],"index":0}],"model":"voyage-4","usage":{"total_tokens":5}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -64,7 +67,10 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"data":[{"embedding":[0.4,0.5],"index":0}],"index":0}],"model":"voyage-context-3","usage":{"total_tokens":5}}`))
+
+		if _, err := w.Write([]byte(`{"data":[{"data":[{"embedding":[0.4,0.5],"index":0}],"index":0}],"model":"voyage-context-3","usage":{"total_tokens":5}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -133,7 +139,10 @@ func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"detail":"` + wantDetail + `"}`))
+
+		if _, err := w.Write([]byte(`{"detail":"` + wantDetail + `"}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 

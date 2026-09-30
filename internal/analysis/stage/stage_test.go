@@ -67,7 +67,11 @@ func TestStage_DropsBelowMinimumAndOrdersBestFirst(t *testing.T) {
 func TestStage_MaxKeepCutsAfterOrdering(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(0.4, 0.9, 0.7), Min: stage.FixedMin(0), MaxKeep: 2}
 
-	got, _ := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
 	if ids(got) != "b,c" {
 		t.Fatalf("got %s, want b,c", ids(got))
 	}
@@ -76,7 +80,11 @@ func TestStage_MaxKeepCutsAfterOrdering(t *testing.T) {
 func TestStage_NilMinDefaultsToZero(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(-0.5, 0)}
 
-	got, _ := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
+	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
 	if ids(got) != "b" {
 		t.Fatalf("got %s, want only b (score 0 kept, negative dropped)", ids(got))
 	}
@@ -88,7 +96,11 @@ func TestStage_PerADRThreshold(t *testing.T) {
 	cs[0].ADR.SimilarityThreshold = &strict
 	s := stage.Stage{Scorer: fixedScores(0.9, 0.9), Min: stage.ADRThreshold{Global: 0.5}}
 
-	got, _ := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, cs)
+	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, cs)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
 	if ids(got) != "b" {
 		t.Fatalf("got %s, want only b (a's own 0.95 threshold rejects 0.9)", ids(got))
 	}
@@ -116,7 +128,10 @@ func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	_, _ = s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d"))
+	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
 	if n := strings.Count(buf.String(), "Below threshold"); n != 4 {
 		t.Fatalf("printed %d below-threshold lines, want 4", n)
 	}

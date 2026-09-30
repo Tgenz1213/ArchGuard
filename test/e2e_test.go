@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -501,7 +502,11 @@ analysis:
 		var outBuf, errBuf bytes.Buffer
 		cmd.Stdout = &outBuf
 		cmd.Stderr = &errBuf
-		_ = cmd.Run()
+
+		var exitErr *exec.ExitError
+		if err := cmd.Run(); !errors.As(err, &exitErr) || exitErr.ExitCode() != int(cli.ExitDriftDetected) {
+			t.Fatalf("check --format json --debug: err = %v, want exit %d", err, cli.ExitDriftDetected)
+		}
 
 		stdout := outBuf.String()
 		stderr := errBuf.String()

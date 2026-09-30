@@ -38,7 +38,10 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"violation\": false}"}}]}`))
+
+		if _, err := w.Write([]byte(`{"choices":[{"message":{"content":"{\"violation\": false}"}}]}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -70,7 +73,10 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"embedding":[0.1,0.2,0.3]}]}`))
+
+		if _, err := w.Write([]byte(`{"data":[{"embedding":[0.1,0.2,0.3]}]}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -96,7 +102,10 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 func TestOpenAIProvider_ChatErrorOnNon200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"message":"invalid api key"}}`))
+
+		if _, err := w.Write([]byte(`{"error":{"message":"invalid api key"}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
 	}))
 	defer server.Close()
 

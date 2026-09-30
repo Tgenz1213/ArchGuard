@@ -1031,6 +1031,20 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	}
 }
 
+// runEngine fails the test unless Run returns drift exactly when wantDrift is set.
+func runEngine(t *testing.T, engine *analysis.Engine, wantDrift bool) {
+	t.Helper()
+
+	err := engine.Run(context.Background())
+	if wantDrift && !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Errorf("Run() = %v, want drift", err)
+	}
+
+	if !wantDrift && err != nil {
+		t.Errorf("Run() = %v, want nil", err)
+	}
+}
+
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -1042,8 +1056,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	orig := os.Stderr
 	os.Stderr = w
 	defer func() { os.Stderr = orig }()
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
 
 	fn()
 
@@ -1054,6 +1066,10 @@ func captureStderr(t *testing.T, fn func()) string {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
 	return buf.String()
@@ -1524,7 +1540,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if !strings.Contains(output, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
@@ -1567,7 +1583,7 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if !strings.Contains(output, "Cut by top-K limit: Fourth ADR") {
@@ -1616,7 +1632,7 @@ func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if strings.Contains(output, "Cut by top-K limit") {
@@ -1923,7 +1939,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if !strings.Contains(output, "Below threshold: Strict Override ADR (score 0.71 < threshold 0.95)") {
@@ -2073,7 +2089,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	// engine.SuggestFixes left at its zero value (false) -- this is the default-off assertion.
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, true)
 	})
 
 	if chatCalls != 1 {
@@ -2115,7 +2131,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	engine.JSONOutput = true
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, true)
 	})
 
 	if chatCalls != 2 {
@@ -2160,7 +2176,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 	engine.SuggestFixes = true
 
 	_ = captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if chatCalls != 1 {
@@ -2196,7 +2212,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 	engine.Baseline = b
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, false)
 	})
 
 	if chatCalls != 1 {
@@ -2239,7 +2255,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	firstEngine.SuggestFixes = true
 
 	firstOutput := captureStderr(t, func() {
-		_ = firstEngine.Run(context.Background())
+		runEngine(t, firstEngine, true)
 	})
 	if !strings.Contains(firstOutput, "Suggestion") {
 		t.Fatalf("expected first (flagged) run to surface a suggestion, got: %s", firstOutput)
@@ -2251,7 +2267,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	secondEngine.JSONOutput = true
 
 	secondOutput := captureStderr(t, func() {
-		_ = secondEngine.Run(context.Background())
+		runEngine(t, secondEngine, true)
 	})
 	if strings.Contains(secondOutput, "Suggestion") {
 		t.Errorf("expected no Suggestion line when SuggestFixes is off, even with a warm cache, got: %s", secondOutput)
@@ -2314,7 +2330,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	engine.SuggestFixes = true
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, true)
 	})
 
 	if suggestionCalls != 1 {
@@ -2361,14 +2377,14 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
-	_ = captureStderr(t, func() { _ = firstEngine.Run(context.Background()) })
+	_ = captureStderr(t, func() { runEngine(t, firstEngine, true) })
 
 	// Debug toggles between runs but isn't part of the suggestion key, so
 	// the cached suggestion should still be reused.
 	secondEngine := analysis.NewEngine(cfg, store, provider, content, true, false)
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = true
-	output := captureStderr(t, func() { _ = secondEngine.Run(context.Background()) })
+	output := captureStderr(t, func() { runEngine(t, secondEngine, true) })
 
 	if suggestionCalls != 1 {
 		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
@@ -2423,7 +2439,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
 	engine.Cache = c
 	engine.SuggestFixes = true
-	output := captureStderr(t, func() { _ = engine.Run(context.Background()) })
+	output := captureStderr(t, func() { runEngine(t, engine, true) })
 
 	mu.Lock()
 	calls := suggestionCalls
@@ -2462,7 +2478,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	engine.SuggestFixes = true
 
 	output := captureStderr(t, func() {
-		_ = engine.Run(context.Background())
+		runEngine(t, engine, true)
 	})
 
 	if chatCalls != 1 {

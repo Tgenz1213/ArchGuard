@@ -744,8 +744,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	orig := os.Stdout
 	os.Stdout = w
 	defer func() { os.Stdout = orig }()
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
 
 	fn()
 
@@ -756,6 +754,10 @@ func captureStdout(t *testing.T, fn func()) string {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
 	return buf.String()
@@ -772,8 +774,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	orig := os.Stderr
 	os.Stderr = w
 	defer func() { os.Stderr = orig }()
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
 
 	fn()
 
@@ -784,6 +784,10 @@ func captureStderr(t *testing.T, fn func()) string {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
 	return buf.String()
@@ -836,7 +840,9 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(t.Context(), ProviderFactories{})
+			if code, err := Execute(t.Context(), ProviderFactories{}); code != ExitConfig || err == nil {
+				t.Errorf("Execute() = (%d, %v), want exit %d: this repo has no archguard.yaml", code, err, ExitConfig)
+			}
 		})
 	})
 
@@ -872,7 +878,9 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			_, _ = Execute(t.Context(), ProviderFactories{})
+			if code, err := Execute(t.Context(), ProviderFactories{}); code != ExitConfig || err == nil {
+				t.Errorf("Execute() = (%d, %v), want exit %d: this repo has no archguard.yaml", code, err, ExitConfig)
+			}
 		})
 	})
 
