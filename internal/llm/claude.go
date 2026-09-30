@@ -11,7 +11,7 @@ import (
 
 const claudeBaseURL = "https://api.anthropic.com"
 
-// claudeMaxResponseTokens is fixed, not configurable: prompts always ask for a short JSON object.
+// Not configurable: prompts always ask for a short JSON object.
 const claudeMaxResponseTokens = 1024
 
 type ClaudeProvider struct {
@@ -19,8 +19,6 @@ type ClaudeProvider struct {
 	model  string
 }
 
-// NewClaudeProvider constructs a ClaudeProvider that talks to the real
-// Anthropic API.
 func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
 	return NewClaudeProviderWithBaseURL(apiKey, model, claudeBaseURL, &http.Client{})
 }
