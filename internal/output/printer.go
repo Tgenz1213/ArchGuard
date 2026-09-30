@@ -19,6 +19,8 @@ type Printer struct {
 	indent int
 	parent *Printer
 	header string
+	// ownsBuffer is false for an Indented child, which writes through a buffer it doesn't own.
+	ownsBuffer bool
 }
 
 type sink struct {
@@ -69,6 +71,8 @@ func (p *Printer) Group(header string) *Printer {
 		indent: p.depth(),
 		parent: p,
 		header: header,
+
+		ownsBuffer: true,
 	}
 	if header != "" {
 		g.indent++
@@ -77,8 +81,13 @@ func (p *Printer) Group(header string) *Printer {
 	return g
 }
 
+// Indented prints one level deeper, straight through to p's destination.
+func (p *Printer) Indented() *Printer {
+	return &Printer{sink: p.out(), debug: p.DebugEnabled(), indent: p.depth() + 1}
+}
+
 func (p *Printer) Flush() {
-	if p == nil || p.sink.buf == nil {
+	if p == nil || !p.ownsBuffer {
 		return
 	}
 

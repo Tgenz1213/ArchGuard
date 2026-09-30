@@ -77,6 +77,44 @@ func TestGroupWithoutHeaderKeepsIndent(t *testing.T) {
 	}
 }
 
+func TestIndentedWritesThroughOneLevelDeeper(t *testing.T) {
+	var buf bytes.Buffer
+
+	p := output.New(&buf, false)
+	p.Info("summary")
+	section := p.Indented()
+	section.Info("Skipped: 1")
+
+	if got := buf.String(); got != "summary\n  Skipped: 1\n" {
+		t.Fatalf("got %q before any flush", got)
+	}
+
+	section.Indented().Info("- a.md")
+
+	if got := buf.String(); got != "summary\n  Skipped: 1\n    - a.md\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFlushOnIndentedChildOfGroupDoesNotFlushTheGroup(t *testing.T) {
+	var buf bytes.Buffer
+
+	g := output.New(&buf, false).Group("a.go")
+	sub := g.Indented()
+	sub.Info("x")
+	sub.Flush()
+
+	if buf.Len() != 0 {
+		t.Fatalf("Indented child flushed its group early: %q", buf.String())
+	}
+
+	g.Flush()
+
+	if got := buf.String(); got != "a.go\n    x\n" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestEmptyGroupPrintsNothing(t *testing.T) {
 	var buf bytes.Buffer
 

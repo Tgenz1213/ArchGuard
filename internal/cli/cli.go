@@ -103,7 +103,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "failed to load .env: %v\n", err)
+		output.New(os.Stderr, false).Warn("failed to load .env: %v", err)
 	}
 
 	if len(os.Args) < 2 {
@@ -162,9 +162,9 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 			return ExitConfig, err
 		}
 	} else {
-		providerWarnings := io.Writer(os.Stdout)
+		providerWarnings := output.New(os.Stdout, false)
 		if jsonOutput {
-			providerWarnings = os.Stderr
+			providerWarnings = output.New(os.Stderr, false)
 		}
 
 		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
@@ -385,11 +385,11 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	}
 }
 
-func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
+func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
 	switch name {
 	case "openai":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
@@ -397,19 +397,19 @@ func buildProvider(warnings io.Writer, name, apiKey string, cfg *config.Config) 
 		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
 	case "gemini":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "claude":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
 	case "voyage":
 		if apiKey == "" {
-			_, _ = fmt.Fprintf(warnings, "Warning: no API key set for %s provider. Requests may fail.\n", name)
+			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
 		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
@@ -641,7 +641,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	out := output.New(human, *debug)
 
 	if *format == "json" && *updateBaseline {
-		fmt.Println("Note: --format json has no effect with --update-baseline; ignoring it.")
+		out.Note("--format json has no effect with --update-baseline; ignoring it.")
 	}
 
 	store, err := index.NewVectorStore(cfg, out)
@@ -650,9 +650,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
-	var fetchWarnings bytes.Buffer
-
-	fetchOut := output.New(&fetchWarnings, false)
+	fetchOut := out.Group("")
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(adrIDPattern)
@@ -681,21 +679,22 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	validADRs, _, err := adrProvider.GetADRs(ctx)
 	if err != nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
 	}
 
 	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
 	if err != nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
 
 	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
-		_, _ = human.Write(fetchWarnings.Bytes())
+		fetchOut.Flush()
 	} else {
-		_, _ = fmt.Fprintf(human, "Index metadata mismatch or missing index. Triggering index rebuild: %v\n", err)
-		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, human); err != nil {
+		out.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
+
+		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -706,18 +705,16 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	if *updateBaseline && (len(files) > 0 || *staged) {
-		_, _ = fmt.Fprintln(human, "Note: --update-baseline always scans the full repository; ignoring --staged and any file arguments.")
+		out.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 
 	if *baselineReason != "" && !*updateBaseline {
-		_, _ = fmt.Fprintln(human, "Note: --baseline-reason has no effect without --update-baseline; ignoring it.")
+		out.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
 
-	contentProvider := resolveContentProvider(human, files, *staged, *all, *updateBaseline)
+	contentProvider := resolveContentProvider(out, files, *staged, *all, *updateBaseline)
 
-	if *debug {
-		_, _ = fmt.Fprintln(human, "[DEBUG] Mode Enabled")
-	}
+	out.Debug("Mode Enabled")
 
 	var loadedBaseline *baseline.Baseline
 
@@ -727,7 +724,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
 
-		_, _ = fmt.Fprintf(human, "Warning: failed to load existing baseline file %s (baseline reasons will not carry forward): %v\n", baseline.Path, err)
+		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, *debug, *ci)
@@ -760,8 +757,8 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		fmt.Printf("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.\n", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
-		fmt.Printf("Baseline written to %s (%d violation(s) recorded).\n", baseline.Path, len(engine.CollectedBaseline.Entries))
+		out.Info("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
+		out.Info("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
 	}
 
@@ -782,13 +779,13 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	// Reached only without drift, in either format.
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedADRChecks, engine.SkippedFiles)
+		out.Info("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedADRChecks, engine.SkippedFiles)
 	case engine.SkippedADRChecks > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.\n", engine.SkippedADRChecks)
+		out.Info("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", engine.SkippedADRChecks)
 	case engine.SkippedFiles > 0:
-		_, _ = fmt.Fprintf(human, "Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.\n", engine.SkippedFiles)
+		out.Info("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedFiles)
 	default:
-		_, _ = fmt.Fprintln(human, "No new architectural violations found.")
+		out.Info("No new architectural violations found.")
 	}
 
 	return ExitSuccess, nil
@@ -854,7 +851,7 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
-func resolveContentProvider(human io.Writer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
+func resolveContentProvider(out *output.Printer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
 	if updateBaseline {
 		return &analysis.AllProvider{}
 	}
@@ -869,7 +866,7 @@ func resolveContentProvider(human io.Writer, files []string, staged, all, update
 			}
 
 			if len(extras) > 0 {
-				_, _ = fmt.Fprintf(human, "Note: \".\" scans the whole repository; ignoring extra path argument(s): %v\n", extras)
+				out.Note("\".\" scans the whole repository; ignoring extra path argument(s): %v", extras)
 			}
 
 			return &analysis.AllProvider{}
@@ -917,7 +914,7 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
-	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, os.Stdout)
+	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, output.New(os.Stdout, false))
 }
 
 func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
@@ -936,9 +933,7 @@ func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
 	})
 }
 
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, w io.Writer) (ExitCode, error) {
-	out := output.New(w, false)
-
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
@@ -971,7 +966,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
 	if result.Attempted {
-		printIndexSummary(result, w)
+		printIndexSummary(result, out)
 	}
 
 	if err != nil {
@@ -990,24 +985,27 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provide
 	return ExitSuccess, nil
 }
 
-func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
-	_, _ = fmt.Fprintf(w, "ADR Index: %d discovered, %d valid.\n", result.Discovered, result.Valid)
+func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
+	section := out.Indented()
+	item := section.Indented()
+
+	out.Info("ADR Index: %d discovered, %d valid.", result.Discovered, result.Valid)
 
 	if len(result.ParseFailed) > 0 {
-		_, _ = fmt.Fprintf(w, "  Skipped (parse failure): %d\n", len(result.ParseFailed))
+		section.Info("Skipped (parse failure): %d", len(result.ParseFailed))
 		for _, path := range result.ParseFailed {
-			_, _ = fmt.Fprintf(w, "    - %s\n", path)
+			item.Info("- %s", path)
 		}
 	}
 
 	if result.StatusRejected > 0 {
-		_, _ = fmt.Fprintf(w, "  Skipped (status not accepted): %d\n", result.StatusRejected)
+		section.Info("Skipped (status not accepted): %d", result.StatusRejected)
 	}
 
 	if len(result.Skipped) > 0 {
-		_, _ = fmt.Fprintf(w, "  Failed to embed or persist: %d\n", len(result.Skipped))
+		section.Info("Failed to embed or persist: %d", len(result.Skipped))
 		for _, skipped := range result.Skipped {
-			_, _ = fmt.Fprintf(w, "    - %s: %v\n", skipped.RelPath, skipped.Err)
+			item.Info("- %s: %v", skipped.RelPath, skipped.Err)
 		}
 	}
 
@@ -1018,23 +1016,23 @@ func printIndexSummary(result index.BuildIndexResult, w io.Writer) {
 		}
 
 		sort.Strings(ids)
-		_, _ = fmt.Fprintf(w, "  Duplicate ADR IDs: %d\n", len(ids))
+		section.Info("Duplicate ADR IDs: %d", len(ids))
 		for _, id := range ids {
-			_, _ = fmt.Fprintf(w, "    - %q used by: %s\n", id, strings.Join(result.DuplicateIDs[id], ", "))
+			item.Info("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
 
 	if len(result.NoScope) > 0 {
-		_, _ = fmt.Fprintf(w, "  No scope set (applies to every file): %d\n", len(result.NoScope))
+		section.Info("No scope set (applies to every file): %d", len(result.NoScope))
 		for _, path := range result.NoScope {
-			_, _ = fmt.Fprintf(w, "    - %s\n", path)
+			item.Info("- %s", path)
 		}
 	}
 
 	if len(result.MalformedRules) > 0 {
-		_, _ = fmt.Fprintf(w, "  Rules ignored (malformed): %d\n", len(result.MalformedRules))
+		section.Info("Rules ignored (malformed): %d", len(result.MalformedRules))
 		for _, m := range result.MalformedRules {
-			_, _ = fmt.Fprintf(w, "    - %s: %s\n", m.RelPath, m.Reason)
+			item.Info("- %s: %s", m.RelPath, m.Reason)
 		}
 	}
 }

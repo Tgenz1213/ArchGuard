@@ -17,7 +17,7 @@ Every diagnostic in `internal/index` goes through an `*output.Printer` supplied 
 - `LocalStore` and `PgStore` hold an unexported `out *output.Printer`. `NewPgStore` takes it as its last parameter because it prints while it is being constructed; `NewLocalStore` has no construction-time output, so `NewVectorStore(cfg, out)` sets the field after construction.
 - `LocalProvider`, `ConfluenceProvider` and `CompositeProvider` take theirs through `SetPrinter`, mirroring `SetIDPattern`, since none of them print during construction.
 - A nil `*output.Printer` is valid and writes to stderr. A store or provider nobody wired up can therefore never print into a JSON report on stdout, and the many tests that construct stores with no printer need no change.
-- `cli.runIndex` builds one `Printer` over its writer (`os.Stdout` for `archguard index`, `human` for `check`'s rebuild), and `runCheck` passes `human` to `NewVectorStore` and a buffered printer to its providers.
+- `cli.runIndex` takes an `*output.Printer`: one over `os.Stdout` for `archguard index`, or `runCheck`'s own printer (over `human`) for `check`'s rebuild. `runCheck` passes that printer to `NewVectorStore` and a buffered `Group` of it to its providers, flushed unless a rebuild is about to repeat the same warnings.
 
 ## Consequences
 

@@ -21,6 +21,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func TestExitCodeForAnalysisError(t *testing.T) {
@@ -488,7 +489,7 @@ func TestResolveContentProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveContentProvider(os.Stdout, tt.files, tt.staged, tt.all, tt.updateBaseline)
+			got := resolveContentProvider(output.New(os.Stdout, false), tt.files, tt.staged, tt.all, tt.updateBaseline)
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
@@ -516,7 +517,7 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got analysis.ContentProvider
 			output := captureStdout(t, func() {
-				got = resolveContentProvider(os.Stdout, tt.files, false, false, false)
+				got = resolveContentProvider(output.New(os.Stdout, false), tt.files, false, false, false)
 			})
 
 			if _, ok := got.(*analysis.AllProvider); !ok {
@@ -536,7 +537,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 		VectorStore: config.VectorStore{Model: "voyage-4"},
 	}
 
-	claude, err := buildProvider(os.Stdout, "claude", "test-key", cfg)
+	claude, err := buildProvider(output.Discard(), "claude", "test-key", cfg)
 	if err != nil {
 		t.Fatalf("buildProvider(claude) failed: %v", err)
 	}
@@ -545,7 +546,7 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
 	}
 
-	voyage, err := buildProvider(os.Stdout, "voyage", "test-key", cfg)
+	voyage, err := buildProvider(output.Discard(), "voyage", "test-key", cfg)
 	if err != nil {
 		t.Fatalf("buildProvider(voyage) failed: %v", err)
 	}
@@ -560,7 +561,7 @@ func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Model: "gpt-4"}}
 
 	var buf bytes.Buffer
-	if _, err := buildProvider(&buf, "openai", "", cfg); err != nil {
+	if _, err := buildProvider(output.New(&buf, false), "openai", "", cfg); err != nil {
 		t.Fatalf("buildProvider failed: %v", err)
 	}
 
@@ -1057,7 +1058,7 @@ func TestPrintIndexSummary_MalformedRules(t *testing.T) {
 			{RelPath: "0001-a.md", Reason: "frontmatter: rules must be a list"},
 			{RelPath: "0002-b.md", Reason: `"Rules" section: rule 1: bullet has no statement text`},
 		},
-	}, &buf)
+	}, output.New(&buf, false))
 
 	want := "  Rules ignored (malformed): 2\n" +
 		"    - 0001-a.md: frontmatter: rules must be a list\n" +
@@ -1070,7 +1071,7 @@ func TestPrintIndexSummary_MalformedRules(t *testing.T) {
 func TestPrintIndexSummary_NoMalformedRulesSectionWhenNone(t *testing.T) {
 	var buf bytes.Buffer
 
-	printIndexSummary(index.BuildIndexResult{Discovered: 1, Valid: 1}, &buf)
+	printIndexSummary(index.BuildIndexResult{Discovered: 1, Valid: 1}, output.New(&buf, false))
 
 	if strings.Contains(buf.String(), "Rules ignored") {
 		t.Errorf("expected no malformed-rules section, got:\n%s", buf.String())
