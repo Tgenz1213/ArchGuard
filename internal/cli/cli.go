@@ -647,9 +647,14 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		return ExitSuccess, nil
 	}
 
+	var analysisErr error
+	if runErr != nil {
+		analysisErr = fmt.Errorf("analysis failed: %v", runErr)
+	}
+
 	if jsonOutput {
 		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
-			return ExitError, fmt.Errorf("failed to write json report: %v", err)
+			return ExitError, errors.Join(fmt.Errorf("failed to write json report: %w", err), stageFailureErr, analysisErr)
 		}
 	}
 
@@ -658,7 +663,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	if runErr != nil {
-		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+		return exitCodeForAnalysisError(runErr), analysisErr
 	}
 
 	// Reached only without drift, in either format.

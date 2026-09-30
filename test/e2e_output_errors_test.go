@@ -115,6 +115,37 @@ func TestE2E_PrimaryOutputWriteFailureExitsOne(t *testing.T) {
 	}
 }
 
+func TestE2E_JSONReportWriteFailureKeepsTheDriftError(t *testing.T) {
+	dir, binaryPath := setupOutputErrorsRepo(t)
+	runIndexCmd(t, dir, binaryPath, int(cli.ExitSuccess))
+
+	stderrPath := filepath.Join(t.TempDir(), "stderr.txt")
+
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code := runWithStreams(t, dir, binaryPath, unwritable(t), stderr, "check", "--format", "json", fixtureFilename)
+
+	if err := stderr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if code != int(cli.ExitError) {
+		t.Fatalf("exit code = %d, want %d", code, cli.ExitError)
+	}
+
+	data, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Contains(data, []byte("failed to write json report")) || !bytes.Contains(data, []byte("architectural violations")) {
+		t.Errorf("the error should report both the failed write and the drift it hid, got:\n%s", data)
+	}
+}
+
 func TestE2E_DiagnosticWriteFailureKeepsExitCode(t *testing.T) {
 	dir, binaryPath := setupOutputErrorsRepo(t)
 	runIndexCmd(t, dir, binaryPath, int(cli.ExitSuccess))
