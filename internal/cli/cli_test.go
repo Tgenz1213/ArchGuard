@@ -577,6 +577,7 @@ func TestParseCommandLine(t *testing.T) {
 		wantCode    ExitCode
 		wantErr     bool
 		wantOut     string
+		wantErrOut  string
 		check       func(t *testing.T, c checkCmd)
 	}{
 		{name: "check with paths", args: []string{"check", "a.go", "b.go"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
@@ -612,24 +613,32 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "check --help after flags", args: []string{"check", "--format", "json", "--help"}, wantOut: "Scan staged files only"},
 		{name: "index --help", args: []string{"index", "--help"}, wantOut: "Usage: archguard index"},
 		{name: "--version", args: []string{"--version"}, wantOut: "ArchGuard version"},
-		{name: "no command", args: nil, wantCode: ExitUsage, wantErr: true, wantOut: "Usage: archguard <command>"},
-		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true},
+		{name: "no command", args: nil, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
+		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
 		{name: "invalid format", args: []string{"check", "--format", "xml"}, wantCode: ExitUsage, wantErr: true},
 		{name: "single-dash long flag", args: []string{"check", "-debug"}, wantCode: ExitUsage, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var out bytes.Buffer
+			var out, errOut bytes.Buffer
 
-			inv, code, err := parseCommandLine(tt.args, &out)
+			inv, code, err := parseCommandLine(tt.args, &out, &errOut)
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
 
 			if !strings.Contains(out.String(), tt.wantOut) {
-				t.Errorf("output missing %q, got:\n%s", tt.wantOut, out.String())
+				t.Errorf("stdout missing %q, got:\n%s", tt.wantOut, out.String())
+			}
+
+			if !strings.Contains(errOut.String(), tt.wantErrOut) {
+				t.Errorf("stderr missing %q, got:\n%s", tt.wantErrOut, errOut.String())
+			}
+
+			if tt.wantErr && out.Len() > 0 {
+				t.Errorf("a usage error must leave stdout empty, got:\n%s", out.String())
 			}
 
 			if tt.wantCommand == "" {
@@ -660,13 +669,20 @@ type failingWriter struct{}
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 func TestParseCommandLine_OutputWriteFailureExitsOne(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"check", "--help"}, {"--version"}, {"typo"}} {
+	for _, args := range [][]string{{"--help"}, {"check", "--help"}, {"--version"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			inv, code, err := parseCommandLine(args, failingWriter{})
+			inv, code, err := parseCommandLine(args, failingWriter{}, io.Discard)
 			if inv != nil || code != ExitError || err == nil {
 				t.Fatalf("got (%v, %d, %v), want (nil, %d, error)", inv, code, err, ExitError)
 			}
 		})
+	}
+}
+
+func TestParseCommandLine_UsageErrorIgnoresBrokenStreams(t *testing.T) {
+	inv, code, err := parseCommandLine([]string{"typo"}, failingWriter{}, failingWriter{})
+	if inv != nil || code != ExitUsage || err == nil || !strings.Contains(err.Error(), "typo") {
+		t.Fatalf("got (%v, %d, %v), want the usage error with exit %d", inv, code, err, ExitUsage)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -57,7 +56,7 @@ type invocation struct {
 }
 
 // A nil invocation means the command line was fully handled here: help, version, or a usage error.
-func parseCommandLine(args []string, stdout io.Writer) (*invocation, ExitCode, error) {
+func parseCommandLine(args []string, stdout, stderr io.Writer) (*invocation, ExitCode, error) {
 	var cl commandLine
 
 	w := &writeRecorder{w: stdout}
@@ -66,7 +65,7 @@ func parseCommandLine(args []string, stdout io.Writer) (*invocation, ExitCode, e
 	parser, err := kong.New(&cl,
 		kong.Name("archguard"),
 		kong.Description("Checks changed code against the rules in your Architectural Decision Records."),
-		kong.Writers(w, os.Stderr),
+		kong.Writers(w, stderr),
 		kong.Exit(func(code int) { exited = code }),
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	)
@@ -82,9 +81,9 @@ func parseCommandLine(args []string, stdout io.Writer) (*invocation, ExitCode, e
 	if err != nil && w.err == nil && exited < 0 {
 		var parseErr *kong.ParseError
 		if errors.As(err, &parseErr) && parseErr.Context != nil {
-			if usageErr := parseErr.Context.PrintUsage(false); usageErr != nil && w.err == nil {
-				w.err = usageErr
-			}
+			// Usage after a mistake is a diagnostic; only requested help is primary output.
+			parseErr.Context.Stdout = stderr
+			_ = parseErr.Context.PrintUsage(false) //nolint:errcheck // best-effort; the parse error is what's reported
 		}
 	}
 

@@ -17,7 +17,7 @@ A CLI hand-built on the standard `flag` package keeps its help and usage as lite
 The command line is declared once as structs in `internal/cli/commands.go` (`commandLine`, `checkCmd`) and parsed with `github.com/alecthomas/kong`, which generates help from the same declarations.
 
 - `parseCommandLine` runs first in `cli.Execute`, before git discovery or config loading, so `--help`, `help`, `<command> --help` and `--version` work outside a repository. It returns a nil invocation when parsing already answered the command line.
-- Exit codes stay ArchGuard's: `kong.Exit` is overridden, so help and `--version` exit `0` through `Execute`'s return, a parse error prints the relevant usage and exits `2` (usage), and a failed write of help, usage or the version exits `1`, per the primary-output rule.
+- Exit codes stay ArchGuard's: `kong.Exit` is overridden, so help and `--version` exit `0` through `Execute`'s return, a parse error prints the relevant usage to stderr as a best-effort diagnostic and exits `2` (usage), and a failed write of requested help or the version exits `1`, per the primary-output rule.
 - The banner decision and path normalization read the parsed values (`checkCmd.jsonOutput`, `normalizePaths(checkCmd.Paths, ...)`) instead of scanning `os.Args`, so no flag needs registering anywhere else.
 - `--version` is a `kong` flag printing `cli.Version`, which `cmd/archguard` sets from its build-time variables, so any binary built on `cli.Execute` handles it.
 - `help` as a first argument is rewritten to `--help`, keeping the older spelling working.

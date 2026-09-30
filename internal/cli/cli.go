@@ -62,12 +62,12 @@ func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 }
 
 func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
-	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout)
+	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout, os.Stderr)
 	if inv == nil {
 		return code, err
 	}
 
-	// Decided from the parsed flags so the banner and provider warnings stay off stdout in JSON mode.
+	// Keeps the banner and provider warnings off stdout in JSON mode.
 	jsonOutput := inv.command == "check" && inv.check.jsonOutput()
 	if !jsonOutput {
 		fmt.Println("ArchGuard - Architectural Drift Detector")
@@ -507,10 +507,9 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	out := output.New(human, opts.Debug)
 
-	// In JSON mode the human lines are on stderr and the JSON document is the primary output.
 	defer func() {
 		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
-			code, err = ExitError, outputWriteError(werr)
+			code, err = ExitError, errors.Join(outputWriteError(werr), err)
 		}
 	}()
 
@@ -764,7 +763,7 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
 	if werr := out.Err(); werr != nil && code != ExitInterrupted {
-		return ExitError, outputWriteError(werr)
+		return ExitError, errors.Join(outputWriteError(werr), err)
 	}
 
 	return code, err

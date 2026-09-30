@@ -25,7 +25,6 @@ func main() {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(int(exitCode))
 	}
 
 	os.Exit(int(exitCode))

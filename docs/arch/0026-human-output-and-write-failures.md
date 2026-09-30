@@ -28,5 +28,6 @@ All human-readable output goes through `internal/output.Printer`, passed down fr
 
 - New output uses the `Printer` of the component that prints it: `Result` for primary lines, `Info`/`Note`/`Warn`/`Error`/`Debug` for diagnostics.
 - A `//nolint:errcheck` without the second `//` is not recognized and does not suppress anything, so `golangci-lint` flags it.
-- On Unix, a broken pipe on stdout (`archguard check | head -1`) ends the process with SIGPIPE before any write error reaches ArchGuard, which still exits non-zero; Go's default SIGPIPE handling is kept for `| head` users.
+- `cli.NotifyContext` ignores SIGPIPE, so on Unix a broken stdout or stderr pipe returns `EPIPE` and follows the same rules: `archguard check | head -1` exits `1` with `failed to write output: broken pipe`, and a broken stderr pipe changes nothing.
+- When a failed write overrides the exit code, the command's own error is kept in the message alongside the write error.
 - `NewEngine` leaves `Engine.Cache` unset; `cli` creates the cache and warns when it can't, so a run without a usable `.archguard/cache` proceeds uncached rather than failing.
