@@ -139,7 +139,6 @@ Test Content`
 	_, err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	require.NoError(t, err)
 
-	// Insert into a second project to test isolation
 	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	_, err = storeOther.BuildIndex(ctx, "test-model", 3, provider, localProvider)
