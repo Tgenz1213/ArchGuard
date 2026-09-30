@@ -83,7 +83,9 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, FetchStats{}, err
+	}
 
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {
 		return nil, FetchStats{}, fmt.Errorf("all providers failed to fetch ADRs: %v", errs[0])

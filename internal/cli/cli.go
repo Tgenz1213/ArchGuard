@@ -18,6 +18,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
+	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -571,7 +572,11 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
-		currentHash, _ = store.CalculateHash(validADRs, cfg.VectorStore.Model)
+		currentHash, err = store.CalculateHash(validADRs, cfg.VectorStore.Model)
+		if err != nil {
+			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %v", err)
+		}
+
 		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
 		}
@@ -602,6 +607,14 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, opts.Debug, opts.CI)
 	engine.EmbedProvider = embedProvider
+
+	analysisCache, cacheErr := cache.NewCache(".")
+	if cacheErr != nil {
+		out.Warn("analysis cache disabled: %v", cacheErr)
+	}
+
+	engine.Cache = analysisCache
+
 	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, out)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = opts.UpdateBaseline

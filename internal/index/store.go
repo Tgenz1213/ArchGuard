@@ -210,8 +210,12 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			})
 		}
 
-		_ = g.Wait()
+		err := g.Wait()
 		progress.Done()
+
+		if err != nil {
+			return result, err
+		}
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.

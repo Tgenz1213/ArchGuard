@@ -96,18 +96,18 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body) //nolint:errcheck // the status error wins; the body only adds detail
+			_ = resp.Body.Close()            //nolint:errcheck // cleanup; the status error wins
 			return nil, FetchStats{}, fmt.Errorf("confluence returned %d: %s", resp.StatusCode, string(body))
 		}
 
 		var searchResp ConfluenceSearchResponse
 		if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-			_ = resp.Body.Close()
+			_ = resp.Body.Close() //nolint:errcheck // cleanup; the decode error wins
 			return nil, FetchStats{}, fmt.Errorf("failed to decode confluence response: %w", err)
 		}
 
-		_ = resp.Body.Close()
+		_ = resp.Body.Close() //nolint:errcheck // the body is fully decoded; closing it can't change the result
 
 		for _, result := range searchResp.Results {
 			stats.Discovered++

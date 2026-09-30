@@ -86,14 +86,14 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 
 	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
 	if err != nil {
-		_ = tempConn.Close(ctx)
+		_ = tempConn.Close(ctx) //nolint:errcheck // cleanup; the extension error wins
 		return nil, fmt.Errorf("failed to create vector extension: %w", err)
 	}
 
 	// A query error here is treated as unsupported, not a fatal error.
 	var pgvectorVersion string
 	versionErr := tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&pgvectorVersion)
-	_ = tempConn.Close(ctx)
+	_ = tempConn.Close(ctx) //nolint:errcheck // a one-off probe connection; the pool opens its own
 
 	iterativeScanWanted := hnsw.iterativeScanConfigured()
 	applyIterativeScan := false
@@ -408,8 +408,12 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			})
 		}
 
-		_ = g.Wait()
+		err := g.Wait()
 		progress.Done()
+
+		if err != nil {
+			return result, err
+		}
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.
@@ -439,7 +443,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 		for _, idx := range adrsToSync {
 			tag, err := br.Exec()
 			if err != nil {
-				_ = br.Close()
+				_ = br.Close() //nolint:errcheck // cleanup; the Exec error wins
 				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
 			}
 

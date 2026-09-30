@@ -17,12 +17,12 @@ func Write(path string, data []byte) error {
 
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		_ = os.Remove(tmpPath) // best-effort cleanup of a partial write
+		_ = os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup; the write error is what matters
 		return err
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath) // best-effort cleanup; the rename error is what matters
+		_ = os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup; the rename error is what matters
 		return err
 	}
 

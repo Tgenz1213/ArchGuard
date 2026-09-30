@@ -241,7 +241,7 @@ func headingText(n *ast.Heading, src []byte) string {
 
 func inlineText(n ast.Node, src []byte) string {
 	var b strings.Builder
-	_ = ast.Walk(n, func(child ast.Node, entering bool) (ast.WalkStatus, error) {
+	_ = ast.Walk(n, func(child ast.Node, entering bool) (ast.WalkStatus, error) { //nolint:errcheck // the walker never returns an error
 		if !entering {
 			return ast.WalkContinue, nil
 		}

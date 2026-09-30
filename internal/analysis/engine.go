@@ -78,8 +78,6 @@ func (e *DriftDetectedError) Is(target error) bool {
 }
 
 func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provider, content ContentProvider, debug bool, ci bool) *Engine {
-	c, _ := cache.NewCache(".")
-
 	return &Engine{
 		Config:   cfg,
 		Store:    store,
@@ -87,7 +85,6 @@ func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provide
 		Content:  content,
 		Debug:    debug,
 		CI:       ci,
-		Cache:    c,
 	}
 }
 
@@ -398,7 +395,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return err
+	}
 
 	// Checked before any summary or baseline snapshot: a partial scan must never look complete.
 	if err := ctx.Err(); err != nil {

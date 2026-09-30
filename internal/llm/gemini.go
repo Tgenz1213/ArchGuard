@@ -46,7 +46,7 @@ func (t *errorCapturingTransport) RoundTrip(req *http.Request) (*http.Response, 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := io.ReadAll(resp.Body)
 
-		_ = resp.Body.Close()
+		_ = resp.Body.Close() //nolint:errcheck // the body is already read and replaced below
 		if readErr == nil {
 			t.lastStatus = resp.Status
 			t.lastBody = body

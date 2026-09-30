@@ -134,7 +134,7 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 		return fmt.Errorf("voyage request failed: %w", err)
 	}
 
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // closing a read response body can't change the result
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxVoyageErrorBodyBytes))
