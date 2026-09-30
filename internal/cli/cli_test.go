@@ -384,7 +384,7 @@ func TestResolveEmbedProviderInstance_ReusesChatProviderWhenNamesMatch(t *testin
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got != llm.Provider(chat) {
+	if got != llm.Embedder(chat) {
 		t.Error("expected the chat provider instance to be reused")
 	}
 }
@@ -397,12 +397,12 @@ func TestResolveEmbedProviderInstance_BuildsFromFactoryWhenNamesDiffer(t *testin
 	chat := &llm.MockProvider{}
 	embed := &llm.MockProvider{}
 
-	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Provider { return embed })
+	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Embedder { return embed })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got != llm.Provider(embed) {
+	if got != llm.Embedder(embed) {
 		t.Error("expected the embed factory's provider to be used, not the chat provider")
 	}
 }

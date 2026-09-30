@@ -49,7 +49,7 @@ const configFilename = "archguard.yaml"
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
 	Chat  func(*config.Config) llm.Provider
-	Embed func(*config.Config) llm.Provider
+	Embed func(*config.Config) llm.Embedder
 }
 
 func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
@@ -134,7 +134,11 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return ExitConfig, err
 	}
 
-	var chatProvider, embedProvider llm.Provider
+	var (
+		chatProvider  llm.Provider
+		embedProvider llm.Embedder
+	)
+
 	if factories.Chat != nil {
 		chatProvider = factories.Chat(cfg)
 
@@ -263,7 +267,7 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 }
 
 // Mock-injection counterpart of resolveEmbedProvider; errors rather than silently reusing chatProvider.
-func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider, embedFactory func(*config.Config) llm.Provider) (llm.Provider, error) {
+func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Embedder, embedFactory func(*config.Config) llm.Embedder) (llm.Embedder, error) {
 	_, _, reuse := resolveEmbedProvider(cfg, "", "")
 	switch {
 	case reuse:
@@ -495,7 +499,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Provider, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
 	files := opts.Paths
 
 	jsonOutput := opts.jsonOutput()
@@ -763,7 +767,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // Separate from runIndex, which check's auto-rebuild calls with its own printer.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
 	out := output.New(os.Stdout, false)
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
@@ -778,7 +782,7 @@ func outputWriteError(err error) error {
 	return fmt.Errorf("failed to write output: %w", err)
 }
 
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
