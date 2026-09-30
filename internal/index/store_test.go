@@ -267,9 +267,7 @@ func TestLocalStore_BuildIndex_AttemptedTrueOnSuccess(t *testing.T) {
 	}
 }
 
-// A canceled ctx must surface as a build-wide error even when there was
-// nothing to embed this run (every ADR unchanged) -- the check can't be
-// gated on adrsToEmbed being non-empty (#133 review feedback).
+// A canceled ctx must fail the build even when every ADR is unchanged and nothing is embedded.
 func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
