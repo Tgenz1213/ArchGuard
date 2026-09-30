@@ -2,6 +2,7 @@ package output_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -258,6 +259,76 @@ func TestDiscard(t *testing.T) {
 
 	if got != "" {
 		t.Errorf("Discard wrote %q to stderr", got)
+	}
+}
+
+type failingWriter struct{}
+
+var errWrite = errors.New("write failed")
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
+
+func TestErrReportsFailedResultWrites(t *testing.T) {
+	tests := []struct {
+		name    string
+		print   func(p *output.Printer)
+		wantErr bool
+	}{
+		{"result line", func(p *output.Printer) { p.Result("1 new violation(s)") }, true},
+		{"indented result line", func(p *output.Printer) { p.Indented().Result("- a.md") }, true},
+		{"violation", func(p *output.Printer) { p.Violation(output.Violation{Title: "t", Verified: true}) }, true},
+		{"group holding a violation", func(p *output.Printer) {
+			g := p.Group("a.go")
+			g.Violation(output.Violation{Title: "t", Verified: true})
+			g.Flush()
+		}, true},
+		{"diagnostics", func(p *output.Printer) {
+			p.Info("found")
+			p.Note("n")
+			p.Warn("w")
+			p.Error("e")
+			p.Debug("d")
+			pr := p.Progress()
+			pr.Tick()
+			pr.Done()
+		}, false},
+		{"group without a result", func(p *output.Printer) {
+			g := p.Group("a.go")
+			g.Warn("slow")
+			g.Flush()
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := output.New(failingWriter{}, true)
+			tt.print(p)
+
+			err := p.Err()
+			if tt.wantErr && !errors.Is(err, errWrite) {
+				t.Fatalf("Err() = %v, want %v", err, errWrite)
+			}
+
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Err() = %v, want nil for best-effort output", err)
+			}
+		})
+	}
+}
+
+func TestErrIsNilAfterSuccessfulResults(t *testing.T) {
+	var buf bytes.Buffer
+
+	p := output.New(&buf, false)
+	p.Result("ok")
+
+	if err := p.Err(); err != nil {
+		t.Fatalf("Err() = %v, want nil", err)
+	}
+
+	var nilPrinter *output.Printer
+	if err := nilPrinter.Err(); err != nil {
+		t.Fatalf("nil Printer Err() = %v, want nil", err)
 	}
 }
 

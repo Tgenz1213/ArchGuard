@@ -64,16 +64,25 @@ func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
 	if isTopLevelHelpRequest(os.Args) {
-		printUsage()
+		if err := printUsage(os.Stdout); err != nil {
+			return ExitError, usageWriteError(err)
+		}
+
 		return ExitSuccess, nil
 	}
 
 	if subcommand, ok := subcommandHelpRequest(os.Args); ok {
+		var err error
+
 		switch subcommand {
 		case "check":
-			printCheckUsage(os.Stdout, newCheckFlagSet())
+			err = printCheckUsage(os.Stdout, newCheckFlagSet())
 		case "index":
-			printIndexUsage(os.Stdout, newIndexFlagSet())
+			err = printIndexUsage(os.Stdout, newIndexFlagSet())
+		}
+
+		if err != nil {
+			return ExitError, usageWriteError(err)
 		}
 
 		return ExitSuccess, nil
@@ -107,7 +116,10 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if len(os.Args) < 2 {
-		printUsage()
+		if err := printUsage(os.Stdout); err != nil {
+			return ExitError, usageWriteError(err)
+		}
+
 		return ExitUsage, fmt.Errorf("no command provided")
 	}
 
@@ -121,7 +133,10 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return ExitSuccess, nil
 	case "check", "index":
 	default:
-		printUsage()
+		if err := printUsage(os.Stdout); err != nil {
+			return ExitError, usageWriteError(err)
+		}
+
 		return ExitUsage, fmt.Errorf("unknown command: %s", command)
 	}
 
@@ -605,7 +620,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (ExitCode, error) {
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, args []string) (code ExitCode, err error) {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	var flagParseOutput bytes.Buffer
 	checkFlags.SetOutput(&flagParseOutput)
@@ -613,7 +628,10 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 
 	if err := checkFlags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printCheckUsage(os.Stdout, checkFlags)
+			if err := printCheckUsage(os.Stdout, checkFlags); err != nil {
+				return ExitError, usageWriteError(err)
+			}
+
 			return ExitSuccess, nil
 		}
 
@@ -639,6 +657,13 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	}
 
 	out := output.New(human, *debug)
+
+	// In JSON mode the human lines are on stderr and the JSON document is the primary output.
+	defer func() {
+		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
+			code, err = ExitError, outputWriteError(werr)
+		}
+	}()
 
 	if *format == "json" && *updateBaseline {
 		out.Note("--format json has no effect with --update-baseline; ignoring it.")
@@ -757,8 +782,8 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		out.Info("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
-		out.Info("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
+		out.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
+		out.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
 	}
 
@@ -779,13 +804,13 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 	// Reached only without drift, in either format.
 	switch {
 	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		out.Info("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedADRChecks, engine.SkippedFiles)
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedADRChecks, engine.SkippedFiles)
 	case engine.SkippedADRChecks > 0:
-		out.Info("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", engine.SkippedADRChecks)
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", engine.SkippedADRChecks)
 	case engine.SkippedFiles > 0:
-		out.Info("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedFiles)
+		out.Result("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedFiles)
 	default:
-		out.Info("No new architectural violations found.")
+		out.Result("No new architectural violations found.")
 	}
 
 	return ExitSuccess, nil
@@ -903,7 +928,10 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 
 	if err := indexFlags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printIndexUsage(os.Stdout, indexFlags)
+			if err := printIndexUsage(os.Stdout, indexFlags); err != nil {
+				return ExitError, usageWriteError(err)
+			}
+
 			return ExitSuccess, nil
 		}
 
@@ -914,23 +942,29 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 		return ExitUsage, fmt.Errorf("error parsing flags: %v", err)
 	}
 
-	return runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, output.New(os.Stdout, false))
-}
+	out := output.New(os.Stdout, false)
 
-func printIndexUsage(w io.Writer, fs *flag.FlagSet) {
-	_, _ = fmt.Fprintln(w, "Usage: archguard index")
-	_, _ = fmt.Fprintln(w, "\nRebuilds the ADR index from the configured ADR source(s).")
-	hasFlags := false
-	fs.VisitAll(func(*flag.Flag) { hasFlags = true })
-
-	if !hasFlags {
-		return
+	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
+	if werr := out.Err(); werr != nil && code != ExitInterrupted {
+		return ExitError, outputWriteError(werr)
 	}
 
-	_, _ = fmt.Fprintln(w, "\nFlags:")
-	fs.VisitAll(func(f *flag.Flag) {
-		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
-	})
+	return code, err
+}
+
+func outputWriteError(err error) error {
+	return fmt.Errorf("failed to write output: %w", err)
+}
+
+func printIndexUsage(w io.Writer, fs *flag.FlagSet) error {
+	var b strings.Builder
+
+	b.WriteString("Usage: archguard index\n\nRebuilds the ADR index from the configured ADR source(s).\n")
+	writeFlagUsage(&b, fs)
+
+	_, err := io.WriteString(w, b.String())
+
+	return err
 }
 
 func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
@@ -989,23 +1023,23 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 	section := out.Indented()
 	item := section.Indented()
 
-	out.Info("ADR Index: %d discovered, %d valid.", result.Discovered, result.Valid)
+	out.Result("ADR Index: %d discovered, %d valid.", result.Discovered, result.Valid)
 
 	if len(result.ParseFailed) > 0 {
-		section.Info("Skipped (parse failure): %d", len(result.ParseFailed))
+		section.Result("Skipped (parse failure): %d", len(result.ParseFailed))
 		for _, path := range result.ParseFailed {
-			item.Info("- %s", path)
+			item.Result("- %s", path)
 		}
 	}
 
 	if result.StatusRejected > 0 {
-		section.Info("Skipped (status not accepted): %d", result.StatusRejected)
+		section.Result("Skipped (status not accepted): %d", result.StatusRejected)
 	}
 
 	if len(result.Skipped) > 0 {
-		section.Info("Failed to embed or persist: %d", len(result.Skipped))
+		section.Result("Failed to embed or persist: %d", len(result.Skipped))
 		for _, skipped := range result.Skipped {
-			item.Info("- %s: %v", skipped.RelPath, skipped.Err)
+			item.Result("- %s: %v", skipped.RelPath, skipped.Err)
 		}
 	}
 
@@ -1016,43 +1050,87 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 		}
 
 		sort.Strings(ids)
-		section.Info("Duplicate ADR IDs: %d", len(ids))
+		section.Result("Duplicate ADR IDs: %d", len(ids))
 		for _, id := range ids {
-			item.Info("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
+			item.Result("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
 
 	if len(result.NoScope) > 0 {
-		section.Info("No scope set (applies to every file): %d", len(result.NoScope))
+		section.Result("No scope set (applies to every file): %d", len(result.NoScope))
 		for _, path := range result.NoScope {
-			item.Info("- %s", path)
+			item.Result("- %s", path)
 		}
 	}
 
 	if len(result.MalformedRules) > 0 {
-		section.Info("Rules ignored (malformed): %d", len(result.MalformedRules))
+		section.Result("Rules ignored (malformed): %d", len(result.MalformedRules))
 		for _, m := range result.MalformedRules {
-			item.Info("- %s: %s", m.RelPath, m.Reason)
+			item.Result("- %s: %s", m.RelPath, m.Reason)
 		}
 	}
 }
 
-func printUsage() {
-	fmt.Println("Usage: archguard <command> [arguments]")
-	fmt.Println("\nCommands:")
-	fmt.Println("  init     Initialize ArchGuard in the current repository (local setup)")
-	fmt.Println("  check    Check for architectural violations")
-	fmt.Println("  index    Rebuild the ADR index")
-	fmt.Println("\nGlobal Flags:")
-	fmt.Println("  -v, --version  Print version information")
+type usageEntry struct{ name, summary string }
+
+var commands = []usageEntry{
+	{"init", "Initialize ArchGuard in the current repository (local setup)"},
+	{"check", "Check for architectural violations"},
+	{"index", "Rebuild the ADR index"},
 }
 
-func printCheckUsage(w io.Writer, fs *flag.FlagSet) {
-	_, _ = fmt.Fprintln(w, "Usage: archguard check [flags] [path...]")
-	_, _ = fmt.Fprintln(w, "\nScans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.")
-	_, _ = fmt.Fprintln(w, "\nFlags:")
+// Handled in cmd/archguard, before Execute runs.
+var globalFlags = []usageEntry{
+	{"-v, --version", "Print version information"},
+}
+
+func printUsage(w io.Writer) error {
+	var b strings.Builder
+
+	b.WriteString("Usage: archguard <command> [arguments]\n\nCommands:\n")
+
+	for _, c := range commands {
+		fmt.Fprintf(&b, "  %-8s %s\n", c.name, c.summary)
+	}
+
+	b.WriteString("\nGlobal Flags:\n")
+
+	for _, f := range globalFlags {
+		fmt.Fprintf(&b, "  %-14s %s\n", f.name, f.summary)
+	}
+
+	_, err := io.WriteString(w, b.String())
+
+	return err
+}
+
+func usageWriteError(err error) error {
+	return fmt.Errorf("failed to write usage: %w", err)
+}
+
+func printCheckUsage(w io.Writer, fs *flag.FlagSet) error {
+	var b strings.Builder
+
+	b.WriteString("Usage: archguard check [flags] [path...]\n\n")
+	b.WriteString("Scans uncommitted changes by default. Pass one or more paths, or use --staged/--all to scan something else.\n")
+	writeFlagUsage(&b, fs)
+
+	_, err := io.WriteString(w, b.String())
+
+	return err
+}
+
+func writeFlagUsage(b *strings.Builder, fs *flag.FlagSet) {
+	first := true
+
 	fs.VisitAll(func(f *flag.Flag) {
-		_, _ = fmt.Fprintf(w, "  --%-20s %s\n", f.Name, f.Usage)
+		if first {
+			b.WriteString("\nFlags:\n")
+
+			first = false
+		}
+
+		fmt.Fprintf(b, "  --%-20s %s\n", f.Name, f.Usage)
 	})
 }
 

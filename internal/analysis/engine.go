@@ -436,7 +436,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || skippedFiles > 0 || skippedADRChecks > 0 {
-		out.Info("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, skippedFiles, skippedADRChecks)
+		out.Result("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, skippedFiles, skippedADRChecks)
 	}
 
 	if violations > 0 {

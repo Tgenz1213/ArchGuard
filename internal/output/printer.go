@@ -11,8 +11,8 @@ import (
 
 const indentUnit = "  "
 
-// Printer is safe for concurrent use. A nil *Printer writes to os.Stderr so
-// output nobody wired up can never land in a JSON report on stdout.
+// Printer is safe for concurrent use; a nil *Printer writes to os.Stderr, never stdout. Only
+// Result and Violation are primary output: Err reports their first failed write.
 type Printer struct {
 	sink   *sink
 	debug  bool
@@ -24,16 +24,32 @@ type Printer struct {
 }
 
 type sink struct {
-	mu      *sync.Mutex
-	w       io.Writer
-	buf     *bytes.Buffer
-	midLine bool
+	mu        *sync.Mutex
+	w         io.Writer
+	buf       *bytes.Buffer
+	midLine   bool
+	hasResult bool
+	failed    *error
 }
 
 var stderrSink = &sink{mu: &sync.Mutex{}}
 
 func New(w io.Writer, debug bool) *Printer {
-	return &Printer{sink: &sink{mu: &sync.Mutex{}, w: w}, debug: debug}
+	return &Printer{sink: &sink{mu: &sync.Mutex{}, w: w, failed: new(error)}, debug: debug}
+}
+
+// Err returns the first failed write of primary output, or nil.
+func (p *Printer) Err() error {
+	out := p.out()
+
+	out.mu.Lock()
+	defer out.mu.Unlock()
+
+	if out.failed == nil {
+		return nil
+	}
+
+	return *out.failed
 }
 
 func Discard() *Printer {
@@ -44,29 +60,32 @@ func (p *Printer) DebugEnabled() bool {
 	return p != nil && p.debug
 }
 
-func (p *Printer) Info(format string, args ...any) { p.line("", format, args...) }
+// Result prints a line of the command's primary output, such as a summary.
+func (p *Printer) Result(format string, args ...any) { p.line("", true, format, args...) }
 
-func (p *Printer) Note(format string, args ...any) { p.line("Note: ", format, args...) }
+func (p *Printer) Info(format string, args ...any) { p.line("", false, format, args...) }
 
-func (p *Printer) Warn(format string, args ...any) { p.line("Warning: ", format, args...) }
+func (p *Printer) Note(format string, args ...any) { p.line("Note: ", false, format, args...) }
 
-func (p *Printer) Error(format string, args ...any) { p.line("Error: ", format, args...) }
+func (p *Printer) Warn(format string, args ...any) { p.line("Warning: ", false, format, args...) }
+
+func (p *Printer) Error(format string, args ...any) { p.line("Error: ", false, format, args...) }
 
 func (p *Printer) Debug(format string, args ...any) {
 	if p.DebugEnabled() {
-		p.line("[DEBUG] ", format, args...)
+		p.line("[DEBUG] ", false, format, args...)
 	}
 }
 
 func (p *Printer) Field(key, format string, args ...any) {
-	p.line(key+": ", format, args...)
+	p.line(key+": ", false, format, args...)
 }
 
 // Group buffers its output until Flush, so one unit of work (a file) prints as
 // a contiguous block even when units run in parallel.
 func (p *Printer) Group(header string) *Printer {
 	g := &Printer{
-		sink:   &sink{mu: p.out().mu, buf: &bytes.Buffer{}},
+		sink:   &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed},
 		debug:  p.DebugEnabled(),
 		indent: p.depth(),
 		parent: p,
@@ -104,12 +123,14 @@ func (p *Printer) Flush() {
 		block.WriteString("\n")
 	}
 
+	result := p.sink.hasResult
 	p.sink.buf.Reset()
 	p.sink.midLine = false
+	p.sink.hasResult = false
 	p.sink.mu.Unlock()
 
 	if block.Len() > 0 {
-		p.parent.write(block.String(), false)
+		p.parent.write(block.String(), false, result)
 	}
 }
 
@@ -117,9 +138,9 @@ type Progress struct{ p *Printer }
 
 func (p *Printer) Progress() *Progress { return &Progress{p: p} }
 
-func (pr *Progress) Tick() { pr.p.write(".", true) }
+func (pr *Progress) Tick() { pr.p.write(".", true, false) }
 
-func (pr *Progress) Done() { pr.p.write("", false) }
+func (pr *Progress) Done() { pr.p.write("", false, false) }
 
 type Violation struct {
 	File           string
@@ -146,6 +167,7 @@ func (p *Printer) Violation(v Violation) {
 	}
 
 	details := p.Group(header)
+	details.write("", false, true)
 	details.Field("Reasoning", "%s", v.Reasoning)
 
 	if v.Code != "" {
@@ -163,7 +185,7 @@ func (p *Printer) Violation(v Violation) {
 	details.Flush()
 }
 
-func (p *Printer) line(label, format string, args ...any) {
+func (p *Printer) line(label string, result bool, format string, args ...any) {
 	prefix := strings.Repeat(indentUnit, p.depth())
 	continuation := prefix + strings.Repeat(" ", len(label))
 	lines := strings.Split(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"), "\n")
@@ -176,24 +198,37 @@ func (p *Printer) line(label, format string, args ...any) {
 		b.WriteString(continuation + l + "\n")
 	}
 
-	p.write(b.String(), false)
+	p.write(b.String(), false, result)
 }
 
 // write ends a pending progress line before any full line, so a warning printed
-// mid-progress starts on its own line.
-func (p *Printer) write(s string, partial bool) {
+// mid-progress starts on its own line. A group's result write error is recorded at Flush.
+func (p *Printer) write(s string, partial, result bool) {
 	out := p.out()
 
 	out.mu.Lock()
 	defer out.mu.Unlock()
 
 	w := out.dest()
+
+	var err error
 	if out.midLine && !partial {
-		_, _ = io.WriteString(w, "\n")
+		_, err = io.WriteString(w, "\n")
 	}
 
-	_, _ = io.WriteString(w, s)
+	if err == nil {
+		_, err = io.WriteString(w, s)
+	}
+
 	out.midLine = partial
+
+	switch {
+	case !result:
+	case out.buf != nil:
+		out.hasResult = true
+	case err != nil && out.failed != nil && *out.failed == nil:
+		*out.failed = err
+	}
 }
 
 func (p *Printer) out() *sink {
