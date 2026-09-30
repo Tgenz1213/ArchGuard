@@ -9,8 +9,3 @@ type Chatter interface {
 	// CountTokens uses each provider's own tokenizer, not a shared one.
 	CountTokens(ctx context.Context, text string) (int, error)
 }
-
-type Provider interface {
-	Embedder
-	Chatter
-}
