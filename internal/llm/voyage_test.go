@@ -111,20 +111,6 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	}
 }
 
-func TestVoyageProvider_Chat_ReturnsError(t *testing.T) {
-	p := NewVoyageProvider("test-api-key", "voyage-4")
-	if _, err := p.Chat(context.Background(), "system", "user"); err == nil {
-		t.Fatal("expected Chat to return an error, got nil")
-	}
-}
-
-func TestVoyageProvider_CountTokens_ReturnsError(t *testing.T) {
-	p := NewVoyageProvider("test-api-key", "voyage-4")
-	if _, err := p.CountTokens(context.Background(), "text"); err == nil {
-		t.Fatal("expected CountTokens to return an error, got nil")
-	}
-}
-
 func TestVoyageProvider_DefaultsEmbedModel(t *testing.T) {
 	p := NewVoyageProvider("test-api-key", "")
 	if p.embedModel != "voyage-4" {

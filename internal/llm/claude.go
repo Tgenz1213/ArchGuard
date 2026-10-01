@@ -57,11 +57,6 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 	return "", fmt.Errorf("claude returned no text content")
 }
 
-// CreateEmbedding always fails: Anthropic has no embeddings API (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
-func (p *ClaudeProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
-	return nil, fmt.Errorf("ClaudeProvider does not support embeddings: Claude has no embeddings API; configure vector_store.provider to an embedding-capable provider (openai, ollama, gemini, or voyage)")
-}
-
 func (p *ClaudeProvider) CountTokens(ctx context.Context, text string) (int, error) {
 	resp, err := p.client.Messages.CountTokens(ctx, anthropic.MessageCountTokensParams{
 		Model: anthropic.Model(p.model),

@@ -76,10 +76,3 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 		t.Errorf("expected 42 tokens, got %d", n)
 	}
 }
-
-func TestClaudeProvider_CreateEmbedding_ReturnsError(t *testing.T) {
-	p := NewClaudeProvider("test-api-key", "claude-sonnet-4-5")
-	if _, err := p.CreateEmbedding(context.Background(), "text", EmbeddingTaskQuery); err == nil {
-		t.Fatal("expected CreateEmbedding to return an error, got nil")
-	}
-}

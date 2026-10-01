@@ -15,8 +15,6 @@ const maxVoyageErrorBodyBytes = 4096
 const voyageBaseURL = "https://api.voyageai.com"
 const defaultVoyageModel = "voyage-4"
 
-// VoyageProvider implements CreateEmbedding only -- Voyage has no chat
-// endpoint, so Chat and CountTokens always return an error.
 type VoyageProvider struct {
 	apiKey     string
 	embedModel string
@@ -40,14 +38,6 @@ func NewVoyageProviderWithBaseURL(apiKey, embedModel, baseURL string, httpClient
 		baseURL:    baseURL,
 		client:     httpClient,
 	}
-}
-
-func (p *VoyageProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	return "", fmt.Errorf("VoyageProvider does not support chat: Voyage is an embeddings-only API")
-}
-
-func (p *VoyageProvider) CountTokens(ctx context.Context, text string) (int, error) {
-	return 0, fmt.Errorf("VoyageProvider does not support token counting: Voyage is an embeddings-only API")
 }
 
 func voyageInputType(task EmbeddingTaskType) string {
