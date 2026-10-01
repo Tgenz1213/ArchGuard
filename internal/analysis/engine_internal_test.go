@@ -57,9 +57,9 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	}
 
 	engine := &Engine{
-		Config:   cfg,
-		Content:  &MockTruncationProvider{Content: longContent},
-		Provider: llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		Config:  cfg,
+		Content: &MockTruncationProvider{Content: longContent},
+		Chat:    llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
 	content, _, mode, err := engine.fetchContext(context.Background(), "test.go")
@@ -94,7 +94,7 @@ func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T)
 	engine := &Engine{
 		Config:         cfg,
 		Content:        &MockDiffCapableProvider{Content: fullContent, Diff: diffHunk},
-		Provider:       llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		Chat:           llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 		UpdateBaseline: true,
 	}
 
@@ -126,9 +126,9 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 	}
 
 	engine := &Engine{
-		Config:   cfg,
-		Content:  &MockTruncationProvider{Content: content},
-		Provider: mockProvider,
+		Config:  cfg,
+		Content: &MockTruncationProvider{Content: content},
+		Chat:    mockProvider,
 	}
 
 	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
@@ -162,9 +162,9 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 	}
 
 	engine := &Engine{
-		Config:   cfg,
-		Content:  &MockTruncationProvider{Content: "some file content"},
-		Provider: mockProvider,
+		Config:  cfg,
+		Content: &MockTruncationProvider{Content: "some file content"},
+		Chat:    mockProvider,
 	}
 
 	_, _, _, err := engine.fetchContext(context.Background(), "test.go")
@@ -206,9 +206,9 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 
 	engine := &Engine{
-		Config:   cfg,
-		Content:  &MockTruncationProvider{Content: content},
-		Provider: mockProvider,
+		Config:  cfg,
+		Content: &MockTruncationProvider{Content: content},
+		Chat:    mockProvider,
 	}
 
 	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")

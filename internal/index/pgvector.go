@@ -289,7 +289,7 @@ func rulesEqual(a, b Rules) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, provider llm.Provider, adrProvider Provider) (BuildIndexResult, error) {
+func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder llm.Embedder, adrProvider Provider) (BuildIndexResult, error) {
 	defer s.dropADRCache()
 
 	if err := s.ensureSchema(ctx, dim); err != nil {
@@ -375,7 +375,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, pro
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
-				emb, embErr := provider.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
 				if embErr != nil {
 					markFailed(idx, fmt.Errorf("embed: %w", embErr))
 					return nil

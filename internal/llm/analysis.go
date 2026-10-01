@@ -16,7 +16,7 @@ type AnalysisResult struct {
 	QuotedCode string `json:"quoted_code"`
 }
 
-func AnalyzeDrift(ctx context.Context, p Provider, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
+func AnalyzeDrift(ctx context.Context, p Chatter, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
 	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
 	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt, "analysis")
 }
@@ -27,7 +27,7 @@ type suggestionResult struct {
 
 // SuggestRemediation should only be called after AnalyzeDrift has returned
 // Violation == true.
-func SuggestRemediation(ctx context.Context, p Provider, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
+func SuggestRemediation(ctx context.Context, p Chatter, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
 	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
 
 	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt, "suggestion generation")
@@ -38,7 +38,7 @@ func SuggestRemediation(ctx context.Context, p Provider, adrContent, codeContext
 	return result.Suggestion, nil
 }
 
-func chatJSON[T any](ctx context.Context, p Provider, systemPrompt, userPrompt, operationLabel string) (*T, error) {
+func chatJSON[T any](ctx context.Context, p Chatter, systemPrompt, userPrompt, operationLabel string) (*T, error) {
 	const maxRetries = 3
 
 	bo := backoff.NewExponentialBackOff()

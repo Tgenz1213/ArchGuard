@@ -11,7 +11,7 @@ import (
 
 const claudeBaseURL = "https://api.anthropic.com"
 
-// claudeMaxResponseTokens is fixed, not configurable: prompts always ask for a short JSON object.
+// Not configurable: prompts always ask for a short JSON object.
 const claudeMaxResponseTokens = 1024
 
 type ClaudeProvider struct {
@@ -19,8 +19,6 @@ type ClaudeProvider struct {
 	model  string
 }
 
-// NewClaudeProvider constructs a ClaudeProvider that talks to the real
-// Anthropic API.
 func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
 	return NewClaudeProviderWithBaseURL(apiKey, model, claudeBaseURL, &http.Client{})
 }
@@ -57,11 +55,6 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 	}
 
 	return "", fmt.Errorf("claude returned no text content")
-}
-
-// CreateEmbedding always fails: Anthropic has no embeddings API (see docs/arch/0004-decoupled-chat-and-embedding-providers.md).
-func (p *ClaudeProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
-	return nil, fmt.Errorf("ClaudeProvider does not support embeddings: Claude has no embeddings API; configure vector_store.provider to an embedding-capable provider (openai, ollama, gemini, or voyage)")
 }
 
 func (p *ClaudeProvider) CountTokens(ctx context.Context, text string) (int, error) {

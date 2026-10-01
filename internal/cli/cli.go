@@ -49,7 +49,7 @@ const configFilename = "archguard.yaml"
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
 	Chat  func(*config.Config) llm.Provider
-	Embed func(*config.Config) llm.Provider
+	Embed func(*config.Config) llm.Embedder
 }
 
 func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
@@ -134,35 +134,29 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return ExitConfig, err
 	}
 
-	var chatProvider, embedProvider llm.Provider
-	if factories.Chat != nil {
-		chatProvider = factories.Chat(cfg)
+	var (
+		chatProvider  llm.Chatter
+		embedProvider llm.Embedder
+	)
 
-		embedProvider, err = resolveEmbedProviderInstance(cfg, chatProvider, factories.Embed)
+	if factories.Chat != nil {
+		chat := factories.Chat(cfg)
+
+		embedProvider, err = resolveEmbedProviderInstance(cfg, chat, factories.Embed)
 		if err != nil {
 			return ExitConfig, err
 		}
+
+		chatProvider = chat
 	} else {
 		providerWarnings := output.New(os.Stdout, false)
 		if jsonOutput {
 			providerWarnings = output.New(os.Stderr, false)
 		}
 
-		chatAPIKey := os.Getenv("ARCHGUARD_API_KEY")
-
-		chatProvider, err = buildProvider(providerWarnings, cfg.LLM.Provider, chatAPIKey, cfg)
+		chatProvider, embedProvider, err = buildProviders(providerWarnings, cfg, os.Getenv("ARCHGUARD_API_KEY"), os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
 		if err != nil {
 			return ExitConfig, err
-		}
-
-		embedProviderName, embedAPIKey, reuseChatProvider := resolveEmbedProvider(cfg, chatAPIKey, os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
-		if reuseChatProvider {
-			embedProvider = chatProvider
-		} else {
-			embedProvider, err = buildProvider(providerWarnings, embedProviderName, embedAPIKey, cfg)
-			if err != nil {
-				return ExitConfig, err
-			}
 		}
 	}
 
@@ -263,7 +257,7 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 }
 
 // Mock-injection counterpart of resolveEmbedProvider; errors rather than silently reusing chatProvider.
-func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider, embedFactory func(*config.Config) llm.Provider) (llm.Provider, error) {
+func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Embedder, embedFactory func(*config.Config) llm.Embedder) (llm.Embedder, error) {
 	_, _, reuse := resolveEmbedProvider(cfg, "", "")
 	switch {
 	case reuse:
@@ -273,6 +267,30 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Provider,
 	default:
 		return nil, fmt.Errorf("ProviderFactories.Embed is required: llm.provider and vector_store.provider name different providers")
 	}
+}
+
+func buildProviders(warnings *output.Printer, cfg *config.Config, chatAPIKey, embedEnvKey string) (llm.Chatter, llm.Embedder, error) {
+	embedName, embedAPIKey, reuse := resolveEmbedProvider(cfg, chatAPIKey, embedEnvKey)
+	if reuse {
+		provider, err := buildProvider(warnings, cfg.LLM.Provider, chatAPIKey, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return provider, provider, nil
+	}
+
+	chat, err := buildChatProvider(warnings, cfg.LLM.Provider, chatAPIKey, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	embed, err := buildEmbedProvider(warnings, embedName, embedAPIKey, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return chat, embed, nil
 }
 
 func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
@@ -291,21 +309,33 @@ func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Co
 		}
 
 		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
-	case "claude":
-		if apiKey == "" {
-			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
-		}
-
-		return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
-	case "voyage":
-		if apiKey == "" {
-			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
-		}
-
-		return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
+}
+
+func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Chatter, error) {
+	if name != "claude" {
+		return buildProvider(warnings, name, apiKey, cfg)
+	}
+
+	if apiKey == "" {
+		warnings.Warn("no API key set for %s provider. Requests may fail.", name)
+	}
+
+	return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
+}
+
+func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Embedder, error) {
+	if name != "voyage" {
+		return buildProvider(warnings, name, apiKey, cfg)
+	}
+
+	if apiKey == "" {
+		warnings.Warn("no API key set for %s provider. Requests may fail.", name)
+	}
+
+	return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
 func runInit() error {
@@ -495,7 +525,7 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
 	files := opts.Paths
 
 	jsonOutput := opts.jsonOutput()
@@ -604,8 +634,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider, embedProvid
 		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, contentProvider, opts.Debug, opts.CI)
-	engine.EmbedProvider = embedProvider
+	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, contentProvider, opts.Debug, opts.CI)
 
 	analysisCache, cacheErr := cache.NewCache(".")
 	if cacheErr != nil {
@@ -763,7 +792,7 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // Separate from runIndex, which check's auto-rebuild calls with its own printer.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
 	out := output.New(os.Stdout, false)
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
@@ -778,7 +807,7 @@ func outputWriteError(err error) error {
 	return fmt.Errorf("failed to write output: %w", err)
 }
 
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Provider, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
+func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
 	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)

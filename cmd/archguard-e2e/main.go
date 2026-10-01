@@ -73,13 +73,9 @@ func main() {
 		return mock
 	}
 
-	// ChatFunc always errors: this provider's Chat method has no legitimate caller, so a call here means a wiring regression.
-	embedProviderFactory := func(cfg *config.Config) llm.Provider {
+	embedProviderFactory := func(cfg *config.Config) llm.Embedder {
 		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 
-		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			return "", fmt.Errorf("mock embed-only provider does not support chat")
-		}
 		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
 

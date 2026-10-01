@@ -79,7 +79,7 @@ func TestDriftDetection(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	err := engine.Run(context.Background())
 
@@ -126,7 +126,7 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 		Files: map[string]string{"service.py": "// content ignored by mock"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 
 	engine.Cache = nil
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
@@ -166,7 +166,7 @@ func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	fullContent := "unrelated preamble\nimport python_library\nmore unrelated content"
 	content := &diffCapableContentProvider{content: fullContent, diff: diffHunk}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -249,7 +249,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	}
 	content := &fallbackOnlyContentProvider{files: map[string]string{"docs.md": diffLookalike}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 
 	engine.Cache = nil
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
@@ -261,7 +261,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	}
 }
 
-func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
+func TestRun_EmbedsWithEmbedNotChat(t *testing.T) {
 	chatCalled := false
 	chatProvider := &llm.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -269,7 +269,7 @@ func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 			return `{"violation": false, "reasoning": "none", "quoted_code": ""}`, nil
 		},
 		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
-			t.Fatal("chatProvider.CreateEmbedding should not be called when EmbedProvider is set")
+			t.Fatal("chatProvider.CreateEmbedding should not be called: embedding goes through Engine.Embed")
 			return nil, nil
 		},
 	}
@@ -303,10 +303,9 @@ func TestRun_UsesEmbedProviderWhenSet(t *testing.T) {
 		Files: map[string]string{"service.py": "// content ignored by mock"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, content, false, false)
 	engine.Cache = nil
 
-	engine.EmbedProvider = embedProvider
 	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -357,7 +356,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	err := engine.Run(context.Background())
 
@@ -424,7 +423,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 		Analysis: config.Analysis{MaxConcurrency: 3, ExcludePatterns: []string{}},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -474,7 +473,7 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	b := baseline.New()
 	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.Baseline = b
 
@@ -518,7 +517,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	b := baseline.New()
 	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.Baseline = b
 
@@ -569,7 +568,7 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -628,7 +627,7 @@ func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 	priorBaseline := baseline.New()
 	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 	engine.Baseline = priorBaseline
@@ -682,7 +681,7 @@ func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *t
 	priorBaseline := baseline.New()
 	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 	engine.Baseline = priorBaseline
@@ -734,7 +733,7 @@ func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testi
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -787,7 +786,7 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	b := baseline.New()
 	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.Baseline = b
 	engine.UpdateBaseline = true
@@ -846,7 +845,7 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	var runErr error
@@ -902,7 +901,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	var runErr error
@@ -956,7 +955,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -1007,7 +1006,7 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 		"service.py": bigContent,
 	}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, true) // ci=true
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, true) // ci=true
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -1144,7 +1143,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		errFiles: map[string]bool{"badread.go": true},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -1210,7 +1209,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	}
 
 	t.Run("new violation", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent(), false, false)
 		engine.Cache = nil
 
 		var runErr error
@@ -1232,7 +1231,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		b := baseline.New()
 		b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
-		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent(), false, false)
 		engine.Cache = nil
 		engine.Baseline = b
 
@@ -1252,7 +1251,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	})
 
 	t.Run("update baseline", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent(), false, false)
 		engine.Cache = nil
 		engine.UpdateBaseline = true
 
@@ -1272,7 +1271,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	})
 
 	t.Run("update baseline with explicit reason", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, newContent(), false, false)
+		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent(), false, false)
 		engine.Cache = nil
 		engine.UpdateBaseline = true
 		engine.BaselineReason = "accepted-debt"
@@ -1337,7 +1336,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
@@ -1393,7 +1392,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 		errFiles: map[string]bool{"badread.go": true},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	var runErr error
@@ -1439,7 +1438,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 		content: map[string]string{"good.go": "package good"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	var runErr error
@@ -1493,7 +1492,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 		},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	err := engine.Run(context.Background())
 
@@ -1536,7 +1535,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -1579,7 +1578,7 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -1628,7 +1627,7 @@ func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T)
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -1680,7 +1679,7 @@ func TestRun_NonDebugMode_NeverCallsSearchTruncated(t *testing.T) {
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -1732,7 +1731,7 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -1802,7 +1801,7 @@ func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *tes
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -1847,7 +1846,7 @@ func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -1892,7 +1891,7 @@ func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	err := engine.Run(context.Background())
 
@@ -1935,7 +1934,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 		Files: map[string]string{"service.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -1961,7 +1960,7 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 
 	content := &analysis.MultiFileProvider{Paths: []string{"generated.pb.go"}}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -1991,7 +1990,7 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 
 	content := &analysis.MultiFileProvider{Paths: []string{baseline.Path}}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -2023,7 +2022,7 @@ func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.
 		Files: map[string]string{"generated.pb.go": "package main"},
 	}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, true, false)
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content, true, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -2051,7 +2050,7 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 
 	content := &analysis.MultiFileProvider{Paths: []string{"generated.pb.go"}}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, content, false, false)
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content, false, false)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
@@ -2084,7 +2083,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	// engine.SuggestFixes left at its zero value (false) -- this is the default-off assertion.
 
@@ -2125,7 +2124,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.SuggestFixes = true
 	engine.JSONOutput = true
@@ -2171,7 +2170,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "print('ok')\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
@@ -2206,7 +2205,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 	b := baseline.New()
 	b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library"})
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.SuggestFixes = true
 	engine.Baseline = b
@@ -2250,7 +2249,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	firstEngine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
 
@@ -2261,7 +2260,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 		t.Fatalf("expected first (flagged) run to surface a suggestion, got: %s", firstOutput)
 	}
 
-	secondEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	secondEngine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = false
 	secondEngine.JSONOutput = true
@@ -2325,7 +2324,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = c
 	engine.SuggestFixes = true
 
@@ -2374,14 +2373,14 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	firstEngine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	firstEngine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
 	_ = captureStderr(t, func() { runEngine(t, firstEngine, true) })
 
 	// Debug toggles between runs but isn't part of the suggestion key, so
 	// the cached suggestion should still be reused.
-	secondEngine := analysis.NewEngine(cfg, store, provider, content, true, false)
+	secondEngine := analysis.NewEngine(cfg, store, provider, provider, content, true, false)
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = true
 	output := captureStderr(t, func() { runEngine(t, secondEngine, true) })
@@ -2436,7 +2435,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 		"b/service.py": "import python_library\n",
 	}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = c
 	engine.SuggestFixes = true
 	output := captureStderr(t, func() { runEngine(t, engine, true) })
@@ -2473,7 +2472,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
@@ -2525,7 +2524,7 @@ func TestRun_MaxRelevantADRs_RaisesLimitAboveDefault(t *testing.T) {
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.go": "package main"}}
 
-	engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, content, false, false)
+	engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, provider, content, false, false)
 	engine.Cache = nil
 
 	if err := engine.Run(context.Background()); err != nil {
@@ -2557,7 +2556,7 @@ func TestRun_MaxRelevantADRs_DefaultsToThreeWhenUnsetOrNonPositive(t *testing.T)
 			}
 			content := &MockContentProvider{Files: map[string]string{"service.go": "package main"}}
 
-			engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, content, false, false)
+			engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, provider, content, false, false)
 			engine.Cache = nil
 
 			if err := engine.Run(context.Background()); err != nil {
