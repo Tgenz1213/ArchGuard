@@ -308,7 +308,6 @@ func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, pr
 	return nil
 }
 
-// probeIterativeScanSupport reports the pgvector version and whether hnsw.iterative_scan (0.8.0+) is supported.
 func probeIterativeScanSupport(ctx context.Context, pool *pgxpool.Pool) (available bool, pgvectorVersion string, err error) {
 	if err := pool.QueryRow(ctx, index.PgvectorVersionQuery).Scan(&pgvectorVersion); err != nil {
 		return false, "", fmt.Errorf("failed to read pgvector extension version: %w", err)
@@ -340,8 +339,7 @@ var benchScalePoints = []scalePoint{
 	{"50proj_100adrs", 50, 100},
 }
 
-// BenchmarkPgStoreSearch_ProjectFiltering measures Search's recall/latency
-// across a scale sweep (issue #44). Run with -benchtime=1x; see CLAUDE.md.
+// Run with -benchtime=1x; see CLAUDE.md.
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
 	connStr := setupPgContainer(b, ctx)
@@ -445,7 +443,6 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	})
 }
 
-// assertUsesHNSWIndex fails if the query plan doesn't use the HNSW index.
 // Opens a fresh connection with no GUC overrides, matching what Search sees.
 func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []float32, projectName string, topK int) error {
 	conn, err := pgx.Connect(ctx, connStr)
