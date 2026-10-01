@@ -51,12 +51,12 @@ type VectorStore interface {
 }
 
 type LocalStore struct {
-	ADRs        []ADR           `json:"adrs"`
-	Hash        string          `json:"hash"`
-	ModelName   string          `json:"model_name"`
-	Dim         int             `json:"dim"`
-	concurrency int             `json:"-"`
-	out         *output.Printer `json:"-"`
+	ADRs        []ADR  `json:"adrs"`
+	Hash        string `json:"hash"`
+	ModelName   string `json:"model_name"`
+	Dim         int    `json:"dim"`
+	concurrency int
+	out         *output.Printer
 }
 
 func NewLocalStore(concurrency int) *LocalStore {
