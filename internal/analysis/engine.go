@@ -21,11 +21,10 @@ import (
 )
 
 type Engine struct {
-	Config   *config.Config
-	Store    index.VectorStore
-	Provider llm.Provider
-	// Claude has no embeddings API; see docs/arch/0004-decoupled-chat-and-embedding-providers.md.
-	EmbedProvider       llm.Embedder
+	Config              *config.Config
+	Store               index.VectorStore
+	Chat                llm.Chatter
+	Embed               llm.Embedder
 	Content             ContentProvider
 	Debug               bool
 	CI                  bool
@@ -77,23 +76,16 @@ func (e *DriftDetectedError) Is(target error) bool {
 	return target == ErrDriftDetected
 }
 
-func NewEngine(cfg *config.Config, store index.VectorStore, provider llm.Provider, content ContentProvider, debug bool, ci bool) *Engine {
+func NewEngine(cfg *config.Config, store index.VectorStore, chat llm.Chatter, embed llm.Embedder, content ContentProvider, debug bool, ci bool) *Engine {
 	return &Engine{
-		Config:   cfg,
-		Store:    store,
-		Provider: provider,
-		Content:  content,
-		Debug:    debug,
-		CI:       ci,
+		Config:  cfg,
+		Store:   store,
+		Chat:    chat,
+		Embed:   embed,
+		Content: content,
+		Debug:   debug,
+		CI:      ci,
 	}
-}
-
-func (e *Engine) embedProvider() llm.Embedder {
-	if e.EmbedProvider != nil {
-		return e.EmbedProvider
-	}
-
-	return e.Provider
 }
 
 func (e *Engine) printer() *output.Printer {
@@ -109,7 +101,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	stages := e.Stages
 	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.embedProvider(), e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
 
 	telemetry := stage.NewTelemetry(stages)
@@ -253,7 +245,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				if res == nil {
 					fileOut.Debug("Cache Miss. Calling LLM...")
 
-					res, err = llm.AnalyzeDrift(ctx, e.Provider, hit.ADR.Content, content, file, systemPrompt)
+					res, err = llm.AnalyzeDrift(ctx, e.Chat, hit.ADR.Content, content, file, systemPrompt)
 					if err != nil {
 						fileOut.Warn("LLM analysis failed: %v", err)
 						localSkippedADRChecks++
@@ -336,7 +328,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							}
 
 							if suggestion == "" {
-								s, sErr := llm.SuggestRemediation(ctx, e.Provider, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
+								s, sErr := llm.SuggestRemediation(ctx, e.Chat, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
 								switch {
 								case sErr != nil:
 									fileOut.Warn("suggestion generation failed: %v", sErr)
@@ -473,7 +465,7 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		return "", "", "", err
 	}
 
-	totalTokens, err := e.Provider.CountTokens(ctx, fullContent)
+	totalTokens, err := e.Chat.CountTokens(ctx, fullContent)
 	if err != nil {
 		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
 	}
@@ -507,7 +499,7 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 	const maxProportionalAttempts = 5
 	fits := false
 	for attempt := 0; attempt < maxProportionalAttempts && cut > 0; attempt++ {
-		n, err := e.Provider.CountTokens(ctx, candidate)
+		n, err := e.Chat.CountTokens(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
@@ -527,7 +519,7 @@ func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, total
 		cut = clampRuneBoundary(content, cut/2)
 		candidate = content[:cut]
 
-		n, err := e.Provider.CountTokens(ctx, candidate)
+		n, err := e.Chat.CountTokens(ctx, candidate)
 		if err != nil {
 			return "", err
 		}

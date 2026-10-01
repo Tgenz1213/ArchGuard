@@ -81,7 +81,7 @@ func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) 
 	}
 	content := &MockContentProvider{Files: map[string]string{file: fileContent}}
 
-	h.engine = analysis.NewEngine(cfg, store, provider, content, false, false)
+	h.engine = analysis.NewEngine(cfg, store, provider, provider, content, false, false)
 	h.engine.Cache = nil
 	return h
 }

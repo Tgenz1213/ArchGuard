@@ -379,7 +379,10 @@ func TestResolveEmbedProviderInstance_ReusesChatProviderWhenNamesMatch(t *testin
 	cfg := &config.Config{LLM: config.LLMConfig{Provider: "openai"}}
 	chat := &llm.MockProvider{}
 
-	got, err := resolveEmbedProviderInstance(cfg, chat, nil)
+	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Embedder {
+		t.Error("the embed factory must not be called when the provider names match")
+		return &llm.MockProvider{}
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -530,24 +533,24 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 	}
 }
 
-func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
+func TestBuildRoleProviders_ClaudeAndVoyage(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Model: "claude-sonnet-4-5"},
 		VectorStore: config.VectorStore{Model: "voyage-4"},
 	}
 
-	claude, err := buildProvider(output.Discard(), "claude", "test-key", cfg)
+	claude, err := buildChatProvider(output.Discard(), "claude", "test-key", cfg)
 	if err != nil {
-		t.Fatalf("buildProvider(claude) failed: %v", err)
+		t.Fatalf("buildChatProvider(claude) failed: %v", err)
 	}
 
 	if _, ok := claude.(*llm.ClaudeProvider); !ok {
 		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
 	}
 
-	voyage, err := buildProvider(output.Discard(), "voyage", "test-key", cfg)
+	voyage, err := buildEmbedProvider(output.Discard(), "voyage", "test-key", cfg)
 	if err != nil {
-		t.Fatalf("buildProvider(voyage) failed: %v", err)
+		t.Fatalf("buildEmbedProvider(voyage) failed: %v", err)
 	}
 
 	if _, ok := voyage.(*llm.VoyageProvider); !ok {
@@ -559,13 +562,82 @@ func TestBuildProvider_ClaudeAndVoyage(t *testing.T) {
 func TestBuildProvider_MissingAPIKeyWarningRespectsWriter(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Model: "gpt-4"}}
 
-	var buf bytes.Buffer
-	if _, err := buildProvider(output.New(&buf, false), "openai", "", cfg); err != nil {
-		t.Fatalf("buildProvider failed: %v", err)
+	tests := []struct {
+		name  string
+		build func(*output.Printer) error
+	}{
+		{"openai", func(p *output.Printer) error { _, err := buildProvider(p, "openai", "", cfg); return err }},
+		{"claude", func(p *output.Printer) error { _, err := buildChatProvider(p, "claude", "", cfg); return err }},
+		{"voyage", func(p *output.Printer) error { _, err := buildEmbedProvider(p, "voyage", "", cfg); return err }},
 	}
 
-	if !strings.Contains(buf.String(), "no API key set") {
-		t.Errorf("expected the missing-API-key warning on the given writer, got: %q", buf.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := tt.build(output.New(&buf, false)); err != nil {
+				t.Fatalf("build failed: %v", err)
+			}
+
+			if !strings.Contains(buf.String(), "no API key set") {
+				t.Errorf("expected the missing-API-key warning on the given writer, got: %q", buf.String())
+			}
+		})
+	}
+}
+
+func TestBuildProviders_SameNameSharesOneInstance(t *testing.T) {
+	cfg := &config.Config{LLM: config.LLMConfig{Provider: "openai", Model: "gpt-4"}}
+
+	var buf bytes.Buffer
+
+	chat, embed, err := buildProviders(output.New(&buf, false), cfg, "", "")
+	if err != nil {
+		t.Fatalf("buildProviders failed: %v", err)
+	}
+
+	if any(chat) != any(embed) {
+		t.Error("expected one instance to serve both roles")
+	}
+
+	if n := strings.Count(buf.String(), "no API key set"); n != 1 {
+		t.Errorf("expected one missing-API-key warning, got %d: %q", n, buf.String())
+	}
+}
+
+func TestBuildProviders_DifferentNamesBuildEachRole(t *testing.T) {
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "claude", Model: "claude-sonnet-4-5"},
+		VectorStore: config.VectorStore{Provider: "voyage", Model: "voyage-4"},
+	}
+
+	var buf bytes.Buffer
+
+	chat, embed, err := buildProviders(output.New(&buf, false), cfg, "chat-key", "")
+	if err != nil {
+		t.Fatalf("buildProviders failed: %v", err)
+	}
+
+	if _, ok := chat.(*llm.ClaudeProvider); !ok {
+		t.Errorf("expected chat to be *llm.ClaudeProvider, got %T", chat)
+	}
+
+	if _, ok := embed.(*llm.VoyageProvider); !ok {
+		t.Errorf("expected embed to be *llm.VoyageProvider, got %T", embed)
+	}
+
+	if n := strings.Count(buf.String(), "no API key set"); n != 1 {
+		t.Errorf("expected only the embedding provider's missing-API-key warning, got %d: %q", n, buf.String())
+	}
+}
+
+func TestBuildProviders_UnknownNameFails(t *testing.T) {
+	for _, cfg := range []*config.Config{
+		{LLM: config.LLMConfig{Provider: "nope"}},
+		{LLM: config.LLMConfig{Provider: "claude"}, VectorStore: config.VectorStore{Provider: "nope"}},
+	} {
+		if _, _, err := buildProviders(output.Discard(), cfg, "k", "k"); err == nil {
+			t.Errorf("expected an error for llm.provider %q, vector_store.provider %q", cfg.LLM.Provider, cfg.VectorStore.Provider)
+		}
 	}
 }
 
