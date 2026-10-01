@@ -410,11 +410,11 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	// 100% churn, well over the default threshold, but Enabled=false.
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 3, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, output, "Rebuilding HNSW index")
+	assert.NotContains(t, stderr, "Rebuilding HNSW index")
 }
 
 func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
@@ -609,12 +609,12 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
+	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
@@ -656,12 +656,12 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
+	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "app.ts")
 	require.Len(t, results, 1)
@@ -739,12 +739,12 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Threshold Edit ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.3\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
+	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
@@ -824,23 +824,23 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	edited := "---\ntitle: \"Rules Edit ADR\"\nstatus: \"Accepted\"\nrules:\n  - Added later\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(edited), 0644))
 
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, output, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the rules-only change must route through the sync path")
+	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
+	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the rules-only change must route through the sync path")
 
 	scoped, err := store.ScopedADRs("main.go")
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	assert.Equal(t, index.Rules{{Statement: "Added later"}}, scoped[0].ADR.Rules, "sync path must pick up the new rules")
 
-	output = captureStderr(t, func() {
+	stderr = captureStderr(t, func() {
 		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, output, "Syncing", "unchanged rules must not trigger another sync")
+	assert.NotContains(t, stderr, "Syncing", "unchanged rules must not trigger another sync")
 }
 
 // A single failing embed call must not abort the whole build.
@@ -873,11 +873,11 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err, "a single ADR embed failure must not fail the whole build")
-	assert.Contains(t, output, "Warning: skipping ADR adr_1.md")
+	assert.Contains(t, stderr, "Warning: skipping ADR adr_1.md")
 
 	require.Len(t, result.Skipped, 1)
 	assert.Equal(t, "adr_1.md", result.Skipped[0].RelPath)
@@ -936,14 +936,14 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	}
 
 	var result index.BuildIndexResult
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	})
 	// This ADR is the whole corpus, so the all-embeds-failed guard fires --
 	// the point is that it fires WITHOUT having touched the existing row.
 	require.Error(t, err, "every ADR failing to embed must surface as a build-wide error")
 	assert.Contains(t, err.Error(), "index not updated")
-	assert.Contains(t, output, "Warning: skipping ADR 0010-reembed.md")
+	assert.Contains(t, stderr, "Warning: skipping ADR 0010-reembed.md")
 	require.Len(t, result.Skipped, 1, "the guard must still report what it skipped")
 	assert.Equal(t, "0010-reembed.md", result.Skipped[0].RelPath)
 	assert.Contains(t, result.Skipped[0].Err.Error(), "embed: ")
@@ -995,11 +995,11 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	})
 	require.NoError(t, err, "a single ADR upsert failure must not fail the whole build")
-	assert.Contains(t, output, "Warning: skipping ADR adr_1.md")
+	assert.Contains(t, stderr, "Warning: skipping ADR adr_1.md")
 
 	require.Len(t, result.Skipped, 1)
 	assert.Equal(t, "adr_1.md", result.Skipped[0].RelPath)
@@ -1054,11 +1054,11 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	}
 
 	var result index.BuildIndexResult
-	output := captureStderr(t, func() {
+	stderr := captureStderr(t, func() {
 		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	})
 	require.NoError(t, err, "the unchanged ADR keeps the corpus non-empty, so this must not be treated as build-wide failure")
-	assert.Contains(t, output, "Generating embeddings for 2 new/modified ADRs", "the unchanged ADR must not be re-attempted")
+	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs", "the unchanged ADR must not be re-attempted")
 	require.Len(t, result.Skipped, 2)
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 10, "main.go")

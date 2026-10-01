@@ -11,7 +11,7 @@ import (
 
 func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 	var gotPath string
-	var gotBody map[string]interface{}
+	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -59,7 +59,7 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 
 func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	var gotPath string
-	var gotBody map[string]interface{}
+	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -85,12 +85,12 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 		t.Errorf("expected /v1/contextualizedembeddings, got %s", gotPath)
 	}
 
-	inputs, ok := gotBody["inputs"].([]interface{})
+	inputs, ok := gotBody["inputs"].([]any)
 	if !ok || len(inputs) != 1 {
 		t.Fatalf("expected inputs to be a single-chunk-list, got %v", gotBody["inputs"])
 	}
 
-	chunk, ok := inputs[0].([]interface{})
+	chunk, ok := inputs[0].([]any)
 	if !ok || len(chunk) != 1 || chunk[0] != "test text" {
 		t.Fatalf("expected single chunk [\"test text\"], got %v", inputs[0])
 	}

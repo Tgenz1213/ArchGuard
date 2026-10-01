@@ -14,7 +14,7 @@ func TestClaudeProvider_Chat(t *testing.T) {
 			t.Errorf("expected /v1/messages, got %s", r.URL.Path)
 		}
 
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}

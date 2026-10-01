@@ -23,7 +23,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 			t.Errorf("expected Bearer auth header, got %q", got)
 		}
 
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
@@ -32,7 +32,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 			t.Errorf("expected model gpt-4o-mini, got %v", reqBody["model"])
 		}
 
-		messages, ok := reqBody["messages"].([]interface{})
+		messages, ok := reqBody["messages"].([]any)
 		if !ok || len(messages) != 2 {
 			t.Fatalf("expected 2 messages, got %v", reqBody["messages"])
 		}
@@ -63,7 +63,7 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 			t.Errorf("expected embeddings path, got %s", r.URL.Path)
 		}
 
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}

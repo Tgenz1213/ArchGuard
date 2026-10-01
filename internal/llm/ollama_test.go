@@ -15,7 +15,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 			t.Errorf("expected /api/chat, got %s", r.URL.Path)
 		}
 
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 
 func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
@@ -104,7 +104,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var gotPrompt string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var reqBody map[string]interface{}
+				var reqBody map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 					t.Fatalf("failed to decode request body: %v", err)
 				}
@@ -148,7 +148,7 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 			t.Errorf("expected /api/generate, got %s", r.URL.Path)
 		}
 
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("failed to decode request body: %v", err)
 		}
@@ -161,11 +161,11 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 			t.Errorf("expected prompt %q, got %v", representativeString, reqBody["prompt"])
 		}
 
-		if reqBody["raw"] != true {
+		if raw, ok := reqBody["raw"].(bool); !ok || !raw {
 			t.Errorf("expected raw=true, got %v", reqBody["raw"])
 		}
 
-		options, ok := reqBody["options"].(map[string]interface{})
+		options, ok := reqBody["options"].(map[string]any)
 		if !ok {
 			t.Fatalf("expected options object, got %v", reqBody["options"])
 		}

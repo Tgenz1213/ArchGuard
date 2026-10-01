@@ -1,10 +1,38 @@
 version: "2"
 linters:
   default: standard
-  enable: [bodyclose, gocritic, noctx, wsl_v5]
+  enable: [bodyclose, gocritic, noctx, revive, wsl_v5]
   settings:
     wsl_v5:
       default: none
       enable: [if, after-block]
     errcheck:
       check-blank: true
+    revive:
+      rules:
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: defer
+        - name: dot-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: import-shadowing
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: struct-tag
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: use-any
+        - name: var-declaration
+        - name: var-naming
