@@ -10,11 +10,11 @@ scope: "internal/**"
 
 `GeminiProvider.CreateEmbedding` called Gemini's embedding API with a `nil` config, leaving `EmbedContentConfig.TaskType` unset. The Gemini API exposes `TaskType` values `RETRIEVAL_DOCUMENT` and `RETRIEVAL_QUERY` specifically to make asymmetric retrieval work: an embedding produced for "this is a document being indexed" and one produced for "this is a query searching that index" are tuned differently even for the same underlying text, and Gemini's own docs recommend setting `TaskType` for exactly this reason.
 
-`CreateEmbedding` had no way to signal which role a given call was playing. ArchGuard has three embedding call sites, and each is unambiguously one role or the other: `internal/index/store.go` and `internal/index/pgvector.go` (`BuildIndex`) embed ADR content to index it; `internal/analysis/engine.go` (`Run`) embeds diff/code content to search the index.
+`CreateEmbedding` had no way to signal which role a given call was playing. ArchGuard has three embedding call sites, and each is unambiguously one role or the other: `internal/index/store.go` and `internal/index/pgvector.go` (`BuildIndex`) embed ADR content to index it; `internal/analysis/stage/cosine.go` (`CosineRanker.Score`) embeds diff/code content to search the index.
 
 ## Decision
 
-`llm.Embedder.CreateEmbedding` takes an `EmbeddingTaskType` parameter (`EmbeddingTaskDocument` or `EmbeddingTaskQuery`). Callers pass the role that matches what they're doing, not what provider is configured — the two index call sites always pass `EmbeddingTaskDocument`, and `engine.go` always passes `EmbeddingTaskQuery`.
+`llm.Embedder.CreateEmbedding` takes an `EmbeddingTaskType` parameter (`EmbeddingTaskDocument` or `EmbeddingTaskQuery`). Callers pass the role that matches what they're doing, not what provider is configured — the two index call sites always pass `EmbeddingTaskDocument`, and `CosineRanker` always passes `EmbeddingTaskQuery`.
 
 `GeminiProvider` maps the two roles to Gemini's own `TaskType` strings inline via `EmbeddingTaskType.Pick`. `OllamaProvider` maps them to a text-prefix convention via `embeddingTaskPrefix` and a small `embeddingPrefixConventions` table (currently one entry: nomic-embed-text's documented `search_document:`/`search_query:` prefixes, gated on the embed model name's last `/`-separated segment starting with `nomic-embed`, so registry- or namespace-qualified names still match) — a second local embedding model with its own convention is a new table entry, not a new code branch. Both mappings share `EmbeddingTaskType.Pick(document, query)` for the role dispatch itself. `OpenAIProvider` accepts and ignores the parameter — the OpenAI embeddings API has no equivalent mechanism.
 
