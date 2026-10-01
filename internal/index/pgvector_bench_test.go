@@ -74,13 +74,13 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	pool := newBenchAdminPool(t, ctx, connStr)
+	pool := newBenchAdminPool(ctx, t, connStr)
 
 	vectors := map[string][]float32{
 		"same.md":       {1, 0},
@@ -132,7 +132,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 }
 
 // newBenchAdminPool is for operations PgStore's public API doesn't expose: seeding, TRUNCATE, ground truth, GUC changes.
-func newBenchAdminPool(tb testing.TB, ctx context.Context, connStr string) *pgxpool.Pool {
+func newBenchAdminPool(ctx context.Context, tb testing.TB, connStr string) *pgxpool.Pool {
 	tb.Helper()
 
 	config, err := pgxpool.ParseConfig(connStr)
@@ -255,13 +255,13 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 8, ""))
 
-	pool := newBenchAdminPool(t, ctx, connStr)
+	pool := newBenchAdminPool(ctx, t, connStr)
 	rng := rand.New(rand.NewSource(1))
 
 	require.NoError(t, seedProjectADRs(ctx, pool, rng, "seed_test_project", 30, 8))
@@ -277,13 +277,13 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	pool := newBenchAdminPool(t, ctx, connStr)
+	pool := newBenchAdminPool(ctx, t, connStr)
 
 	available, version, err := probeIterativeScanSupport(ctx, pool)
 	require.NoError(t, err)
@@ -342,14 +342,14 @@ var benchScalePoints = []scalePoint{
 // Run with -benchtime=1x; see CLAUDE.md.
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 	ctx := context.Background()
-	connStr := setupPgContainer(b, ctx)
+	connStr := setupPgContainer(ctx, b)
 
 	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.HNSWOptions{}, nil)
 	require.NoError(b, err)
 	require.NoError(b, initStore.Load("", "bench-model", benchEmbeddingDim, ""))
 	initStore.Close()
 
-	pool := newBenchAdminPool(b, ctx, connStr)
+	pool := newBenchAdminPool(ctx, b, connStr)
 
 	iterativeAvailable, pgvectorVersion, err := probeIterativeScanSupport(ctx, pool)
 	require.NoError(b, err)

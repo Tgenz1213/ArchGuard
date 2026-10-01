@@ -28,7 +28,7 @@ import (
 )
 
 // setupPgContainer skips the test when Docker isn't available.
-func setupPgContainer(tb testing.TB, ctx context.Context) string {
+func setupPgContainer(ctx context.Context, tb testing.TB) string {
 	tb.Helper()
 
 	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:0.8.6-pg16",
@@ -109,7 +109,7 @@ func TestPgStore_Integration(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestPgStore_Integration_MultiPatternScopeRoundTrips(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "multi_scope_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestPgStore_Integration_SearchRejected(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rejected_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -266,7 +266,7 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "truncated_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -325,7 +325,7 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "debug_info_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -397,7 +397,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	disabled := false
 	store, err := index.NewPgStore(connStr, "reindex_disabled_project", 5, index.HNSWOptions{Enabled: &disabled}, nil)
@@ -423,7 +423,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
 	// High threshold (50%): a later 10% churn should NOT trigger a reindex.
@@ -476,7 +476,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
 	// Default (Concurrently unset): should log the "(concurrently)" mode.
@@ -516,7 +516,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 
 // showIterativeScan reads it from store's own pool, reflecting the
 // AfterConnect-applied session state rather than a fresh connection's default.
-func showIterativeScan(t *testing.T, ctx context.Context, store *index.PgStore) string {
+func showIterativeScan(ctx context.Context, t *testing.T, store *index.PgStore) string {
 	t.Helper()
 
 	conn, err := store.Pool().Acquire(ctx)
@@ -534,7 +534,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -553,7 +553,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 		t.Skipf("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+)", pgvectorVersion)
 	}
 
-	value := showIterativeScan(t, ctx, store)
+	value := showIterativeScan(ctx, t, store)
 	t.Logf("SHOW hnsw.iterative_scan (default) = %q", value)
 	assert.Equal(t, "relaxed_order", value, "default HNSWOptions should apply hnsw.iterative_scan = 'relaxed_order' on this pgvector version")
 }
@@ -564,7 +564,7 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	disabled := false
 	store, err := index.NewPgStore(connStr, "iterative_scan_disabled_project", 5, index.HNSWOptions{IterativeScan: &disabled}, nil)
@@ -572,7 +572,7 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	value := showIterativeScan(t, ctx, store)
+	value := showIterativeScan(ctx, t, store)
 	t.Logf("SHOW hnsw.iterative_scan (explicitly disabled) = %q", value)
 	assert.Equal(t, "off", value, "IterativeScan: false should leave hnsw.iterative_scan at pgvector's default value")
 }
@@ -583,7 +583,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -630,7 +630,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scope_only_edit_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -674,7 +674,7 @@ func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "similarity_threshold_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -713,7 +713,7 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "threshold_only_edit_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -758,7 +758,7 @@ func TestPgStore_Integration_RulesRoundTrip(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rules_round_trip_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -804,7 +804,7 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rules_only_edit_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -850,7 +850,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "embed_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -902,7 +902,7 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "reembed_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -972,7 +972,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "upsert_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1024,7 +1024,7 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "partial_delta_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1074,7 +1074,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "legacy_no_load_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1125,7 +1125,7 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scan_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1182,7 +1182,7 @@ func (f *fakeContentProvider) GetDiff(_ context.Context, path string) (string, e
 
 // buildTwoADREngineFixture indexes two ADRs that both match the same file, so
 // suppressing one can't accidentally suppress the other.
-func buildTwoADREngineFixture(t *testing.T, ctx context.Context, connStr, projectName, fileContent string) (*analysis.Engine, *index.PgStore) {
+func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projectName, fileContent string) (*analysis.Engine, *index.PgStore) {
 	t.Helper()
 
 	store, err := index.NewPgStore(connStr, projectName, 5, index.HNSWOptions{}, nil)
@@ -1228,9 +1228,9 @@ func TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR(t *test
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
-	engine, store := buildTwoADREngineFixture(t, ctx, connStr, "engine_ignore_project", "archguard-ignore: 0001\nbad code\n")
+	engine, store := buildTwoADREngineFixture(ctx, t, connStr, "engine_ignore_project", "archguard-ignore: 0001\nbad code\n")
 	defer store.Close()
 
 	err := engine.Run(ctx)
@@ -1248,9 +1248,9 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
-	engine, store := buildTwoADREngineFixture(t, ctx, connStr, "engine_baseline_project", "bad code\n")
+	engine, store := buildTwoADREngineFixture(ctx, t, connStr, "engine_baseline_project", "bad code\n")
 	defer store.Close()
 
 	b := baseline.New()
@@ -1271,7 +1271,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scope_before_topk_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1319,7 +1319,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "threshold_after_scope_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1373,7 +1373,7 @@ func TestPgStore_Integration_ExplicitPrinterReceivesProgressNotStderr(t *testing
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	var buf bytes.Buffer
 	store, err := index.NewPgStore(connStr, "explicit_writer_project", 5, index.HNSWOptions{}, output.New(&buf, false))
@@ -1399,7 +1399,7 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1448,7 +1448,7 @@ func TestPgStore_Integration_ScopedADRsAreCachedUntilBuildIndex(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_cache_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
@@ -1495,7 +1495,7 @@ func TestPgStore_Integration_ScopedADRsReportsBackendFailure(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	connStr := setupPgContainer(t, ctx)
+	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_failure_project", 5, index.HNSWOptions{}, nil)
 	require.NoError(t, err)
