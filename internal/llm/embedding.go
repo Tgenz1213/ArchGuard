@@ -2,7 +2,6 @@ package llm
 
 import "context"
 
-// Embedder is the embed-only slice of Provider, so embedding consumers needn't depend on chat.
 type Embedder interface {
 	// Providers without an asymmetric-retrieval mechanism may ignore task.
 	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
