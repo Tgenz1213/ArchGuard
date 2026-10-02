@@ -68,30 +68,30 @@ func (p *Printer) DebugEnabled() bool {
 }
 
 // Result prints a line of the command's primary output, such as a summary.
-func (p *Printer) Result(format string, args ...any) { p.line("", nil, nil, true, format, args...) }
+func (p *Printer) Result(format string, args ...any) { p.line(lineRole{result: true}, format, args...) }
 
-func (p *Printer) Info(format string, args ...any) { p.line("", nil, nil, false, format, args...) }
+func (p *Printer) Info(format string, args ...any) { p.line(lineRole{}, format, args...) }
 
 func (p *Printer) Note(format string, args ...any) {
-	p.line("Note: ", nil, nil, false, format, args...)
+	p.line(lineRole{label: "Note: "}, format, args...)
 }
 
 func (p *Printer) Warn(format string, args ...any) {
-	p.line("Warning: ", warnStyle, nil, false, format, args...)
+	p.line(lineRole{label: "Warning: ", labelStyle: warnStyle}, format, args...)
 }
 
 func (p *Printer) Error(format string, args ...any) {
-	p.line("Error: ", errorStyle, nil, false, format, args...)
+	p.line(lineRole{label: "Error: ", labelStyle: errorStyle}, format, args...)
 }
 
 func (p *Printer) Debug(format string, args ...any) {
 	if p.DebugEnabled() {
-		p.line("[DEBUG] ", nil, debugStyle, false, format, args...)
+		p.line(lineRole{label: "[DEBUG] ", lineStyle: debugStyle}, format, args...)
 	}
 }
 
 func (p *Printer) Field(key, format string, args ...any) {
-	p.line(key+": ", nil, nil, false, format, args...)
+	p.line(lineRole{label: key + ": "}, format, args...)
 }
 
 // Group buffers its output until Flush, so one unit of work (a file) prints as
@@ -209,22 +209,29 @@ func (p *Printer) Violation(v Violation) {
 	details.Flush()
 }
 
+type lineRole struct {
+	label      string
+	labelStyle style
+	lineStyle  style
+	result     bool
+}
+
 // Each line opens and resets its own color, so no escape sequence spans a newline.
-func (p *Printer) line(label string, labelStyle, lineStyle style, result bool, format string, args ...any) {
+func (p *Printer) line(role lineRole, format string, args ...any) {
 	out := p.out()
 	prefix := strings.Repeat(indentUnit, p.depth())
-	continuation := strings.Repeat(" ", len(label))
+	continuation := strings.Repeat(" ", len(role.label))
 	lines := strings.Split(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"), "\n")
 
 	var b strings.Builder
 
-	b.WriteString(prefix + out.paint(lineStyle, out.paint(labelStyle, label)+lines[0]) + "\n")
+	b.WriteString(prefix + out.paint(role.lineStyle, out.paint(role.labelStyle, role.label)+lines[0]) + "\n")
 
 	for _, l := range lines[1:] {
-		b.WriteString(prefix + out.paint(lineStyle, continuation+l) + "\n")
+		b.WriteString(prefix + out.paint(role.lineStyle, continuation+l) + "\n")
 	}
 
-	p.write(b.String(), false, result)
+	p.write(b.String(), false, role.result)
 }
 
 // write ends a pending progress line before any full line, so a warning printed
