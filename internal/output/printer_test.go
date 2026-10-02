@@ -243,6 +243,83 @@ func TestViolation(t *testing.T) {
 	}
 }
 
+func TestColor(t *testing.T) {
+	tests := []struct {
+		name  string
+		print func(p *output.Printer)
+		want  string
+	}{
+		{"warn label", func(p *output.Printer) { p.Warn("a\nb") }, "\x1b[33mWarning: \x1b[0ma\n         b\n"},
+		{"error label", func(p *output.Printer) { p.Error("boom") }, "\x1b[31mError: \x1b[0mboom\n"},
+		{"debug line", func(p *output.Printer) { p.Debug("a\nb") }, "\x1b[90m[DEBUG] a\x1b[0m\n\x1b[90m        b\x1b[0m\n"},
+		{"plain kinds", func(p *output.Printer) {
+			p.Info("i")
+			p.Note("n")
+			p.Result("r")
+			p.Field("k", "v")
+		}, "i\nNote: n\nr\nk: v\n"},
+		{"indent outside color", func(p *output.Printer) { p.Indented().Warn("w") }, "  \x1b[33mWarning: \x1b[0mw\n"},
+		{"file header", func(p *output.Printer) {
+			g := p.Group("a.go")
+			g.Info("x")
+			g.Flush()
+		}, "\x1b[36;1ma.go\x1b[0m\n  x\n"},
+		{"empty group", func(p *output.Printer) { p.Group("a.go").Flush() }, ""},
+		{"multi-line header", func(p *output.Printer) {
+			g := p.Group("a\nb")
+			g.Info("x")
+			g.Flush()
+		}, "\x1b[36;1ma\x1b[0m\n\x1b[36;1mb\x1b[0m\n  x\n"},
+		{"violation", func(p *output.Printer) {
+			p.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
+		}, "\x1b[31;1m[VIOLATION] T [Line 3]\x1b[0m\n  Reasoning: r\n"},
+		{"baselined", func(p *output.Printer) {
+			p.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Baselined: true, Reasoning: "r"})
+		}, "\x1b[2m[BASELINED] T [Line 3]\x1b[0m\n  Reasoning: r\n"},
+		{"violation in a file group", func(p *output.Printer) {
+			g := p.Group("a.go")
+			g.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
+			g.Flush()
+		}, "\x1b[36;1ma.go\x1b[0m\n  \x1b[31;1m[VIOLATION] T [Line 3]\x1b[0m\n    Reasoning: r\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			tt.print(output.New(&buf, true, output.WithColor(true)))
+
+			if got := buf.String(); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestColorOffMatchesDefault(t *testing.T) {
+	emit := func(p *output.Printer) {
+		p.Warn("w")
+		p.Error("e")
+		p.Debug("d")
+		g := p.Group("a.go")
+		g.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
+		g.Flush()
+	}
+
+	var def, off bytes.Buffer
+
+	emit(output.New(&def, true))
+	emit(output.New(&off, true, output.WithColor(false)))
+
+	if def.String() != off.String() {
+		t.Errorf("WithColor(false) = %q, default = %q", off.String(), def.String())
+	}
+
+	if strings.Contains(def.String(), "\x1b") {
+		t.Errorf("default printer wrote an escape sequence: %q", def.String())
+	}
+}
+
 func TestNilPrinterWritesToStderr(t *testing.T) {
 	got := captureStderr(t, func() {
 		var p *output.Printer
