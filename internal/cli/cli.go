@@ -635,7 +635,9 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, contentProvider, opts.Debug, opts.CI)
+	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, contentProvider)
+	engine.Debug = opts.Debug
+	engine.CI = opts.CI
 
 	analysisCache, cacheErr := cache.NewCache(".")
 	if cacheErr != nil {

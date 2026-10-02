@@ -76,15 +76,13 @@ func (e *DriftDetectedError) Is(target error) bool {
 	return target == ErrDriftDetected
 }
 
-func NewEngine(cfg *config.Config, store index.VectorStore, chat llm.Chatter, embed llm.Embedder, content ContentProvider, debug bool, ci bool) *Engine {
+func NewEngine(cfg *config.Config, store index.VectorStore, chat llm.Chatter, embed llm.Embedder, content ContentProvider) *Engine {
 	return &Engine{
 		Config:  cfg,
 		Store:   store,
 		Chat:    chat,
 		Embed:   embed,
 		Content: content,
-		Debug:   debug,
-		CI:      ci,
 	}
 }
 
