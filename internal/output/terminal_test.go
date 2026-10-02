@@ -64,11 +64,19 @@ func TestColorForPipe(t *testing.T) {
 		_ = w.Close() //nolint:errcheck // test cleanup
 	})
 
-	if output.ColorFor(output.ColorAuto, w) {
-		t.Error("ColorFor(auto, pipe) = true, want false")
-	}
+	for _, tt := range []struct {
+		mode output.ColorMode
+		want bool
+	}{
+		{output.ColorAuto, false},
+		{output.ColorAlways, true},
+		{output.ColorNever, false},
+	} {
+		on, restore := output.ColorFor(tt.mode, w)
+		if on != tt.want {
+			t.Errorf("ColorFor(%q, pipe) = %v, want %v", tt.mode, on, tt.want)
+		}
 
-	if !output.ColorFor(output.ColorAlways, w) {
-		t.Error("ColorFor(always, pipe) = false, want true")
+		restore()
 	}
 }

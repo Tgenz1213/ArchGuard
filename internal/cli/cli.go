@@ -67,6 +67,9 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return code, err
 	}
 
+	colors, restoreConsole := decideColors(inv.color())
+	defer restoreConsole()
+
 	// Keeps the banner and provider warnings off stdout in JSON mode.
 	jsonOutput := inv.command == "check" && inv.check.jsonOutput()
 	if !jsonOutput {
@@ -95,7 +98,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		newPrinter(os.Stderr, false, inv.color()).Warn("failed to load .env: %v", err)
+		colors.stderrPrinter(false).Warn("failed to load .env: %v", err)
 	}
 
 	if inv.command == "init" {
@@ -149,9 +152,9 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 		chatProvider = chat
 	} else {
-		providerWarnings := newPrinter(os.Stdout, false, inv.color())
+		providerWarnings := colors.stdoutPrinter(false)
 		if jsonOutput {
-			providerWarnings = newPrinter(os.Stderr, false, inv.color())
+			providerWarnings = colors.stderrPrinter(false)
 		}
 
 		chatProvider, embedProvider, err = buildProviders(providerWarnings, cfg, os.Getenv("ARCHGUARD_API_KEY"), os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
@@ -161,10 +164,10 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if inv.command == "check" {
-		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check)
+		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check, colors)
 	}
 
-	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.index)
+	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, colors)
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -525,17 +528,15 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd) (code ExitCode, err error) {
+func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd, colors streamColors) (code ExitCode, err error) {
 	files := opts.Paths
 
 	jsonOutput := opts.jsonOutput()
 	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
-	human := os.Stdout
+	out := colors.stdoutPrinter(opts.Debug)
 	if jsonOutput {
-		human = os.Stderr
+		out = colors.stderrPrinter(opts.Debug)
 	}
-
-	out := newPrinter(human, opts.Debug, opts.Color)
 
 	defer func() {
 		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
@@ -792,8 +793,8 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // Separate from runIndex, which check's auto-rebuild calls with its own printer.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts indexCmd) (ExitCode, error) {
-	out := newPrinter(os.Stdout, false, opts.Color)
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, colors streamColors) (ExitCode, error) {
+	out := colors.stdoutPrinter(false)
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
 	if werr := out.Err(); werr != nil && code != ExitInterrupted {
@@ -803,8 +804,25 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 	return code, err
 }
 
-func newPrinter(f *os.File, debug bool, color output.ColorMode) *output.Printer {
-	return output.New(f, debug, output.WithColor(output.ColorFor(color, f)))
+type streamColors struct{ stdout, stderr bool }
+
+// Decided once per run; restore puts a Windows console back the way the run found it.
+func decideColors(mode output.ColorMode) (colors streamColors, restore func()) {
+	stdout, restoreStdout := output.ColorFor(mode, os.Stdout)
+	stderr, restoreStderr := output.ColorFor(mode, os.Stderr)
+
+	return streamColors{stdout: stdout, stderr: stderr}, func() {
+		restoreStderr()
+		restoreStdout()
+	}
+}
+
+func (c streamColors) stdoutPrinter(debug bool) *output.Printer {
+	return output.New(os.Stdout, debug, output.WithColor(c.stdout))
+}
+
+func (c streamColors) stderrPrinter(debug bool) *output.Printer {
+	return output.New(os.Stderr, debug, output.WithColor(c.stderr))
 }
 
 func outputWriteError(err error) error {
