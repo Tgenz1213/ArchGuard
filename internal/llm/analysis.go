@@ -16,8 +16,14 @@ type AnalysisResult struct {
 	QuotedCode string `json:"quoted_code"`
 }
 
-func AnalyzeDrift(ctx context.Context, p Chatter, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
-	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
+type DriftInput struct {
+	ADRContent  string
+	CodeContext string
+	Filename    string
+}
+
+func AnalyzeDrift(ctx context.Context, p Chatter, in DriftInput, systemPrompt string) (*AnalysisResult, error) {
+	prompt := GetAnalyzeDriftPrompt(in.ADRContent, in.CodeContext, in.Filename)
 	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt, "analysis")
 }
 
@@ -27,8 +33,8 @@ type suggestionResult struct {
 
 // SuggestRemediation should only be called after AnalyzeDrift has returned
 // Violation == true.
-func SuggestRemediation(ctx context.Context, p Chatter, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
-	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
+func SuggestRemediation(ctx context.Context, p Chatter, in DriftInput, violation AnalysisResult) (string, error) {
+	prompt := GetSuggestionPrompt(in.ADRContent, in.CodeContext, in.Filename, violation.Reasoning, violation.QuotedCode)
 
 	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt, "suggestion generation")
 	if err != nil {

@@ -24,7 +24,7 @@ func TestAnalyzeDrift_Retry(t *testing.T) {
 	}
 
 	start := time.Now()
-	res, err := AnalyzeDrift(context.Background(), provider, "adr", "code", "file.go", "system")
+	res, err := AnalyzeDrift(context.Background(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
 	duration := time.Since(start)
 
 	if err != nil {
@@ -53,7 +53,7 @@ func TestAnalyzeDrift_MaxRetriesExceeded(t *testing.T) {
 		},
 	}
 
-	_, err := AnalyzeDrift(context.Background(), provider, "adr", "code", "file.go", "system")
+	_, err := AnalyzeDrift(context.Background(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -73,7 +73,7 @@ func TestAnalyzeDrift_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := AnalyzeDrift(ctx, provider, "adr", "code", "file.go", "system")
+	_, err := AnalyzeDrift(ctx, provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}

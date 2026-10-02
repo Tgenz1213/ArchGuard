@@ -232,6 +232,8 @@ func (e *Engine) Run(ctx context.Context) error {
 					UserPromptTemplate: llm.ChatPrompt,
 				})
 
+				driftInput := llm.DriftInput{ADRContent: hit.ADR.Content, CodeContext: content, Filename: file}
+
 				var res *llm.AnalysisResult
 
 				if e.Cache != nil {
@@ -245,7 +247,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				if res == nil {
 					fileOut.Debug("Cache Miss. Calling LLM...")
 
-					res, err = llm.AnalyzeDrift(ctx, e.Chat, hit.ADR.Content, content, file, systemPrompt)
+					res, err = llm.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
 					if err != nil {
 						fileOut.Warn("LLM analysis failed: %v", err)
 						localSkippedADRChecks++
@@ -328,7 +330,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							}
 
 							if suggestion == "" {
-								s, sErr := llm.SuggestRemediation(ctx, e.Chat, hit.ADR.Content, content, file, res.Reasoning, res.QuotedCode)
+								s, sErr := llm.SuggestRemediation(ctx, e.Chat, driftInput, *res)
 								switch {
 								case sErr != nil:
 									fileOut.Warn("suggestion generation failed: %v", sErr)
