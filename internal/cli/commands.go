@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 // Version is set by cmd/archguard from build-time ldflags.
@@ -18,7 +20,15 @@ type commandLine struct {
 
 	Init  struct{} `cmd:"" help:"Initialize ArchGuard in the current repository (local setup)."`
 	Check checkCmd `cmd:"" help:"Check for architectural violations."`
-	Index struct{} `cmd:"" help:"Rebuild the ADR index from the configured ADR source(s)."`
+	Index indexCmd `cmd:"" help:"Rebuild the ADR index from the configured ADR source(s)."`
+}
+
+type colorOption struct {
+	Color output.ColorMode `enum:"auto,always,never" default:"auto" help:"Color output: auto (on a terminal, unless NO_COLOR or CI is set or TERM=dumb), always, or never."`
+}
+
+type indexCmd struct {
+	colorOption `embed:""`
 }
 
 type checkCmd struct {
@@ -31,6 +41,8 @@ type checkCmd struct {
 	Format         string   `enum:"text,json" default:"text" help:"Output format: text or json."`
 	SuggestFixes   bool     `help:"Add a short, unverified LLM-suggested fix to each new violation (one extra LLM call per violation)."`
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
+
+	colorOption `embed:""`
 }
 
 // --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.
@@ -53,6 +65,18 @@ func (versionFlag) BeforeReset(app *kong.Kong) error {
 type invocation struct {
 	command string
 	check   checkCmd
+	index   indexCmd
+}
+
+func (inv *invocation) color() output.ColorMode {
+	switch inv.command {
+	case "check":
+		return inv.check.Color
+	case "index":
+		return inv.index.Color
+	default:
+		return output.ColorAuto
+	}
 }
 
 // A nil invocation means the command line was fully handled here: help, version, or a usage error.
@@ -96,7 +120,7 @@ func parseCommandLine(args []string, stdout, stderr io.Writer) (*invocation, Exi
 		return nil, ExitUsage, err
 	}
 
-	return &invocation{command: strings.Fields(kctx.Command())[0], check: cl.Check}, ExitSuccess, nil
+	return &invocation{command: strings.Fields(kctx.Command())[0], check: cl.Check, index: cl.Index}, ExitSuccess, nil
 }
 
 type writeRecorder struct {

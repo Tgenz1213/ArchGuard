@@ -14,11 +14,12 @@ const indentUnit = "  "
 // Printer is safe for concurrent use; a nil *Printer writes to os.Stderr, never stdout. Only
 // Result and Violation are primary output: Err reports their first failed write.
 type Printer struct {
-	sink   *sink
-	debug  bool
-	indent int
-	parent *Printer
-	header string
+	sink        *sink
+	debug       bool
+	indent      int
+	parent      *Printer
+	header      string
+	headerStyle style
 	// ownsBuffer is false for an Indented child, which writes through a buffer it doesn't own.
 	ownsBuffer bool
 }
@@ -28,14 +29,20 @@ type sink struct {
 	w         io.Writer
 	buf       *bytes.Buffer
 	midLine   bool
+	color     bool
 	hasResult bool
 	failed    *error
 }
 
 var stderrSink = &sink{mu: &sync.Mutex{}}
 
-func New(w io.Writer, debug bool) *Printer {
-	return &Printer{sink: &sink{mu: &sync.Mutex{}, w: w, failed: new(error)}, debug: debug}
+func New(w io.Writer, debug bool, opts ...Option) *Printer {
+	s := &sink{mu: &sync.Mutex{}, w: w, failed: new(error)}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return &Printer{sink: s, debug: debug}
 }
 
 // Err returns the first failed write of primary output, or nil.
@@ -61,35 +68,46 @@ func (p *Printer) DebugEnabled() bool {
 }
 
 // Result prints a line of the command's primary output, such as a summary.
-func (p *Printer) Result(format string, args ...any) { p.line("", true, format, args...) }
+func (p *Printer) Result(format string, args ...any) { p.line("", nil, nil, true, format, args...) }
 
-func (p *Printer) Info(format string, args ...any) { p.line("", false, format, args...) }
+func (p *Printer) Info(format string, args ...any) { p.line("", nil, nil, false, format, args...) }
 
-func (p *Printer) Note(format string, args ...any) { p.line("Note: ", false, format, args...) }
+func (p *Printer) Note(format string, args ...any) {
+	p.line("Note: ", nil, nil, false, format, args...)
+}
 
-func (p *Printer) Warn(format string, args ...any) { p.line("Warning: ", false, format, args...) }
+func (p *Printer) Warn(format string, args ...any) {
+	p.line("Warning: ", warnStyle, nil, false, format, args...)
+}
 
-func (p *Printer) Error(format string, args ...any) { p.line("Error: ", false, format, args...) }
+func (p *Printer) Error(format string, args ...any) {
+	p.line("Error: ", errorStyle, nil, false, format, args...)
+}
 
 func (p *Printer) Debug(format string, args ...any) {
 	if p.DebugEnabled() {
-		p.line("[DEBUG] ", false, format, args...)
+		p.line("[DEBUG] ", nil, debugStyle, false, format, args...)
 	}
 }
 
 func (p *Printer) Field(key, format string, args ...any) {
-	p.line(key+": ", false, format, args...)
+	p.line(key+": ", nil, nil, false, format, args...)
 }
 
 // Group buffers its output until Flush, so one unit of work (a file) prints as
 // a contiguous block even when units run in parallel.
 func (p *Printer) Group(header string) *Printer {
+	return p.group(header, fileStyle)
+}
+
+func (p *Printer) group(header string, headerStyle style) *Printer {
 	g := &Printer{
-		sink:   &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed},
-		debug:  p.DebugEnabled(),
-		indent: p.depth(),
-		parent: p,
-		header: header,
+		sink:        &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed, color: p.out().color},
+		debug:       p.DebugEnabled(),
+		indent:      p.depth(),
+		parent:      p,
+		header:      header,
+		headerStyle: headerStyle,
 
 		ownsBuffer: true,
 	}
@@ -113,8 +131,14 @@ func (p *Printer) Flush() {
 	p.sink.mu.Lock()
 
 	var block strings.Builder
+
 	if p.header != "" && p.sink.buf.Len() > 0 {
-		block.WriteString(strings.Repeat(indentUnit, p.indent-1) + p.header + "\n")
+		header := strings.Split(p.header, "\n")
+		for i, l := range header {
+			header[i] = p.sink.paint(p.headerStyle, l)
+		}
+
+		block.WriteString(strings.Repeat(indentUnit, p.indent-1) + strings.Join(header, "\n") + "\n")
 	}
 
 	block.Write(p.sink.buf.Bytes())
@@ -156,9 +180,9 @@ type Violation struct {
 }
 
 func (p *Printer) Violation(v Violation) {
-	label := "VIOLATION"
+	label, headerStyle := "VIOLATION", style(violationStyle)
 	if v.Baselined {
-		label = "BASELINED"
+		label, headerStyle = "BASELINED", baselinedStyle
 	}
 
 	header := fmt.Sprintf("[%s] %s [Line %d]", label, v.Title, v.Line)
@@ -166,7 +190,7 @@ func (p *Printer) Violation(v Violation) {
 		header = fmt.Sprintf("[%s] %s [UNVERIFIED: quoted code not found in analyzed content]", label, v.Title)
 	}
 
-	details := p.Group(header)
+	details := p.group(header, headerStyle)
 	details.write("", false, true)
 	details.Field("Reasoning", "%s", v.Reasoning)
 
@@ -185,17 +209,19 @@ func (p *Printer) Violation(v Violation) {
 	details.Flush()
 }
 
-func (p *Printer) line(label string, result bool, format string, args ...any) {
+// Each line opens and resets its own color, so no escape sequence spans a newline.
+func (p *Printer) line(label string, labelStyle, lineStyle style, result bool, format string, args ...any) {
+	out := p.out()
 	prefix := strings.Repeat(indentUnit, p.depth())
-	continuation := prefix + strings.Repeat(" ", len(label))
+	continuation := strings.Repeat(" ", len(label))
 	lines := strings.Split(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"), "\n")
 
 	var b strings.Builder
 
-	b.WriteString(prefix + label + lines[0] + "\n")
+	b.WriteString(prefix + out.paint(lineStyle, out.paint(labelStyle, label)+lines[0]) + "\n")
 
 	for _, l := range lines[1:] {
-		b.WriteString(continuation + l + "\n")
+		b.WriteString(prefix + out.paint(lineStyle, continuation+l) + "\n")
 	}
 
 	p.write(b.String(), false, result)
