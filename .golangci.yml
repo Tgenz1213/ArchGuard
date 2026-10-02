@@ -10,6 +10,8 @@ linters:
       check-blank: true
     revive:
       rules:
+        - name: argument-limit
+          arguments: [5]
         - name: blank-imports
         - name: bool-literal-in-expr
         - name: context-as-argument
