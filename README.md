@@ -306,6 +306,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 - `archguard init`: Interactive setup for local development. Creates config, ADR directory, and scaffolding.
 - `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.** 
+  - `--color <auto|always|never>`: Same as `check`'s `--color`.
   - *Note:* ArchGuard uses **Delta Indexing**, meaning it intelligently skips API calls for ADRs that haven't changed. Feel free to run it frequently!
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
@@ -317,6 +318,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
   - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its own text summary.
+  - `--color <auto|always|never>`: When to color output, default `auto`. `auto` colors only a stream that is a terminal, and turns color off when `NO_COLOR` is set to a non-empty value, `TERM=dumb`, or `CI` is set (so CI logs stay plain; pass `--color=always` to color them). `always` and `never` override all of that. `--format json`'s stdout is never colored.
   - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
 
 ### Automation & Exit Codes

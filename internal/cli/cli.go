@@ -95,7 +95,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		output.New(os.Stderr, false).Warn("failed to load .env: %v", err)
+		newPrinter(os.Stderr, false, inv.color()).Warn("failed to load .env: %v", err)
 	}
 
 	if inv.command == "init" {
@@ -149,9 +149,9 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 		chatProvider = chat
 	} else {
-		providerWarnings := output.New(os.Stdout, false)
+		providerWarnings := newPrinter(os.Stdout, false, inv.color())
 		if jsonOutput {
-			providerWarnings = output.New(os.Stderr, false)
+			providerWarnings = newPrinter(os.Stderr, false, inv.color())
 		}
 
 		chatProvider, embedProvider, err = buildProviders(providerWarnings, cfg, os.Getenv("ARCHGUARD_API_KEY"), os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
@@ -164,7 +164,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check)
 	}
 
-	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings)
+	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.index)
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -530,12 +530,12 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 
 	jsonOutput := opts.jsonOutput()
 	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
-	human := io.Writer(os.Stdout)
+	human := os.Stdout
 	if jsonOutput {
 		human = os.Stderr
 	}
 
-	out := output.New(human, opts.Debug)
+	out := newPrinter(human, opts.Debug, opts.Color)
 
 	defer func() {
 		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
@@ -792,8 +792,8 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // Separate from runIndex, which check's auto-rebuild calls with its own printer.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string) (ExitCode, error) {
-	out := output.New(os.Stdout, false)
+func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts indexCmd) (ExitCode, error) {
+	out := newPrinter(os.Stdout, false, opts.Color)
 
 	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
 	if werr := out.Err(); werr != nil && code != ExitInterrupted {
@@ -801,6 +801,10 @@ func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.
 	}
 
 	return code, err
+}
+
+func newPrinter(f *os.File, debug bool, color output.ColorMode) *output.Printer {
+	return output.New(f, debug, output.WithColor(output.ColorFor(color, f)))
 }
 
 func outputWriteError(err error) error {

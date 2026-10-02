@@ -689,6 +689,8 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
 		{name: "invalid format", args: []string{"check", "--format", "xml"}, wantCode: ExitUsage, wantErr: true},
 		{name: "single-dash long flag", args: []string{"check", "-debug"}, wantCode: ExitUsage, wantErr: true},
+		{name: "invalid color", args: []string{"check", "--color", "rainbow"}, wantCode: ExitUsage, wantErr: true},
+		{name: "invalid index color", args: []string{"index", "--color=rainbow"}, wantCode: ExitUsage, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -731,6 +733,34 @@ func TestParseCommandLine(t *testing.T) {
 
 			if tt.check != nil {
 				tt.check(t, inv.check)
+			}
+		})
+	}
+}
+
+func TestParseCommandLine_Color(t *testing.T) {
+	tests := []struct {
+		args []string
+		want output.ColorMode
+	}{
+		{[]string{"check"}, output.ColorAuto},
+		{[]string{"check", "--color=always"}, output.ColorAlways},
+		{[]string{"check", "a.go", "--color", "never"}, output.ColorNever},
+		{[]string{"index"}, output.ColorAuto},
+		{[]string{"index", "--color=always"}, output.ColorAlways},
+		{[]string{"index", "--color=never"}, output.ColorNever},
+		{[]string{"init"}, output.ColorAuto},
+	}
+
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			inv, _, err := parseCommandLine(tt.args, io.Discard, io.Discard)
+			if err != nil || inv == nil {
+				t.Fatalf("parseCommandLine(%v) = %v, %v", tt.args, inv, err)
+			}
+
+			if got := inv.color(); got != tt.want {
+				t.Errorf("color() = %q, want %q", got, tt.want)
 			}
 		})
 	}
