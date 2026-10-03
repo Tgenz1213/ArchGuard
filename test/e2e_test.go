@@ -385,18 +385,24 @@ type checkReport struct {
 	} `json:"stages"`
 }
 
-// Captures stdout and stderr separately, since --format json promises a clean stdout.
 func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
-	args := []string{"check", "--format", "json"}
+	args := []string{"--format", "json"}
 	if target != "" {
 		args = append(args, target)
 	}
 
-	cmd := exec.CommandContext(t.Context(), binaryPath, args...)
+	return runCheckWithEnv(t, dir, binaryPath, nil, args...)
+}
+
+// Captures stdout and stderr separately, since --format json promises a clean stdout.
+func runCheckWithEnv(t *testing.T, dir, binaryPath string, env []string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), binaryPath, append([]string{"check"}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+	cmd.Env = append(os.Environ(), append([]string{"ARCHGUARD_API_KEY=mock_key"}, env...)...)
 
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf

@@ -401,6 +401,8 @@ jobs:
 
 This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on your codebase. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
 
+Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the step log remains the full report. Annotations are not printed under `--format json`.
+
 #### Other CI Providers
 
 If you are not using GitHub Actions, you can run ArchGuard manually by using the `--ci` flag in your pipeline.

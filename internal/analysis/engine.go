@@ -53,6 +53,17 @@ type Violation struct {
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
 	Suggestion string `json:"suggestion,omitempty"`
+	// Line counts lines of the diff the LLM saw, not of the file.
+	lineInDiff bool
+}
+
+func (v Violation) Annotation() output.Annotation {
+	a := output.Annotation{File: v.File, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning}
+	if !v.lineInDiff {
+		a.Line = v.Line
+	}
+
+	return a
 }
 
 type StageFailure struct {
@@ -364,6 +375,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							Reasoning:  res.Reasoning,
 							QuotedCode: res.QuotedCode,
 							Suggestion: suggestion,
+							lineInDiff: diffMode == "diff",
 						})
 					}
 				}
