@@ -18,7 +18,6 @@ type OllamaProvider struct {
 	client      *api.Client
 }
 
-// NewOllamaProvider initializes the Ollama provider with necessary configuration.
 func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
