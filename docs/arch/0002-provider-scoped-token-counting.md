@@ -14,7 +14,7 @@ There is no practical way to bundle an offline, exact tokenizer for every model 
 
 ## Decision
 
-`llm.Chatter` has `CountTokens(ctx, text) (int, error)`. Each provider counts tokens using whatever mechanism reflects its own backend's real tokenizer:
+`inference.Chatter` has `CountTokens(ctx, text) (int, error)`. Each provider counts tokens using whatever mechanism reflects its own backend's real tokenizer:
 
 - `OpenAIProvider`: local tiktoken, keyed off the configured model name, falling back to `cl100k_base` for unrecognized OpenAI model names (unchanged from the original behavior).
 - `OllamaProvider`: asks the live Ollama server to evaluate the prompt with `num_predict: 1` (generate exactly one token — `num_predict: 0` was tried first and does not suppress generation on this codebase's Ollama version) and reads back the real `prompt_eval_count` from whatever model is actually loaded. This is exact for any model Ollama serves, with no bundled vocab data.
@@ -26,5 +26,5 @@ If `CountTokens` errors (e.g. the Ollama server is unreachable or the model isn'
 
 ## Consequences
 
-- Every `llm.Chatter` implementation must implement `CountTokens`. Most LLM APIs expose a native token-counting mechanism, so this is expected to stay easy to satisfy.
+- Every `inference.Chatter` implementation must implement `CountTokens`. Most LLM APIs expose a native token-counting mechanism, so this is expected to stay easy to satisfy.
 - Truncation for Ollama and Gemini costs one or more extra requests to the live backend, rather than being pure local computation. `Engine.Chat` has to be live for `Chat` anyway, so this adds no new reachability dependency, only latency on large files that need truncation.
