@@ -356,18 +356,15 @@ func (e *Engine) Run(ctx context.Context) error {
 							Suggestion: suggestion,
 						})
 						localViolations++
-
-						if e.JSONOutput {
-							localViolationRecords = append(localViolationRecords, Violation{
-								File:       file,
-								ADRID:      hit.ADR.ID,
-								ADRTitle:   hit.ADR.Title,
-								Line:       lineNum,
-								Reasoning:  res.Reasoning,
-								QuotedCode: res.QuotedCode,
-								Suggestion: suggestion,
-							})
-						}
+						localViolationRecords = append(localViolationRecords, Violation{
+							File:       file,
+							ADRID:      hit.ADR.ID,
+							ADRTitle:   hit.ADR.Title,
+							Line:       lineNum,
+							Reasoning:  res.Reasoning,
+							QuotedCode: res.QuotedCode,
+							Suggestion: suggestion,
+						})
 					}
 				}
 			}
@@ -407,12 +404,9 @@ func (e *Engine) Run(ctx context.Context) error {
 	})
 
 	e.StageFailures = stageFailures
-	if e.JSONOutput {
-		if collectedViolations == nil {
-			collectedViolations = []Violation{}
-		}
+	e.CollectedViolations = collectedViolations
 
-		e.CollectedViolations = collectedViolations
+	if e.JSONOutput {
 		e.CollectedStages = telemetry.Stats()
 	}
 
