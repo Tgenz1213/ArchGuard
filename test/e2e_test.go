@@ -47,7 +47,6 @@ var (
 	sharedBinaryErr  error
 )
 
-// TestMain builds the archguard-e2e binary once, shared by every test.
 func TestMain(m *testing.M) {
 	code := m.Run()
 
@@ -97,8 +96,6 @@ func buildSharedE2EBinary(t *testing.T) string {
 	return sharedBinaryPath
 }
 
-// buildE2EBinary creates an isolated git repo temp dir (archguard requires
-// one) and returns it plus the shared archguard-e2e binary's path.
 func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 	t.Helper()
 
