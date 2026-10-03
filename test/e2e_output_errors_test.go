@@ -65,14 +65,16 @@ func setupOutputErrorsRepo(t *testing.T) (dir, binaryPath string) {
 	return dir, binaryPath
 }
 
-func runWithStreams(t *testing.T, dir, binaryPath string, stdout, stderr *os.File, args ...string) int {
+type streams struct{ stdout, stderr *os.File }
+
+func runWithStreams(t *testing.T, dir, binaryPath string, s streams, args ...string) int {
 	t.Helper()
 
 	cmd := exec.CommandContext(t.Context(), binaryPath, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	cmd.Stdout = s.stdout
+	cmd.Stderr = s.stderr
 
 	err := cmd.Run()
 	if err == nil {
@@ -108,7 +110,7 @@ func TestE2E_PrimaryOutputWriteFailureExitsOne(t *testing.T) {
 				runIndexCmd(t, dir, binaryPath, int(cli.ExitSuccess))
 			}
 
-			if code := runWithStreams(t, dir, binaryPath, unwritable(t), os.Stderr, tt.args...); code != int(cli.ExitError) {
+			if code := runWithStreams(t, dir, binaryPath, streams{stdout: unwritable(t), stderr: os.Stderr}, tt.args...); code != int(cli.ExitError) {
 				t.Fatalf("exit code = %d, want %d when stdout can't be written", code, cli.ExitError)
 			}
 		})
@@ -126,7 +128,7 @@ func TestE2E_JSONReportWriteFailureKeepsTheDriftError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code := runWithStreams(t, dir, binaryPath, unwritable(t), stderr, "check", "--format", "json", fixtureFilename)
+	code := runWithStreams(t, dir, binaryPath, streams{stdout: unwritable(t), stderr: stderr}, "check", "--format", "json", fixtureFilename)
 
 	if err := stderr.Close(); err != nil {
 		t.Fatal(err)
@@ -157,7 +159,7 @@ func TestE2E_DiagnosticWriteFailureKeepsExitCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code := runWithStreams(t, dir, binaryPath, stdout, unwritable(t), "check", "--format", "json", "--debug", fixtureFilename)
+	code := runWithStreams(t, dir, binaryPath, streams{stdout: stdout, stderr: unwritable(t)}, "check", "--format", "json", "--debug", fixtureFilename)
 
 	if err := stdout.Close(); err != nil {
 		t.Fatal(err)

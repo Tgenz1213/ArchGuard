@@ -1215,7 +1215,7 @@ func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projec
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
 
-	engine := analysis.NewEngine(cfg, store, llmProvider, llmProvider, content, false, false)
+	engine := analysis.NewEngine(cfg, store, llmProvider, llmProvider, content)
 	engine.Cache = nil
 	return engine, store
 }

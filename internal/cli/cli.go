@@ -163,11 +163,29 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		}
 	}
 
-	if inv.command == "check" {
-		return runCheck(ctx, cfg, chatProvider, embedProvider, indexFile, adrIDPattern, frontmatterMappings, inv.check, colors)
+	setup := runSetup{
+		cfg:                 cfg,
+		chat:                chatProvider,
+		embed:               embedProvider,
+		indexFile:           indexFile,
+		adrIDPattern:        adrIDPattern,
+		frontmatterMappings: frontmatterMappings,
 	}
 
-	return runIndexCommand(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, colors)
+	if inv.command == "check" {
+		return runCheck(ctx, setup, inv.check, colors)
+	}
+
+	return runIndexCommand(ctx, setup, colors)
+}
+
+type runSetup struct {
+	cfg                 *config.Config
+	chat                llm.Chatter
+	embed               llm.Embedder
+	indexFile           string
+	adrIDPattern        *regexp.Regexp
+	frontmatterMappings map[string]string
 }
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
@@ -528,7 +546,8 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 [Describe the expected outcomes, both positive and negative.]
 `
 
-func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, opts checkCmd, colors streamColors) (code ExitCode, err error) {
+func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
+	cfg := setup.cfg
 	files := opts.Paths
 
 	jsonOutput := opts.jsonOutput()
@@ -557,8 +576,8 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 	fetchOut := out.Group("")
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
-	localProvider.SetIDPattern(adrIDPattern)
-	localProvider.SetFrontmatterMappings(frontmatterMappings)
+	localProvider.SetIDPattern(setup.adrIDPattern)
+	localProvider.SetFrontmatterMappings(setup.frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 	localProvider.SetPrinter(fetchOut)
 	var providers []index.Provider
@@ -572,7 +591,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
 		)
-		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
+		confluenceProvider.SetFrontmatterMappings(setup.frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 		confluenceProvider.SetPrinter(fetchOut)
 		providers = append(providers, confluenceProvider)
@@ -593,12 +612,12 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
 	}
 
-	if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
+	if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
 		fetchOut.Flush()
 	} else {
 		out.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
 
-		if _, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out); err != nil {
+		if _, err := runIndex(ctx, setup, out); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -607,7 +626,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %v", err)
 		}
 
-		if err := store.Load(indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
+		if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
 			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
 		}
 	}
@@ -635,7 +654,9 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
-	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, contentProvider, opts.Debug, opts.CI)
+	engine := analysis.NewEngine(cfg, store, setup.chat, setup.embed, contentProvider)
+	engine.Debug = opts.Debug
+	engine.CI = opts.CI
 
 	analysisCache, cacheErr := cache.NewCache(".")
 	if cacheErr != nil {
@@ -644,7 +665,7 @@ func runCheck(ctx context.Context, cfg *config.Config, chatProvider llm.Chatter,
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildStages(cfg, store, embedProvider, out)
+	engine.Stages = analysis.BuildStages(cfg, store, setup.embed, out)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason
@@ -793,10 +814,10 @@ func exitCodeForAnalysisError(err error) ExitCode {
 }
 
 // Separate from runIndex, which check's auto-rebuild calls with its own printer.
-func runIndexCommand(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, colors streamColors) (ExitCode, error) {
+func runIndexCommand(ctx context.Context, setup runSetup, colors streamColors) (ExitCode, error) {
 	out := colors.stdoutPrinter(false)
 
-	code, err := runIndex(ctx, cfg, embedProvider, indexFile, adrIDPattern, frontmatterMappings, out)
+	code, err := runIndex(ctx, setup, out)
 	if werr := out.Err(); werr != nil && code != ExitInterrupted {
 		return ExitError, errors.Join(outputWriteError(werr), err)
 	}
@@ -829,15 +850,17 @@ func outputWriteError(err error) error {
 	return fmt.Errorf("failed to write output: %w", err)
 }
 
-func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedder, indexFile string, adrIDPattern *regexp.Regexp, frontmatterMappings map[string]string, out *output.Printer) (ExitCode, error) {
+func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCode, error) {
+	cfg := setup.cfg
+
 	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
-	localProvider.SetIDPattern(adrIDPattern)
-	localProvider.SetFrontmatterMappings(frontmatterMappings)
+	localProvider.SetIDPattern(setup.adrIDPattern)
+	localProvider.SetFrontmatterMappings(setup.frontmatterMappings)
 	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 	localProvider.SetPrinter(out)
 	var providers []index.Provider
@@ -851,7 +874,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedde
 			cfg.Analysis.Confluence.Token,
 			cfg.Analysis.AcceptedStatuses,
 		)
-		confluenceProvider.SetFrontmatterMappings(frontmatterMappings)
+		confluenceProvider.SetFrontmatterMappings(setup.frontmatterMappings)
 		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
 		confluenceProvider.SetPrinter(out)
 		providers = append(providers, confluenceProvider)
@@ -860,7 +883,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedde
 	adrProvider := index.NewCompositeProvider(providers...)
 	adrProvider.SetPrinter(out)
 
-	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, embedProvider, adrProvider)
+	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, setup.embed, adrProvider)
 	if result.Attempted {
 		printIndexSummary(result, out)
 	}
@@ -874,7 +897,7 @@ func runIndex(ctx context.Context, cfg *config.Config, embedProvider llm.Embedde
 		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered; index not updated", result.Discovered)
 	}
 
-	if err := store.Save(indexFile); err != nil {
+	if err := store.Save(setup.indexFile); err != nil {
 		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
 	}
 

@@ -99,7 +99,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 
 	// Hand-computed cosine distance from query (1,0), ascending:
 	// same.md=0, near.md=0.0061, diag.md=0.2929, orthogonal.md=1, opposite.md=2
-	got, err := groundTruthSearch(ctx, pool, []float32{1, 0}, "gt_test_project", -1.0, 5)
+	got, err := groundTruthSearch(ctx, pool, nearestQuery{embedding: []float32{1, 0}, project: "gt_test_project", threshold: -1.0, topK: 5})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"same.md", "near.md", "diag.md", "orthogonal.md", "opposite.md"}, got)
 
@@ -155,8 +155,15 @@ const groundTruthQuery = `
 	LIMIT $4
 `
 
+type nearestQuery struct {
+	embedding []float32
+	project   string
+	threshold float64
+	topK      int
+}
+
 // groundTruthSearch mirrors PgStore.Search's query with the HNSW index disabled, for the exact nearest-neighbor order.
-func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding []float32, projectName string, threshold float64, topK int) ([]string, error) {
+func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, q nearestQuery) ([]string, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -177,10 +184,10 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, queryEmbedding [
 		}
 	}
 
-	vec := pgvector.NewVector(queryEmbedding)
-	distanceThreshold := 1.0 - threshold
+	vec := pgvector.NewVector(q.embedding)
+	distanceThreshold := 1.0 - q.threshold
 
-	rows, err := tx.Query(ctx, groundTruthQuery, vec, projectName, distanceThreshold, topK)
+	rows, err := tx.Query(ctx, groundTruthQuery, vec, q.project, distanceThreshold, q.topK)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +271,7 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 	pool := newBenchAdminPool(ctx, t, connStr)
 	rng := rand.New(rand.NewSource(1))
 
-	require.NoError(t, seedProjectADRs(ctx, pool, rng, "seed_test_project", 30, 8))
+	require.NoError(t, seedProjectADRs(ctx, pool, rng, syntheticProject{name: "seed_test_project", adrs: 30, dim: 8}))
 
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, "SELECT COUNT(*) FROM archguard_adrs WHERE project_name = $1", "seed_test_project").Scan(&count))
@@ -291,16 +298,22 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 	t.Logf("pgvector extension version %s: iterative scan support = %v", version, available)
 }
 
+type syntheticProject struct {
+	name string
+	adrs int
+	dim  int
+}
+
 // seedProjectADRs inserts synthetic ADRs directly via SQL, sequentially (not BuildIndex's concurrent pattern) so insertion order — and thus the resulting HNSW graph — is reproducible across runs.
-func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, projectName string, count int, dim int) error {
-	for i := 0; i < count; i++ {
+func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, project syntheticProject) error {
+	for i := 0; i < project.adrs; i++ {
 		relPath := fmt.Sprintf("adr_%d.md", i)
 
-		vec := pgvector.NewVector(randomVector(rng, dim))
+		vec := pgvector.NewVector(randomVector(rng, project.dim))
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, projectName, relPath, relPath, "Accepted", "synthetic benchmark content", vec); err != nil {
+		`, project.name, relPath, relPath, "Accepted", "synthetic benchmark content", vec); err != nil {
 			return err
 		}
 	}
@@ -375,25 +388,43 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 		}
 	})
 
-	rng := rand.New(rand.NewSource(42))
+	env := benchEnv{
+		pool:               pool,
+		connStr:            connStr,
+		rng:                rand.New(rand.NewSource(42)),
+		iterativeAvailable: iterativeAvailable,
+	}
 
 	for _, sp := range benchScalePoints {
 		b.Run(sp.label, func(b *testing.B) {
-			measureScalePoint(ctx, b, pool, connStr, rng, sp, iterativeAvailable)
+			measureScalePoint(ctx, b, env, sp)
 		})
 	}
 }
 
+type benchEnv struct {
+	pool               *pgxpool.Pool
+	connStr            string
+	rng                *rand.Rand
+	iterativeAvailable bool
+}
+
 const benchTargetProject = "bench_target"
 
-func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, connStr string, rng *rand.Rand, sp scalePoint, iterativeAvailable bool) {
+func benchQuery(embedding []float32) nearestQuery {
+	return nearestQuery{embedding: embedding, project: benchTargetProject, threshold: benchThreshold, topK: benchTopK}
+}
+
+func measureScalePoint(ctx context.Context, b *testing.B, env benchEnv, sp scalePoint) {
+	pool, connStr, rng := env.pool, env.connStr, env.rng
+
 	_, err := pool.Exec(ctx, "TRUNCATE TABLE archguard_adrs")
 	require.NoError(b, err)
 
-	require.NoError(b, seedProjectADRs(ctx, pool, rng, benchTargetProject, sp.adrsPerProject, benchEmbeddingDim))
+	require.NoError(b, seedProjectADRs(ctx, pool, rng, syntheticProject{name: benchTargetProject, adrs: sp.adrsPerProject, dim: benchEmbeddingDim}))
 	for i := 0; i < sp.totalProjects-1; i++ {
 		noiseProject := fmt.Sprintf("bench_noise_%d", i)
-		require.NoError(b, seedProjectADRs(ctx, pool, rng, noiseProject, sp.adrsPerProject, benchEmbeddingDim))
+		require.NoError(b, seedProjectADRs(ctx, pool, rng, syntheticProject{name: noiseProject, adrs: sp.adrsPerProject, dim: benchEmbeddingDim}))
 	}
 
 	// Without this the planner costs plans off default/absent statistics (~1 row
@@ -405,12 +436,12 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 	groundTruth := make([][]string, benchQueriesPerScalePoint)
 	for i := range queries {
 		queries[i] = randomVector(rng, benchEmbeddingDim)
-		gt, err := groundTruthSearch(ctx, pool, queries[i], benchTargetProject, benchThreshold, benchTopK)
+		gt, err := groundTruthSearch(ctx, pool, benchQuery(queries[i]))
 		require.NoError(b, err)
 		groundTruth[i] = gt
 	}
 
-	require.NoError(b, assertGroundTruthAvoidsIndexScan(ctx, pool, queries[0], benchTargetProject, benchThreshold, benchTopK))
+	require.NoError(b, assertGroundTruthAvoidsIndexScan(ctx, pool, benchQuery(queries[0])))
 	require.NoError(b, assertUsesHNSWIndex(ctx, connStr, queries[0], benchTargetProject, index.MaxSearchCandidates))
 
 	b.Run("baseline", func(b *testing.B) {
@@ -421,7 +452,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, pool *pgxpool.Pool, co
 		reportRecallAndLatency(b, store, queries, groundTruth)
 	})
 
-	if !iterativeAvailable {
+	if !env.iterativeAvailable {
 		b.Log("iterative index scans unavailable at this pgvector version; skipping mitigation comparison")
 		return
 	}
@@ -488,7 +519,7 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 
 // assertGroundTruthAvoidsIndexScan fails loudly if groundTruthSearch's plan uses an index scan --
 // its correctness as an exact oracle depends on this holding at every scale, not just the 5-row unit test.
-func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, queryEmbedding []float32, projectName string, threshold float64, topK int) error {
+func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q nearestQuery) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -507,10 +538,10 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 		}
 	}
 
-	vec := pgvector.NewVector(queryEmbedding)
-	distanceThreshold := 1.0 - threshold
+	vec := pgvector.NewVector(q.embedding)
+	distanceThreshold := 1.0 - q.threshold
 
-	rows, err := tx.Query(ctx, "EXPLAIN "+groundTruthQuery, vec, projectName, distanceThreshold, topK)
+	rows, err := tx.Query(ctx, "EXPLAIN "+groundTruthQuery, vec, q.project, distanceThreshold, q.topK)
 	if err != nil {
 		return err
 	}

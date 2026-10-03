@@ -78,7 +78,7 @@ func TestSuggestRemediation_ReturnsSuggestionText(t *testing.T) {
 		},
 	}
 
-	got, err := SuggestRemediation(context.Background(), provider, "adr content", "code content", "file.js", "This file is JavaScript but the ADR mandates Go.", "const x = 1;")
+	got, err := SuggestRemediation(context.Background(), provider, DriftInput{ADRContent: "adr content", CodeContext: "code content", Filename: "file.js"}, AnalysisResult{Reasoning: "This file is JavaScript but the ADR mandates Go.", QuotedCode: "const x = 1;"})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestSuggestRemediation_PropagatesProviderError(t *testing.T) {
 		},
 	}
 
-	_, err := SuggestRemediation(context.Background(), provider, "adr", "code", "file.go", "reasoning", "quoted")
+	_, err := SuggestRemediation(context.Background(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, AnalysisResult{Reasoning: "reasoning", QuotedCode: "quoted"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -112,7 +112,7 @@ func TestSuggestRemediation_PromptIncludesConfirmedViolationDetails(t *testing.T
 		},
 	}
 
-	if _, err := SuggestRemediation(context.Background(), provider, "All services must be Go.", "const x = 1;", "file.js", "This file is JS but ADR mandates Go.", "const x = 1;"); err != nil {
+	if _, err := SuggestRemediation(context.Background(), provider, DriftInput{ADRContent: "All services must be Go.", CodeContext: "const x = 1;", Filename: "file.js"}, AnalysisResult{Reasoning: "This file is JS but ADR mandates Go.", QuotedCode: "const x = 1;"}); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 

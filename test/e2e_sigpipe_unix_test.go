@@ -37,7 +37,7 @@ func TestE2E_BrokenStdoutPipeExitsOneInsteadOfSIGPIPE(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"index"}} {
 		t.Run(args[0], func(t *testing.T) {
 			// A process killed by SIGPIPE reports exit code -1 here, not 1.
-			if code := runWithStreams(t, dir, binaryPath, brokenPipe(t), os.Stderr, args...); code != int(cli.ExitError) {
+			if code := runWithStreams(t, dir, binaryPath, streams{stdout: brokenPipe(t), stderr: os.Stderr}, args...); code != int(cli.ExitError) {
 				t.Fatalf("exit code = %d, want %d", code, cli.ExitError)
 			}
 		})
@@ -53,7 +53,7 @@ func TestE2E_BrokenStderrPipeKeepsExitCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code := runWithStreams(t, dir, binaryPath, stdout, brokenPipe(t), "check", "--format", "json", "--debug", fixtureFilename)
+	code := runWithStreams(t, dir, binaryPath, streams{stdout: stdout, stderr: brokenPipe(t)}, "check", "--format", "json", "--debug", fixtureFilename)
 
 	if err := stdout.Close(); err != nil {
 		t.Fatal(err)

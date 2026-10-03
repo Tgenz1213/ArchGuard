@@ -16,9 +16,15 @@ type AnalysisResult struct {
 	QuotedCode string `json:"quoted_code"`
 }
 
-func AnalyzeDrift(ctx context.Context, p Chatter, adrContent, codeContext, filename, systemPrompt string) (*AnalysisResult, error) {
-	prompt := GetAnalyzeDriftPrompt(adrContent, codeContext, filename)
-	return chatJSON[AnalysisResult](ctx, p, systemPrompt, prompt, "analysis")
+type DriftInput struct {
+	ADRContent  string
+	CodeContext string
+	Filename    string
+}
+
+func AnalyzeDrift(ctx context.Context, chat Chatter, in DriftInput, systemPrompt string) (*AnalysisResult, error) {
+	prompt := GetAnalyzeDriftPrompt(in.ADRContent, in.CodeContext, in.Filename)
+	return chatJSON[AnalysisResult](ctx, chat, systemPrompt, prompt, "analysis")
 }
 
 type suggestionResult struct {
@@ -27,10 +33,10 @@ type suggestionResult struct {
 
 // SuggestRemediation should only be called after AnalyzeDrift has returned
 // Violation == true.
-func SuggestRemediation(ctx context.Context, p Chatter, adrContent, codeContext, filename, reasoning, quotedCode string) (string, error) {
-	prompt := GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCode)
+func SuggestRemediation(ctx context.Context, chat Chatter, in DriftInput, violation AnalysisResult) (string, error) {
+	prompt := GetSuggestionPrompt(in.ADRContent, in.CodeContext, in.Filename, violation.Reasoning, violation.QuotedCode)
 
-	result, err := chatJSON[suggestionResult](ctx, p, SuggestionSystemPrompt, prompt, "suggestion generation")
+	result, err := chatJSON[suggestionResult](ctx, chat, SuggestionSystemPrompt, prompt, "suggestion generation")
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +44,7 @@ func SuggestRemediation(ctx context.Context, p Chatter, adrContent, codeContext,
 	return result.Suggestion, nil
 }
 
-func chatJSON[T any](ctx context.Context, p Chatter, systemPrompt, userPrompt, operationLabel string) (*T, error) {
+func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt, operationLabel string) (*T, error) {
 	const maxRetries = 3
 
 	bo := backoff.NewExponentialBackOff()
@@ -51,7 +57,7 @@ func chatJSON[T any](ctx context.Context, p Chatter, systemPrompt, userPrompt, o
 	var final T
 
 	operation := func() error {
-		raw, err := p.Chat(ctx, systemPrompt, userPrompt)
+		raw, err := chat.Chat(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			lastErr = err
 			return err
