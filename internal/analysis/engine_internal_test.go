@@ -10,7 +10,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 type MockTruncationProvider struct {
@@ -59,7 +59,7 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 	engine := &Engine{
 		Config:  cfg,
 		Content: &MockTruncationProvider{Content: longContent},
-		Chat:    llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		Chat:    inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
 	content, _, mode, err := engine.fetchContext(context.Background(), "test.go")
@@ -94,7 +94,7 @@ func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T)
 	engine := &Engine{
 		Config:         cfg,
 		Content:        &MockDiffCapableProvider{Content: fullContent, Diff: diffHunk},
-		Chat:           llm.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		Chat:           inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 		UpdateBaseline: true,
 	}
 
@@ -119,7 +119,7 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 		},
 	}
 
-	mockProvider := &llm.MockProvider{
+	mockProvider := &inference.MockProvider{
 		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
 			return len(text) / 2, nil
 		},
@@ -155,7 +155,7 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 		},
 	}
 
-	mockProvider := &llm.MockProvider{
+	mockProvider := &inference.MockProvider{
 		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
 			return 0, errors.New("model not found on server")
 		},
@@ -189,7 +189,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 
 	lastLen := -1
-	mockProvider := &llm.MockProvider{
+	mockProvider := &inference.MockProvider{
 		CountTokensFunc: func(ctx context.Context, text string) (int, error) {
 			if len(text) == lastLen {
 				t.Errorf("CountTokens called twice with the same-length candidate (%d bytes) -- redundant call", len(text))

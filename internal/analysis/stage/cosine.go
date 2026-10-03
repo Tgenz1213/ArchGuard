@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 // The store omits candidates below their own effective threshold; this score lets any stage minimum drop them.
@@ -15,7 +15,7 @@ const unscored = -1
 
 type CosineRanker struct {
 	Store     index.VectorStore
-	Embed     llm.Embedder
+	Embed     inference.Embedder
 	Threshold float64
 }
 
@@ -24,7 +24,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 		return nil, &Error{Action: "generating embedding", Kind: KindPreconditionNotMet, Err: errors.New("no embedding provider configured")}
 	}
 
-	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(ctx), llm.EmbeddingTaskQuery)
+	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(ctx), inference.EmbeddingTaskQuery)
 	if err != nil {
 		return nil, &Error{Action: "generating embedding", Err: err}
 	}
@@ -61,7 +61,7 @@ func adrKey(adr *index.ADR) string {
 	return adr.RelPath + "\x00" + adr.ID + "\x00" + adr.Title
 }
 
-func NewCosineStage(store index.VectorStore, embed llm.Embedder, threshold float64, topK int) Stage {
+func NewCosineStage(store index.VectorStore, embed inference.Embedder, threshold float64, topK int) Stage {
 	return Stage{
 		Name:    "rank",
 		Scorer:  &CosineRanker{Store: store, Embed: embed, Threshold: threshold},

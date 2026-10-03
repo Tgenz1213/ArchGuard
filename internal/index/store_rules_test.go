@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 func TestLocalStore_CalculateHash_UnchangedForADRsWithoutRules(t *testing.T) {
@@ -79,7 +79,7 @@ func TestLocalStore_RulesRoundTripThroughSaveAndLoad(t *testing.T) {
 func TestLocalStore_BuildIndex_RulesOnlyEditUpdatesRulesWithoutReembedding(t *testing.T) {
 	var embeds atomic.Int32
 
-	provider := &llm.MockProvider{EmbedFunc: func(context.Context, string, llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{EmbedFunc: func(context.Context, string, inference.EmbeddingTaskType) ([]float32, error) {
 		embeds.Add(1)
 		return []float32{1, 0}, nil
 	}}

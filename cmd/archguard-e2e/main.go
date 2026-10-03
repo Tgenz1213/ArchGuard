@@ -9,7 +9,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/config"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
@@ -18,8 +18,8 @@ func main() {
 
 	// Markers print on invocation, not construction, so tests can prove a
 	// call was routed to the right provider.
-	chatProviderFactory := func(cfg *config.Config) llm.Provider {
-		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
+	chatProviderFactory := func(cfg *config.Config) inference.Provider {
+		mock := &inference.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 
 		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
@@ -37,9 +37,9 @@ func main() {
 				return "", fmt.Errorf("mock chat failure (E2E trigger)")
 			}
 
-			result := llm.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
+			result := inference.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
 			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
-				result = llm.AnalysisResult{
+				result = inference.AnalysisResult{
 					Violation:  true,
 					Reasoning:  "Mock violation: trigger found",
 					QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
@@ -55,7 +55,7 @@ func main() {
 		}
 
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
-		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		mock.EmbedFunc = func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
 
 			if strings.Contains(text, testutil.MockInterruptTrigger) {
@@ -73,10 +73,10 @@ func main() {
 		return mock
 	}
 
-	embedProviderFactory := func(cfg *config.Config) llm.Embedder {
-		mock := &llm.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
+	embedProviderFactory := func(cfg *config.Config) inference.Embedder {
+		mock := &inference.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
 
-		mock.EmbedFunc = func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		mock.EmbedFunc = func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
 
 			if strings.Contains(text, testutil.MockInterruptTrigger) {
@@ -106,7 +106,7 @@ func main() {
 	os.Exit(int(exitCode))
 }
 
-// defaultMockEmbedding replicates llm.MockProvider's own zero-value CreateEmbedding fallback (non-zero vector, avoids NaN in cosine similarity).
+// defaultMockEmbedding replicates inference.MockProvider's own zero-value CreateEmbedding fallback (non-zero vector, avoids NaN in cosine similarity).
 func defaultMockEmbedding(dim int) []float32 {
 	if dim == 0 {
 		dim = 1536

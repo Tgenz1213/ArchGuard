@@ -18,7 +18,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 type MockContentProvider struct {
@@ -47,7 +47,7 @@ func (m *MockContentProvider) GetDiff(ctx context.Context, path string) (string,
 }
 
 func TestDriftDetection(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -97,9 +97,9 @@ func TestDriftDetection(t *testing.T) {
 }
 
 func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
-	var gotTask llm.EmbeddingTaskType
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	var gotTask inference.EmbeddingTaskType
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			gotTask = task
 			v := make([]float32, 1536)
 			v[0] = 1.0
@@ -133,15 +133,15 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
-	if gotTask != llm.EmbeddingTaskQuery {
+	if gotTask != inference.EmbeddingTaskQuery {
 		t.Errorf("expected EmbeddingTaskQuery, got %v", gotTask)
 	}
 }
 
 func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	var gotText string
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			gotText = text
 			v := make([]float32, 1536)
 			v[0] = 1.0
@@ -226,8 +226,8 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	diffLookalike := "diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n real content that must survive untouched\n more real content"
 
 	var gotText string
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			gotText = text
 			v := make([]float32, 1536)
 			v[0] = 1.0
@@ -263,20 +263,20 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 
 func TestRun_EmbedsWithEmbedNotChat(t *testing.T) {
 	chatCalled := false
-	chatProvider := &llm.MockProvider{
+	chatProvider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalled = true
 			return `{"violation": false, "reasoning": "none", "quoted_code": ""}`, nil
 		},
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			t.Fatal("chatProvider.CreateEmbedding should not be called: embedding goes through Engine.Embed")
 			return nil, nil
 		},
 	}
 
 	embedCalled := false
-	embedProvider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	embedProvider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			embedCalled = true
 			v := make([]float32, 1536)
 			v[0] = 1.0
@@ -323,7 +323,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 	expectedSystemPrompt := "You are a custom system prompt."
 	var capturedSystemPrompt, capturedUserPrompt string
 
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			capturedSystemPrompt = system
 			capturedUserPrompt = user
@@ -416,7 +416,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 
 	content := &concurrencyTrackingProvider{files: files}
 
-	provider := &llm.MockProvider{}
+	provider := &inference.MockProvider{}
 	store := index.NewLocalStore(5) // no ADRs -> no LLM calls, exercises the goroutine path cheaply
 
 	cfg := &config.Config{
@@ -439,7 +439,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 }
 
 func TestRun_SuppressesBaselinedViolation(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -483,7 +483,7 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 }
 
 func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -537,7 +537,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 }
 
 func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -593,7 +593,7 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 }
 
 func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -647,7 +647,7 @@ func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 }
 
 func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -702,7 +702,7 @@ func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *t
 }
 
 func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -752,7 +752,7 @@ func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testi
 }
 
 func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -814,7 +814,7 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 // A QuotedCode absent from the content is a hallucinated quote: flag it
 // visibly instead of printing a fabricated-looking "Line 0".
 func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -867,10 +867,10 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	}
 }
 
-// The LLM sees content after llm.EscapePromptDelimiter, so a quote containing
+// The LLM sees content after inference.EscapePromptDelimiter, so a quote containing
 // a delimiter such as triple backticks must be verified against the escaped form.
 func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -924,7 +924,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 }
 
 func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -973,7 +973,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 }
 
 func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -1100,7 +1100,7 @@ func (p *partialErrorContentProvider) GetDiff(ctx context.Context, path string) 
 }
 
 func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -1108,7 +1108,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
             "quoted_code": "import python_library"
         }`, nil
 		},
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "badembed") {
 				return nil, errors.New("simulated embedding failure")
 			}
@@ -1175,7 +1175,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 }
 
 func TestRun_ViolationOutputFormat(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -1295,7 +1295,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 // A failed ADR check is counted without blocking the file's other ADRs.
 func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(user, "BADADRMARKER") {
 				return "", backoff.Permanent(errors.New("simulated LLM failure"))
@@ -1359,7 +1359,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 }
 
 func TestRun_ReportsSkippedFileCount(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{
             "violation": true,
@@ -1412,7 +1412,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 
 // Skipped ADR checks must be reported even when there are no violations.
 func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return "", backoff.Permanent(fmt.Errorf("mock LLM failure"))
 		},
@@ -1463,7 +1463,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 // proves Engine.Run's file path reaches Store.Search's scope filter: same
 // embedding for both files, so only scope explains the differing outcome.
 func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": true, "reasoning": "always violates in this test", "quoted_code": "bad"}`, nil
 		},
@@ -1510,7 +1510,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 }
 
 func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1550,7 +1550,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 }
 
 func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1604,7 +1604,7 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 }
 
 func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1656,7 +1656,7 @@ func (c *countingTruncatedStore) SearchTruncated(queryEmbedding []float32, thres
 }
 
 func TestRun_NonDebugMode_NeverCallsSearchTruncated(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1708,7 +1708,7 @@ func (c *countingStore) SearchRejected(queryEmbedding []float32, threshold float
 }
 
 func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1778,7 +1778,7 @@ func (c *countingDebugInfoStore) SearchWithDebugInfo(queryEmbedding []float32, t
 }
 
 func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1824,7 +1824,7 @@ func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *tes
 }
 
 func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1868,7 +1868,7 @@ func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
 }
 
 func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": true, "reasoning": "matched", "quoted_code": "package main"}`, nil
 		},
@@ -1911,7 +1911,7 @@ func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.
 }
 
 func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
@@ -1953,7 +1953,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 }
 
 func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			t.Fatal("LLM should not be called for an excluded file")
 			return "", nil
@@ -1984,7 +1984,7 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 // The baseline file is excluded regardless of exclude_patterns, so its
 // skip message must not blame exclude_patterns.
 func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			t.Fatal("LLM should not be called for an excluded file")
 			return "", nil
@@ -2015,7 +2015,7 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 // Only a file the user named explicitly gets a --debug skip message;
 // broad scans stay silent about excluded files.
 func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			t.Fatal("LLM should not be called for an excluded file")
 			return "", nil
@@ -2046,7 +2046,7 @@ func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.
 }
 
 func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T) {
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			t.Fatal("LLM should not be called for an excluded file")
 			return "", nil
@@ -2075,7 +2075,7 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 
 func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
@@ -2111,7 +2111,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 
 func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
 
@@ -2162,7 +2162,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 
 func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) {
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
 			return `{"violation": false, "reasoning": "no violation", "quoted_code": ""}`, nil
@@ -2194,7 +2194,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 
 func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.T) {
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
@@ -2238,7 +2238,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 		t.Fatalf("cache.NewCache failed: %v", err)
 	}
 
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(system, "Remediation Advisor") {
 				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
@@ -2312,7 +2312,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	}
 
 	suggestionCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(system, "Remediation Advisor") {
 				suggestionCalls++
@@ -2361,7 +2361,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	}
 
 	suggestionCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(system, "Remediation Advisor") {
 				suggestionCalls++
@@ -2412,7 +2412,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 
 	var mu sync.Mutex
 	suggestionCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			if strings.Contains(system, "Remediation Advisor") {
 				mu.Lock()
@@ -2465,7 +2465,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 
 func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *testing.T) {
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			chatCalls++
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "this snippet was never in the file"}`, nil
@@ -2519,7 +2519,7 @@ func fourEquallyRelevantADRs() *index.LocalStore {
 func TestRun_MaxRelevantADRs_RaisesLimitAboveDefault(t *testing.T) {
 	var mu sync.Mutex
 	chatCalls := 0
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			mu.Lock()
 			chatCalls++
@@ -2551,7 +2551,7 @@ func TestRun_MaxRelevantADRs_DefaultsToThreeWhenUnsetOrNonPositive(t *testing.T)
 		t.Run(fmt.Sprintf("value=%d", maxRelevantADRs), func(t *testing.T) {
 			var mu sync.Mutex
 			chatCalls := 0
-			provider := &llm.MockProvider{
+			provider := &inference.MockProvider{
 				ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 					mu.Lock()
 					chatCalls++

@@ -13,7 +13,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -50,7 +50,7 @@ type scorerHarness struct {
 func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) *scorerHarness {
 	t.Helper()
 	h := &scorerHarness{}
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			h.mu.Lock()
 			defer h.mu.Unlock()
@@ -62,7 +62,7 @@ func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) 
 
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 		},
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			h.mu.Lock()
 			h.embeds++
 			h.mu.Unlock()
@@ -207,7 +207,7 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	}
 }
 
-func runRankWithOnError(t *testing.T, onError string, embed llm.Embedder) (*scorerHarness, string) {
+func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) (*scorerHarness, string) {
 	t.Helper()
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
 	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
@@ -226,9 +226,9 @@ func runRankWithOnError(t *testing.T, onError string, embed llm.Embedder) (*scor
 	return h, out.String()
 }
 
-func embedFailingOnBAD() llm.Embedder {
-	return &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+func embedFailingOnBAD() inference.Embedder {
+	return &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "BAD") {
 				return nil, errors.New("embedding service down")
 			}

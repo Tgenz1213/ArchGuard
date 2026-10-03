@@ -13,7 +13,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -51,7 +51,7 @@ func TestRun_CancelKillsInFlightGit(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 	t.Setenv(fakeGitStartedEnv, marker)
 
-	engine := analysis.NewEngine(&config.Config{}, index.NewLocalStore(5), &llm.MockProvider{}, &llm.MockProvider{}, &analysis.StagedProvider{})
+	engine := analysis.NewEngine(&config.Config{}, index.NewLocalStore(5), &inference.MockProvider{}, &inference.MockProvider{}, &analysis.StagedProvider{})
 	engine.Cache = nil
 	engine.Out = output.Discard()
 
@@ -97,7 +97,7 @@ func TestRun_CancelStopsSchedulingAndSkipsBaseline(t *testing.T) {
 
 	cfg := &config.Config{Analysis: config.Analysis{MaxConcurrency: 1}}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), &llm.MockProvider{}, &llm.MockProvider{}, content)
+	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), &inference.MockProvider{}, &inference.MockProvider{}, content)
 	engine.Cache = nil
 	engine.Out = output.Discard()
 	engine.UpdateBaseline = true

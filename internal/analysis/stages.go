@@ -4,7 +4,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -14,7 +14,7 @@ const (
 )
 
 // BuildStages returns nil when no pipeline is configured, leaving Engine on its default stages.
-func BuildStages(cfg *config.Config, store index.VectorStore, embed llm.Embedder, out *output.Printer) []stage.Stage {
+func BuildStages(cfg *config.Config, store index.VectorStore, embed inference.Embedder, out *output.Printer) []stage.Stage {
 	pipeline := cfg.Analysis.Pipeline
 	if pipeline == nil {
 		return nil
@@ -28,7 +28,7 @@ func BuildStages(cfg *config.Config, store index.VectorStore, embed llm.Embedder
 	return stages
 }
 
-func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed llm.Embedder) stage.Stage {
+func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed inference.Embedder) stage.Stage {
 	threshold := cfg.VectorStore.SimilarityThreshold
 	topK := cfg.Analysis.RelevantADRLimit()
 
@@ -50,7 +50,7 @@ func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorSto
 	return st
 }
 
-func rerankStage(sc *config.StageConfig, store index.VectorStore, embed llm.Embedder, out *output.Printer) stage.Stage {
+func rerankStage(sc *config.StageConfig, store index.VectorStore, embed inference.Embedder, out *output.Printer) stage.Stage {
 	threshold := rerankDefaultThreshold
 	if sc.Threshold != nil {
 		threshold = *sc.Threshold

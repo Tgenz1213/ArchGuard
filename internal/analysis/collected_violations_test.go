@@ -10,7 +10,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -61,7 +61,7 @@ func TestRun_AnnotatesNewViolations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &llm.MockProvider{
+			provider := &inference.MockProvider{
 				ChatFunc: func(context.Context, string, string) (string, error) {
 					return fmt.Sprintf(`{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": %q}`, tt.quotedCode), nil
 				},
