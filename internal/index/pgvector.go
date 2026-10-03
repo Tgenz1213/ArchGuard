@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 	"golang.org/x/sync/errgroup"
 )
@@ -289,7 +289,7 @@ func rulesEqual(a, b Rules) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder llm.Embedder, adrProvider Provider) (BuildIndexResult, error) {
+func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder inference.Embedder, adrProvider Provider) (BuildIndexResult, error) {
 	defer s.dropADRCache()
 
 	if err := s.ensureSchema(ctx, dim); err != nil {
@@ -375,7 +375,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
-				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
 				if embErr != nil {
 					markFailed(idx, fmt.Errorf("embed: %w", embErr))
 					return nil

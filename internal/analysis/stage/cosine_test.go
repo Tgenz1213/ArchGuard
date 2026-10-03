@@ -9,7 +9,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -23,9 +23,9 @@ func cosineADR(id string, emb ...float32) index.ADR {
 	return index.ADR{ID: id, Title: "ADR " + id, RelPath: id + ".md", Embedding: emb}
 }
 
-func queryEmbedder(vec ...float32) llm.Embedder {
-	return &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+func queryEmbedder(vec ...float32) inference.Embedder {
+	return &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return vec, nil
 		},
 	}
@@ -111,8 +111,8 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 
 func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.T) {
 	boom := errors.New("embed down")
-	embedder := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	embedder := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return nil, boom
 		},
 	}

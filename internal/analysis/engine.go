@@ -15,7 +15,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,8 +23,8 @@ import (
 type Engine struct {
 	Config              *config.Config
 	Store               index.VectorStore
-	Chat                llm.Chatter
-	Embed               llm.Embedder
+	Chat                inference.Chatter
+	Embed               inference.Embedder
 	Content             ContentProvider
 	Debug               bool
 	CI                  bool
@@ -87,7 +87,7 @@ func (e *DriftDetectedError) Is(target error) bool {
 	return target == ErrDriftDetected
 }
 
-func NewEngine(cfg *config.Config, store index.VectorStore, chat llm.Chatter, embed llm.Embedder, content ContentProvider) *Engine {
+func NewEngine(cfg *config.Config, store index.VectorStore, chat inference.Chatter, embed inference.Embedder, content ContentProvider) *Engine {
 	return &Engine{
 		Config:  cfg,
 		Store:   store,
@@ -230,7 +230,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				systemPrompt := e.Config.LLM.SystemPrompt
 				if systemPrompt == "" {
-					systemPrompt = llm.DefaultSystemPrompt
+					systemPrompt = inference.DefaultSystemPrompt
 				}
 
 				cacheKey := cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
@@ -238,12 +238,12 @@ func (e *Engine) Run(ctx context.Context) error {
 					ADRContent:         hit.ADR.Content,
 					FileContent:        content,
 					SystemPrompt:       systemPrompt,
-					UserPromptTemplate: llm.ChatPrompt,
+					UserPromptTemplate: inference.ChatPrompt,
 				})
 
-				driftInput := llm.DriftInput{ADRContent: hit.ADR.Content, CodeContext: content, Filename: file}
+				driftInput := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: content, Filename: file}
 
-				var res *llm.AnalysisResult
+				var res *inference.AnalysisResult
 
 				if e.Cache != nil {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
@@ -256,7 +256,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				if res == nil {
 					fileOut.Debug("Cache Miss. Calling LLM...")
 
-					res, err = llm.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
+					res, err = inference.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
 					if err != nil {
 						fileOut.Warn("LLM analysis failed: %v", err)
 						localSkippedADRChecks++
@@ -272,8 +272,8 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				if res.Violation {
 					// Verified against the escaped form of content -- what the LLM
-					// actually saw (llm.EscapePromptDelimiter), not the raw file.
-					escapedContent := llm.EscapePromptDelimiter(content)
+					// actually saw (inference.EscapePromptDelimiter), not the raw file.
+					escapedContent := inference.EscapePromptDelimiter(content)
 					lineNum := e.findLineNumber(escapedContent, res.QuotedCode)
 					verified := res.QuotedCode == "" || strings.Contains(escapedContent, res.QuotedCode)
 					switch {
@@ -329,8 +329,8 @@ func (e *Engine) Run(ctx context.Context) error {
 								Filename:                 file,
 								Reasoning:                res.Reasoning,
 								QuotedCode:               res.QuotedCode,
-								SuggestionSystemPrompt:   llm.SuggestionSystemPrompt,
-								SuggestionPromptTemplate: llm.SuggestionPrompt,
+								SuggestionSystemPrompt:   inference.SuggestionSystemPrompt,
+								SuggestionPromptTemplate: inference.SuggestionPrompt,
 							})
 							if e.Cache != nil {
 								if cached, found, err := e.Cache.GetSuggestion(suggestionKey); err == nil && found {
@@ -339,7 +339,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							}
 
 							if suggestion == "" {
-								s, sErr := llm.SuggestRemediation(ctx, e.Chat, driftInput, *res)
+								s, sErr := inference.SuggestRemediation(ctx, e.Chat, driftInput, *res)
 								switch {
 								case sErr != nil:
 									fileOut.Warn("suggestion generation failed: %v", sErr)

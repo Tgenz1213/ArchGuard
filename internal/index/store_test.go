@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -132,7 +132,7 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 		{RelPath: "0002-b.md", Title: "B", Status: "Accepted", Content: "content b"},
 		{RelPath: "0003-c.md", Title: "C", Status: "Accepted", Content: "content c"},
 	}
-	provider := &llm.MockProvider{EmbeddingDim: 4}
+	provider := &inference.MockProvider{EmbeddingDim: 4}
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
@@ -157,10 +157,10 @@ func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
 	}
-	var gotTask llm.EmbeddingTaskType
-	provider := &llm.MockProvider{
+	var gotTask inference.EmbeddingTaskType
+	provider := &inference.MockProvider{
 		EmbeddingDim: 4,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			gotTask = task
 			return []float32{0.1, 0.2, 0.3, 0.4}, nil
 		},
@@ -172,7 +172,7 @@ func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
-	if gotTask != llm.EmbeddingTaskDocument {
+	if gotTask != inference.EmbeddingTaskDocument {
 		t.Errorf("expected EmbeddingTaskDocument, got %v", gotTask)
 	}
 }
@@ -183,8 +183,8 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 		{RelPath: "0002-fails.md", Title: "B", Status: "Accepted", Content: "content b"},
 		{RelPath: "0003-c.md", Title: "C", Status: "Accepted", Content: "content c"},
 	}
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Title: B") {
 				return nil, fmt.Errorf("simulated embedding failure")
 			}
@@ -235,7 +235,7 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 // Attempted lets a caller tell "fetch never happened" apart from "fetch
 // happened and found nothing," which look identical from zero counts alone.
 func TestLocalStore_BuildIndex_AttemptedFalseWhenFetchFails(t *testing.T) {
-	provider := &llm.MockProvider{EmbeddingDim: 2}
+	provider := &inference.MockProvider{EmbeddingDim: 2}
 	adrProvider := &mockADRProvider{err: fmt.Errorf("boom")}
 
 	store := NewLocalStore(2)
@@ -252,7 +252,7 @@ func TestLocalStore_BuildIndex_AttemptedFalseWhenFetchFails(t *testing.T) {
 
 func TestLocalStore_BuildIndex_AttemptedTrueOnSuccess(t *testing.T) {
 	adrs := []ADR{{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"}}
-	provider := &llm.MockProvider{EmbeddingDim: 2}
+	provider := &inference.MockProvider{EmbeddingDim: 2}
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
@@ -272,7 +272,7 @@ func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T)
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
 	}
-	provider := &llm.MockProvider{EmbeddingDim: 2}
+	provider := &inference.MockProvider{EmbeddingDim: 2}
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
@@ -299,7 +299,7 @@ func TestLocalStore_BuildIndex_PreservesSimilarityThresholdOverride(t *testing.T
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a", SimilarityThreshold: &override},
 		{RelPath: "0002-b.md", Title: "B", Status: "Accepted", Content: "content b"},
 	}
-	provider := &llm.MockProvider{EmbeddingDim: 4}
+	provider := &inference.MockProvider{EmbeddingDim: 4}
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
@@ -326,9 +326,9 @@ func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
 	writeADRFile(t, dir, "0001-a.md", "---\ntitle: A\nstatus: Accepted\n---\nBody")
 
 	provider := NewLocalProvider(dir, []string{"Accepted"})
-	embedProvider := &llm.MockProvider{
+	embedProvider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{0.1, 0.2}, nil
 		},
 	}

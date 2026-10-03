@@ -6,7 +6,7 @@ scope:
   - "internal/cli/**"
   - "internal/analysis/**"
   - "internal/git/**"
-  - "internal/llm/**"
+  - "internal/inference/**"
   - "internal/index/**"
 ---
 

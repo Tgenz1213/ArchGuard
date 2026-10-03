@@ -17,7 +17,7 @@ The codebase is organized into several internal packages to maintain a strict se
 - **cmd/archguard**: This is the entry point. It manages CLI flags and environment variables like `ARCHGUARD_API_KEY`. Keep this layer thin.
 - **internal/analysis**: This is the core engine. It coordinates the analysis pipeline, manages the worker pool, and handles file truncation for LLM context windows.
 - **internal/index**: This package manages the vector store and ADR parsing. It is responsible for calculating hashes, executing Delta Indexing (to skip redundant API calls), managing concurrent provider fetching, and maintaining PostgreSQL upsert logic and HNSW index structures.
-- **internal/llm**: This contains the provider interfaces. If you want to add a new provider (like Anthropic), this is where you would implement the `Provider` interface.
+- **internal/inference**: This contains the provider interfaces. If you want to add a new provider (like Anthropic), this is where you would implement the `Provider` interface.
 
 ---
 

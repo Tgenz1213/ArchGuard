@@ -22,7 +22,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -48,8 +48,8 @@ const configFilename = "archguard.yaml"
 
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
-	Chat  func(*config.Config) llm.Provider
-	Embed func(*config.Config) llm.Embedder
+	Chat  func(*config.Config) inference.Provider
+	Embed func(*config.Config) inference.Embedder
 }
 
 func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
@@ -138,8 +138,8 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	}
 
 	var (
-		chatProvider  llm.Chatter
-		embedProvider llm.Embedder
+		chatProvider  inference.Chatter
+		embedProvider inference.Embedder
 	)
 
 	if factories.Chat != nil {
@@ -181,8 +181,8 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 type runSetup struct {
 	cfg                 *config.Config
-	chat                llm.Chatter
-	embed               llm.Embedder
+	chat                inference.Chatter
+	embed               inference.Embedder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp
 	frontmatterMappings map[string]string
@@ -278,7 +278,7 @@ func resolveEmbedProvider(cfg *config.Config, chatAPIKey, embedEnvKey string) (n
 }
 
 // Mock-injection counterpart of resolveEmbedProvider; errors rather than silently reusing chatProvider.
-func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Embedder, embedFactory func(*config.Config) llm.Embedder) (llm.Embedder, error) {
+func resolveEmbedProviderInstance(cfg *config.Config, chatProvider inference.Embedder, embedFactory func(*config.Config) inference.Embedder) (inference.Embedder, error) {
 	_, _, reuse := resolveEmbedProvider(cfg, "", "")
 	switch {
 	case reuse:
@@ -290,7 +290,7 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider llm.Embedder,
 	}
 }
 
-func buildProviders(warnings *output.Printer, cfg *config.Config, chatAPIKey, embedEnvKey string) (llm.Chatter, llm.Embedder, error) {
+func buildProviders(warnings *output.Printer, cfg *config.Config, chatAPIKey, embedEnvKey string) (inference.Chatter, inference.Embedder, error) {
 	embedName, embedAPIKey, reuse := resolveEmbedProvider(cfg, chatAPIKey, embedEnvKey)
 	if reuse {
 		provider, err := buildProvider(warnings, cfg.LLM.Provider, chatAPIKey, cfg)
@@ -314,28 +314,28 @@ func buildProviders(warnings *output.Printer, cfg *config.Config, chatAPIKey, em
 	return chat, embed, nil
 }
 
-func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Provider, error) {
+func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (inference.Provider, error) {
 	switch name {
 	case "openai":
 		if apiKey == "" {
 			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
-		return llm.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+		return inference.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "ollama":
-		return llm.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
+		return inference.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
 	case "gemini":
 		if apiKey == "" {
 			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
-		return llm.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+		return inference.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
 }
 
-func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Chatter, error) {
+func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (inference.Chatter, error) {
 	if name != "claude" {
 		return buildProvider(warnings, name, apiKey, cfg)
 	}
@@ -344,10 +344,10 @@ func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *confi
 		warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 	}
 
-	return llm.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
+	return inference.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
 }
 
-func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (llm.Embedder, error) {
+func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (inference.Embedder, error) {
 	if name != "voyage" {
 		return buildProvider(warnings, name, apiKey, cfg)
 	}
@@ -356,7 +356,7 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 		warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 	}
 
-	return llm.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
+	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
 func runInit() error {

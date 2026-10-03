@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 type Cache struct {
@@ -25,7 +25,7 @@ func NewCache(projectRoot string) (*Cache, error) {
 	return &Cache{Dir: cacheDir}, nil
 }
 
-func (c *Cache) Get(key string) (*llm.AnalysisResult, bool, error) {
+func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
 	path := filepath.Join(c.Dir, key+".json")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, false, nil
@@ -36,7 +36,7 @@ func (c *Cache) Get(key string) (*llm.AnalysisResult, bool, error) {
 		return nil, false, err
 	}
 
-	var res llm.AnalysisResult
+	var res inference.AnalysisResult
 	if err := json.Unmarshal(data, &res); err != nil {
 		return nil, false, err // Corrupt cache? Treat as miss.
 	}
@@ -44,7 +44,7 @@ func (c *Cache) Get(key string) (*llm.AnalysisResult, bool, error) {
 	return &res, true, nil
 }
 
-func (c *Cache) Put(key string, res *llm.AnalysisResult) error {
+func (c *Cache) Put(key string, res *inference.AnalysisResult) error {
 	path := filepath.Join(c.Dir, key+".json")
 
 	data, err := json.Marshal(res)

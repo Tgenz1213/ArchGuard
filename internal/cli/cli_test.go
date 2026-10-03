@@ -19,7 +19,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -377,17 +377,17 @@ func TestResolveEmbedProvider_DifferentProviderNeverFallsBackToChatKey(t *testin
 
 func TestResolveEmbedProviderInstance_ReusesChatProviderWhenNamesMatch(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Provider: "openai"}}
-	chat := &llm.MockProvider{}
+	chat := &inference.MockProvider{}
 
-	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Embedder {
+	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) inference.Embedder {
 		t.Error("the embed factory must not be called when the provider names match")
-		return &llm.MockProvider{}
+		return &inference.MockProvider{}
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got != llm.Embedder(chat) {
+	if got != inference.Embedder(chat) {
 		t.Error("expected the chat provider instance to be reused")
 	}
 }
@@ -397,15 +397,15 @@ func TestResolveEmbedProviderInstance_BuildsFromFactoryWhenNamesDiffer(t *testin
 		LLM:         config.LLMConfig{Provider: "claude"},
 		VectorStore: config.VectorStore{Provider: "openai"},
 	}
-	chat := &llm.MockProvider{}
-	embed := &llm.MockProvider{}
+	chat := &inference.MockProvider{}
+	embed := &inference.MockProvider{}
 
-	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) llm.Embedder { return embed })
+	got, err := resolveEmbedProviderInstance(cfg, chat, func(*config.Config) inference.Embedder { return embed })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got != llm.Embedder(embed) {
+	if got != inference.Embedder(embed) {
 		t.Error("expected the embed factory's provider to be used, not the chat provider")
 	}
 }
@@ -415,7 +415,7 @@ func TestResolveEmbedProviderInstance_ErrorsWhenEmbedFactoryRequiredButNil(t *te
 		LLM:         config.LLMConfig{Provider: "claude"},
 		VectorStore: config.VectorStore{Provider: "openai"},
 	}
-	chat := &llm.MockProvider{}
+	chat := &inference.MockProvider{}
 
 	if _, err := resolveEmbedProviderInstance(cfg, chat, nil); err == nil {
 		t.Fatal("expected an error when the roles need different providers but embedFactory is nil")
@@ -544,8 +544,8 @@ func TestBuildRoleProviders_ClaudeAndVoyage(t *testing.T) {
 		t.Fatalf("buildChatProvider(claude) failed: %v", err)
 	}
 
-	if _, ok := claude.(*llm.ClaudeProvider); !ok {
-		t.Errorf("expected *llm.ClaudeProvider, got %T", claude)
+	if _, ok := claude.(*inference.ClaudeProvider); !ok {
+		t.Errorf("expected *inference.ClaudeProvider, got %T", claude)
 	}
 
 	voyage, err := buildEmbedProvider(output.Discard(), "voyage", "test-key", cfg)
@@ -553,8 +553,8 @@ func TestBuildRoleProviders_ClaudeAndVoyage(t *testing.T) {
 		t.Fatalf("buildEmbedProvider(voyage) failed: %v", err)
 	}
 
-	if _, ok := voyage.(*llm.VoyageProvider); !ok {
-		t.Errorf("expected *llm.VoyageProvider, got %T", voyage)
+	if _, ok := voyage.(*inference.VoyageProvider); !ok {
+		t.Errorf("expected *inference.VoyageProvider, got %T", voyage)
 	}
 }
 
@@ -617,12 +617,12 @@ func TestBuildProviders_DifferentNamesBuildEachRole(t *testing.T) {
 		t.Fatalf("buildProviders failed: %v", err)
 	}
 
-	if _, ok := chat.(*llm.ClaudeProvider); !ok {
-		t.Errorf("expected chat to be *llm.ClaudeProvider, got %T", chat)
+	if _, ok := chat.(*inference.ClaudeProvider); !ok {
+		t.Errorf("expected chat to be *inference.ClaudeProvider, got %T", chat)
 	}
 
-	if _, ok := embed.(*llm.VoyageProvider); !ok {
-		t.Errorf("expected embed to be *llm.VoyageProvider, got %T", embed)
+	if _, ok := embed.(*inference.VoyageProvider); !ok {
+		t.Errorf("expected embed to be *inference.VoyageProvider, got %T", embed)
 	}
 
 	if n := strings.Count(buf.String(), "no API key set"); n != 1 {

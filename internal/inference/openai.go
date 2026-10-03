@@ -1,4 +1,4 @@
-package llm
+package inference
 
 import (
 	"context"
@@ -19,8 +19,6 @@ type OpenAIProvider struct {
 	embedModel string
 }
 
-// NewOpenAIProvider constructs an OpenAIProvider that talks to the real
-// OpenAI API.
 func NewOpenAIProvider(apiKey, model, embedModel string) *OpenAIProvider {
 	return NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, openAIBaseURL, &http.Client{})
 }

@@ -12,7 +12,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 	"golang.org/x/sync/errgroup"
 )
@@ -38,7 +38,7 @@ type VectorStore interface {
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
-	BuildIndex(ctx context.Context, modelName string, dim int, embedder llm.Embedder, adrProvider Provider) (BuildIndexResult, error)
+	BuildIndex(ctx context.Context, modelName string, dim int, embedder inference.Embedder, adrProvider Provider) (BuildIndexResult, error)
 	// Applies scope, then threshold, then the topK cut.
 	Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult
 	// Scope-matched candidates below threshold. Debug only: callers must gate it behind `if debug`.
@@ -148,7 +148,7 @@ func (s *LocalStore) Save(path string) error {
 	return atomicfile.Write(path, data)
 }
 
-func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder llm.Embedder, adrProvider Provider) (BuildIndexResult, error) {
+func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder inference.Embedder, adrProvider Provider) (BuildIndexResult, error) {
 	validADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
@@ -198,7 +198,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			g.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
-				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, llm.EmbeddingTaskDocument)
+				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
 				if embErr != nil {
 					markFailed(idx, embErr)
 					return nil

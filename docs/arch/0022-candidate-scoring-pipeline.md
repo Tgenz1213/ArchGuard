@@ -28,7 +28,7 @@ The pipeline's input is built in a fixed order by `candidateSource`:
 2. `archguard-ignore: <ADR_ID>` in the file's first 2000 bytes removes an ADR from that list, so a suppressed ADR never reaches a scorer, never occupies a top-K slot, and is never judged.
 3. Each stage runs in order over the survivors.
 
-Embedding is done by `CosineRanker` alone, through `llm.Embedder`, so a pipeline without it makes no embedding calls. `CosineRanker` asks the store for every qualifying ADR (topK unbounded) and scores a candidate the store omitted for missing its own threshold below any stage minimum; the stage applies the top-K cut. Under `--debug` it uses `SearchWithDebugInfo` so rejected ADRs keep their real scores (see `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
+Embedding is done by `CosineRanker` alone, through `inference.Embedder`, so a pipeline without it makes no embedding calls. `CosineRanker` asks the store for every qualifying ADR (topK unbounded) and scores a candidate the store omitted for missing its own threshold below any stage minimum; the stage applies the top-K cut. Under `--debug` it uses `SearchWithDebugInfo` so rejected ADRs keep their real scores (see `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
 
 ## Consequences
 

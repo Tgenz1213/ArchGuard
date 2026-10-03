@@ -3,7 +3,7 @@ package cache
 import (
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 )
 
 func TestComputeSuggestionKey_StableForSameInputs(t *testing.T) {
@@ -106,7 +106,7 @@ func TestCache_AnalysisRoundTrip(t *testing.T) {
 		t.Fatalf("expected cache miss before Put, found=%v err=%v", found, err)
 	}
 
-	want := &llm.AnalysisResult{Violation: true, Reasoning: "stub reasoning"}
+	want := &inference.AnalysisResult{Violation: true, Reasoning: "stub reasoning"}
 	if err := c.Put(key, want); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCache_SuggestionDoesNotCollideWithAnalysisEntry(t *testing.T) {
 	// Same key value used in both namespaces to prove they're stored separately.
 	key := "shared-key"
 
-	if err := c.Put(key, &llm.AnalysisResult{Violation: true, Reasoning: "stub reasoning"}); err != nil {
+	if err := c.Put(key, &inference.AnalysisResult{Violation: true, Reasoning: "stub reasoning"}); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
 

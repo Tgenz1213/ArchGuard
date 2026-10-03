@@ -23,7 +23,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/llm"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -94,10 +94,10 @@ func captureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-func mockEmbedProvider() *llm.MockProvider {
-	return &llm.MockProvider{
+func mockEmbedProvider() *inference.MockProvider {
+	return &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{0.1, 0.1}, nil
 		},
 	}
@@ -233,9 +233,9 @@ Far Content`
 	err = os.WriteFile(filepath.Join(tmpDir, "0002-far.md"), []byte(farADR), 0644)
 	require.NoError(t, err)
 
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Close Content") {
 				return []float32{1, 1}, nil
 			}
@@ -298,9 +298,9 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 
 	// All three embed identically to [1,0] so every one clears threshold;
 	// topK=2 must leave exactly one truncated.
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{1, 0}, nil
 		},
 	}
@@ -358,9 +358,9 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 
 	// First/Second/Third embed to [1,0] and clear 0.5; Far embeds to [0,1]. topK=2
 	// leaves 2 hits, 1 truncated, 1 rejected, all from one SearchWithDebugInfo query.
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Far Content") {
 				return []float32{0, 1}, nil
 			}
@@ -861,8 +861,8 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	writeADRFiles(t, tmpDir, 3)
 	// writeADRFiles names files adr_0.md, adr_1.md, adr_2.md with titles
 	// "ADR 0"/"ADR 1"/"ADR 2" -- make adr_1 the one that fails to embed.
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Title: ADR 1") {
 				return nil, fmt.Errorf("simulated embedding failure")
 			}
@@ -928,9 +928,9 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	editedContent := "---\ntitle: \"Re-embed ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\n" + newBody
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	failingProvider := &llm.MockProvider{
+	failingProvider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return nil, fmt.Errorf("simulated re-embed failure")
 		},
 	}
@@ -983,8 +983,8 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	writeADRFiles(t, tmpDir, 3)
 	// The column is vector(2); returning 3 floats for adr_1 makes the
 	// embed call succeed but the INSERT fail on a dimension mismatch.
-	provider := &llm.MockProvider{
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+	provider := &inference.MockProvider{
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Title: ADR 1") {
 				return []float32{0.1, 0.1, 0.1}, nil
 			}
@@ -1046,9 +1046,9 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0012-new-failing-a.md"), []byte(failingContentA), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0013-new-failing-b.md"), []byte(failingContentB), 0644))
 
-	failingProvider := &llm.MockProvider{
+	failingProvider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return nil, fmt.Errorf("simulated embedding failure")
 		},
 	}
@@ -1195,9 +1195,9 @@ func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projec
 	require.NoError(t, os.WriteFile(filepath.Join(adrDir, "0001-a.md"), []byte(adrA), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(adrDir, "0002-b.md"), []byte(adrB), 0644))
 
-	llmProvider := &llm.MockProvider{
+	mockProvider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{0.1, 0.1}, nil
 		},
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1206,7 +1206,7 @@ func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projec
 	}
 
 	adrProvider := index.NewLocalProvider(adrDir, []string{"Accepted"})
-	_, err = store.BuildIndex(ctx, "test-model", 2, llmProvider, adrProvider)
+	_, err = store.BuildIndex(ctx, "test-model", 2, mockProvider, adrProvider)
 	require.NoError(t, err)
 
 	content := &fakeContentProvider{files: map[string]string{"service.go": fileContent}}
@@ -1215,7 +1215,7 @@ func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projec
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
 
-	engine := analysis.NewEngine(cfg, store, llmProvider, llmProvider, content)
+	engine := analysis.NewEngine(cfg, store, mockProvider, mockProvider, content)
 	engine.Cache = nil
 	return engine, store
 }
@@ -1291,9 +1291,9 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 
 	// "Scope Match" embeds a less-aligned vector (~0.707 similarity) than
 	// the distractors (1.0), but it's the only one scoped to "service.go".
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Scope Match") {
 				return []float32{1, 1}, nil
 			}
@@ -1339,9 +1339,9 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 
 	// "Scope Match" is orthogonal to the query (0.0 similarity, below the 0.5
 	// threshold), but it's the only ADR scoped to "service.go" -- a SQL-level threshold predicate would've dropped it before scope filtering ever ran.
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			if strings.Contains(text, "Scope Match") {
 				return []float32{0, 1}, nil
 			}
@@ -1421,9 +1421,9 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644))
 	}
 
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{1, 0}, nil
 		},
 	}
@@ -1462,9 +1462,9 @@ func TestPgStore_Integration_ScopedADRsAreCachedUntilBuildIndex(t *testing.T) {
 	writeADR("0001-first.md", "First ADR")
 	writeADR("0002-second.md", "Second ADR")
 
-	provider := &llm.MockProvider{
+	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
-		EmbedFunc: func(ctx context.Context, text string, task llm.EmbeddingTaskType) ([]float32, error) {
+		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 			return []float32{1, 0}, nil
 		},
 	}
