@@ -47,7 +47,6 @@ var (
 	sharedBinaryErr  error
 )
 
-// TestMain builds the archguard-e2e binary once, shared by every test.
 func TestMain(m *testing.M) {
 	code := m.Run()
 
@@ -97,8 +96,6 @@ func buildSharedE2EBinary(t *testing.T) string {
 	return sharedBinaryPath
 }
 
-// buildE2EBinary creates an isolated git repo temp dir (archguard requires
-// one) and returns it plus the shared archguard-e2e binary's path.
 func buildE2EBinary(t *testing.T) (tempDir, binaryPath string) {
 	t.Helper()
 
@@ -388,18 +385,24 @@ type checkReport struct {
 	} `json:"stages"`
 }
 
-// Captures stdout and stderr separately, since --format json promises a clean stdout.
 func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
-	args := []string{"check", "--format", "json"}
+	args := []string{"--format", "json"}
 	if target != "" {
 		args = append(args, target)
 	}
 
-	cmd := exec.CommandContext(t.Context(), binaryPath, args...)
+	return runCheckWithEnv(t, dir, binaryPath, nil, args...)
+}
+
+// Captures stdout and stderr separately, since --format json promises a clean stdout.
+func runCheckWithEnv(t *testing.T, dir, binaryPath string, env []string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), binaryPath, append([]string{"check"}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
+	cmd.Env = append(os.Environ(), append([]string{"ARCHGUARD_API_KEY=mock_key"}, env...)...)
 
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf

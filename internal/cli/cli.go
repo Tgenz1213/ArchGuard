@@ -698,6 +698,12 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitSuccess, nil
 	}
 
+	if !jsonOutput && output.InGitHubActions() {
+		for _, v := range engine.CollectedViolations {
+			out.Annotation(v.Annotation())
+		}
+	}
+
 	var analysisErr error
 	if runErr != nil {
 		analysisErr = fmt.Errorf("analysis failed: %v", runErr)

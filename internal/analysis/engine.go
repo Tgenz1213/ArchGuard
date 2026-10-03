@@ -53,6 +53,17 @@ type Violation struct {
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
 	Suggestion string `json:"suggestion,omitempty"`
+	// Line counts lines of the diff the LLM saw, not of the file.
+	lineInDiff bool
+}
+
+func (v Violation) Annotation() output.Annotation {
+	a := output.Annotation{File: v.File, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning}
+	if !v.lineInDiff {
+		a.Line = v.Line
+	}
+
+	return a
 }
 
 type StageFailure struct {
@@ -356,18 +367,16 @@ func (e *Engine) Run(ctx context.Context) error {
 							Suggestion: suggestion,
 						})
 						localViolations++
-
-						if e.JSONOutput {
-							localViolationRecords = append(localViolationRecords, Violation{
-								File:       file,
-								ADRID:      hit.ADR.ID,
-								ADRTitle:   hit.ADR.Title,
-								Line:       lineNum,
-								Reasoning:  res.Reasoning,
-								QuotedCode: res.QuotedCode,
-								Suggestion: suggestion,
-							})
-						}
+						localViolationRecords = append(localViolationRecords, Violation{
+							File:       file,
+							ADRID:      hit.ADR.ID,
+							ADRTitle:   hit.ADR.Title,
+							Line:       lineNum,
+							Reasoning:  res.Reasoning,
+							QuotedCode: res.QuotedCode,
+							Suggestion: suggestion,
+							lineInDiff: diffMode == "diff",
+						})
 					}
 				}
 			}
@@ -407,12 +416,9 @@ func (e *Engine) Run(ctx context.Context) error {
 	})
 
 	e.StageFailures = stageFailures
-	if e.JSONOutput {
-		if collectedViolations == nil {
-			collectedViolations = []Violation{}
-		}
+	e.CollectedViolations = collectedViolations
 
-		e.CollectedViolations = collectedViolations
+	if e.JSONOutput {
 		e.CollectedStages = telemetry.Stats()
 	}
 

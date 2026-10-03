@@ -21,7 +21,7 @@ scope: "internal/**"
 - Exit codes are unaffected: `--format` only changes what's printed, never what's returned.
 - `--update-baseline` ignores `--format` entirely (a printed note explains this) -- its output is a maintenance summary about the baseline file, not the violation report `--format json` targets, and baselining suppresses the very violations this flag would otherwise report.
 
-Implementation-wise, `Engine` prints all per-file and summary output through its `Out *output.Printer` (a nil `Out` writes to stderr), and a `JSONOutput bool` makes it also append each new (non-baselined) violation to `CollectedViolations []Violation`, an exported struct mirroring the JSON shape. `cli.runCheck` builds `Out` over stderr when `--format json` is set, then marshals `CollectedViolations` to stdout after `Engine.Run` returns, whether or not it returned `DriftDetectedError`.
+Implementation-wise, `Engine` prints all per-file and summary output through its `Out *output.Printer` (a nil `Out` writes to stderr), and appends each new (non-baselined) violation to `CollectedViolations []Violation`, an exported struct mirroring the JSON shape; a `JSONOutput bool` makes it also collect the per-stage totals for the `stages` array. `cli.runCheck` builds `Out` over stderr when `--format json` is set, then marshals `CollectedViolations` to stdout after `Engine.Run` returns, whether or not it returned `DriftDetectedError`.
 
 The startup banner is printed by `cli.Execute` right after the command line is parsed, and skipped when `checkCmd.jsonOutput()` reports `--format json` without `--update-baseline` (see `docs/arch/0025-kong-command-line.md`).
 
