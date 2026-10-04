@@ -255,3 +255,49 @@ func TestE2E_UpdateBaselineEndsWithReport(t *testing.T) {
 		}
 	})
 }
+
+func TestE2E_CheckOutputRefusesTheBaselineFile(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, reportE2EConfig)
+	writeNoSecretsADR(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	if _, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--update-baseline"); exitCode != int(cli.ExitSuccess) {
+		t.Fatalf("creating the baseline failed with exit %d: %s", exitCode, stderr)
+	}
+
+	baselinePath := filepath.Join(tempDir, baseline.Path)
+	original := readReportFile(t, baselinePath)
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"check", []string{"--output", baseline.Path, fixtureFilename}},
+		{"check with an absolute path", []string{"--output", baselinePath, fixtureFilename}},
+		{"update baseline", []string{"--update-baseline", "--output", baseline.Path}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, tt.args...)
+			if exitCode != int(cli.ExitError) {
+				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitError, stderr)
+			}
+
+			if strings.Contains(stderr, fixtureFilename) {
+				t.Errorf("the analysis ran before the destination was rejected:\n%s", stderr)
+			}
+
+			if got := readReportFile(t, baselinePath); got != original {
+				t.Errorf("the baseline file was changed:\n%s", got)
+			}
+		})
+	}
+}
