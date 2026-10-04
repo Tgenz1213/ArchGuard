@@ -1,6 +1,6 @@
 package output
 
-type SkippedFile struct {
+type FileGap struct {
 	File   string
 	Reason string
 }

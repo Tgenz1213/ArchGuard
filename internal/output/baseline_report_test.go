@@ -25,8 +25,8 @@ func TestBaselineReportLayout(t *testing.T) {
 		},
 		Unrecorded: []output.UnrecordedViolation{{File: "c.go", ADRID: "0004", Title: "Quote it", Reason: "quote not in file"}},
 		Gaps: output.Gaps{
-			SkippedFiles: []output.SkippedFile{{File: "d.go", Reason: "reading file: boom"}},
-			PartialFiles: []output.SkippedFile{{File: "e.go", Reason: "too large"}},
+			SkippedFiles: []output.FileGap{{File: "d.go", Reason: "reading file: boom"}},
+			PartialFiles: []output.FileGap{{File: "e.go", Reason: "too large"}},
 			FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0005", Title: "Flaky", Reason: "LLM down"}},
 		},
 	})

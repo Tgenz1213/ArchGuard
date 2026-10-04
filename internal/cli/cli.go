@@ -71,16 +71,17 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	colors, restoreConsole := decideColors(inv.color())
 	defer restoreConsole()
 
-	// check's stdout carries only its result (docs/arch/0014).
+	// check's stdout carries only its result (docs/arch/0028).
 	isCheck := inv.command == "check"
 	jsonOutput := isCheck && inv.check.jsonOutput()
 
+	const banner = "ArchGuard - Architectural Drift Detector"
+
 	switch {
-	case jsonOutput:
-	case isCheck:
-		fmt.Fprintln(os.Stderr, "ArchGuard - Architectural Drift Detector")
-	default:
-		fmt.Println("ArchGuard - Architectural Drift Detector")
+	case isCheck && !jsonOutput:
+		fmt.Fprintln(os.Stderr, banner)
+	case !isCheck:
+		fmt.Println(banner)
 	}
 
 	repoRoot, err := git.GetRepoRoot(ctx)
@@ -560,10 +561,11 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	jsonOutput := opts.jsonOutput()
 	logPrinter := colors.stderrPrinter(opts.Debug)
 
-	var reportBuffer bytes.Buffer
-
-	reportPrinter := colors.stdoutPrinter(false)
-	jsonDest := io.Writer(os.Stdout)
+	var (
+		reportBuffer  bytes.Buffer
+		reportPrinter *output.Printer
+		jsonDest      io.Writer
+	)
 
 	if opts.Output != "" {
 		if err := checkReportDestination(opts.Output); err != nil {
@@ -572,6 +574,9 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 		reportPrinter = output.New(&reportBuffer, false)
 		jsonDest = &reportBuffer
+	} else {
+		reportPrinter = colors.stdoutPrinter(false)
+		jsonDest = os.Stdout
 	}
 
 	saveReportFile := func() error {

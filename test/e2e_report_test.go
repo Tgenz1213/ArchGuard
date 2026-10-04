@@ -165,6 +165,10 @@ func TestE2E_CheckOutputFlag(t *testing.T) {
 		if _, err := os.Stat(filepath.Dir(reportPath)); err == nil {
 			t.Error("the missing directory was created")
 		}
+
+		if strings.Contains(stderr, fixtureFilename) {
+			t.Errorf("the analysis ran before the destination was rejected:\n%s", stderr)
+		}
 	})
 
 	t.Run("a directory as the target exits 1 and leaves nothing behind", func(t *testing.T) {
@@ -181,6 +185,10 @@ func TestE2E_CheckOutputFlag(t *testing.T) {
 
 		if entries, err := os.ReadDir(filepath.Dir(reportDir)); err != nil || len(entries) != 1 {
 			t.Errorf("expected only the target directory next to it, got %v (err %v)", entries, err)
+		}
+
+		if strings.Contains(stderr, fixtureFilename) {
+			t.Errorf("the analysis ran before the destination was rejected:\n%s", stderr)
 		}
 	})
 }

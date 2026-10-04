@@ -13,17 +13,17 @@ type FailedStage struct {
 
 // Gaps is everything a run could not check in full.
 type Gaps struct {
-	SkippedFiles []SkippedFile
+	SkippedFiles []FileGap
 	FailedChecks []FailedCheck
 	FailedStages []FailedStage
-	PartialFiles []SkippedFile
+	PartialFiles []FileGap
 }
 
 func (gaps Gaps) sortedGaps() Gaps {
-	gaps.SkippedFiles = append([]SkippedFile(nil), gaps.SkippedFiles...)
+	gaps.SkippedFiles = append([]FileGap(nil), gaps.SkippedFiles...)
 	gaps.FailedChecks = append([]FailedCheck(nil), gaps.FailedChecks...)
 	gaps.FailedStages = append([]FailedStage(nil), gaps.FailedStages...)
-	gaps.PartialFiles = append([]SkippedFile(nil), gaps.PartialFiles...)
+	gaps.PartialFiles = append([]FileGap(nil), gaps.PartialFiles...)
 
 	sort.SliceStable(gaps.SkippedFiles, func(i, j int) bool { return gaps.SkippedFiles[i].File < gaps.SkippedFiles[j].File })
 	sort.SliceStable(gaps.PartialFiles, func(i, j int) bool { return gaps.PartialFiles[i].File < gaps.PartialFiles[j].File })

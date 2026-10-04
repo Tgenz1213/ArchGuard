@@ -1169,9 +1169,14 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected SkippedFiles to be 2, got %+v", engine.SkippedFiles)
 	}
 
-	for i, want := range []string{"badembed.go", "badread.go"} {
-		if got := engine.SkippedFiles[i]; got.File != want || got.Reason == "" {
-			t.Errorf("SkippedFiles[%d] = %+v, want file %s with a reason", i, got, want)
+	reasons := map[string]string{}
+	for _, skipped := range engine.SkippedFiles {
+		reasons[skipped.File] = skipped.Reason
+	}
+
+	for _, want := range []string{"badembed.go", "badread.go"} {
+		if reasons[want] == "" {
+			t.Errorf("SkippedFiles has no entry with a reason for %s: %+v", want, engine.SkippedFiles)
 		}
 	}
 

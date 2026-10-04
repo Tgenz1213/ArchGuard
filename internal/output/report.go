@@ -93,14 +93,15 @@ func (p *Printer) Report(report Report) {
 }
 
 func (p *Printer) reportViolations(violations []Violation, files []string) {
+	byFile := map[string][]Violation{}
+	for _, violation := range violations {
+		byFile[violation.File] = append(byFile[violation.File], violation)
+	}
+
 	for _, file := range files {
 		fileGroup := p.Group(file)
 
-		for _, violation := range violations {
-			if violation.File != file {
-				continue
-			}
-
+		for _, violation := range byFile[file] {
 			header := fmt.Sprintf("[VIOLATION] %s %s [Line %d]", violation.ADRID, violation.Title, violation.Line)
 			if !violation.Verified {
 				header = fmt.Sprintf("[VIOLATION] %s %s [UNVERIFIED: quoted code not found in analyzed content]", violation.ADRID, violation.Title)

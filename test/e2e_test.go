@@ -886,7 +886,7 @@ analysis:
 
 // An LLM-call failure (not a file or embedding failure) must suppress the
 // unqualified "No new architectural violations found." message.
-func TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage(t *testing.T) {
+func TestE2E_CheckReportsFailedADRChecksInsteadOfCleanMessage(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
 	configContent := `

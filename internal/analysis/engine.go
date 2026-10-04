@@ -33,12 +33,12 @@ type Engine struct {
 	UpdateBaseline       bool
 	BaselineReason       string
 	CollectedBaseline    *baseline.Baseline
-	SkippedFiles         []output.SkippedFile
+	SkippedFiles         []output.FileGap
 	FailedChecks         []output.FailedCheck
 	Baselined            int
 	RecordedEntries      []output.RecordedEntry
 	UnrecordedViolations []output.UnrecordedViolation
-	PartialFiles         []output.SkippedFile
+	PartialFiles         []output.FileGap
 	JSONOutput           bool
 	Out                  *output.Printer
 	CollectedViolations  []Violation
@@ -132,11 +132,11 @@ func (e *Engine) Run(ctx context.Context) error {
 	var (
 		violations           int
 		baselinedCount       int
-		skippedFiles         []output.SkippedFile
+		skippedFiles         []output.FileGap
 		failedChecks         []output.FailedCheck
 		recordedEntries      []output.RecordedEntry
 		unrecordedViolations []output.UnrecordedViolation
-		partialFiles         []output.SkippedFile
+		partialFiles         []output.FileGap
 		collectedEntries     []baseline.Entry
 		collectedViolations  []Violation
 		stageFailures        []StageFailure
@@ -176,7 +176,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				reason := fmt.Sprintf("reading file: %v", err)
 				fileOut.Error("%s", reason)
 				mu.Lock()
-				skippedFiles = append(skippedFiles, output.SkippedFile{File: file, Reason: reason})
+				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
 				mu.Unlock()
 				return nil
 			}
@@ -186,7 +186,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
 				fileOut.Warn("truncated for analysis; in CI mode this is a warning, not a failure")
 				mu.Lock()
-				skippedFiles = append(skippedFiles, output.SkippedFile{File: file, Reason: "too large to analyze in full; CI mode skips it instead of failing"})
+				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: "too large to analyze in full; CI mode skips it instead of failing"})
 				mu.Unlock()
 
 				return nil
@@ -195,7 +195,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if diffMode == "truncated" {
 				fileOut.Warn("truncated for analysis; only the visible portion is checked")
 				mu.Lock()
-				partialFiles = append(partialFiles, output.SkippedFile{File: file, Reason: "too large to analyze in full; only the visible portion was checked"})
+				partialFiles = append(partialFiles, output.FileGap{File: file, Reason: "too large to analyze in full; only the visible portion was checked"})
 				mu.Unlock()
 			}
 
@@ -204,7 +204,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				reason := fmt.Sprintf("loading candidate ADRs: %v", err)
 				fileOut.Error("%s", reason)
 				mu.Lock()
-				skippedFiles = append(skippedFiles, output.SkippedFile{File: file, Reason: reason})
+				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
 				mu.Unlock()
 				return nil
 			}
@@ -221,7 +221,7 @@ func (e *Engine) Run(ctx context.Context) error {
 					} else {
 						reason := scoringErrorMessage(err)
 						fileOut.Error("%s", reason)
-						skippedFiles = append(skippedFiles, output.SkippedFile{File: file, Reason: reason})
+						skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
 					}
 
 					mu.Unlock()
@@ -408,15 +408,6 @@ func (e *Engine) Run(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
-	sort.Slice(skippedFiles, func(i, j int) bool { return skippedFiles[i].File < skippedFiles[j].File })
-	sort.Slice(failedChecks, func(i, j int) bool {
-		if failedChecks[i].File != failedChecks[j].File {
-			return failedChecks[i].File < failedChecks[j].File
-		}
-
-		return failedChecks[i].ADRID < failedChecks[j].ADRID
-	})
 
 	e.SkippedFiles = skippedFiles
 	e.FailedChecks = failedChecks

@@ -24,7 +24,7 @@ func TestReportLayout(t *testing.T) {
 			{File: "a.go", Line: 3, Verified: true, ADRID: "0001", Title: "Use Go", Reasoning: "not Go", Code: "import py", Suggestion: "rewrite it"},
 			{File: "a.go", Verified: false, ADRID: "0003", Title: "Quote it", Reasoning: "vague"},
 		},
-		SkippedFiles: []output.SkippedFile{{File: "c.go", Reason: "reading file: boom"}},
+		SkippedFiles: []output.FileGap{{File: "c.go", Reason: "reading file: boom"}},
 		FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
 		FailedStages: []output.FailedStage{{Stage: "rerank", File: "d.go", Reason: "unavailable"}},
 		Baselined:    2,
@@ -79,7 +79,7 @@ func TestReportWithNothingToReportIsOneLine(t *testing.T) {
 }
 
 func TestReportCoverageGapsAloneAreNotReportedAsClean(t *testing.T) {
-	got := renderReport(output.Report{SkippedFiles: []output.SkippedFile{{File: "x.go", Reason: "r"}}})
+	got := renderReport(output.Report{SkippedFiles: []output.FileGap{{File: "x.go", Reason: "r"}}})
 
 	if strings.Contains(got, "No new architectural violations found") {
 		t.Errorf("a run with a skipped file reported as clean:\n%s", got)
@@ -92,7 +92,7 @@ func TestReportCoverageGapsAloneAreNotReportedAsClean(t *testing.T) {
 
 func TestReportSummaryCountsSkippedFilesAndFailedChecksSeparately(t *testing.T) {
 	got := renderReport(output.Report{
-		SkippedFiles: []output.SkippedFile{{File: "x.go", Reason: "r"}},
+		SkippedFiles: []output.FileGap{{File: "x.go", Reason: "r"}},
 		FailedChecks: []output.FailedCheck{{File: "x.go", ADRID: "1", Title: "t", Reason: "r"}, {File: "y.go", ADRID: "2", Title: "t", Reason: "r"}},
 	})
 
@@ -125,7 +125,7 @@ func TestReportOrderDoesNotDependOnInputOrder(t *testing.T) {
 		{File: "a.go", Line: 2, Verified: true, ADRID: "1", Title: "t"},
 		{File: "b.go", Line: 1, Verified: true, ADRID: "1", Title: "t"},
 	}
-	skipped := []output.SkippedFile{{File: "z.go", Reason: "r"}, {File: "c.go", Reason: "r"}}
+	skipped := []output.FileGap{{File: "z.go", Reason: "r"}, {File: "c.go", Reason: "r"}}
 	failed := []output.FailedCheck{{File: "c.go", ADRID: "9", Title: "t", Reason: "r"}, {File: "c.go", ADRID: "3", Title: "t", Reason: "r"}}
 
 	want := renderReport(output.Report{Violations: violations, SkippedFiles: skipped, FailedChecks: failed})
