@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,4 +75,122 @@ func TestE2E_CheckEndsWithReportOnStdout(t *testing.T) {
 			t.Errorf("a run with nothing to report should print one line, got:\n%s", stdout)
 		}
 	})
+}
+
+func TestE2E_CheckOutputFlag(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, reportE2EConfig)
+	writeNoSecretsADR(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	t.Run("text report goes to the file without color, stdout stays empty", func(t *testing.T) {
+		reportPath := filepath.Join(t.TempDir(), "report.txt")
+
+		stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--color", "always", "--output", reportPath, fixtureFilename)
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitDriftDetected, stderr)
+		}
+
+		if stdout != "" {
+			t.Errorf("stdout should be empty with --output, got: %q", stdout)
+		}
+
+		report := readReportFile(t, reportPath)
+		if !strings.Contains(report, fixtureFilename) {
+			t.Errorf("report file does not name the violating file:\n%s", report)
+		}
+
+		if strings.Contains(report, "\x1b[") {
+			t.Errorf("report file contains color escapes:\n%q", report)
+		}
+
+		if !strings.Contains(stderr, reportPath) {
+			t.Errorf("the log does not say where the report was written:\n%s", stderr)
+		}
+	})
+
+	t.Run("json report goes to the file, stdout stays empty", func(t *testing.T) {
+		reportPath := filepath.Join(t.TempDir(), "report.json")
+
+		stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--format", "json", "--output", reportPath, fixtureFilename)
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitDriftDetected, stderr)
+		}
+
+		if stdout != "" {
+			t.Errorf("stdout should be empty with --output, got: %q", stdout)
+		}
+
+		var report checkReport
+		if err := json.Unmarshal([]byte(readReportFile(t, reportPath)), &report); err != nil || report.Count != 1 {
+			t.Errorf("report file is not the expected JSON document (count 1): %v\n%s", err, readReportFile(t, reportPath))
+		}
+	})
+
+	t.Run("a relative path resolves against where the command was run", func(t *testing.T) {
+		subdir := filepath.Join(tempDir, "sub")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatalf("Failed to create subdirectory: %v", err)
+		}
+
+		_, stderr, exitCode := runCheckWithEnv(t, subdir, binaryPath, nil, "--output", "relative-report.txt", filepath.Join("..", fixtureFilename))
+		if exitCode != int(cli.ExitDriftDetected) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitDriftDetected, stderr)
+		}
+
+		if _, err := os.Stat(filepath.Join(subdir, "relative-report.txt")); err != nil {
+			t.Errorf("report was not written next to where the command ran: %v", err)
+		}
+	})
+
+	t.Run("a missing directory exits 1 naming the path", func(t *testing.T) {
+		reportPath := filepath.Join(t.TempDir(), "missing", "report.txt")
+
+		_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--output", reportPath, fixtureFilename)
+		if exitCode != int(cli.ExitError) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitError, stderr)
+		}
+
+		if !strings.Contains(stderr, reportPath) {
+			t.Errorf("the error does not name the path:\n%s", stderr)
+		}
+
+		if _, err := os.Stat(filepath.Dir(reportPath)); err == nil {
+			t.Error("the missing directory was created")
+		}
+	})
+
+	t.Run("a directory as the target exits 1 and leaves nothing behind", func(t *testing.T) {
+		reportDir := t.TempDir()
+
+		_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--output", reportDir, fixtureFilename)
+		if exitCode != int(cli.ExitError) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitError, stderr)
+		}
+
+		if !strings.Contains(stderr, reportDir) {
+			t.Errorf("the error does not name the path:\n%s", stderr)
+		}
+
+		if entries, err := os.ReadDir(filepath.Dir(reportDir)); err != nil || len(entries) != 1 {
+			t.Errorf("expected only the target directory next to it, got %v (err %v)", entries, err)
+		}
+	})
+}
+
+func readReportFile(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", path, err)
+	}
+
+	return string(data)
 }

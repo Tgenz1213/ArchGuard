@@ -40,6 +40,7 @@ type checkCmd struct {
 	BaselineReason string   `placeholder:"TEXT" help:"Reason recorded on every entry --update-baseline writes (e.g. \"accepted-debt\"), overwriting reasons carried forward from the previous baseline. When omitted, a re-run keeps each matching (ADR ID, file) entry's existing reason."`
 	Format         string   `enum:"text,json" default:"text" help:"Output format: text or json."`
 	SuggestFixes   bool     `help:"Add a short, unverified LLM-suggested fix to each new violation (one extra LLM call per violation)."`
+	Output         string   `placeholder:"PATH" help:"Write the report (text or JSON, per --format) to PATH instead of stdout. The report is written without color."`
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
 
 	colorOption `embed:""`
@@ -135,6 +136,15 @@ func (r *writeRecorder) Write(p []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+// Run before the chdir to the repo root, which would otherwise change what a relative path means.
+func (c *checkCmd) resolvePaths(cwd, repoRoot string) {
+	normalizePaths(c.Paths, cwd, repoRoot)
+
+	if c.Output != "" && !filepath.IsAbs(c.Output) {
+		c.Output = filepath.Join(cwd, c.Output)
+	}
 }
 
 // Relative to the repo root with forward slashes, matching git's paths and baseline entries.

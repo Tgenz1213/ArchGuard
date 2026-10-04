@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -95,7 +96,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	repoRoot = filepath.Clean(repoRoot)
 	cwd = filepath.Clean(cwd)
 
-	normalizePaths(inv.check.Paths, cwd, repoRoot)
+	inv.check.resolvePaths(cwd, repoRoot)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
@@ -558,7 +559,34 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	jsonOutput := opts.jsonOutput()
 	logPrinter := colors.stderrPrinter(opts.Debug)
+
+	var reportBuffer bytes.Buffer
+
 	reportPrinter := colors.stdoutPrinter(false)
+	jsonDest := io.Writer(os.Stdout)
+
+	if opts.Output != "" {
+		if err := checkReportDestination(opts.Output); err != nil {
+			return ExitError, err
+		}
+
+		reportPrinter = output.New(&reportBuffer, false)
+		jsonDest = &reportBuffer
+	}
+
+	saveReportFile := func() error {
+		if opts.Output == "" {
+			return nil
+		}
+
+		if err := saveReport(opts.Output, reportBuffer.Bytes()); err != nil {
+			return err
+		}
+
+		logPrinter.Info("Report written to %s", opts.Output)
+
+		return nil
+	}
 
 	defer func() {
 		if werr := reportPrinter.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
@@ -698,6 +726,11 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 		reportPrinter.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), len(engine.SkippedFiles), len(engine.FailedChecks))
 		reportPrinter.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
+
+		if err := saveReportFile(); err != nil {
+			return ExitError, err
+		}
+
 		return ExitSuccess, nil
 	}
 
@@ -713,7 +746,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	}
 
 	if jsonOutput {
-		if err := writeCheckReport(os.Stdout, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
+		if err := writeCheckReport(jsonDest, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
 			return ExitError, errors.Join(fmt.Errorf("failed to write json report: %w", err), stageFailureErr, analysisErr)
 		}
 	}
@@ -727,6 +760,12 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	analysisFailed := runErr != nil && !errors.As(runErr, &driftErr)
 	if !jsonOutput && !analysisFailed {
 		reportPrinter.Report(engine.Report())
+	}
+
+	if jsonOutput || !analysisFailed {
+		if err := saveReportFile(); err != nil {
+			return ExitError, errors.Join(err, stageFailureErr, analysisErr)
+		}
 	}
 
 	if stageFailureErr != nil {
