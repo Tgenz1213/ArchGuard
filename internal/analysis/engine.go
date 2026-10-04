@@ -56,6 +56,7 @@ type Violation struct {
 	Suggestion string `json:"suggestion,omitempty"`
 	// Line counts lines of the diff the LLM saw, not of the file.
 	lineInDiff bool
+	unverified bool
 }
 
 func (v Violation) Annotation() output.Annotation {
@@ -178,6 +179,10 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
 				fileOut.Warn("truncated for analysis; in CI mode this is a warning, not a failure")
+				mu.Lock()
+				skippedFiles = append(skippedFiles, output.SkippedFile{File: file, Reason: "too large to analyze in full; CI mode skips it instead of failing"})
+				mu.Unlock()
+
 				return nil
 			}
 
@@ -310,17 +315,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							fileOut.Warn("quoted code not found verbatim in file; skipping baseline entry")
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						fileOut.Violation(output.Violation{
-							File:           file,
-							Line:           lineNum,
-							Verified:       verified,
-							Baselined:      true,
-							ADRID:          hit.ADR.ID,
-							Title:          hit.ADR.Title,
-							Reasoning:      res.Reasoning,
-							Code:           res.QuotedCode,
-							BaselineReason: e.Baseline.ReasonFor(hit.ADR.ID, file),
-						})
+						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, true))
 						localBaselined++
 					default:
 						var suggestion string
@@ -360,18 +355,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							}
 						}
 
-						fileOut.Violation(output.Violation{
-							File:       file,
-							Line:       lineNum,
-							Verified:   verified,
-							ADRID:      hit.ADR.ID,
-							Title:      hit.ADR.Title,
-							Reasoning:  res.Reasoning,
-							Code:       res.QuotedCode,
-							Suggestion: suggestion,
-						})
-						localViolations++
-						localViolationRecords = append(localViolationRecords, Violation{
+						record := Violation{
 							File:       file,
 							ADRID:      hit.ADR.ID,
 							ADRTitle:   hit.ADR.Title,
@@ -380,7 +364,11 @@ func (e *Engine) Run(ctx context.Context) error {
 							QuotedCode: res.QuotedCode,
 							Suggestion: suggestion,
 							lineInDiff: diffMode == "diff",
-						})
+							unverified: !verified,
+						}
+						fileOut.Info("%s", violationLine(record, false))
+						localViolations++
+						localViolationRecords = append(localViolationRecords, record)
 					}
 				}
 			}
@@ -444,10 +432,6 @@ func (e *Engine) Run(ctx context.Context) error {
 
 		e.CollectedBaseline = b
 		return nil
-	}
-
-	if (e.Baseline != nil && (violations > 0 || baselinedCount > 0)) || len(skippedFiles) > 0 || len(failedChecks) > 0 {
-		out.Result("%d new violation(s), %d baselined, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", violations, baselinedCount, len(skippedFiles), len(failedChecks))
 	}
 
 	if violations > 0 {

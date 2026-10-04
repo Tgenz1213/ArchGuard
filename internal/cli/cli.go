@@ -70,9 +70,15 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	colors, restoreConsole := decideColors(inv.color())
 	defer restoreConsole()
 
-	// Keeps the banner and provider warnings off stdout in JSON mode.
-	jsonOutput := inv.command == "check" && inv.check.jsonOutput()
-	if !jsonOutput {
+	// check's stdout carries only its result (docs/arch/0014).
+	isCheck := inv.command == "check"
+	jsonOutput := isCheck && inv.check.jsonOutput()
+
+	switch {
+	case jsonOutput:
+	case isCheck:
+		fmt.Fprintln(os.Stderr, "ArchGuard - Architectural Drift Detector")
+	default:
 		fmt.Println("ArchGuard - Architectural Drift Detector")
 	}
 
@@ -153,7 +159,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 		chatProvider = chat
 	} else {
 		providerWarnings := colors.stdoutPrinter(false)
-		if jsonOutput {
+		if isCheck {
 			providerWarnings = colors.stderrPrinter(false)
 		}
 
@@ -551,29 +557,26 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	files := opts.Paths
 
 	jsonOutput := opts.jsonOutput()
-	// stderr in JSON mode keeps stdout carrying only the JSON document (docs/arch/0014).
-	out := colors.stdoutPrinter(opts.Debug)
-	if jsonOutput {
-		out = colors.stderrPrinter(opts.Debug)
-	}
+	logPrinter := colors.stderrPrinter(opts.Debug)
+	reportPrinter := colors.stdoutPrinter(false)
 
 	defer func() {
-		if werr := out.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
+		if werr := reportPrinter.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
 			code, err = ExitError, errors.Join(outputWriteError(werr), err)
 		}
 	}()
 
 	if opts.Format == "json" && opts.UpdateBaseline {
-		out.Note("--format json has no effect with --update-baseline; ignoring it.")
+		logPrinter.Note("--format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg, out)
+	store, err := index.NewVectorStore(cfg, logPrinter)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
 	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
-	fetchOut := out.Group("")
+	fetchOut := logPrinter.Group("")
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
 	localProvider.SetIDPattern(setup.adrIDPattern)
@@ -615,9 +618,9 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
 		fetchOut.Flush()
 	} else {
-		out.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
+		logPrinter.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
 
-		if _, err := runIndex(ctx, setup, out); err != nil {
+		if _, err := runIndex(ctx, setup, logPrinter); err != nil {
 			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
 		}
 
@@ -632,16 +635,16 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	}
 
 	if opts.UpdateBaseline && (len(files) > 0 || opts.Staged) {
-		out.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
+		logPrinter.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 
 	if opts.BaselineReason != "" && !opts.UpdateBaseline {
-		out.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
+		logPrinter.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
 	}
 
-	contentProvider := resolveContentProvider(out, files, opts.Staged, opts.All, opts.UpdateBaseline)
+	contentProvider := resolveContentProvider(logPrinter, files, opts.Staged, opts.All, opts.UpdateBaseline)
 
-	out.Debug("Mode Enabled")
+	logPrinter.Debug("Mode Enabled")
 
 	var loadedBaseline *baseline.Baseline
 
@@ -651,7 +654,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
 
-		out.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
+		logPrinter.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
 	}
 
 	engine := analysis.NewEngine(cfg, store, setup.chat, setup.embed, contentProvider)
@@ -660,17 +663,17 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	analysisCache, cacheErr := cache.NewCache(".")
 	if cacheErr != nil {
-		out.Warn("analysis cache disabled: %v", cacheErr)
+		logPrinter.Warn("analysis cache disabled: %v", cacheErr)
 	}
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildStages(cfg, store, setup.embed, out)
+	engine.Stages = analysis.BuildStages(cfg, store, setup.embed, logPrinter)
 	engine.Baseline = loadedBaseline
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason
 	engine.JSONOutput = jsonOutput
-	engine.Out = out
+	engine.Out = logPrinter
 	engine.SuggestFixes = opts.SuggestFixes
 
 	runErr := engine.Run(ctx)
@@ -693,14 +696,14 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		out.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), len(engine.SkippedFiles), len(engine.FailedChecks))
-		out.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
+		reportPrinter.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), len(engine.SkippedFiles), len(engine.FailedChecks))
+		reportPrinter.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
 	}
 
 	if !jsonOutput && output.InGitHubActions() {
 		for _, v := range engine.CollectedViolations {
-			out.Annotation(v.Annotation())
+			logPrinter.Annotation(v.Annotation())
 		}
 	}
 
@@ -715,24 +718,27 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		}
 	}
 
+	if jsonOutput && (len(engine.SkippedFiles) > 0 || len(engine.FailedChecks) > 0) {
+		logPrinter.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
+	}
+
+	var driftErr *analysis.DriftDetectedError
+
+	analysisFailed := runErr != nil && !errors.As(runErr, &driftErr)
+	if !jsonOutput && !analysisFailed {
+		reportPrinter.Report(engine.Report())
+	}
+
 	if stageFailureErr != nil {
 		return stageFailureCode, stageFailureErr
 	}
 
-	if runErr != nil {
-		return exitCodeForAnalysisError(runErr), analysisErr
+	if errors.As(runErr, &driftErr) {
+		return ExitDriftDetected, nil
 	}
 
-	// Reached only without drift, in either format.
-	switch {
-	case len(engine.FailedChecks) > 0 && len(engine.SkippedFiles) > 0:
-		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", len(engine.FailedChecks), len(engine.SkippedFiles))
-	case len(engine.FailedChecks) > 0:
-		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", len(engine.FailedChecks))
-	case len(engine.SkippedFiles) > 0:
-		out.Result("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", len(engine.SkippedFiles))
-	default:
-		out.Result("No new architectural violations found.")
+	if runErr != nil {
+		return exitCodeForAnalysisError(runErr), analysisErr
 	}
 
 	return ExitSuccess, nil
