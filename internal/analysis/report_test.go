@@ -126,3 +126,49 @@ func TestBaselineReport_ListsTruncatedFilesAsPartlyChecked(t *testing.T) {
 		t.Errorf("PartialFiles = %+v, want service.py", report.PartialFiles)
 	}
 }
+
+func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.T) {
+	chatCalls := 0
+	provider := &inference.MockProvider{
+		ChatFunc: func(context.Context, string, string) (string, error) {
+			chatCalls++
+
+			return `{"violation": false, "reasoning": "fine", "quoted_code": ""}`, nil
+		},
+	}
+
+	store := index.NewLocalStore(5)
+	store.ADRs = []index.ADR{{
+		ID:        "0001",
+		Title:     "Use Golang",
+		Status:    "Accepted",
+		Content:   "All services must be Go.",
+		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+	}}
+
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+		LLM:         config.LLMConfig{MaxTokens: 5},
+	}
+	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n"
+	content := &fallbackOnlyContentProvider{files: map[string]string{"service.py": bigContent}}
+
+	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine.Cache = nil
+
+	captureStderr(t, func() { runEngine(t, engine, false) })
+
+	if chatCalls != 1 {
+		t.Errorf("the truncated file should still be analyzed once, got %d LLM call(s)", chatCalls)
+	}
+
+	report := engine.Report()
+	if len(report.PartialFiles) != 1 || report.PartialFiles[0].File != "service.py" {
+		t.Errorf("PartialFiles = %+v, want service.py", report.PartialFiles)
+	}
+
+	if len(report.SkippedFiles) != 0 {
+		t.Errorf("a file that was analyzed was also listed as skipped: %+v", report.SkippedFiles)
+	}
+}

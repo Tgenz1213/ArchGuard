@@ -192,8 +192,8 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 
-			if diffMode == "truncated" && e.UpdateBaseline {
-				fileOut.Warn("truncated for the baseline scan; only the visible portion was captured")
+			if diffMode == "truncated" {
+				fileOut.Warn("truncated for analysis; only the visible portion is checked")
 				mu.Lock()
 				partialFiles = append(partialFiles, output.SkippedFile{File: file, Reason: "too large to analyze in full; only the visible portion was checked"})
 				mu.Unlock()

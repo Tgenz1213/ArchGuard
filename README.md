@@ -364,7 +364,7 @@ Each violation shows the ADR ID and title, the line (or that the quoted code was
 Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
 
 - **Skipped files**: nothing in the file was checked. This includes a file too large to analyze in `--ci` mode.
-- **Partly checked files**: only a truncated view of the file was checked (a `--update-baseline` scan of a large file).
+- **Partly checked files**: the file was too large for the LLM, so only a truncated view of it was checked. In `--ci` mode such a file is skipped instead.
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
 
