@@ -724,8 +724,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		reportPrinter.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), len(engine.SkippedFiles), len(engine.FailedChecks))
-		reportPrinter.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
+		reportPrinter.BaselineReport(engine.BaselineReport(baseline.Path))
 
 		if err := saveReportFile(); err != nil {
 			return ExitError, err

@@ -1278,9 +1278,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Line != 1 {
+			t.Errorf("expected one recorded entry at line 1, got %+v (log: %q)", entries, output)
 		}
 	})
 
@@ -1299,9 +1298,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Reason != "accepted-debt" {
+			t.Errorf("expected one recorded entry with the reason, got %+v (log: %q)", entries, output)
 		}
 	})
 }

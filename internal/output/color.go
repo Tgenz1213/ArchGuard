@@ -20,8 +20,6 @@ func fileStyle(s termenv.Style) termenv.Style { return s.Foreground(termenv.ANSI
 
 func violationStyle(s termenv.Style) termenv.Style { return s.Foreground(termenv.ANSIRed).Bold() }
 
-func baselinedStyle(s termenv.Style) termenv.Style { return s.Faint() }
-
 func (s *sink) paint(st style, text string) string {
 	if !s.color || st == nil || text == "" {
 		return text

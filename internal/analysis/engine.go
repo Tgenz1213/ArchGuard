@@ -21,26 +21,29 @@ import (
 )
 
 type Engine struct {
-	Config              *config.Config
-	Store               index.VectorStore
-	Chat                inference.Chatter
-	Embed               inference.Embedder
-	Content             ContentProvider
-	Debug               bool
-	CI                  bool
-	Cache               *cache.Cache
-	Baseline            *baseline.Baseline
-	UpdateBaseline      bool
-	BaselineReason      string
-	CollectedBaseline   *baseline.Baseline
-	SkippedFiles        []output.SkippedFile
-	FailedChecks        []output.FailedCheck
-	Baselined           int
-	JSONOutput          bool
-	Out                 *output.Printer
-	CollectedViolations []Violation
-	CollectedStages     []stage.Stats
-	StageFailures       []StageFailure
+	Config               *config.Config
+	Store                index.VectorStore
+	Chat                 inference.Chatter
+	Embed                inference.Embedder
+	Content              ContentProvider
+	Debug                bool
+	CI                   bool
+	Cache                *cache.Cache
+	Baseline             *baseline.Baseline
+	UpdateBaseline       bool
+	BaselineReason       string
+	CollectedBaseline    *baseline.Baseline
+	SkippedFiles         []output.SkippedFile
+	FailedChecks         []output.FailedCheck
+	Baselined            int
+	RecordedEntries      []output.RecordedEntry
+	UnrecordedViolations []output.UnrecordedViolation
+	PartialFiles         []output.SkippedFile
+	JSONOutput           bool
+	Out                  *output.Printer
+	CollectedViolations  []Violation
+	CollectedStages      []stage.Stats
+	StageFailures        []StageFailure
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
 	Stages       []stage.Stage
@@ -127,14 +130,17 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	var (
-		violations          int
-		baselinedCount      int
-		skippedFiles        []output.SkippedFile
-		failedChecks        []output.FailedCheck
-		collectedEntries    []baseline.Entry
-		collectedViolations []Violation
-		stageFailures       []StageFailure
-		mu                  sync.Mutex
+		violations           int
+		baselinedCount       int
+		skippedFiles         []output.SkippedFile
+		failedChecks         []output.FailedCheck
+		recordedEntries      []output.RecordedEntry
+		unrecordedViolations []output.UnrecordedViolation
+		partialFiles         []output.SkippedFile
+		collectedEntries     []baseline.Entry
+		collectedViolations  []Violation
+		stageFailures        []StageFailure
+		mu                   sync.Mutex
 	)
 
 	concurrency := e.Config.Analysis.MaxConcurrency
@@ -188,6 +194,9 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			if diffMode == "truncated" && e.UpdateBaseline {
 				fileOut.Warn("truncated for the baseline scan; only the visible portion was captured")
+				mu.Lock()
+				partialFiles = append(partialFiles, output.SkippedFile{File: file, Reason: "too large to analyze in full; only the visible portion was checked"})
+				mu.Unlock()
 			}
 
 			hits, err := candidateSource{store: e.Store}.For(file, content, fileOut)
@@ -233,6 +242,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			localBaselined := 0
 			var localFailedChecks []output.FailedCheck
 			var localBaselineEntries []baseline.Entry
+			var localRecorded []output.RecordedEntry
+			var localUnrecorded []output.UnrecordedViolation
 			var localViolationRecords []Violation
 			for _, hit := range hits {
 				systemPrompt := e.Config.LLM.SystemPrompt
@@ -298,16 +309,7 @@ func (e *Engine) Run(ctx context.Context) error {
 							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
 						}
 
-						fileOut.Violation(output.Violation{
-							File:           file,
-							Line:           lineNum,
-							Verified:       verified,
-							ADRID:          hit.ADR.ID,
-							Title:          hit.ADR.Title,
-							Reasoning:      res.Reasoning,
-							Code:           res.QuotedCode,
-							BaselineReason: reason,
-						})
+						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, false))
 						// A QuotedCode that won't match the file verbatim would
 						// suppress nothing -- skip rather than write a dead entry.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
@@ -317,8 +319,10 @@ func (e *Engine) Run(ctx context.Context) error {
 								QuotedCode: res.QuotedCode,
 								Reason:     reason,
 							})
+							localRecorded = append(localRecorded, output.RecordedEntry{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Line: lineNum, Reason: reason})
 						} else {
 							fileOut.Warn("quoted code not found verbatim in file; skipping baseline entry")
+							localUnrecorded = append(localUnrecorded, output.UnrecordedViolation{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: "the quoted code was not found verbatim in the file"})
 						}
 					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
 						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, true))
@@ -386,6 +390,8 @@ func (e *Engine) Run(ctx context.Context) error {
 
 			if e.UpdateBaseline {
 				collectedEntries = append(collectedEntries, localBaselineEntries...)
+				recordedEntries = append(recordedEntries, localRecorded...)
+				unrecordedViolations = append(unrecordedViolations, localUnrecorded...)
 			}
 
 			collectedViolations = append(collectedViolations, localViolationRecords...)
@@ -415,6 +421,9 @@ func (e *Engine) Run(ctx context.Context) error {
 	e.SkippedFiles = skippedFiles
 	e.FailedChecks = failedChecks
 	e.Baselined = baselinedCount
+	e.RecordedEntries = recordedEntries
+	e.UnrecordedViolations = unrecordedViolations
+	e.PartialFiles = partialFiles
 	sort.Slice(stageFailures, func(i, j int) bool {
 		if stageFailures[i].File != stageFailures[j].File {
 			return stageFailures[i].File < stageFailures[j].File

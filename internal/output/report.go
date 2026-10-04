@@ -6,28 +6,28 @@ import (
 	"strings"
 )
 
-type FailedStage struct {
-	Stage  string
-	File   string
-	Reason string
+type Violation struct {
+	File       string
+	Line       int
+	Verified   bool
+	ADRID      string
+	Title      string
+	Reasoning  string
+	Code       string
+	Suggestion string
 }
 
 type Report struct {
-	Violations   []Violation
-	SkippedFiles []SkippedFile
-	FailedChecks []FailedCheck
-	FailedStages []FailedStage
-	Baselined    int
+	Violations []Violation
+	Baselined  int
+	Gaps
 }
 
-func (report Report) sorted() Report {
-	report.Violations = append([]Violation(nil), report.Violations...)
-	report.SkippedFiles = append([]SkippedFile(nil), report.SkippedFiles...)
-	report.FailedChecks = append([]FailedCheck(nil), report.FailedChecks...)
-	report.FailedStages = append([]FailedStage(nil), report.FailedStages...)
+func sortedViolations(violations []Violation) []Violation {
+	sorted := append([]Violation(nil), violations...)
 
-	sort.SliceStable(report.Violations, func(i, j int) bool {
-		left, right := report.Violations[i], report.Violations[j]
+	sort.SliceStable(sorted, func(i, j int) bool {
+		left, right := sorted[i], sorted[j]
 		if left.File != right.File {
 			return left.File < right.File
 		}
@@ -38,51 +38,16 @@ func (report Report) sorted() Report {
 
 		return left.ADRID < right.ADRID
 	})
-	sort.SliceStable(report.SkippedFiles, func(i, j int) bool { return report.SkippedFiles[i].File < report.SkippedFiles[j].File })
-	sort.SliceStable(report.FailedChecks, func(i, j int) bool {
-		left, right := report.FailedChecks[i], report.FailedChecks[j]
-		if left.File != right.File {
-			return left.File < right.File
-		}
 
-		return left.ADRID < right.ADRID
-	})
-	sort.SliceStable(report.FailedStages, func(i, j int) bool {
-		left, right := report.FailedStages[i], report.FailedStages[j]
-		if left.File != right.File {
-			return left.File < right.File
-		}
-
-		return left.Stage < right.Stage
-	})
-
-	return report
+	return sorted
 }
 
-func (report Report) gaps() []string {
-	var parts []string
-
-	if count := len(report.SkippedFiles); count > 0 {
-		parts = append(parts, fmt.Sprintf("%d file(s) skipped", count))
-	}
-
-	if count := len(report.FailedChecks); count > 0 {
-		parts = append(parts, fmt.Sprintf("%d ADR check(s) failed", count))
-	}
-
-	if count := len(report.FailedStages); count > 0 {
-		parts = append(parts, fmt.Sprintf("%d stage failure(s)", count))
-	}
-
-	return parts
-}
-
-func (report Report) violatingFiles() []string {
+func violatingFiles(violations []Violation) []string {
 	seen := map[string]struct{}{}
 
 	var files []string
 
-	for _, violation := range report.Violations {
+	for _, violation := range violations {
 		if _, ok := seen[violation.File]; !ok {
 			seen[violation.File] = struct{}{}
 			files = append(files, violation.File)
@@ -95,9 +60,10 @@ func (report Report) violatingFiles() []string {
 }
 
 func (p *Printer) Report(report Report) {
-	report = report.sorted()
-	files := report.violatingFiles()
-	gaps := report.gaps()
+	report.Violations = sortedViolations(report.Violations)
+	report.Gaps = report.sortedGaps()
+	files := violatingFiles(report.Violations)
+	gaps := report.gapSummary()
 
 	if len(files) == 0 && len(gaps) == 0 {
 		if report.Baselined > 0 {
@@ -116,38 +82,7 @@ func (p *Printer) Report(report Report) {
 		p.Result("")
 	}
 
-	if len(report.SkippedFiles) > 0 {
-		p.Result("Skipped files:")
-
-		list := p.Indented()
-		for _, skipped := range report.SkippedFiles {
-			list.Result("%s: %s", skipped.File, skipped.Reason)
-		}
-
-		p.Result("")
-	}
-
-	if len(report.FailedChecks) > 0 {
-		p.Result("Failed ADR checks:")
-
-		list := p.Indented()
-		for _, check := range report.FailedChecks {
-			list.Result("%s: ADR %s %s: %s", check.File, check.ADRID, check.Title, check.Reason)
-		}
-
-		p.Result("")
-	}
-
-	if len(report.FailedStages) > 0 {
-		p.Result("Failed stages:")
-
-		list := p.Indented()
-		for _, failure := range report.FailedStages {
-			list.Result("%s: stage %s: %s", failure.File, failure.Stage, failure.Reason)
-		}
-
-		p.Result("")
-	}
+	p.reportGaps(report.Gaps)
 
 	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined.", len(report.Violations), len(files), report.Baselined)
 	if len(gaps) > 0 {

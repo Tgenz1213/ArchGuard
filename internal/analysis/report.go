@@ -8,11 +8,7 @@ import (
 )
 
 func (e *Engine) Report() output.Report {
-	report := output.Report{
-		SkippedFiles: e.SkippedFiles,
-		FailedChecks: e.FailedChecks,
-		Baselined:    e.Baselined,
-	}
+	report := output.Report{Gaps: e.gaps(), Baselined: e.Baselined}
 
 	for _, violation := range e.CollectedViolations {
 		report.Violations = append(report.Violations, output.Violation{
@@ -27,11 +23,26 @@ func (e *Engine) Report() output.Report {
 		})
 	}
 
+	return report
+}
+
+func (e *Engine) BaselineReport(path string) output.BaselineReport {
+	return output.BaselineReport{
+		Path:       path,
+		Recorded:   e.RecordedEntries,
+		Unrecorded: e.UnrecordedViolations,
+		Gaps:       e.gaps(),
+	}
+}
+
+func (e *Engine) gaps() output.Gaps {
+	gaps := output.Gaps{SkippedFiles: e.SkippedFiles, FailedChecks: e.FailedChecks, PartialFiles: e.PartialFiles}
+
 	for _, failure := range e.StageFailures {
-		report.FailedStages = append(report.FailedStages, output.FailedStage{Stage: failure.Stage, File: failure.File, Reason: failure.Error})
+		gaps.FailedStages = append(gaps.FailedStages, output.FailedStage{Stage: failure.Stage, File: failure.File, Reason: failure.Error})
 	}
 
-	return report
+	return gaps
 }
 
 func violationLine(violation Violation, baselined bool) string {

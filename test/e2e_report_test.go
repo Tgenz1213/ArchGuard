@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cli"
 )
 
@@ -193,4 +194,56 @@ func readReportFile(t *testing.T, path string) string {
 	}
 
 	return string(data)
+}
+
+func TestE2E_UpdateBaselineEndsWithReport(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, reportE2EConfig)
+	writeNoSecretsADR(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	gitAdd(t, tempDir, fixtureFilename)
+	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
+
+	t.Run("report on stdout, log on stderr, json ignored", func(t *testing.T) {
+		stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--update-baseline", "--baseline-reason", "accepted-debt", "--format", "json")
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("exit code %d, want %d. stdout: %s stderr: %s", exitCode, cli.ExitSuccess, stdout, stderr)
+		}
+
+		for _, want := range []string{fixtureFilename, "accepted-debt", baseline.Path} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("report is missing %q:\n%s", want, stdout)
+			}
+		}
+
+		if strings.Contains(stdout, "ArchGuard - Architectural Drift Detector") || !strings.Contains(stderr, "ArchGuard - Architectural Drift Detector") {
+			t.Errorf("the banner belongs on stderr only.\nstdout: %s\nstderr: %s", stdout, stderr)
+		}
+
+		if json.Valid([]byte(stdout)) {
+			t.Errorf("--format json should be ignored for --update-baseline, but stdout is JSON:\n%s", stdout)
+		}
+	})
+
+	t.Run("--output writes the report to the file", func(t *testing.T) {
+		reportPath := filepath.Join(t.TempDir(), "baseline-report.txt")
+
+		stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--update-baseline", "--output", reportPath)
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+		}
+
+		if stdout != "" {
+			t.Errorf("stdout should be empty with --output, got: %q", stdout)
+		}
+
+		if report := readReportFile(t, reportPath); !strings.Contains(report, fixtureFilename) || !strings.Contains(report, baseline.Path) {
+			t.Errorf("report file is missing the recorded entry or the baseline path:\n%s", report)
+		}
+	})
 }

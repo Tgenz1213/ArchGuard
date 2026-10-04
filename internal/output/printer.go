@@ -12,7 +12,7 @@ import (
 const indentUnit = "  "
 
 // Printer is safe for concurrent use; a nil *Printer writes to os.Stderr, never stdout. Only
-// Result and Violation are primary output: Err reports their first failed write.
+// Result lines are primary output: Err reports their first failed write.
 type Printer struct {
 	sink        *sink
 	debug       bool
@@ -165,49 +165,6 @@ func (p *Printer) Progress() *Progress { return &Progress{p: p} }
 func (pr *Progress) Tick() { pr.p.write(".", true, false) }
 
 func (pr *Progress) Done() { pr.p.write("", false, false) }
-
-type Violation struct {
-	File           string
-	Line           int
-	Verified       bool
-	Baselined      bool
-	ADRID          string
-	Title          string
-	Reasoning      string
-	Code           string
-	Suggestion     string
-	BaselineReason string
-}
-
-func (p *Printer) Violation(v Violation) {
-	label, headerStyle := "VIOLATION", style(violationStyle)
-	if v.Baselined {
-		label, headerStyle = "BASELINED", baselinedStyle
-	}
-
-	header := fmt.Sprintf("[%s] %s [Line %d]", label, v.Title, v.Line)
-	if !v.Verified {
-		header = fmt.Sprintf("[%s] %s [UNVERIFIED: quoted code not found in analyzed content]", label, v.Title)
-	}
-
-	details := p.group(header, headerStyle)
-	details.write("", false, true)
-	details.Field("Reasoning", "%s", v.Reasoning)
-
-	if v.Code != "" {
-		details.Field("Code", "%s", v.Code)
-	}
-
-	if v.Suggestion != "" {
-		details.Field("Suggestion (unverified)", "%s", v.Suggestion)
-	}
-
-	if v.BaselineReason != "" {
-		details.Field("Baseline Reason", "%s", v.BaselineReason)
-	}
-
-	details.Flush()
-}
 
 type lineRole struct {
 	label      string
