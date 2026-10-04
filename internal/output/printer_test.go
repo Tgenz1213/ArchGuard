@@ -208,41 +208,6 @@ func TestFlushEndsAGroupsUnfinishedProgressLine(t *testing.T) {
 	}
 }
 
-func TestViolation(t *testing.T) {
-	tests := []struct {
-		name string
-		v    output.Violation
-		want string
-	}{
-		{
-			name: "verified with all fields",
-			v: output.Violation{
-				Line: 12, Verified: true, Title: "No globals", Reasoning: "uses a global",
-				Code: "var x", Suggestion: "inject it", BaselineReason: "accepted-debt",
-			},
-			want: "[VIOLATION] No globals [Line 12]\n  Reasoning: uses a global\n  Code: var x\n" +
-				"  Suggestion (unverified): inject it\n  Baseline Reason: accepted-debt\n",
-		},
-		{
-			name: "baselined and unverified",
-			v:    output.Violation{Baselined: true, Title: "No globals", Reasoning: "r"},
-			want: "[BASELINED] No globals [UNVERIFIED: quoted code not found in analyzed content]\n  Reasoning: r\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var buf bytes.Buffer
-
-			output.New(&buf, false).Violation(tt.v)
-
-			if got := buf.String(); got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestColor(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -270,17 +235,6 @@ func TestColor(t *testing.T) {
 			g.Info("x")
 			g.Flush()
 		}, "\x1b[36;1ma\x1b[0m\n\x1b[36;1mb\x1b[0m\n  x\n"},
-		{"violation", func(p *output.Printer) {
-			p.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
-		}, "\x1b[31;1m[VIOLATION] T [Line 3]\x1b[0m\n  Reasoning: r\n"},
-		{"baselined", func(p *output.Printer) {
-			p.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Baselined: true, Reasoning: "r"})
-		}, "\x1b[2m[BASELINED] T [Line 3]\x1b[0m\n  Reasoning: r\n"},
-		{"violation in a file group", func(p *output.Printer) {
-			g := p.Group("a.go")
-			g.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
-			g.Flush()
-		}, "\x1b[36;1ma.go\x1b[0m\n  \x1b[31;1m[VIOLATION] T [Line 3]\x1b[0m\n    Reasoning: r\n"},
 	}
 
 	for _, tt := range tests {
@@ -302,7 +256,7 @@ func TestColorOffMatchesDefault(t *testing.T) {
 		p.Error("e")
 		p.Debug("d")
 		g := p.Group("a.go")
-		g.Violation(output.Violation{Title: "T", Line: 3, Verified: true, Reasoning: "r"})
+		g.Info("x")
 		g.Flush()
 	}
 
@@ -368,10 +322,9 @@ func TestErrReportsFailedResultWrites(t *testing.T) {
 	}{
 		{"result line", func(p *output.Printer) { p.Result("1 new violation(s)") }, true},
 		{"indented result line", func(p *output.Printer) { p.Indented().Result("- a.md") }, true},
-		{"violation", func(p *output.Printer) { p.Violation(output.Violation{Title: "t", Verified: true}) }, true},
-		{"group holding a violation", func(p *output.Printer) {
+		{"group holding a result line", func(p *output.Printer) {
 			g := p.Group("a.go")
-			g.Violation(output.Violation{Title: "t", Verified: true})
+			g.Result("x")
 			g.Flush()
 		}, true},
 		{"diagnostics", func(p *output.Printer) {

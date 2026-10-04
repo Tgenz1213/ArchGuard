@@ -65,15 +65,14 @@ analysis:
 		}
 
 		assertNoAnnotations(t, plainOut+plainErr)
-		assertNoAnnotations(t, ghErr)
+		assertNoAnnotations(t, ghOut)
 
-		n, rest := splitAnnotations(ghOut)
-		if n != 1 {
-			t.Errorf("got %d annotations, want 1:\n%s", n, ghOut)
+		if n, _ := splitAnnotations(ghErr); n != 1 {
+			t.Errorf("got %d annotations on stderr, want 1:\n%s", n, ghErr)
 		}
 
-		if rest != plainOut {
-			t.Errorf("stdout without annotations differs from a run without them.\nwith:\n%s\nwithout:\n%s", rest, plainOut)
+		if ghOut != plainOut {
+			t.Errorf("the report differs from a run without annotations.\nwith:\n%s\nwithout:\n%s", ghOut, plainOut)
 		}
 	})
 

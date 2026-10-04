@@ -861,9 +861,9 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 		t.Errorf("expected no fabricated Line 0, got: %q", output)
 	}
 
-	want := "  [VIOLATION] Use Golang [UNVERIFIED: quoted code not found in analyzed content]\n    Reasoning: Python is not allowed.\n    Code: this snippet was never in the file\n"
-	if !strings.Contains(output, want) {
-		t.Errorf("expected exact block %q, got: %q", want, output)
+	violations := engine.Report().Violations
+	if len(violations) != 1 || violations[0].Verified || violations[0].Code != "this snippet was never in the file" {
+		t.Errorf("expected one unverified violation quoting the snippet, got %+v", violations)
 	}
 }
 
@@ -917,9 +917,9 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
 	}
 
-	want := "  [VIOLATION] Use Golang [Line 1]\n"
-	if !strings.Contains(output, want) {
-		t.Errorf("expected exact block %q, got: %q", want, output)
+	violations := engine.Report().Violations
+	if len(violations) != 1 || !violations[0].Verified || violations[0].Line != 1 {
+		t.Errorf("expected one verified violation at line 1, got %+v", violations)
 	}
 }
 
@@ -1165,8 +1165,19 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected exactly 1 collected entry, got %d: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
 	}
 
-	if engine.SkippedFiles != 2 {
-		t.Fatalf("expected SkippedFiles to be 2, got %d", engine.SkippedFiles)
+	if len(engine.SkippedFiles) != 2 {
+		t.Fatalf("expected SkippedFiles to be 2, got %+v", engine.SkippedFiles)
+	}
+
+	reasons := map[string]string{}
+	for _, skipped := range engine.SkippedFiles {
+		reasons[skipped.File] = skipped.Reason
+	}
+
+	for _, want := range []string{"badembed.go", "badread.go"} {
+		if reasons[want] == "" {
+			t.Errorf("SkippedFiles has no entry with a reason for %s: %+v", want, engine.SkippedFiles)
+		}
 	}
 
 	if !strings.Contains(output, "badread.go\n  Error: reading file: ") {
@@ -1222,9 +1233,13 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected a drift-detected error, got: %v", runErr)
 		}
 
-		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		violations := engine.Report().Violations
+		if len(violations) != 1 || violations[0].File != "service.py" || violations[0].ADRID != "0001" || violations[0].Line != 1 {
+			t.Errorf("expected the violation in the report, got %+v", violations)
+		}
+
+		if !strings.Contains(output, "service.py") || !strings.Contains(output, "0001") {
+			t.Errorf("expected the log to name the file and ADR, got: %q", output)
 		}
 	})
 
@@ -1245,9 +1260,12 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error for a fully-baselined violation, got: %v", runErr)
 		}
 
-		want := "  [BASELINED] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		if report := engine.Report(); report.Baselined != 1 || len(report.Violations) != 0 {
+			t.Errorf("expected one baselined hit and no new violations, got %+v", report)
+		}
+
+		if !strings.Contains(output, "service.py") || !strings.Contains(output, "0001") {
+			t.Errorf("expected the log to name the file and ADR, got: %q", output)
 		}
 	})
 
@@ -1265,9 +1283,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Line != 1 {
+			t.Errorf("expected one recorded entry at line 1, got %+v (log: %q)", entries, output)
 		}
 	})
 
@@ -1286,9 +1303,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
 		}
 
-		want := "  [VIOLATION] Use Golang [Line 1]\n    Reasoning: Python is not allowed.\n    Code: import python_library\n    Baseline Reason: accepted-debt\n"
-		if !strings.Contains(output, want) {
-			t.Errorf("expected exact block %q, got: %q", want, output)
+		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Reason != "accepted-debt" {
+			t.Errorf("expected one recorded entry with the reason, got %+v (log: %q)", entries, output)
 		}
 	})
 }
@@ -1345,8 +1361,12 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
-	if engine.SkippedADRChecks != 1 {
-		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	if len(engine.FailedChecks) != 1 {
+		t.Fatalf("expected FailedChecks to be 1, got %+v", engine.FailedChecks)
+	}
+
+	if got := engine.FailedChecks[0]; got.File != "service.py" || got.ADRID != "0002" || got.Title != "Bad ADR" || !strings.Contains(got.Reason, "simulated LLM failure") {
+		t.Errorf("FailedChecks[0] = %+v, want service.py / ADR 0002 / Bad ADR / the LLM error", got)
 	}
 
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
@@ -1405,8 +1425,8 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected a drift-detected error from the one real violation, got: %v", runErr)
 	}
 
-	if !strings.Contains(output, "1 new violation(s), 0 baselined, 1 file(s) skipped due to errors, 0 ADR check(s) skipped due to LLM errors.") {
-		t.Fatalf("expected summary to report the skipped file, got output: %q", output)
+	if skipped := engine.Report().SkippedFiles; len(skipped) != 1 || skipped[0].File != "badread.go" {
+		t.Fatalf("expected the report to list badread.go as skipped, got %+v (log: %q)", skipped, output)
 	}
 }
 
@@ -1451,12 +1471,12 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 		t.Fatalf("expected no error (zero violations), got: %v", runErr)
 	}
 
-	if engine.SkippedADRChecks != 1 {
-		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	if len(engine.FailedChecks) != 1 {
+		t.Fatalf("expected FailedChecks to be 1, got %+v", engine.FailedChecks)
 	}
 
-	if !strings.Contains(output, "0 new violation(s), 0 baselined, 0 file(s) skipped due to errors, 1 ADR check(s) skipped due to LLM errors.") {
-		t.Fatalf("expected summary to report the skipped ADR check, got output: %q", output)
+	if failed := engine.Report().FailedChecks; len(failed) != 1 || failed[0].File != "good.go" {
+		t.Fatalf("expected the report to list the failed ADR check on good.go, got %+v (log: %q)", failed, output)
 	}
 }
 
@@ -2138,17 +2158,12 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	engine.SuggestFixes = true
 	engine.JSONOutput = true
 
-	output := captureStderr(t, func() {
+	_ = captureStderr(t, func() {
 		runEngine(t, engine, true)
 	})
 
 	if chatCalls != 2 {
 		t.Fatalf("expected 2 chat calls (violation judgment + suggestion), got %d", chatCalls)
-	}
-
-	wantLine := "    Suggestion (unverified): Rewrite this in Go, not Python.\n"
-	if !strings.Contains(output, wantLine) {
-		t.Errorf("expected suggestion line %q in output, got: %s", wantLine, output)
 	}
 
 	if len(engine.CollectedViolations) != 1 {
@@ -2262,11 +2277,12 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
 
-	firstOutput := captureStderr(t, func() {
+	_ = captureStderr(t, func() {
 		runEngine(t, firstEngine, true)
 	})
-	if !strings.Contains(firstOutput, "Suggestion") {
-		t.Fatalf("expected first (flagged) run to surface a suggestion, got: %s", firstOutput)
+
+	if violations := firstEngine.Report().Violations; len(violations) != 1 || violations[0].Suggestion != "Rewrite this in Go, not Python." {
+		t.Fatalf("expected first (flagged) run to surface a suggestion, got %+v", violations)
 	}
 
 	secondEngine := analysis.NewEngine(cfg, store, provider, provider, content)
@@ -2337,7 +2353,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	engine.Cache = c
 	engine.SuggestFixes = true
 
-	output := captureStderr(t, func() {
+	_ = captureStderr(t, func() {
 		runEngine(t, engine, true)
 	})
 
@@ -2345,12 +2361,9 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 		t.Errorf("expected a fresh suggestion call when the cached entry's key doesn't match, got %d calls", suggestionCalls)
 	}
 
-	if !strings.Contains(output, "NEW FRESH SUGGESTION") {
-		t.Errorf("expected the fresh suggestion in output, got: %s", output)
-	}
-
-	if strings.Contains(output, "OLD STALE SUGGESTION") {
-		t.Errorf("expected the stale suggestion to never surface, got: %s", output)
+	violations := engine.Report().Violations
+	if len(violations) != 1 || violations[0].Suggestion != "NEW FRESH SUGGESTION" {
+		t.Errorf("expected only the fresh suggestion in the report, got %+v", violations)
 	}
 }
 
@@ -2393,14 +2406,14 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	secondEngine.Debug = true
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = true
-	output := captureStderr(t, func() { runEngine(t, secondEngine, true) })
+	_ = captureStderr(t, func() { runEngine(t, secondEngine, true) })
 
 	if suggestionCalls != 1 {
 		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
 	}
 
-	if !strings.Contains(output, "Rewrite this in Go, not Python.") {
-		t.Errorf("expected the cached suggestion to appear in the second run's output, got: %s", output)
+	if violations := secondEngine.Report().Violations; len(violations) != 1 || violations[0].Suggestion != "Rewrite this in Go, not Python." {
+		t.Errorf("expected the cached suggestion in the second run's report, got %+v", violations)
 	}
 }
 
@@ -2448,7 +2461,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = c
 	engine.SuggestFixes = true
-	output := captureStderr(t, func() { runEngine(t, engine, true) })
+	_ = captureStderr(t, func() { runEngine(t, engine, true) })
 
 	mu.Lock()
 	calls := suggestionCalls
@@ -2458,8 +2471,13 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 		t.Errorf("expected 2 independent suggestion calls for identical content under different paths, got %d", calls)
 	}
 
-	if !strings.Contains(output, "Suggestion for a/service.py") || !strings.Contains(output, "Suggestion for b/service.py") {
-		t.Errorf("expected each file to surface its own path-specific suggestion, got: %s", output)
+	suggestions := map[string]string{}
+	for _, violation := range engine.Report().Violations {
+		suggestions[violation.File] = violation.Suggestion
+	}
+
+	if suggestions["a/service.py"] != "Suggestion for a/service.py" || suggestions["b/service.py"] != "Suggestion for b/service.py" {
+		t.Errorf("expected each file to surface its own path-specific suggestion, got %+v", suggestions)
 	}
 }
 

@@ -561,8 +561,8 @@ function sensitiveData() {
 			t.Fatalf("expected 0 violations for a skipped ADR check, got count=%d. stdout: %s", report.Count, stdout)
 		}
 
-		if !strings.Contains(stderr, "1 ADR check(s) were skipped due to LLM errors") {
-			t.Errorf("expected the skip-count summary on stderr (not silently dropped by --format json), got: %s", stderr)
+		if !strings.Contains(stderr, "LLM analysis failed") {
+			t.Errorf("expected the failed ADR check on stderr (not silently dropped by --format json), got: %s", stderr)
 		}
 	})
 }
@@ -886,7 +886,7 @@ analysis:
 
 // An LLM-call failure (not a file or embedding failure) must suppress the
 // unqualified "No new architectural violations found." message.
-func TestE2E_CheckReportsSkippedADRChecksInsteadOfCleanMessage(t *testing.T) {
+func TestE2E_CheckReportsFailedADRChecksInsteadOfCleanMessage(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
 	configContent := `
@@ -922,12 +922,8 @@ function sensitiveData() {
 		t.Errorf("check must not print the unqualified clean message when an ADR check was skipped due to an LLM error. Output: %s", output)
 	}
 
-	if !strings.Contains(output, "1 ADR check(s) skipped due to LLM errors") {
-		t.Errorf("expected the skipped ADR check count to be reported. Output: %s", output)
-	}
-
-	if !strings.Contains(output, "compliance was not fully verified") {
-		t.Errorf("expected the cli-level skipped-check message to be reported. Output: %s", output)
+	if !strings.Contains(output, fixtureFilename) {
+		t.Errorf("expected the report to name the file whose ADR check failed. Output: %s", output)
 	}
 }
 
