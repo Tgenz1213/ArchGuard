@@ -242,8 +242,8 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 	for _, onError := range []string{"", config.OnErrorSkip} {
 		t.Run("on_error="+onError, func(t *testing.T) {
 			h, out := runRankWithOnError(t, onError, embedFailingOnBAD())
-			if h.engine.SkippedFiles != 1 || len(h.engine.StageFailures) != 0 {
-				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", h.engine.SkippedFiles, h.engine.StageFailures)
+			if len(h.engine.SkippedFiles) != 1 || len(h.engine.StageFailures) != 0 {
+				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", len(h.engine.SkippedFiles), h.engine.StageFailures)
 			}
 
 			if !strings.Contains(out, "bad.go\n  Error: generating embedding: embedding service down") {
@@ -259,8 +259,8 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 
 func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 	h, out := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
-	if h.engine.SkippedFiles != 0 || len(h.engine.StageFailures) != 1 {
-		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", h.engine.SkippedFiles, h.engine.StageFailures)
+	if len(h.engine.SkippedFiles) != 0 || len(h.engine.StageFailures) != 1 {
+		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", len(h.engine.SkippedFiles), h.engine.StageFailures)
 	}
 
 	f := h.engine.StageFailures[0]
@@ -294,8 +294,8 @@ func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
 
 func TestPipeline_OnErrorSkipPreconditionSkipsFiles(t *testing.T) {
 	h, _ := runRankWithOnError(t, config.OnErrorSkip, nil)
-	if h.engine.SkippedFiles != 2 || len(h.engine.StageFailures) != 0 {
-		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want both files skipped", h.engine.SkippedFiles, h.engine.StageFailures)
+	if len(h.engine.SkippedFiles) != 2 || len(h.engine.StageFailures) != 0 {
+		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want both files skipped", len(h.engine.SkippedFiles), h.engine.StageFailures)
 	}
 }
 
@@ -386,8 +386,8 @@ func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if h.engine.SkippedFiles != 1 || len(h.judged) != 0 {
-		t.Fatalf("SkippedFiles = %d, judged = %v; want the file skipped with nothing judged", h.engine.SkippedFiles, h.judged)
+	if len(h.engine.SkippedFiles) != 1 || len(h.judged) != 0 {
+		t.Fatalf("SkippedFiles = %d, judged = %v; want the file skipped with nothing judged", len(h.engine.SkippedFiles), h.judged)
 	}
 }
 
@@ -448,7 +448,7 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if h.engine.SkippedFiles != 1 || len(h.judged) != 0 || h.embeds != 0 {
-		t.Fatalf("SkippedFiles = %d, judged = %v, embeds = %d; want the file reported as skipped with nothing judged", h.engine.SkippedFiles, h.judged, h.embeds)
+	if len(h.engine.SkippedFiles) != 1 || len(h.judged) != 0 || h.embeds != 0 {
+		t.Fatalf("SkippedFiles = %d, judged = %v, embeds = %d; want the file reported as skipped with nothing judged", len(h.engine.SkippedFiles), h.judged, h.embeds)
 	}
 }

@@ -1165,8 +1165,14 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		t.Fatalf("expected exactly 1 collected entry, got %d: %+v", len(engine.CollectedBaseline.Entries), engine.CollectedBaseline.Entries)
 	}
 
-	if engine.SkippedFiles != 2 {
-		t.Fatalf("expected SkippedFiles to be 2, got %d", engine.SkippedFiles)
+	if len(engine.SkippedFiles) != 2 {
+		t.Fatalf("expected SkippedFiles to be 2, got %+v", engine.SkippedFiles)
+	}
+
+	for i, want := range []string{"badembed.go", "badread.go"} {
+		if got := engine.SkippedFiles[i]; got.File != want || got.Reason == "" {
+			t.Errorf("SkippedFiles[%d] = %+v, want file %s with a reason", i, got, want)
+		}
 	}
 
 	if !strings.Contains(output, "badread.go\n  Error: reading file: ") {
@@ -1345,8 +1351,12 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
-	if engine.SkippedADRChecks != 1 {
-		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	if len(engine.FailedChecks) != 1 {
+		t.Fatalf("expected FailedChecks to be 1, got %+v", engine.FailedChecks)
+	}
+
+	if got := engine.FailedChecks[0]; got.File != "service.py" || got.ADRID != "0002" || got.Title != "Bad ADR" || !strings.Contains(got.Reason, "simulated LLM failure") {
+		t.Errorf("FailedChecks[0] = %+v, want service.py / ADR 0002 / Bad ADR / the LLM error", got)
 	}
 
 	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
@@ -1451,8 +1461,8 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 		t.Fatalf("expected no error (zero violations), got: %v", runErr)
 	}
 
-	if engine.SkippedADRChecks != 1 {
-		t.Fatalf("expected SkippedADRChecks to be 1, got %d", engine.SkippedADRChecks)
+	if len(engine.FailedChecks) != 1 {
+		t.Fatalf("expected FailedChecks to be 1, got %+v", engine.FailedChecks)
 	}
 
 	if !strings.Contains(output, "0 new violation(s), 0 baselined, 0 file(s) skipped due to errors, 1 ADR check(s) skipped due to LLM errors.") {

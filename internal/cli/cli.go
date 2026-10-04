@@ -693,7 +693,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
 		}
 
-		out.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), engine.SkippedFiles, engine.SkippedADRChecks)
+		out.Result("Baseline scan complete: %d violation(s) recorded, %d file(s) skipped due to errors, %d ADR check(s) skipped due to LLM errors.", len(engine.CollectedBaseline.Entries), len(engine.SkippedFiles), len(engine.FailedChecks))
 		out.Result("Baseline written to %s (%d violation(s) recorded).", baseline.Path, len(engine.CollectedBaseline.Entries))
 		return ExitSuccess, nil
 	}
@@ -725,12 +725,12 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	// Reached only without drift, in either format.
 	switch {
-	case engine.SkippedADRChecks > 0 && engine.SkippedFiles > 0:
-		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedADRChecks, engine.SkippedFiles)
-	case engine.SkippedADRChecks > 0:
-		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", engine.SkippedADRChecks)
-	case engine.SkippedFiles > 0:
-		out.Result("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", engine.SkippedFiles)
+	case len(engine.FailedChecks) > 0 && len(engine.SkippedFiles) > 0:
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors and %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", len(engine.FailedChecks), len(engine.SkippedFiles))
+	case len(engine.FailedChecks) > 0:
+		out.Result("Check completed, but %d ADR check(s) were skipped due to LLM errors; compliance was not fully verified.", len(engine.FailedChecks))
+	case len(engine.SkippedFiles) > 0:
+		out.Result("Check completed, but %d file(s) were skipped due to file-context/embedding errors; compliance was not fully verified.", len(engine.SkippedFiles))
 	default:
 		out.Result("No new architectural violations found.")
 	}
