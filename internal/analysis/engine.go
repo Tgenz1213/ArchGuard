@@ -235,8 +235,6 @@ func (e *Engine) Run(ctx context.Context) error {
 			var localBaselineEntries []baseline.Entry
 			var localViolationRecords []Violation
 			for _, hit := range hits {
-				fileOut.Debug("Checking against ADR: %s (%.2f)", hit.ADR.Title, hit.Score)
-
 				systemPrompt := e.Config.LLM.SystemPrompt
 				if systemPrompt == "" {
 					systemPrompt = inference.DefaultSystemPrompt
@@ -254,19 +252,20 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				var res *inference.AnalysisResult
 
+				cached := false
+
 				if e.Cache != nil {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
 					if err == nil && found {
-						fileOut.Debug("Cache Hit for %s", hit.ADR.Title)
+						cached = true
 						res = cachedRes
 					}
 				}
 
 				if res == nil {
-					fileOut.Debug("Cache Miss. Calling LLM...")
-
 					res, err = inference.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
 					if err != nil {
+						fileOut.Debug("%s", checkOutcomeLine(hit, "failed", false))
 						fileOut.Warn("LLM analysis failed: %v", err)
 						localFailedChecks = append(localFailedChecks, output.FailedCheck{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: err.Error()})
 						continue
@@ -278,6 +277,13 @@ func (e *Engine) Run(ctx context.Context) error {
 						}
 					}
 				}
+
+				outcome := "compliant"
+				if res.Violation {
+					outcome = "violation"
+				}
+
+				fileOut.Debug("%s", checkOutcomeLine(hit, outcome, cached))
 
 				if res.Violation {
 					// Verified against the escaped form of content -- what the LLM
