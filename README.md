@@ -188,7 +188,7 @@ An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-r
 
 #### When a stage fails
 
-By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, counts it in the skipped-files summary, and the run still exits `0`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`. Set `on_error: fail` on a stage to fail the check instead:
 
 ```yaml
 analysis:
@@ -315,9 +315,10 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--all`: Scan all tracked files.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode.
-  - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation.
+  - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
-  - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its own text summary.
+  - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its baseline report as text.
+  - `--output <path>`: Write the report (text or JSON, per `--format`) to `<path>` instead of stdout. The file has no color, stdout stays empty, and the log says where the report was written. A relative path is taken from the directory you ran the command in. The directory must already exist; a missing directory, or a path that is itself a directory, exits `1` before any analysis runs. Also works with `--update-baseline`.
   - `--color <auto|always|never>`: When to color output, default `auto`. `auto` colors only a stream that is a terminal, and turns color off when `NO_COLOR` is set to a non-empty value, `TERM=dumb`, or `CI` is set (so CI logs stay plain; pass `--color=always` to color them). `always` and `never` override all of that. `--format json`'s stdout is never colored.
   - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
 
@@ -327,13 +328,63 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **1**: General error (e.g. not run inside a git repository, baseline file I/O failure), or the command's primary output (results, help, the JSON document) could not be written, e.g. a closed stdout. This takes precedence over every other code except an interrupt.
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
-- **4**: Architectural drift detected.
+- **4**: Architectural drift detected. The report is the result, so no `Error:` line repeats it.
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 - **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
 - **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
-- **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no summary or `--format json` report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
+- **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
 
 Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file and the run exits `0` (see [Ranking Stages](#ranking-stages)).
+
+### Reading a Check Run
+
+In text mode a `check` run produces two outputs. **stdout carries the report**, printed once at the end of the run. **stderr carries the log**: the banner, progress, warnings, and one line per finding as it happens. That lets you keep the report without the noise:
+
+```bash
+archguard check --all > report.txt
+```
+
+The report lists every new violation grouped by file, then everything the run could not check in full, then one summary line. This is a run with one violation and one ADR check that failed:
+
+```
+Violations:
+src/auth.js
+  [VIOLATION] 0007 No Secrets in Logs [Line 2]
+    Reasoning: The login handler writes the user's password to the console.
+    Code: console.log("password: " + user.password);
+
+Failed ADR checks:
+  src/flaky.js: ADR 0007 No Secrets in Logs: analysis failed after 3 retries: request timed out
+
+1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
+```
+
+Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. A run with nothing to report prints one line.
+
+Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
+
+- **Skipped files**: nothing in the file was checked. This includes a file too large to analyze in `--ci` mode.
+- **Partly checked files**: only a truncated view of the file was checked (a `--update-baseline` scan of a large file).
+- **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
+- **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
+
+The log on stderr names each violation on one line, with or without `--debug`:
+
+```
+src/auth.js
+  src/auth.js: violates ADR 0007 (No Secrets in Logs), line 2
+```
+
+With `--debug`, each ADR check also logs its outcome on one line: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
+
+`archguard check --update-baseline` ends with a report in the same way: every recorded entry (file, ADR, line, reason), every violation it could not record and why (the quoted code is not in the file, so it could suppress nothing), and the files not fully checked, then the path written and the totals:
+
+```
+Recorded:
+  src/auth.js: ADR 0007 No Secrets in Logs, line 2 (reason: accepted-debt)
+
+Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
+```
 
 ### Machine-Readable Output
 
@@ -362,7 +413,7 @@ Codes `6` and `7` take precedence over `4`: a run that also found drift still ex
 
 `stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and the ones it dropped with the reason.
 
-When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr.
+When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 
@@ -401,7 +452,7 @@ jobs:
 
 This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on your codebase. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
 
-Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the step log remains the full report. Annotations are not printed under `--format json`.
+Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
 
 #### Other CI Providers
 
