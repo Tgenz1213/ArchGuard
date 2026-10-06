@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -220,7 +221,9 @@ func TestE2E_PipelineOnErrorFail_TakesPrecedenceOverDrift(t *testing.T) {
 	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
 	err := cmd.Run()
 
-	exitError, ok := err.(*exec.ExitError)
+	var exitError *exec.ExitError
+	ok := errors.As(err, &exitError)
+
 	if !ok || exitError.ExitCode() != 6 {
 		t.Fatalf("expected exit code 6, got err %v. stderr: %s", err, errBuf.String())
 	}
@@ -255,7 +258,9 @@ func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T
 	cmd.Env = append(os.Environ(), "ARCHGUARD_API_KEY=mock_key")
 	out, err := cmd.CombinedOutput()
 
-	exitError, ok := err.(*exec.ExitError)
+	var exitError *exec.ExitError
+	ok := errors.As(err, &exitError)
+
 	if !ok || exitError.ExitCode() != 6 {
 		t.Fatalf("expected exit code 6, got err %v. Output: %s", err, out)
 	}

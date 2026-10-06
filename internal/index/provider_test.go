@@ -32,7 +32,7 @@ func TestCompositeProvider_GetADRs_MergesStatsAcrossProviders(t *testing.T) {
 
 	composite := NewCompositeProvider(p1, p2)
 
-	adrs, stats, err := composite.GetADRs(context.Background())
+	adrs, stats, err := composite.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCompositeProvider_GetADRs_PartialFailureKeepsOtherProviderStats(t *test
 
 	composite := NewCompositeProvider(ok, failing)
 
-	adrs, stats, err := composite.GetADRs(context.Background())
+	adrs, stats, err := composite.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("expected no error when only one of two providers fails, got: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestCompositeProvider_GetADRs_AllProvidersFail(t *testing.T) {
 		&fakeProvider{err: errors.New("second failure")},
 	)
 
-	_, _, err := composite.GetADRs(context.Background())
+	_, _, err := composite.GetADRs(t.Context())
 	if err == nil {
 		t.Fatal("expected an error when every provider fails")
 	}
@@ -97,7 +97,7 @@ func TestCompositeProvider_SetPrinter_RoutesFetchWarningThere(t *testing.T) {
 	composite := NewCompositeProvider(ok, failing)
 	composite.SetPrinter(output.New(&buf, false))
 
-	_, _, err := composite.GetADRs(context.Background())
+	_, _, err := composite.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error (only one of two providers failed): %v", err)
 	}

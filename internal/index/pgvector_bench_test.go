@@ -15,17 +15,16 @@ import (
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/tgenz1213/archguard/internal/index"
 )
 
 func TestRandomVector_ReturnsRequestedDimension(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
-	v := randomVector(rng, 1536)
-	assert.Len(t, v, 1536)
-	for _, x := range v {
-		assert.GreaterOrEqual(t, x, float32(-1))
-		assert.LessOrEqual(t, x, float32(1))
+	vec := randomVector(rng, 1536)
+	assert.Len(t, vec, 1536)
+	for _, component := range vec {
+		assert.GreaterOrEqual(t, component, float32(-1))
+		assert.LessOrEqual(t, component, float32(1))
 	}
 }
 
@@ -73,7 +72,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.HNSWOptions{}, nil)
@@ -261,7 +260,7 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.HNSWOptions{}, nil)
@@ -283,7 +282,7 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.HNSWOptions{}, nil)
@@ -354,7 +353,7 @@ var benchScalePoints = []scalePoint{
 
 // Run with -benchtime=1x; see CLAUDE.md.
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	connStr := setupPgContainer(ctx, b)
 
 	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.HNSWOptions{}, nil)
@@ -384,7 +383,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 			"ALTER ROLE postgres RESET enable_bitmapscan",
 			"ALTER ROLE postgres RESET enable_sort",
 		} {
-			_, _ = pool.Exec(ctx, stmt) //nolint:errcheck // best-effort reset during cleanup
+			_, _ = pool.Exec(context.WithoutCancel(ctx), stmt) //nolint:errcheck // best-effort reset during cleanup
 		}
 	})
 
@@ -427,8 +426,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, env benchEnv, sp scale
 		require.NoError(b, seedProjectADRs(ctx, pool, rng, syntheticProject{name: noiseProject, adrs: sp.adrsPerProject, dim: benchEmbeddingDim}))
 	}
 
-	// Without this the planner costs plans off default/absent statistics (~1 row
-	// estimated vs. 100+ actual), which was part of why it avoided HNSW in the first place.
+	// Without stats the planner estimates ~1 row against 100+ actual and avoids HNSW.
 	_, err = pool.Exec(ctx, "ANALYZE archguard_adrs")
 	require.NoError(b, err)
 
@@ -578,15 +576,15 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 	var recallSum float64
 	var resultCountSum int
 
-	for i, q := range queries {
+	for i, query := range queries {
 		start := time.Now()
-		results := store.Search(q, benchThreshold, benchTopK, "")
+		results := store.Search(query, benchThreshold, benchTopK, "")
 		latencies[i] = time.Since(start)
 		resultCountSum += len(results)
 
 		relPaths := make([]string, len(results))
-		for j, r := range results {
-			relPaths[j] = r.ADR.RelPath
+		for hitIndex, hit := range results {
+			relPaths[hitIndex] = hit.ADR.RelPath
 		}
 
 		recallSum += computeRecall(relPaths, groundTruth[i])

@@ -292,10 +292,10 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 		t.Fatalf("expected %d entries, got %d", len(want), len(loaded.Entries))
 	}
 
-	for i, w := range want {
-		if loaded.Entries[i].File != w.File || loaded.Entries[i].ADRID != w.ADRID {
+	for i, wantEntry := range want {
+		if loaded.Entries[i].File != wantEntry.File || loaded.Entries[i].ADRID != wantEntry.ADRID {
 			t.Errorf("entry %d: got (File=%q, ADRID=%q), want (File=%q, ADRID=%q)",
-				i, loaded.Entries[i].File, loaded.Entries[i].ADRID, w.File, w.ADRID)
+				i, loaded.Entries[i].File, loaded.Entries[i].ADRID, wantEntry.File, wantEntry.ADRID)
 		}
 	}
 }

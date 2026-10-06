@@ -7,42 +7,42 @@ import (
 )
 
 func TestComputeSuggestionKey_StableForSameInputs(t *testing.T) {
-	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	first := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
-	if a != b {
-		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
+	second := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	if first != second {
+		t.Errorf("expected identical inputs to produce the same key, got %q and %q", first, second)
 	}
 }
 
 func TestComputeSuggestionKey_ChangesWithSuggestionPrompt(t *testing.T) {
-	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "old template"})
+	first := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "old template"})
 
-	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "new system prompt", SuggestionPromptTemplate: "old template"})
-	if a == b {
+	second := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "new system prompt", SuggestionPromptTemplate: "old template"})
+	if first == second {
 		t.Error("expected a changed suggestion system prompt to change the key")
 	}
 
-	c := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "new template"})
-	if a == c {
+	third := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "old system prompt", SuggestionPromptTemplate: "new template"})
+	if first == third {
 		t.Error("expected a changed suggestion prompt template to change the key")
 	}
 }
 
 func TestComputeSuggestionKey_ChangesWithFilename(t *testing.T) {
-	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "old/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	first := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "old/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "new/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
-	if a == b {
+	second := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "new/path.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+	if first == second {
 		t.Error("expected identical content under a different file path to change the key, since the rendered suggestion prompt includes the file path")
 	}
 }
 
 func TestComputeSuggestionKey_NoAmbiguousFieldBoundaries(t *testing.T) {
-	a := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a||b", FileContent: "c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
+	first := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a||b", FileContent: "c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
 
-	b := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a", FileContent: "b||c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
-	if a == b {
+	second := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "m", ADRContent: "a", FileContent: "b||c", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"})
+	if first == second {
 		t.Error("expected differently-split fields around a literal delimiter-like substring to produce different keys")
 	}
 }
@@ -56,8 +56,7 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 	}
 }
 
-// Fixed digests computed from the pre-#183 positional-argument implementation,
-// pinning field order so a future field reorder can't slip past self-consistency checks alone.
+// Fixed digests pin field order so a field reorder cannot slip past self-consistency checks.
 func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
 	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
@@ -68,19 +67,19 @@ func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
 }
 
 func TestComputeAnalysisKey_StableForSameInputs(t *testing.T) {
-	a := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+	first := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 
-	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
-	if a != b {
-		t.Errorf("expected identical inputs to produce the same key, got %q and %q", a, b)
+	second := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+	if first != second {
+		t.Errorf("expected identical inputs to produce the same key, got %q and %q", first, second)
 	}
 }
 
 func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
-	a := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A", FileContent: "||package main", SystemPrompt: "s", UserPromptTemplate: "t"})
+	first := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A", FileContent: "||package main", SystemPrompt: "s", UserPromptTemplate: "t"})
 
-	b := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A||", FileContent: "package main", SystemPrompt: "s", UserPromptTemplate: "t"})
-	if a == b {
+	second := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "m", ADRContent: "rule-A||", FileContent: "package main", SystemPrompt: "s", UserPromptTemplate: "t"})
+	if first == second {
 		t.Error("expected differently-split adrContent/fileContent around a literal delimiter-like substring to produce different keys")
 	}
 }

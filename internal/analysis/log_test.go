@@ -107,7 +107,7 @@ func TestLog_DebugLogsOneOutcomeLinePerADRCheck(t *testing.T) {
 		}
 
 		return captureStderr(t, func() {
-			if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+			if err := engine.Run(t.Context()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 				t.Errorf("Run() = %v, want nil or drift", err)
 			}
 		})

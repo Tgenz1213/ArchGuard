@@ -73,7 +73,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 
 		sourceRoot := strings.TrimSpace(string(out))
 
-		binDir, err := os.MkdirTemp("", "archguard-e2e-bin")
+		binDir, err := os.MkdirTemp("", "archguard-e2e-bin") //nolint:usetesting // shared by every test; TestMain removes it
 		if err != nil {
 			sharedBinaryErr = fmt.Errorf("failed to create shared binary dir: %w", err)
 			return
@@ -136,8 +136,6 @@ func writeNoSecretsADR(t *testing.T, dir string) {
 	}
 }
 
-// violationFixtureContent returns JS source that trips the mock provider's
-// violation detection.
 func violationFixtureContent() string {
 	return fmt.Sprintf(`
 function sensitiveData() {
@@ -192,7 +190,8 @@ analysis:
 		exitCode := 0
 
 		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
 				exitCode = exitError.ExitCode()
 			} else {
 				t.Fatalf("Binary failed to execute: %v", err)
@@ -225,7 +224,8 @@ analysis:
 				exitCode := 0
 
 				if err != nil {
-					if exitError, ok := err.(*exec.ExitError); ok {
+					var exitError *exec.ExitError
+					if errors.As(err, &exitError) {
 						exitCode = exitError.ExitCode()
 					} else {
 						t.Fatalf("Binary failed to execute: %v", err)
@@ -252,7 +252,8 @@ analysis:
 		exitCode := 0
 
 		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
 				exitCode = exitError.ExitCode()
 			} else {
 				t.Fatalf("Binary failed to execute: %v", err)
@@ -301,7 +302,6 @@ analysis:
 			t.Fatalf("Failed to corrupt index: %v", err)
 		}
 
-		// The index will auto-rebuild because it's corrupt. Then analysis will run and find the violation.
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
 	})
 
@@ -347,7 +347,8 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 			exitCode := 0
 
 			if err != nil {
-				if exitError, ok := err.(*exec.ExitError); ok {
+				var exitError *exec.ExitError
+				if errors.As(err, &exitError) {
 					exitCode = exitError.ExitCode()
 				} else {
 					t.Fatalf("Binary failed to execute: %v", err)
@@ -365,7 +366,6 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	}
 }
 
-// checkReport mirrors internal/cli's --format json document shape.
 type checkReport struct {
 	Violations []struct {
 		File       string `json:"file"`
@@ -410,7 +410,8 @@ func runCheckWithEnv(t *testing.T, dir, binaryPath string, env []string, args ..
 
 	err := cmd.Run()
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			return outBuf.String(), errBuf.String(), exitError.ExitCode()
 		}
 
@@ -628,7 +629,8 @@ analysis:
 		exitCode := 0
 
 		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
 				exitCode = exitError.ExitCode()
 			} else {
 				t.Fatalf("Binary failed to execute: %v", err)
@@ -968,7 +970,9 @@ analysis:
 	exitCode := 0
 
 	if err != nil {
-		exitError, ok := err.(*exec.ExitError)
+		var exitError *exec.ExitError
+		ok := errors.As(err, &exitError)
+
 		if !ok {
 			t.Fatalf("Binary failed to execute: %v", err)
 		}
@@ -1036,7 +1040,9 @@ analysis:
 		exitCode := 0
 
 		if err != nil {
-			exitError, ok := err.(*exec.ExitError)
+			var exitError *exec.ExitError
+			ok := errors.As(err, &exitError)
+
 			if !ok {
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
@@ -1067,7 +1073,9 @@ analysis:
 		exitCode := 0
 
 		if err != nil {
-			exitError, ok := err.(*exec.ExitError)
+			var exitError *exec.ExitError
+			ok := errors.As(err, &exitError)
+
 			if !ok {
 				t.Fatalf("Binary failed to execute: %v", err)
 			}
@@ -1096,8 +1104,7 @@ scope: "**"
 ## Decision
 This ADR is permanently unembeddable: %s`, testutil.MockEmbedFailureTrigger)
 
-// TestE2E_IndexSurvivesPersistentEmbedFailure guards the rebuild loop: a
-// permanently unembeddable ADR must not make every `check` exit 5 forever.
+// A permanently unembeddable ADR must not make every check exit 5.
 func TestE2E_IndexSurvivesPersistentEmbedFailure(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 
@@ -1521,7 +1528,8 @@ function sensitiveData() {
 		exitCode := 0
 
 		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
 				exitCode = exitError.ExitCode()
 			} else {
 				t.Fatalf("Binary failed to execute: %v", err)
@@ -1626,7 +1634,8 @@ analysis:
 	exitCode := 0
 
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			exitCode = exitError.ExitCode()
 		} else {
 			t.Fatalf("Binary failed to execute: %v", err)
@@ -1690,7 +1699,8 @@ function sensitiveData() {
 	exitCode := 0
 
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			exitCode = exitError.ExitCode()
 		} else {
 			t.Fatalf("Binary failed to execute: %v", err)
@@ -1771,7 +1781,8 @@ function sensitiveData() {
 	exitCode := 0
 
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			exitCode = exitError.ExitCode()
 		} else {
 			t.Fatalf("Binary failed to execute: %v", err)
@@ -1845,7 +1856,8 @@ func runIndexOnce(t *testing.T, dir, binaryPath string) (output string, exitCode
 	outputStr := string(out)
 
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			return outputStr, exitError.ExitCode()
 		}
 
@@ -1893,7 +1905,8 @@ func runCheckOnce(t *testing.T, dir, binaryPath, target string) (output string, 
 	outputStr := string(out)
 
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			return outputStr, exitError.ExitCode()
 		}
 

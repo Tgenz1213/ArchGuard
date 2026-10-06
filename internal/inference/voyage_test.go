@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,9 +29,9 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
+	provider := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskQuery)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskQuery)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -74,9 +73,9 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-context-3", server.URL, server.Client())
+	provider := NewVoyageProviderWithBaseURL("test-api-key", "voyage-context-3", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -118,8 +117,6 @@ func TestVoyageProvider_DefaultsEmbedModel(t *testing.T) {
 	}
 }
 
-// TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody guards
-// against doRequest discarding a non-2xx response's JSON error detail.
 func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) {
 	const wantDetail = "model \"bogus-model\" is not a valid Voyage model name"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +131,7 @@ func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) 
 
 	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
 
-	_, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskQuery)
+	_, err := p.CreateEmbedding(t.Context(), "test text", EmbeddingTaskQuery)
 	if err == nil {
 		t.Fatal("expected CreateEmbedding to return an error for a 400 response")
 	}

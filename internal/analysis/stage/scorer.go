@@ -16,7 +16,7 @@ type File interface {
 	QueryText(ctx context.Context) string
 }
 
-// Scorers only score (one value per candidate, in candidate order, on the scale of their stage's Threshold); dropping is a Stage's job.
+// A Scorer only scores, one value per candidate in order; dropping is a Stage's job.
 type Scorer interface {
 	Score(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]float64, error)
 }

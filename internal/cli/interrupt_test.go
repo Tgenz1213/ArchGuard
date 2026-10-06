@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 )
@@ -9,18 +10,7 @@ import (
 func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 	origArgs := os.Args
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		os.Args = origArgs
-
-		if err := os.Chdir(origWd); err != nil {
-			t.Errorf("restoring working directory: %v", err)
-		}
-	}()
+	defer func() { os.Args = origArgs }()
 
 	setupExecuteTestRepo(t)
 
@@ -35,15 +25,15 @@ func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 	)
 
 	captureStdout(t, func() {
-		code, execErr = Execute(ctx, ProviderFactories{})
+		code, execErr = Execute(ctx, "test", ProviderFactories{})
 	})
 
 	if code != ExitInterrupted {
 		t.Fatalf("exit code = %d, want %d (err: %v)", code, ExitInterrupted, execErr)
 	}
 
-	if execErr == nil || execErr.Error() != "interrupted" {
-		t.Errorf("err = %v, want \"interrupted\"", execErr)
+	if !errors.Is(execErr, errInterrupted) {
+		t.Errorf("err = %v, want errInterrupted", execErr)
 	}
 }
 
@@ -61,7 +51,7 @@ func TestExecute_NilErrorIsNotRemappedWhenCancelled(t *testing.T) {
 	captureStdout(t, func() {
 		var err error
 
-		code, err = Execute(ctx, ProviderFactories{})
+		code, err = Execute(ctx, "test", ProviderFactories{})
 		if err != nil {
 			t.Errorf("Execute() error = %v, want nil", err)
 		}

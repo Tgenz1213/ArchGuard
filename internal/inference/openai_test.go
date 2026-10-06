@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -47,7 +46,7 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 
 	p := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
 
-	res, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -80,9 +79,9 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
+	provider := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -111,36 +110,36 @@ func TestOpenAIProvider_ChatErrorOnNon200(t *testing.T) {
 
 	p := NewOpenAIProviderWithBaseURL("bad-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
 
-	_, err := p.Chat(context.Background(), "system", "user")
+	_, err := p.Chat(t.Context(), "system", "user")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 }
 
 func TestOpenAIProvider_CountTokens(t *testing.T) {
-	p := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
+	provider := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(t.Context(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
 	// "Hello, world!" is 4 tokens under cl100k_base (the encoding gpt-3.5-turbo
 	// resolves to): ["Hello", ",", " world", "!"].
-	if n != 4 {
-		t.Errorf("expected 4 tokens, got %d", n)
+	if count != 4 {
+		t.Errorf("expected 4 tokens, got %d", count)
 	}
 }
 
 func TestOpenAIProvider_CountTokens_UnknownModelFallsBackToCl100kBase(t *testing.T) {
-	p := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
+	provider := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(t.Context(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != 4 {
-		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", n)
+	if count != 4 {
+		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", count)
 	}
 }

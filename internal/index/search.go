@@ -62,16 +62,16 @@ func (s *LocalStore) SearchWithDebugInfo(queryEmbedding []float32, threshold flo
 	return hits, rejected, truncated
 }
 
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) {
+func cosineSimilarity(lhs, rhs []float32) float64 {
+	if len(lhs) != len(rhs) {
 		return 0
 	}
 
 	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += float64(a[i] * b[i])
-		normA += float64(a[i] * a[i])
-		normB += float64(b[i] * b[i])
+	for i := range lhs {
+		dotProduct += float64(lhs[i] * rhs[i])
+		normA += float64(lhs[i] * lhs[i])
+		normB += float64(rhs[i] * rhs[i])
 	}
 
 	if normA == 0 || normB == 0 {

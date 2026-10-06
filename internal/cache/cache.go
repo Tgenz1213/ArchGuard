@@ -31,28 +31,28 @@ func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
 		return nil, false, nil
 	}
 
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
 	}
 
-	var res inference.AnalysisResult
-	if err := json.Unmarshal(data, &res); err != nil {
+	var result inference.AnalysisResult
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, false, err // Corrupt cache? Treat as miss.
 	}
 
-	return &res, true, nil
+	return &result, true, nil
 }
 
-func (c *Cache) Put(key string, res *inference.AnalysisResult) error {
+func (c *Cache) Put(key string, result *inference.AnalysisResult) error {
 	path := filepath.Join(c.Dir, key+".json")
 
-	data, err := json.Marshal(res)
+	encoded, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, encoded, 0644)
 }
 
 // hashParts length-prefixes each part before hashing so e.g. ("a||b","c")
@@ -103,7 +103,7 @@ func (c *Cache) suggestionPath(key string) string {
 }
 
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {
-	data, err := os.ReadFile(c.suggestionPath(key))
+	raw, err := os.ReadFile(c.suggestionPath(key))
 	if os.IsNotExist(err) {
 		return "", false, nil
 	}
@@ -113,7 +113,7 @@ func (c *Cache) GetSuggestion(key string) (string, bool, error) {
 	}
 
 	var suggestion string
-	if err := json.Unmarshal(data, &suggestion); err != nil {
+	if err := json.Unmarshal(raw, &suggestion); err != nil {
 		return "", false, err // Corrupt cache? Treat as miss.
 	}
 
@@ -126,10 +126,10 @@ func (c *Cache) PutSuggestion(key, suggestion string) error {
 		return err
 	}
 
-	data, err := json.Marshal(suggestion)
+	encoded, err := json.Marshal(suggestion)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, key+".json"), data, 0644)
+	return os.WriteFile(filepath.Join(dir, key+".json"), encoded, 0644)
 }

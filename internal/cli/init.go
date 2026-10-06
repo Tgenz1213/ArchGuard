@@ -8,98 +8,158 @@ import (
 	"strings"
 )
 
+type prompter struct{ scanner *bufio.Scanner }
+
 func runInit() error {
-	scanner := bufio.NewScanner(os.Stdin)
+	in := prompter{scanner: bufio.NewScanner(os.Stdin)}
 
-	fmt.Printf("Enter ADR directory path [%s]: ", defaultADRPath)
-	scanner.Scan()
-
-	if scanner.Err() != nil {
-		return fmt.Errorf("input error: %v", scanner.Err())
+	adrPath, err := in.chooseADRDir()
+	if err != nil {
+		return err
 	}
 
-	adrPath := strings.TrimSpace(scanner.Text())
+	proceed, err := in.confirmConfigOverwrite()
+	if err != nil || !proceed {
+		return err
+	}
+
+	if err := writeInitFiles(adrPath); err != nil {
+		return err
+	}
+
+	printNextSteps(adrPath)
+
+	return nil
+}
+
+func (p prompter) ask(question string) (string, error) {
+	fmt.Print(question)
+	p.scanner.Scan()
+
+	if err := p.scanner.Err(); err != nil {
+		return "", fmt.Errorf("input error: %w", err)
+	}
+
+	return strings.TrimSpace(p.scanner.Text()), nil
+}
+
+func (p prompter) confirm(question string) (bool, error) {
+	answer, err := p.ask(question)
+	if err != nil {
+		return false, err
+	}
+
+	return strings.ToLower(answer) == "y", nil
+}
+
+func (p prompter) chooseADRDir() (string, error) {
+	adrPath, err := p.ask(fmt.Sprintf("Enter ADR directory path [%s]: ", defaultADRPath))
+	if err != nil {
+		return "", err
+	}
+
 	if adrPath == "" {
 		adrPath = defaultADRPath
 	}
 
-	createdDir := false
+	if _, err := os.Stat(adrPath); !os.IsNotExist(err) {
+		return adrPath, nil
+	}
 
-	if _, err := os.Stat(adrPath); os.IsNotExist(err) {
-		fmt.Printf("Directory '%s' does not exist. Create it now? (y/n): ", adrPath)
-		scanner.Scan()
+	created, err := p.createADRDir(adrPath)
+	if err != nil {
+		return "", err
+	}
 
-		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
-		}
-
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
-			if err := os.MkdirAll(adrPath, 0755); err != nil {
-				return fmt.Errorf("failed to create ADR directory: %v", err)
-			}
-
-			fmt.Printf("Created directory: %s\n", adrPath)
-			createdDir = true
-		} else {
-			fmt.Println("Skipping directory creation.")
+	if created {
+		if err := p.offerTemplate(adrPath); err != nil {
+			return "", err
 		}
 	}
 
-	if createdDir {
-		fmt.Print("Would you like to include a standard ADR_TEMPLATE.md to get started? (y/n): ")
-		scanner.Scan()
+	return adrPath, nil
+}
 
-		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
-		}
-
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
-			templatePath := filepath.Join(adrPath, "ADR_TEMPLATE.md")
-			if err := os.WriteFile(templatePath, []byte(adrTemplateContent), 0644); err != nil {
-				return fmt.Errorf("failed to create ADR template: %v", err)
-			}
-
-			fmt.Printf("Created template: %s\n", templatePath)
-		}
+func (p prompter) createADRDir(adrPath string) (bool, error) {
+	create, err := p.confirm(fmt.Sprintf("Directory '%s' does not exist. Create it now? (y/n): ", adrPath))
+	if err != nil {
+		return false, err
 	}
 
-	if _, err := os.Stat(configFilename); err == nil {
-		fmt.Printf("%s already exists. Overwrite with defaults? (y/n): ", configFilename)
-		scanner.Scan()
-
-		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
-		}
-
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
-			fmt.Println("Initialization cancelled.")
-			return nil
-		}
+	if !create {
+		fmt.Println("Skipping directory creation.")
+		return false, nil
 	}
 
-	configContent := generateConfig(adrPath)
-	if err := os.WriteFile(configFilename, []byte(configContent), 0644); err != nil {
-		return fmt.Errorf("failed to create config file: %v", err)
+	if err := os.MkdirAll(adrPath, 0755); err != nil {
+		return false, fmt.Errorf("failed to create ADR directory: %w", err)
+	}
+
+	fmt.Printf("Created directory: %s\n", adrPath)
+
+	return true, nil
+}
+
+func (p prompter) offerTemplate(adrPath string) error {
+	include, err := p.confirm("Would you like to include a standard ADR_TEMPLATE.md to get started? (y/n): ")
+	if err != nil || !include {
+		return err
+	}
+
+	templatePath := filepath.Join(adrPath, "ADR_TEMPLATE.md")
+	if err := os.WriteFile(templatePath, []byte(adrTemplateContent), 0644); err != nil {
+		return fmt.Errorf("failed to create ADR template: %w", err)
+	}
+
+	fmt.Printf("Created template: %s\n", templatePath)
+
+	return nil
+}
+
+func (p prompter) confirmConfigOverwrite() (bool, error) {
+	if _, err := os.Stat(configFilename); err != nil {
+		return true, nil
+	}
+
+	overwrite, err := p.confirm(fmt.Sprintf("%s already exists. Overwrite with defaults? (y/n): ", configFilename))
+	if err != nil {
+		return false, err
+	}
+
+	if !overwrite {
+		fmt.Println("Initialization cancelled.")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func writeInitFiles(adrPath string) error {
+	if err := os.WriteFile(configFilename, []byte(generateConfig(adrPath)), 0644); err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
 	fmt.Printf("Created config: %s\n", configFilename)
 
 	if err := os.MkdirAll(".archguard/cache", 0755); err != nil {
-		return fmt.Errorf("failed to create .archguard directory: %v", err)
+		return fmt.Errorf("failed to create .archguard directory: %w", err)
 	}
 
 	fmt.Println("Created directory: .archguard/cache")
 
 	if err := ensureGitignore(); err != nil {
-		return fmt.Errorf("failed to update .gitignore: %v", err)
+		return fmt.Errorf("failed to update .gitignore: %w", err)
 	}
 
+	return nil
+}
+
+func printNextSteps(adrPath string) {
 	fmt.Println("\nArchGuard initialized successfully!")
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Add your ADR files to", adrPath)
 	fmt.Println("  2. Run: archguard index")
 	fmt.Println("  3. Run: archguard check")
-	return nil
 }
 
 func generateConfig(adrPath string) string {
@@ -132,7 +192,7 @@ analysis:
 `, adrPath)
 }
 
-func ensureGitignore() error {
+func ensureGitignore() (err error) {
 	const gitignorePath = ".gitignore"
 	const archguardEntry = ".archguard/"
 

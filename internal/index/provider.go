@@ -6,9 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/tgenz1213/archguard/internal/output"
+	"golang.org/x/sync/errgroup"
 )
 
 type FetchStats struct {
@@ -57,18 +56,17 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 	var stats FetchStats
 	var errs []error
 	var mu sync.Mutex
-	var g errgroup.Group
+	var fetchGroup errgroup.Group
 
-	for _, p := range c.providers {
-		p := p
-		g.Go(func() error {
-			adrs, s, err := p.GetADRs(ctx)
+	for _, provider := range c.providers {
+		fetchGroup.Go(func() error {
+			adrs, s, err := provider.GetADRs(ctx)
 
 			mu.Lock()
 			defer mu.Unlock()
 
 			if err != nil {
-				// Do not crash the entire run if one remote provider drops connection.
+				// One failing provider must not fail the run.
 				c.out.Warn("failed to fetch ADRs from a provider: %v", err)
 				errs = append(errs, err)
 				return nil
@@ -83,12 +81,12 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	if err := fetchGroup.Wait(); err != nil {
 		return nil, FetchStats{}, err
 	}
 
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {
-		return nil, FetchStats{}, fmt.Errorf("all providers failed to fetch ADRs: %v", errs[0])
+		return nil, FetchStats{}, fmt.Errorf("all providers failed to fetch ADRs: %w", errs[0])
 	}
 
 	return allADRs, stats, nil

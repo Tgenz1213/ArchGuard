@@ -86,14 +86,14 @@ func TestLocalStore_BuildIndex_RulesOnlyEditUpdatesRulesWithoutReembedding(t *te
 	adr := ADR{ID: "0001", RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "Body"}
 	store := NewLocalStore(1)
 
-	if _, err := store.BuildIndex(context.Background(), "model", 2, provider, &mockADRProvider{adrs: []ADR{adr}}); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "model", 2, provider, &mockADRProvider{adrs: []ADR{adr}}); err != nil {
 		t.Fatal(err)
 	}
 
 	hashBefore := store.Hash
 
 	adr.Rules = statements("New rule")
-	if _, err := store.BuildIndex(context.Background(), "model", 2, provider, &mockADRProvider{adrs: []ADR{adr}}); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "model", 2, provider, &mockADRProvider{adrs: []ADR{adr}}); err != nil {
 		t.Fatal(err)
 	}
 

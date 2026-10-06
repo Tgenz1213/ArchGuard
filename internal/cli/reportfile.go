@@ -16,18 +16,18 @@ func checkReportDestination(path string) error {
 		return fmt.Errorf("cannot write the report to %s: it is the baseline file", path)
 	}
 
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
+	if stat, err := os.Stat(path); err == nil && stat.IsDir() {
 		return fmt.Errorf("cannot write the report to %s: it is a directory", path)
 	}
 
 	dir := filepath.Dir(path)
 
-	info, err := os.Stat(dir)
+	stat, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("cannot write the report to %s: %w", path, err)
 	}
 
-	if !info.IsDir() {
+	if !stat.IsDir() {
 		return fmt.Errorf("cannot write the report to %s: %s is not a directory", path, dir)
 	}
 
@@ -55,12 +55,12 @@ func isBaselineFile(path string) bool {
 	return filepath.Clean(path) == baselinePath
 }
 
-func saveReport(path string, data []byte) error {
+func saveReport(path string, content []byte) error {
 	if err := checkReportDestination(path); err != nil {
 		return err
 	}
 
-	if err := atomicfile.Write(path, data); err != nil {
+	if err := atomicfile.Write(path, content); err != nil {
 		return fmt.Errorf("failed to write the report to %s: %w", path, err)
 	}
 

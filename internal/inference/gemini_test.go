@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -101,7 +100,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	res, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -127,7 +126,6 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
-		// Validate request body
 		var reqBody struct {
 			Requests []struct {
 				Content struct {
@@ -177,14 +175,14 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := &GeminiProvider{
+	provider := &GeminiProvider{
 		apiKey:     "test-api-key",
 		embedModel: "text-embedding-004",
 		baseURL:    server.URL,
 		client:     server.Client(),
 	}
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -201,8 +199,6 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-// TestGeminiProvider_CreateEmbedding_TaskType asserts CreateEmbedding sends
-// Gemini's own TaskType string for each EmbeddingTaskType role.
 func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -256,7 +252,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 				client:     server.Client(),
 			}
 
-			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
+			if _, err := p.CreateEmbedding(t.Context(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
 			}
 
@@ -268,9 +264,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 }
 
 func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
-	// Test that API keys with special characters are properly sent in header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check that the API key is properly received in header
 		key := r.Header.Get("x-goog-api-key")
 		if key != "test+key&with=special%chars" {
 			t.Errorf("API key header mismatch. Expected 'test+key&with=special%%chars', got: %s", key)
@@ -322,7 +316,7 @@ func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system", "user")
+	_, err := p.Chat(t.Context(), "system", "user")
 	if err != nil {
 		t.Fatalf("Chat failed with special characters in API key: %v", err)
 	}
@@ -347,7 +341,7 @@ func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -381,7 +375,7 @@ func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -415,13 +409,12 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
 
 	errMsg := err.Error()
-	// Should include the raw body when message is empty
 	if !strings.Contains(errMsg, `{"error": {"message": ""}}`) {
 		t.Errorf("Expected error to contain raw body when message is empty, got: %s", errMsg)
 	}
@@ -464,19 +457,19 @@ func TestGeminiProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := &GeminiProvider{
+	provider := &GeminiProvider{
 		apiKey:  "test-api-key",
 		model:   "gemini-1.5-flash",
 		baseURL: server.URL,
 		client:  server.Client(),
 	}
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(t.Context(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != 5 {
-		t.Errorf("expected 5 tokens, got %d", n)
+	if count != 5 {
+		t.Errorf("expected 5 tokens, got %d", count)
 	}
 }

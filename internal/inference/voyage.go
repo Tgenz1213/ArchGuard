@@ -26,7 +26,6 @@ func NewVoyageProvider(apiKey, embedModel string) *VoyageProvider {
 	return NewVoyageProviderWithBaseURL(apiKey, embedModel, voyageBaseURL, &http.Client{})
 }
 
-// NewVoyageProviderWithBaseURL lets tests inject an httptest.Server.
 func NewVoyageProviderWithBaseURL(apiKey, embedModel, baseURL string, httpClient *http.Client) *VoyageProvider {
 	if embedModel == "" {
 		embedModel = defaultVoyageModel

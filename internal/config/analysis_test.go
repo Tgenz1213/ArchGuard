@@ -27,9 +27,9 @@ func TestLoadConfig_RulesHeading(t *testing.T) {
 
 func TestAnalysis_RelevantADRLimit(t *testing.T) {
 	tests := []struct {
-		name string
-		max  int
-		want int
+		name  string
+		limit int
+		want  int
 	}{
 		{"unset", 0, 3},
 		{"negative", -4, 3},
@@ -37,7 +37,7 @@ func TestAnalysis_RelevantADRLimit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := (Analysis{MaxRelevantADRs: tt.max}).RelevantADRLimit(); got != tt.want {
+			if got := (Analysis{MaxRelevantADRs: tt.limit}).RelevantADRLimit(); got != tt.want {
 				t.Errorf("RelevantADRLimit() = %d, want %d", got, tt.want)
 			}
 		})

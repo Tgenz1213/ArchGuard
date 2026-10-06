@@ -30,6 +30,18 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 		return nil, nil
 	}
 
+	if err := checkMappedFields(mappings); err != nil {
+		return nil, err
+	}
+
+	if err := checkSourceKeyCollisions(mappings); err != nil {
+		return nil, err
+	}
+
+	return mappings, nil
+}
+
+func checkMappedFields(mappings map[string]string) error {
 	canonicalFields := make(map[string]bool, len(index.CanonicalFrontMatterFields))
 	for _, field := range index.CanonicalFrontMatterFields {
 		canonicalFields[field] = true
@@ -37,12 +49,20 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 
 	for canonical := range mappings {
 		if !canonicalFields[canonical] {
-			return nil, fmt.Errorf("unknown analysis.frontmatter_mappings field %q: must be one of %s",
-				canonical, strings.Join(index.CanonicalFrontMatterFields, ", "))
+			return fmt.Errorf(
+				"unknown analysis.frontmatter_mappings field %q: must be one of %s",
+				canonical,
+				strings.Join(index.CanonicalFrontMatterFields, ", "),
+			)
 		}
 	}
 
+	return nil
+}
+
+func checkSourceKeyCollisions(mappings map[string]string) error {
 	sourceKeyOwner := make(map[string]string, len(index.CanonicalFrontMatterFields))
+
 	for _, canonical := range index.CanonicalFrontMatterFields {
 		sourceKey := canonical
 		if mapped, ok := mappings[canonical]; ok && mapped != "" {
@@ -50,21 +70,25 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 		}
 
 		if owner, exists := sourceKeyOwner[sourceKey]; exists {
-			err := fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
-
-			for _, field := range []string{owner, canonical} {
-				if field == sourceKey {
-					err = fmt.Errorf("%w; %q reads that key by default, so map %q to another key (e.g. %s: %s_field)", err, field, field, field, field)
-				}
-			}
-
-			return nil, err
+			return collisionError(owner, canonical, sourceKey)
 		}
 
 		sourceKeyOwner[sourceKey] = canonical
 	}
 
-	return mappings, nil
+	return nil
+}
+
+func collisionError(owner, canonical, sourceKey string) error {
+	err := fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
+
+	for _, field := range []string{owner, canonical} {
+		if field == sourceKey {
+			err = fmt.Errorf("%w; %q reads that key by default, so map %q to another key (e.g. %s: %s_field)", err, field, field, field, field)
+		}
+	}
+
+	return err
 }
 
 // Invariants the YAML schema can't express (docs/arch/0004).

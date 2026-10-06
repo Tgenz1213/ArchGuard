@@ -13,22 +13,22 @@ import (
 func brokenPipe(t *testing.T) *os.File {
 	t.Helper()
 
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := r.Close(); err != nil {
+	if err := reader.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Cleanup(func() {
-		if err := w.Close(); err != nil {
+		if err := writer.Close(); err != nil {
 			t.Errorf("closing pipe writer: %v", err)
 		}
 	})
 
-	return w
+	return writer
 }
 
 func TestE2E_BrokenStdoutPipeExitsOneInsteadOfSIGPIPE(t *testing.T) {

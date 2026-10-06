@@ -95,7 +95,7 @@ func main() {
 	}
 
 	factories := cli.ProviderFactories{Chat: chatProviderFactory, Embed: embedProviderFactory}
-	exitCode, err := cli.Execute(ctx, factories)
+	exitCode, err := cli.Execute(ctx, "e2e", factories)
 
 	stop()
 
@@ -106,7 +106,7 @@ func main() {
 	os.Exit(int(exitCode))
 }
 
-// defaultMockEmbedding replicates inference.MockProvider's own zero-value CreateEmbedding fallback (non-zero vector, avoids NaN in cosine similarity).
+// Mirrors inference.MockProvider's default embedding: non-zero, so cosine similarity avoids NaN.
 func defaultMockEmbedding(dim int) []float32 {
 	if dim == 0 {
 		dim = 1536

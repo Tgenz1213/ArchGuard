@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,7 +33,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 
 	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	res, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -63,9 +62,9 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -82,8 +81,6 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-// TestOllamaProvider_CreateEmbedding_NomicTaskPrefix asserts the nomic
-// search_query:/search_document: prefix is gated to nomic-embed-text models.
 func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -121,7 +118,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 
 			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", c.embedModel, 0.0)
 
-			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
+			if _, err := p.CreateEmbedding(t.Context(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
 			}
 
@@ -182,14 +179,14 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	n, err := p.CountTokens(context.Background(), representativeString)
+	count, err := provider.CountTokens(t.Context(), representativeString)
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != realPromptEvalCount {
-		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, n)
+	if count != realPromptEvalCount {
+		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, count)
 	}
 }

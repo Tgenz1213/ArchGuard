@@ -25,12 +25,12 @@ func TestTelemetry_SumsReceivedKeptAndTimeAcrossCalls(t *testing.T) {
 	})
 
 	for range 2 {
-		kept, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+		kept, err := tel.Apply(t.Context(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
 		if err != nil {
 			t.Fatalf("Apply: %v", err)
 		}
 
-		if _, err := tel.Apply(context.Background(), 1, fakeFile{}, stage.NoDebug, kept); err != nil {
+		if _, err := tel.Apply(t.Context(), 1, fakeFile{}, stage.NoDebug, kept); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -65,7 +65,7 @@ func TestTelemetry_ListsEveryStageWithZerosBeforeAnyCall(t *testing.T) {
 func TestTelemetry_StageThatReceivesNothingReportsZeros(t *testing.T) {
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores()}})
 
-	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, nil); err != nil {
+	if _, err := tel.Apply(t.Context(), 0, fakeFile{}, stage.NoDebug, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func (d slowDebug) Debug(string, ...any) { time.Sleep(d.delay) }
 func TestTelemetry_EmptyInputAddsNoTimeEvenWhenDebugOutputIsSlow(t *testing.T) {
 	tel := stage.NewTelemetry([]stage.Stage{{Name: "rank", Scorer: fixedScores()}})
 
-	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, slowDebug{delay: 5 * time.Millisecond}, nil); err != nil {
+	if _, err := tel.Apply(t.Context(), 0, fakeFile{}, slowDebug{delay: 5 * time.Millisecond}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -99,7 +99,7 @@ func TestTelemetry_FailedStageCountsReceivedAndTimeButKeepsNothing(t *testing.T)
 		return nil, boom
 	})}})
 
-	kept, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b"))
+	kept, err := tel.Apply(t.Context(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b"))
 	if !errors.Is(err, boom) || len(kept) != 0 {
 		t.Fatalf("kept=%v err=%v, want the scorer's error and nothing kept", kept, err)
 	}
@@ -115,7 +115,7 @@ func TestTelemetry_StatsReturnsACopy(t *testing.T) {
 	first := tel.Stats()
 	first[0].Kept = 99
 
-	if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a")); err != nil {
+	if _, err := tel.Apply(t.Context(), 0, fakeFile{}, stage.NoDebug, candidates("a")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -130,7 +130,7 @@ func TestTelemetry_ConcurrentCallsDoNotLoseCounts(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 50 {
 		wg.Go(func() {
-			if _, err := tel.Apply(context.Background(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b")); err != nil {
+			if _, err := tel.Apply(t.Context(), 0, fakeFile{}, stage.NoDebug, candidates("a", "b")); err != nil {
 				t.Errorf("Apply: %v", err)
 			}
 		})

@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// MockProvider is defined in mock.go
-
 func TestAnalyzeDrift_Retry(t *testing.T) {
 	attempts := 0
 	provider := &MockProvider{
@@ -24,7 +22,7 @@ func TestAnalyzeDrift_Retry(t *testing.T) {
 	}
 
 	start := time.Now()
-	res, err := AnalyzeDrift(context.Background(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
+	res, err := AnalyzeDrift(t.Context(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
 	duration := time.Since(start)
 
 	if err != nil {
@@ -53,7 +51,7 @@ func TestAnalyzeDrift_MaxRetriesExceeded(t *testing.T) {
 		},
 	}
 
-	_, err := AnalyzeDrift(context.Background(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
+	_, err := AnalyzeDrift(t.Context(), provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -70,7 +68,7 @@ func TestAnalyzeDrift_ContextCancelled(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	_, err := AnalyzeDrift(ctx, provider, DriftInput{ADRContent: "adr", CodeContext: "code", Filename: "file.go"}, "system")

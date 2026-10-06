@@ -45,7 +45,6 @@ func New(w io.Writer, debug bool, opts ...Option) *Printer {
 	return &Printer{sink: s, debug: debug}
 }
 
-// Err returns the first failed write of primary output, or nil.
 func (p *Printer) Err() error {
 	out := p.out()
 
@@ -67,7 +66,6 @@ func (p *Printer) DebugEnabled() bool {
 	return p != nil && p.debug
 }
 
-// Result prints a line of the command's primary output, such as a summary.
 func (p *Printer) Result(format string, args ...any) { p.line(lineRole{result: true}, format, args...) }
 
 func (p *Printer) Info(format string, args ...any) { p.line(lineRole{}, format, args...) }
@@ -134,8 +132,8 @@ func (p *Printer) Flush() {
 
 	if p.header != "" && p.sink.buf.Len() > 0 {
 		header := strings.Split(p.header, "\n")
-		for i, l := range header {
-			header[i] = p.sink.paint(p.headerStyle, l)
+		for i, headerLine := range header {
+			header[i] = p.sink.paint(p.headerStyle, headerLine)
 		}
 
 		block.WriteString(strings.Repeat(indentUnit, p.indent-1) + strings.Join(header, "\n") + "\n")
@@ -180,34 +178,34 @@ func (p *Printer) line(role lineRole, format string, args ...any) {
 	continuation := strings.Repeat(" ", len(role.label))
 	lines := strings.Split(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"), "\n")
 
-	var b strings.Builder
+	var block strings.Builder
 
-	b.WriteString(prefix + out.paint(role.lineStyle, out.paint(role.labelStyle, role.label)+lines[0]) + "\n")
+	block.WriteString(prefix + out.paint(role.lineStyle, out.paint(role.labelStyle, role.label)+lines[0]) + "\n")
 
-	for _, l := range lines[1:] {
-		b.WriteString(prefix + out.paint(role.lineStyle, continuation+l) + "\n")
+	for _, text := range lines[1:] {
+		block.WriteString(prefix + out.paint(role.lineStyle, continuation+text) + "\n")
 	}
 
-	p.write(b.String(), false, role.result)
+	p.write(block.String(), false, role.result)
 }
 
 // write ends a pending progress line before any full line, so a warning printed
 // mid-progress starts on its own line. A group's result write error is recorded at Flush.
-func (p *Printer) write(s string, partial, result bool) {
+func (p *Printer) write(text string, partial, result bool) {
 	out := p.out()
 
 	out.mu.Lock()
 	defer out.mu.Unlock()
 
-	w := out.dest()
+	dest := out.dest()
 
 	var err error
 	if out.midLine && !partial {
-		_, err = io.WriteString(w, "\n")
+		_, err = io.WriteString(dest, "\n")
 	}
 
 	if err == nil {
-		_, err = io.WriteString(w, s)
+		_, err = io.WriteString(dest, text)
 	}
 
 	out.midLine = partial

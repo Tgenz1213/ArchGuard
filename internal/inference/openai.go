@@ -23,7 +23,6 @@ func NewOpenAIProvider(apiKey, model, embedModel string) *OpenAIProvider {
 	return NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, openAIBaseURL, &http.Client{})
 }
 
-// NewOpenAIProviderWithBaseURL lets tests inject an httptest.Server.
 func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, httpClient *http.Client) *OpenAIProvider {
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
@@ -74,8 +73,8 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 
 	src := resp.Data[0].Embedding
 	embedding := make([]float32, len(src))
-	for i, v := range src {
-		embedding[i] = float32(v)
+	for i, value := range src {
+		embedding[i] = float32(value)
 	}
 
 	return embedding, nil

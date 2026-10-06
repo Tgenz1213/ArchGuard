@@ -8,12 +8,8 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
-
 	"github.com/tgenz1213/archguard/internal/output"
 )
-
-// Version is set by cmd/archguard from build-time ldflags.
-var Version = "dev"
 
 type commandLine struct {
 	Version versionFlag `short:"v" help:"Print version information."`
@@ -53,8 +49,8 @@ func (c checkCmd) jsonOutput() bool {
 
 type versionFlag bool
 
-func (versionFlag) BeforeReset(app *kong.Kong) error {
-	if _, err := fmt.Fprintf(app.Stdout, "ArchGuard version %s\n", Version); err != nil {
+func (versionFlag) BeforeReset(app *kong.Kong, vars kong.Vars) error {
+	if _, err := fmt.Fprintf(app.Stdout, "ArchGuard version %s\n", vars["version"]); err != nil {
 		return err
 	}
 
@@ -81,17 +77,19 @@ func (inv *invocation) color() output.ColorMode {
 }
 
 // A nil invocation means the command line was fully handled here: help, version, or a usage error.
-func parseCommandLine(args []string, stdout, stderr io.Writer) (*invocation, ExitCode, error) {
+func parseCommandLine(args []string, stdout, stderr io.Writer, version string) (*invocation, ExitCode, error) {
 	var cl commandLine
 
 	w := &writeRecorder{w: stdout}
 	exited := -1
 
-	parser, err := kong.New(&cl,
+	parser, err := kong.New(
+		&cl,
 		kong.Name("archguard"),
 		kong.Description("Checks changed code against the rules in your Architectural Decision Records."),
 		kong.Writers(w, stderr),
 		kong.Exit(func(code int) { exited = code }),
+		kong.Vars{"version": version},
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	)
 	if err != nil {
@@ -129,8 +127,8 @@ type writeRecorder struct {
 	err error
 }
 
-func (r *writeRecorder) Write(p []byte) (int, error) {
-	n, err := r.w.Write(p)
+func (r *writeRecorder) Write(payload []byte) (int, error) {
+	n, err := r.w.Write(payload)
 	if err != nil && r.err == nil {
 		r.err = err
 	}

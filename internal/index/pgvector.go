@@ -22,8 +22,7 @@ const defaultReindexThreshold = 0.20
 
 const hnswIndexName = "archguard_adrs_embedding_idx"
 
-// HNSWOptions controls PgStore's HNSW tuning. *bool fields default to
-// true when nil -- a plain bool can't distinguish "unset" from "false".
+// A nil *bool means enabled; a plain bool can't tell unset from false.
 type HNSWOptions struct {
 	Enabled       *bool    // nil = enabled
 	Threshold     *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
@@ -142,8 +141,6 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	}, nil
 }
 
-// Pool exposes the store's connection pool for integration tests that need to
-// inspect real pooled-connection state (e.g. AfterConnect-applied GUCs).
 func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
 
 func (s *PgStore) Close() {
@@ -348,7 +345,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 
 	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
 
-	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -358,8 +355,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 		}
 
 		var mu sync.Mutex
-		g := new(errgroup.Group)
-		g.SetLimit(concurrency)
+		embedGroup := new(errgroup.Group)
+		embedGroup.SetLimit(concurrency)
 		progress := s.out.Progress()
 
 		markFailed := func(idx int, err error) {
@@ -372,7 +369,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
-			g.Go(func() error {
+			embedGroup.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
 				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
@@ -408,7 +405,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 			})
 		}
 
-		err := g.Wait()
+		err := embedGroup.Wait()
 		progress.Done()
 
 		if err != nil {

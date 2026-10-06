@@ -40,8 +40,8 @@ func candidatesFor(t *testing.T, store *index.LocalStore) []stage.Candidate {
 	}
 
 	out := make([]stage.Candidate, len(scoped))
-	for i, r := range scoped {
-		out[i] = stage.Candidate{ADR: r.ADR}
+	for i, scopedADR := range scoped {
+		out[i] = stage.Candidate{ADR: scopedADR.ADR}
 	}
 
 	return out
@@ -51,7 +51,7 @@ func TestCosineStage_KeepsAboveThresholdBestFirst(t *testing.T) {
 	store := cosineStore(cosineADR("far", 0, 1), cosineADR("near", 1, 0), cosineADR("mid", 1, 1))
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.5, 5)
 
-	got, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestCosineStage_HonorsPerADRThresholdBothWays(t *testing.T) {
 	store := cosineStore(tooStrict, lowGlobal)
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.9, 5)
 
-	got, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCosineStage_SecondStageSeesOnlyEarlierSurvivors(t *testing.T) {
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0, 5)
 	narrowed := candidatesFor(t, store)[:1]
 
-	got, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, narrowed)
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, narrowed)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.9, 5)
 	var buf bytes.Buffer
 
-	if _, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, output.New(&buf, true), candidatesFor(t, store)); err != nil {
+	if _, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, output.New(&buf, true), candidatesFor(t, store)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.
 	store := cosineStore(cosineADR("a", 1, 0))
 	s := stage.NewCosineStage(store, embedder, 0, 5)
 
-	_, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 
 	var stageErr *stage.Error
 	if !errors.As(err, &stageErr) || stageErr.Action != "generating embedding" || !errors.Is(err, boom) {
@@ -135,7 +135,7 @@ func TestCosineStage_MissingEmbedderIsPreconditionNotMet(t *testing.T) {
 	store := cosineStore(cosineADR("a", 1, 0))
 	s := stage.NewCosineStage(store, nil, 0, 5)
 
-	_, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 
 	var stageErr *stage.Error
 	if !errors.As(err, &stageErr) || stageErr.Kind != stage.KindPreconditionNotMet {
@@ -157,7 +157,7 @@ func TestCosineStage_OmittedADRsScoreBelowAZeroThreshold(t *testing.T) {
 	store := cosineStore(cosineADR("opposite", -1, 0), cosineADR("orthogonal", 0, 1))
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0, 5)
 
-	got, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestCosineStage_KeepsSameIDDifferentPathADRsApart(t *testing.T) {
 	store := cosineStore(near, far)
 	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.5, 5)
 
-	got, err := s.Apply(context.Background(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

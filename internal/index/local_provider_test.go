@@ -2,7 +2,6 @@ package index
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,7 +28,7 @@ func TestLocalProvider_GetADRs_ReportsFetchStats(t *testing.T) {
 
 	provider := NewLocalProvider(dir, []string{"Accepted"})
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +60,7 @@ func TestLocalProvider_GetADRs_MalformedRulesAreDroppedReportedAndWarned(t *test
 	provider := NewLocalProvider(dir, []string{"Accepted"})
 	provider.SetPrinter(output.New(&buf, false))
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +89,7 @@ func TestLocalProvider_GetADRs_EmptyDirectory(t *testing.T) {
 
 	provider := NewLocalProvider(dir, []string{"Accepted"})
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -115,7 +114,7 @@ func TestLocalProvider_CustomIDPatternAvoidsCollision(t *testing.T) {
 	provider := NewLocalProvider(dir, []string{"Accepted"})
 	provider.SetIDPattern(regexp.MustCompile(`^adr-(\d+)-`))
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("GetADRs failed: %v", err)
 	}
@@ -142,7 +141,7 @@ func TestLocalProvider_SetPrinter_RoutesParseWarningsThere(t *testing.T) {
 	provider := NewLocalProvider(dir, []string{"Accepted"})
 	provider.SetPrinter(output.New(&buf, false))
 
-	_, _, err := provider.GetADRs(context.Background())
+	_, _, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

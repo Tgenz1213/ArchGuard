@@ -68,12 +68,12 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	}
 
 	var qualifying, below []Candidate
-	for i, c := range candidates {
-		c.Score = scores[i]
-		if c.Score >= floor.For(c.ADR) {
-			qualifying = append(qualifying, c)
+	for i, candidate := range candidates {
+		candidate.Score = scores[i]
+		if candidate.Score >= floor.For(candidate.ADR) {
+			qualifying = append(qualifying, candidate)
 		} else {
-			below = append(below, c)
+			below = append(below, candidate)
 		}
 	}
 
@@ -86,17 +86,17 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 
 	if debug.DebugEnabled() {
 		debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, len(candidates), len(kept))
-		for _, c := range kept {
-			debug.Debug("Kept: %s (score %.2f)", c.ADR.Title, c.Score)
+		for _, candidate := range kept {
+			debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
 		}
 
 		sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
-		for _, c := range below {
-			debug.Debug("Below threshold: %s (score %.2f < threshold %.2f)", c.ADR.Title, c.Score, floor.For(c.ADR))
+		for _, candidate := range below {
+			debug.Debug("Below threshold: %s (score %.2f < threshold %.2f)", candidate.ADR.Title, candidate.Score, floor.For(candidate.ADR))
 		}
 
-		for i, c := range qualifying[len(kept):] {
-			debug.Debug("Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)", c.ADR.Title, c.Score, len(kept)+i+1, len(qualifying))
+		for i, candidate := range qualifying[len(kept):] {
+			debug.Debug("Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)", candidate.ADR.Title, candidate.Score, len(kept)+i+1, len(qualifying))
 		}
 	}
 

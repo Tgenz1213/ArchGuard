@@ -15,8 +15,7 @@ type Entry struct {
 	ADRID      string `json:"adr_id"`
 	File       string `json:"file"`
 	QuotedCode string `json:"quoted_code"`
-	// Reason is informational only -- it does not affect IsSuppressed.
-	// Typical values: "accepted-debt", "false-positive", or free text.
+	// Informational only; IsSuppressed ignores it.
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -31,7 +30,7 @@ func New() *Baseline {
 }
 
 func Load(path string) (*Baseline, error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -41,7 +40,7 @@ func Load(path string) (*Baseline, error) {
 	}
 
 	var b Baseline
-	if err := json.Unmarshal(data, &b); err != nil {
+	if err := json.Unmarshal(raw, &b); err != nil {
 		return nil, err
 	}
 
@@ -67,12 +66,12 @@ func (b *Baseline) Save(path string) error {
 		return b.Entries[i].ADRID < b.Entries[j].ADRID
 	})
 
-	data, err := json.MarshalIndent(b, "", "  ")
+	encoded, err := json.MarshalIndent(b, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return atomicfile.Write(path, data)
+	return atomicfile.Write(path, encoded)
 }
 
 func (b *Baseline) Add(entry Entry) {
@@ -90,8 +89,6 @@ func (b *Baseline) Add(entry Entry) {
 	b.Entries = append(b.Entries, entry)
 }
 
-// ReasonFor returns the Reason of the entry matching (adrID, file), or ""
-// if there is no such entry or b is nil.
 func (b *Baseline) ReasonFor(adrID, file string) string {
 	if b == nil {
 		return ""

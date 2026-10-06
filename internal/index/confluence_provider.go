@@ -12,7 +12,6 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -120,7 +119,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 				relPath = fmt.Sprintf("%s%s", p.domain, result.Links.WebUI)
 			}
 
-			// We strictly namespace Confluence IDs to prevent collisions with local directory sequences.
+			// Namespaced so Confluence IDs can't collide with local ADR IDs.
 			adrID := fmt.Sprintf("confluence-%s", result.ID)
 			markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
 
