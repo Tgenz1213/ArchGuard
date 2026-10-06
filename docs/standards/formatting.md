@@ -19,7 +19,14 @@
   )
   ```
 
-- **Put each link of a long call chain on its own line.** A chain of more than two links starts each line with the `.`. A chain that needs more than three lines is a sign to name an intermediate value instead.
+- **Break a long call chain after each `.`.** Go inserts a semicolon after a line that ends in `)`, so the dot ends the line and a continuation line cannot start with it. A chain of more than two links goes one call per line, and one that needs more than three lines is a sign to name an intermediate value instead.
+
+  ```go
+  wait.ForLog("database system is ready to accept connections").
+  	WithOccurrence(2).
+  	WithStartupTimeout(60 * time.Second)
+  ```
+
 - **Group related declarations.** Use `const (...)` and `var (...)` blocks, and keep each block to one concern.
 - **Use the modern forms.** Write `x++` and `any`, not `x += 1` and `interface{}` (`revive` `increment-decrement`, `use-any`).
 - **End every file with a newline and leave no trailing whitespace.**

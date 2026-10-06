@@ -14,7 +14,7 @@ How Go code is written in this repository. `docs/arch/` records why the design i
 
 ## Precedence
 
-1. `docs/arch/0029-coding-standards.md` and these pages.
+1. These pages, which `docs/arch/0029-coding-standards.md` makes binding.
 2. `CLAUDE.md`.
 3. [Effective Go](https://go.dev/doc/effective_go)
 4. [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)
@@ -25,7 +25,7 @@ A later source applies only where an earlier one is silent. `.golangci.yml` is t
 
 ## Changing a standard
 
-Change the page in the same pull request as the code that needs it, and say why in the description. A rule that keeps needing an exemption is the wrong rule: change the rule instead of adding exemptions. A rule ArchGuard can check by reading code is also written in `docs/arch/0029-coding-standards.md`, because only `docs/arch/` is indexed.
+Change the page in the same pull request as the code that needs it, and say why in the description. A rule that keeps needing an exemption is the wrong rule: change the rule instead of adding exemptions. `docs/arch/0029-coding-standards.md` records the decision to follow these pages; the rules live only here.
 
 ## Page shape
 
