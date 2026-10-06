@@ -187,10 +187,10 @@ func TestRules_ValueScanRoundTrip(t *testing.T) {
 }
 
 func TestRules_EmptyIsNullInTheDatabase(t *testing.T) {
-	for _, r := range []Rules{nil, {}} {
-		v, err := r.Value()
-		if err != nil || v != nil {
-			t.Errorf("Value() of %#v = (%v, %v), want (nil, nil)", r, v, err)
+	for _, rules := range []Rules{nil, {}} {
+		value, err := rules.Value()
+		if err != nil || value != nil {
+			t.Errorf("Value() of %#v = (%v, %v), want (nil, nil)", rules, value, err)
 		}
 	}
 

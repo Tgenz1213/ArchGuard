@@ -518,7 +518,7 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got analysis.ContentProvider
-			output := captureStdout(t, func() {
+			captured := captureStdout(t, func() {
 				got = resolveContentProvider(output.New(os.Stdout, false), tt.files, false, false, false)
 			})
 
@@ -526,8 +526,8 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 				t.Fatalf("expected *analysis.AllProvider, got %T", got)
 			}
 
-			if !strings.Contains(output, "internal/foo.go") {
-				t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", output)
+			if !strings.Contains(captured, "internal/foo.go") {
+				t.Errorf("expected a warning naming the ignored extra argument %q, got output: %q", "internal/foo.go", captured)
 			}
 		})
 	}
@@ -854,27 +854,27 @@ func TestNormalizePaths_MatchesBaselineEntryRecordedWithForwardSlashes(t *testin
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
 
 	orig := os.Stdout
-	os.Stdout = w
+	os.Stdout = writer
 	defer func() { os.Stdout = orig }()
 
 	fn()
 
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	if _, err := io.Copy(&buf, reader); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
 
-	if err := r.Close(); err != nil {
+	if err := reader.Close(); err != nil {
 		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
@@ -884,27 +884,27 @@ func captureStdout(t *testing.T, fn func()) string {
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
 
 	orig := os.Stderr
-	os.Stderr = w
+	os.Stderr = writer
 	defer func() { os.Stderr = orig }()
 
 	fn()
 
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	if _, err := io.Copy(&buf, reader); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
 
-	if err := r.Close(); err != nil {
+	if err := reader.Close(); err != nil {
 		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
@@ -1017,7 +1017,7 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 			var exitCode ExitCode
 			var err error
 
-			output := captureStdout(t, func() {
+			captured := captureStdout(t, func() {
 				exitCode, err = Execute(t.Context(), ProviderFactories{})
 			})
 			if err != nil {
@@ -1028,8 +1028,8 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 				t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
 			}
 
-			if !strings.Contains(output, "Usage: archguard") {
-				t.Fatalf("expected usage output, got %q", output)
+			if !strings.Contains(captured, "Usage: archguard") {
+				t.Fatalf("expected usage output, got %q", captured)
 			}
 		})
 	}

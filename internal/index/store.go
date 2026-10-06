@@ -24,7 +24,7 @@ type SkippedADR struct {
 
 // Skipped can be non-empty even when BuildIndex also returns an error.
 type BuildIndexResult struct {
-	IndexSummary
+	Summary
 	Skipped []SkippedADR
 	// Attempted is false only when BuildIndex failed before fetching ADRs,
 	// distinguishing that from a fetch that genuinely found nothing.
@@ -105,7 +105,7 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 }
 
 func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("index file not found: %s", path)
@@ -114,7 +114,7 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		return err
 	}
 
-	if err := json.Unmarshal(data, s); err != nil {
+	if err := json.Unmarshal(raw, s); err != nil {
 		return err
 	}
 
@@ -139,12 +139,12 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 }
 
 func (s *LocalStore) Save(path string) error {
-	data, err := json.MarshalIndent(s, "", "  ")
+	encoded, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return atomicfile.Write(path, data)
+	return atomicfile.Write(path, encoded)
 }
 
 func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder inference.Embedder, adrProvider Provider) (BuildIndexResult, error) {
@@ -154,8 +154,8 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	}
 
 	existingMap := make(map[string]ADR)
-	for _, a := range s.ADRs {
-		existingMap[a.RelPath] = a
+	for _, stored := range s.ADRs {
+		existingMap[stored.RelPath] = stored
 	}
 
 	var adrsToEmbed []int
@@ -170,7 +170,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
 
-	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -180,8 +180,8 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		}
 
 		var mu sync.Mutex
-		g := new(errgroup.Group)
-		g.SetLimit(concurrency)
+		embedGroup := new(errgroup.Group)
+		embedGroup.SetLimit(concurrency)
 		progress := s.out.Progress()
 
 		markFailed := func(idx int, err error) {
@@ -194,7 +194,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
-			g.Go(func() error {
+			embedGroup.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
 				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
@@ -209,7 +209,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 			})
 		}
 
-		err := g.Wait()
+		err := embedGroup.Wait()
 		progress.Done()
 
 		if err != nil {

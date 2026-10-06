@@ -7,14 +7,14 @@ import (
 )
 
 // Write replaces path via a temp file and rename, so a reader never sees a partial file.
-func Write(path string, data []byte) error {
+func Write(path string, content []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
 	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	if err := os.WriteFile(tmpPath, content, 0644); err != nil {
 		_ = os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup; the write error is what matters
 		return err
 	}

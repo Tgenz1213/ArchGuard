@@ -148,8 +148,8 @@ func (e *Engine) Run(ctx context.Context) error {
 		concurrency = 5
 	}
 
-	var g errgroup.Group
-	g.SetLimit(concurrency)
+	var group errgroup.Group
+	group.SetLimit(concurrency)
 
 	_, explicitFiles := e.Content.(*MultiFileProvider)
 
@@ -163,7 +163,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 
 		file := file
-		g.Go(func() error {
+		group.Go(func() error {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -261,7 +261,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 				driftInput := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: content, Filename: file}
 
-				var res *inference.AnalysisResult
+				var result *inference.AnalysisResult
 
 				cached := false
 
@@ -269,12 +269,12 @@ func (e *Engine) Run(ctx context.Context) error {
 					cachedRes, found, err := e.Cache.Get(cacheKey)
 					if err == nil && found {
 						cached = true
-						res = cachedRes
+						result = cachedRes
 					}
 				}
 
-				if res == nil {
-					res, err = inference.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
+				if result == nil {
+					result, err = inference.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
 					if err != nil {
 						fileOut.Debug("%s", checkOutcomeLine(hit, "failed", false))
 						fileOut.Warn("LLM analysis failed: %v", err)
@@ -283,24 +283,24 @@ func (e *Engine) Run(ctx context.Context) error {
 					}
 
 					if e.Cache != nil {
-						if err := e.Cache.Put(cacheKey, res); err != nil {
+						if err := e.Cache.Put(cacheKey, result); err != nil {
 							fileOut.Debug("Failed to cache analysis result: %v", err)
 						}
 					}
 				}
 
 				outcome := "compliant"
-				if res.Violation {
+				if result.Violation {
 					outcome = "violation"
 				}
 
 				fileOut.Debug("%s", checkOutcomeLine(hit, outcome, cached))
 
-				if res.Violation {
+				if result.Violation {
 					// Checked against the escaped content, which is what the LLM saw.
 					escapedContent := inference.EscapePromptDelimiter(content)
-					lineNum := e.findLineNumber(escapedContent, res.QuotedCode)
-					verified := res.QuotedCode == "" || strings.Contains(escapedContent, res.QuotedCode)
+					lineNum := e.findLineNumber(escapedContent, result.QuotedCode)
+					verified := result.QuotedCode == "" || strings.Contains(escapedContent, result.QuotedCode)
 					switch {
 					case e.UpdateBaseline:
 						reason := e.BaselineReason
@@ -310,11 +310,11 @@ func (e *Engine) Run(ctx context.Context) error {
 
 						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, false))
 						// A QuotedCode that can't match the file would suppress nothing, so skip it.
-						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
+						if result.QuotedCode == "" || strings.Contains(baselineContent, result.QuotedCode) {
 							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
 								ADRID:      hit.ADR.ID,
 								File:       file,
-								QuotedCode: res.QuotedCode,
+								QuotedCode: result.QuotedCode,
 								Reason:     reason,
 							})
 							localRecorded = append(localRecorded, output.RecordedEntry{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Line: lineNum, Reason: reason})
@@ -334,8 +334,8 @@ func (e *Engine) Run(ctx context.Context) error {
 								ADRContent:               hit.ADR.Content,
 								FileContent:              content,
 								Filename:                 file,
-								Reasoning:                res.Reasoning,
-								QuotedCode:               res.QuotedCode,
+								Reasoning:                result.Reasoning,
+								QuotedCode:               result.QuotedCode,
 								SuggestionSystemPrompt:   inference.SuggestionSystemPrompt,
 								SuggestionPromptTemplate: inference.SuggestionPrompt,
 							})
@@ -346,16 +346,16 @@ func (e *Engine) Run(ctx context.Context) error {
 							}
 
 							if suggestion == "" {
-								s, sErr := inference.SuggestRemediation(ctx, e.Chat, driftInput, *res)
+								suggested, suggestErr := inference.SuggestRemediation(ctx, e.Chat, driftInput, *result)
 								switch {
-								case sErr != nil:
-									fileOut.Warn("suggestion generation failed: %v", sErr)
-								case s == "":
+								case suggestErr != nil:
+									fileOut.Warn("suggestion generation failed: %v", suggestErr)
+								case suggested == "":
 									fileOut.Warn("suggestion generation returned an empty suggestion")
 								default:
-									suggestion = s
+									suggestion = suggested
 									if e.Cache != nil {
-										if err := e.Cache.PutSuggestion(suggestionKey, s); err != nil {
+										if err := e.Cache.PutSuggestion(suggestionKey, suggested); err != nil {
 											fileOut.Debug("Failed to cache suggestion: %v", err)
 										}
 									}
@@ -368,8 +368,8 @@ func (e *Engine) Run(ctx context.Context) error {
 							ADRID:      hit.ADR.ID,
 							ADRTitle:   hit.ADR.Title,
 							Line:       lineNum,
-							Reasoning:  res.Reasoning,
-							QuotedCode: res.QuotedCode,
+							Reasoning:  result.Reasoning,
+							QuotedCode: result.QuotedCode,
 							Suggestion: suggestion,
 							lineInDiff: diffMode == "diff",
 							unverified: !verified,
@@ -398,7 +398,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	if err := group.Wait(); err != nil {
 		return err
 	}
 
@@ -429,12 +429,12 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	if e.UpdateBaseline {
-		b := baseline.New()
+		snapshot := baseline.New()
 		for _, entry := range collectedEntries {
-			b.Add(entry)
+			snapshot.Add(entry)
 		}
 
-		e.CollectedBaseline = b
+		e.CollectedBaseline = snapshot
 		return nil
 	}
 

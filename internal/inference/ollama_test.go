@@ -63,9 +63,9 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -180,14 +180,14 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
 
-	n, err := p.CountTokens(context.Background(), representativeString)
+	count, err := provider.CountTokens(context.Background(), representativeString)
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != realPromptEvalCount {
-		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, n)
+	if count != realPromptEvalCount {
+		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, count)
 	}
 }

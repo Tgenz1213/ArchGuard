@@ -80,9 +80,9 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
+	provider := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -118,29 +118,29 @@ func TestOpenAIProvider_ChatErrorOnNon200(t *testing.T) {
 }
 
 func TestOpenAIProvider_CountTokens(t *testing.T) {
-	p := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
+	provider := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(context.Background(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
 	// "Hello, world!" is 4 tokens under cl100k_base (the encoding gpt-3.5-turbo
 	// resolves to): ["Hello", ",", " world", "!"].
-	if n != 4 {
-		t.Errorf("expected 4 tokens, got %d", n)
+	if count != 4 {
+		t.Errorf("expected 4 tokens, got %d", count)
 	}
 }
 
 func TestOpenAIProvider_CountTokens_UnknownModelFallsBackToCl100kBase(t *testing.T) {
-	p := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
+	provider := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(context.Background(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != 4 {
-		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", n)
+	if count != 4 {
+		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", count)
 	}
 }

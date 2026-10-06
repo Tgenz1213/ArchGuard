@@ -56,12 +56,11 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 	var stats FetchStats
 	var errs []error
 	var mu sync.Mutex
-	var g errgroup.Group
+	var fetchGroup errgroup.Group
 
-	for _, p := range c.providers {
-		p := p
-		g.Go(func() error {
-			adrs, s, err := p.GetADRs(ctx)
+	for _, provider := range c.providers {
+		fetchGroup.Go(func() error {
+			adrs, s, err := provider.GetADRs(ctx)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -82,7 +81,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	if err := fetchGroup.Wait(); err != nil {
 		return nil, FetchStats{}, err
 	}
 

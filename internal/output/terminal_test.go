@@ -13,8 +13,8 @@ type fakeEnv map[string]string
 
 func (e fakeEnv) Environ() []string {
 	var env []string
-	for k, v := range e {
-		env = append(env, k+"="+v)
+	for key, value := range e {
+		env = append(env, key+"="+value)
 	}
 
 	return env
@@ -53,14 +53,14 @@ func TestColorEnabled(t *testing.T) {
 }
 
 func TestColorForPipe(t *testing.T) {
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Cleanup(func() {
-		_ = r.Close() //nolint:errcheck // test cleanup
-		_ = w.Close() //nolint:errcheck // test cleanup
+		_ = reader.Close() //nolint:errcheck // test cleanup
+		_ = writer.Close() //nolint:errcheck // test cleanup
 	})
 
 	for _, tt := range []struct {
@@ -71,7 +71,7 @@ func TestColorForPipe(t *testing.T) {
 		{output.ColorAlways, true},
 		{output.ColorNever, false},
 	} {
-		on, restore := output.ColorFor(tt.mode, w)
+		on, restore := output.ColorFor(tt.mode, writer)
 		if on != tt.want {
 			t.Errorf("ColorFor(%q, pipe) = %v, want %v", tt.mode, on, tt.want)
 		}

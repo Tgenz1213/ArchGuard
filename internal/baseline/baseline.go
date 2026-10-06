@@ -30,7 +30,7 @@ func New() *Baseline {
 }
 
 func Load(path string) (*Baseline, error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -40,7 +40,7 @@ func Load(path string) (*Baseline, error) {
 	}
 
 	var b Baseline
-	if err := json.Unmarshal(data, &b); err != nil {
+	if err := json.Unmarshal(raw, &b); err != nil {
 		return nil, err
 	}
 
@@ -66,12 +66,12 @@ func (b *Baseline) Save(path string) error {
 		return b.Entries[i].ADRID < b.Entries[j].ADRID
 	})
 
-	data, err := json.MarshalIndent(b, "", "  ")
+	encoded, err := json.MarshalIndent(b, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return atomicfile.Write(path, data)
+	return atomicfile.Write(path, encoded)
 }
 
 func (b *Baseline) Add(entry Entry) {

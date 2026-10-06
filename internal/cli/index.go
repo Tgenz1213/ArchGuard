@@ -79,14 +79,14 @@ func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCod
 
 func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 	section := out.Indented()
-	item := section.Indented()
+	detail := section.Indented()
 
 	out.Result("ADR Index: %d discovered, %d valid.", result.Discovered, result.Valid)
 
 	if len(result.ParseFailed) > 0 {
 		section.Result("Skipped (parse failure): %d", len(result.ParseFailed))
 		for _, path := range result.ParseFailed {
-			item.Result("- %s", path)
+			detail.Result("- %s", path)
 		}
 	}
 
@@ -97,7 +97,7 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 	if len(result.Skipped) > 0 {
 		section.Result("Failed to embed or persist: %d", len(result.Skipped))
 		for _, skipped := range result.Skipped {
-			item.Result("- %s: %v", skipped.RelPath, skipped.Err)
+			detail.Result("- %s: %v", skipped.RelPath, skipped.Err)
 		}
 	}
 
@@ -110,21 +110,21 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 		sort.Strings(ids)
 		section.Result("Duplicate ADR IDs: %d", len(ids))
 		for _, id := range ids {
-			item.Result("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
+			detail.Result("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
 		}
 	}
 
 	if len(result.NoScope) > 0 {
 		section.Result("No scope set (applies to every file): %d", len(result.NoScope))
 		for _, path := range result.NoScope {
-			item.Result("- %s", path)
+			detail.Result("- %s", path)
 		}
 	}
 
 	if len(result.MalformedRules) > 0 {
 		section.Result("Rules ignored (malformed): %d", len(result.MalformedRules))
 		for _, m := range result.MalformedRules {
-			item.Result("- %s: %s", m.RelPath, m.Reason)
+			detail.Result("- %s: %s", m.RelPath, m.Reason)
 		}
 	}
 }

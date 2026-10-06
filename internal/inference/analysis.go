@@ -65,15 +65,15 @@ func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt
 
 		cleaned := CleanJSON(raw)
 
-		var res T
-		if err := json.Unmarshal([]byte(cleaned), &res); err != nil {
-			if err2 := json.Unmarshal([]byte(raw), &res); err2 != nil {
+		var parsed T
+		if err := json.Unmarshal([]byte(cleaned), &parsed); err != nil {
+			if err2 := json.Unmarshal([]byte(raw), &parsed); err2 != nil {
 				lastErr = fmt.Errorf("invalid json from provider: %w", err2)
 				return lastErr
 			}
 		}
 
-		final = res
+		final = parsed
 		return nil
 	}
 

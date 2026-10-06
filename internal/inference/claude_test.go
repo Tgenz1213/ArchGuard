@@ -65,14 +65,14 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewClaudeProviderWithBaseURL("test-api-key", "claude-sonnet-4-5", server.URL, server.Client())
+	provider := NewClaudeProviderWithBaseURL("test-api-key", "claude-sonnet-4-5", server.URL, server.Client())
 
-	n, err := p.CountTokens(context.Background(), "some text to count")
+	count, err := provider.CountTokens(context.Background(), "some text to count")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != 42 {
-		t.Errorf("expected 42 tokens, got %d", n)
+	if count != 42 {
+		t.Errorf("expected 42 tokens, got %d", count)
 	}
 }

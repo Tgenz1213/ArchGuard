@@ -40,8 +40,8 @@ func candidatesFor(t *testing.T, store *index.LocalStore) []stage.Candidate {
 	}
 
 	out := make([]stage.Candidate, len(scoped))
-	for i, r := range scoped {
-		out[i] = stage.Candidate{ADR: r.ADR}
+	for i, scopedADR := range scoped {
+		out[i] = stage.Candidate{ADR: scopedADR.ADR}
 	}
 
 	return out

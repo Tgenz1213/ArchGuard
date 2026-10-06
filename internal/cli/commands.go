@@ -129,8 +129,8 @@ type writeRecorder struct {
 	err error
 }
 
-func (r *writeRecorder) Write(p []byte) (int, error) {
-	n, err := r.w.Write(p)
+func (r *writeRecorder) Write(payload []byte) (int, error) {
+	n, err := r.w.Write(payload)
 	if err != nil && r.err == nil {
 		r.err = err
 	}

@@ -29,33 +29,33 @@ func (r Rules) Value() (driver.Value, error) {
 		return nil, nil
 	}
 
-	data, err := json.Marshal([]Rule(r))
+	encoded, err := json.Marshal([]Rule(r))
 	if err != nil {
 		return nil, err
 	}
 
-	return string(data), nil
+	return string(encoded), nil
 }
 
 func (r *Rules) Scan(src any) error {
-	var data []byte
+	var raw []byte
 	switch v := src.(type) {
 	case nil:
 	case string:
-		data = []byte(v)
+		raw = []byte(v)
 	case []byte:
-		data = v
+		raw = v
 	default:
 		return fmt.Errorf("unsupported scan type %T for Rules", src)
 	}
 
-	if len(data) == 0 {
+	if len(raw) == 0 {
 		*r = nil
 		return nil
 	}
 
 	var rules []Rule
-	if err := json.Unmarshal(data, &rules); err != nil {
+	if err := json.Unmarshal(raw, &rules); err != nil {
 		return err
 	}
 
@@ -86,10 +86,10 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 	}
 
 	rules := make(Rules, 0, len(node.Content))
-	for i, item := range node.Content {
-		item = resolveAlias(item)
-		if item.Kind == yaml.ScalarNode && !isNullNode(item) {
-			statement, err := decodeStatement(item)
+	for i, ruleNode := range node.Content {
+		ruleNode = resolveAlias(ruleNode)
+		if ruleNode.Kind == yaml.ScalarNode && !isNullNode(ruleNode) {
+			statement, err := decodeStatement(ruleNode)
 			if err != nil {
 				return nil, fmt.Errorf("rule %d: %w", i+1, err)
 			}
@@ -103,7 +103,7 @@ func decodeFrontMatterRules(node *yaml.Node) (Rules, error) {
 			continue
 		}
 
-		rule, err := decodeRule(item)
+		rule, err := decodeRule(ruleNode)
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", i+1, err)
 		}
@@ -221,8 +221,8 @@ func extractBodyRules(body, heading string) (Rules, error) {
 				continue
 			}
 
-			for item := n.FirstChild(); item != nil; item = item.NextSibling() {
-				statement := itemStatement(item, src)
+			for listItem := n.FirstChild(); listItem != nil; listItem = listItem.NextSibling() {
+				statement := itemStatement(listItem, src)
 				if statement == "" {
 					return nil, fmt.Errorf("rule %d: bullet has no statement text", len(rules)+1)
 				}
@@ -265,8 +265,8 @@ func normalizeHeading(heading string) string {
 
 var taskMarker = regexp.MustCompile(`^\[[ xX]\](\s+|$)`)
 
-func itemStatement(item ast.Node, src []byte) string {
-	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
+func itemStatement(listItem ast.Node, src []byte) string {
+	for child := listItem.FirstChild(); child != nil; child = child.NextSibling() {
 		switch child.(type) {
 		case *ast.TextBlock, *ast.Paragraph:
 			return taskMarker.ReplaceAllString(blockText(child, src), "")

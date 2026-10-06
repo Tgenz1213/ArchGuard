@@ -1047,27 +1047,27 @@ func runEngine(t *testing.T, engine *analysis.Engine, wantDrift bool) {
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
 
 	orig := os.Stderr
-	os.Stderr = w
+	os.Stderr = writer
 	defer func() { os.Stderr = orig }()
 
 	fn()
 
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		t.Fatalf("failed to close pipe writer: %v", err)
 	}
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	if _, err := io.Copy(&buf, reader); err != nil {
 		t.Fatalf("failed to read pipe: %v", err)
 	}
 
-	if err := r.Close(); err != nil {
+	if err := reader.Close(); err != nil {
 		t.Fatalf("failed to close pipe reader: %v", err)
 	}
 
@@ -1570,11 +1570,11 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 		},
 	}
 
-	makeEmbedding := func(x, y float32) []float32 {
-		v := make([]float32, 1536)
-		v[0] = x
-		v[1] = y
-		return v
+	makeEmbedding := func(first, second float32) []float32 {
+		embedding := make([]float32, 1536)
+		embedding[0] = first
+		embedding[1] = second
+		return embedding
 	}
 
 	store := index.NewLocalStore(5)

@@ -258,14 +258,14 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 }
 
 func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
-	h, out := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
-	if len(h.engine.SkippedFiles) != 0 || len(h.engine.StageFailures) != 1 {
-		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", len(h.engine.SkippedFiles), h.engine.StageFailures)
+	harness, out := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
+	if len(harness.engine.SkippedFiles) != 0 || len(harness.engine.StageFailures) != 1 {
+		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", len(harness.engine.SkippedFiles), harness.engine.StageFailures)
 	}
 
-	f := h.engine.StageFailures[0]
-	if f.Stage != "rank" || f.File != "bad.go" || f.Kind != stage.KindUnavailable || !strings.Contains(f.Error, "embedding service down") {
-		t.Errorf("failure = %+v", f)
+	failure := harness.engine.StageFailures[0]
+	if failure.Stage != "rank" || failure.File != "bad.go" || failure.Kind != stage.KindUnavailable || !strings.Contains(failure.Error, "embedding service down") {
+		t.Errorf("failure = %+v", failure)
 	}
 
 	for _, want := range []string{"stage rank", "bad.go", "unavailable", "embedding service down"} {
@@ -274,20 +274,20 @@ func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 		}
 	}
 
-	if strings.Join(h.judged, ",") != "0001" {
-		t.Errorf("judged %v, want the healthy file still judged", h.judged)
+	if strings.Join(harness.judged, ",") != "0001" {
+		t.Errorf("judged %v, want the healthy file still judged", harness.judged)
 	}
 }
 
 func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
-	h, _ := runRankWithOnError(t, config.OnErrorFail, nil)
-	if len(h.engine.StageFailures) != 2 || len(h.judged) != 0 {
-		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", h.engine.StageFailures, h.judged)
+	harness, _ := runRankWithOnError(t, config.OnErrorFail, nil)
+	if len(harness.engine.StageFailures) != 2 || len(harness.judged) != 0 {
+		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", harness.engine.StageFailures, harness.judged)
 	}
 
-	for _, f := range h.engine.StageFailures {
-		if f.Stage != "rank" || f.Kind != stage.KindPreconditionNotMet {
-			t.Errorf("failure = %+v, want a rank precondition failure", f)
+	for _, failure := range harness.engine.StageFailures {
+		if failure.Stage != "rank" || failure.Kind != stage.KindPreconditionNotMet {
+			t.Errorf("failure = %+v, want a rank precondition failure", failure)
 		}
 	}
 }
@@ -343,20 +343,20 @@ func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
 }
 
 func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
-	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "m.go", "package m")
-	files := h.engine.Content.(*MockContentProvider).Files
+	harness := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "m.go", "package m")
+	files := harness.engine.Content.(*MockContentProvider).Files
 	files["z.go"] = "package z"
 	files["a.go"] = "package a"
-	h.engine.Config.Analysis.MaxConcurrency = 3
-	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
+	harness.engine.Config.Analysis.MaxConcurrency = 3
+	harness.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := harness.engine.Run(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	var got []string
-	for _, f := range h.engine.StageFailures {
-		got = append(got, f.File)
+	for _, failure := range harness.engine.StageFailures {
+		got = append(got, failure.File)
 	}
 
 	if strings.Join(got, ",") != "a.go,m.go,z.go" {

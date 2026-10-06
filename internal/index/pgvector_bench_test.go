@@ -20,11 +20,11 @@ import (
 
 func TestRandomVector_ReturnsRequestedDimension(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
-	v := randomVector(rng, 1536)
-	assert.Len(t, v, 1536)
-	for _, x := range v {
-		assert.GreaterOrEqual(t, x, float32(-1))
-		assert.LessOrEqual(t, x, float32(1))
+	vec := randomVector(rng, 1536)
+	assert.Len(t, vec, 1536)
+	for _, component := range vec {
+		assert.GreaterOrEqual(t, component, float32(-1))
+		assert.LessOrEqual(t, component, float32(1))
 	}
 }
 
@@ -576,15 +576,15 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 	var recallSum float64
 	var resultCountSum int
 
-	for i, q := range queries {
+	for i, query := range queries {
 		start := time.Now()
-		results := store.Search(q, benchThreshold, benchTopK, "")
+		results := store.Search(query, benchThreshold, benchTopK, "")
 		latencies[i] = time.Since(start)
 		resultCountSum += len(results)
 
 		relPaths := make([]string, len(results))
-		for j, r := range results {
-			relPaths[j] = r.ADR.RelPath
+		for hitIndex, hit := range results {
+			relPaths[hitIndex] = hit.ADR.RelPath
 		}
 
 		recallSum += computeRecall(relPaths, groundTruth[i])

@@ -176,14 +176,14 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := &GeminiProvider{
+	provider := &GeminiProvider{
 		apiKey:     "test-api-key",
 		embedModel: "text-embedding-004",
 		baseURL:    server.URL,
 		client:     server.Client(),
 	}
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -458,19 +458,19 @@ func TestGeminiProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := &GeminiProvider{
+	provider := &GeminiProvider{
 		apiKey:  "test-api-key",
 		model:   "gemini-1.5-flash",
 		baseURL: server.URL,
 		client:  server.Client(),
 	}
 
-	n, err := p.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(context.Background(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}
 
-	if n != 5 {
-		t.Errorf("expected 5 tokens, got %d", n)
+	if count != 5 {
+		t.Errorf("expected 5 tokens, got %d", count)
 	}
 }

@@ -30,9 +30,9 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
+	provider := NewVoyageProviderWithBaseURL("test-api-key", "voyage-4", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskQuery)
+	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskQuery)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -74,9 +74,9 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewVoyageProviderWithBaseURL("test-api-key", "voyage-context-3", server.URL, server.Client())
+	provider := NewVoyageProviderWithBaseURL("test-api-key", "voyage-context-3", server.URL, server.Client())
 
-	res, err := p.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}

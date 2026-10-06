@@ -71,15 +71,15 @@ func TestSummarizeCorpus_NoDuplicatesWhenIDsAreUnique(t *testing.T) {
 	}
 }
 
-func TestIndexSummary_IsEmpty(t *testing.T) {
+func TestSummary_IsEmpty(t *testing.T) {
 	cases := []struct {
 		name    string
-		summary IndexSummary
+		summary Summary
 		want    bool
 	}{
-		{"no ADRs discovered at all", IndexSummary{Discovered: 0, Valid: 0}, true},
-		{"everything discovered was rejected", IndexSummary{Discovered: 3, Valid: 0}, true},
-		{"at least one valid ADR", IndexSummary{Discovered: 3, Valid: 1}, false},
+		{"no ADRs discovered at all", Summary{Discovered: 0, Valid: 0}, true},
+		{"everything discovered was rejected", Summary{Discovered: 3, Valid: 0}, true},
+		{"at least one valid ADR", Summary{Discovered: 3, Valid: 1}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

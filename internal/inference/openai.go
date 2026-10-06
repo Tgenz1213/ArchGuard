@@ -73,8 +73,8 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 
 	src := resp.Data[0].Embedding
 	embedding := make([]float32, len(src))
-	for i, v := range src {
-		embedding[i] = float32(v)
+	for i, value := range src {
+		embedding[i] = float32(value)
 	}
 
 	return embedding, nil

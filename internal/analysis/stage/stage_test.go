@@ -126,14 +126,14 @@ func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
 
 func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
 	var buf bytes.Buffer
-	s := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
+	scoringStage := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := scoringStage.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	if n := strings.Count(buf.String(), "Below threshold"); n != 4 {
-		t.Fatalf("printed %d below-threshold lines, want 4", n)
+	if dropped := strings.Count(buf.String(), "Below threshold"); dropped != 4 {
+		t.Fatalf("printed %d below-threshold lines, want 4", dropped)
 	}
 }
 

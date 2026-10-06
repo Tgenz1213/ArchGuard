@@ -68,8 +68,8 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 
 	var content string
 
-	err := p.client.Chat(ctx, req, func(res api.ChatResponse) error {
-		content = res.Message.Content
+	err := p.client.Chat(ctx, req, func(resp api.ChatResponse) error {
+		content = resp.Message.Content
 		return nil
 	})
 	if err != nil {
@@ -112,14 +112,14 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 		Prompt: embeddingTaskPrefix(p.embedModel, task) + text,
 	}
 
-	res, err := p.client.Embeddings(ctx, req)
+	resp, err := p.client.Embeddings(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	embedding := make([]float32, len(res.Embedding))
-	for i, v := range res.Embedding {
-		embedding[i] = float32(v)
+	embedding := make([]float32, len(resp.Embedding))
+	for i, value := range resp.Embedding {
+		embedding[i] = float32(value)
 	}
 
 	return embedding, nil
@@ -139,8 +139,8 @@ func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, err
 
 	var count int
 
-	err := p.client.Generate(ctx, req, func(res api.GenerateResponse) error {
-		count = res.PromptEvalCount
+	err := p.client.Generate(ctx, req, func(resp api.GenerateResponse) error {
+		count = resp.PromptEvalCount
 		return nil
 	})
 	if err != nil {

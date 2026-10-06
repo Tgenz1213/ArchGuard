@@ -345,7 +345,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 
 	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
 
-	result := BuildIndexResult{IndexSummary: summarizeCorpus(validADRs, stats), Attempted: true}
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	failed := make(map[int]bool)
 
 	if len(adrsToEmbed) > 0 {
@@ -355,8 +355,8 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 		}
 
 		var mu sync.Mutex
-		g := new(errgroup.Group)
-		g.SetLimit(concurrency)
+		embedGroup := new(errgroup.Group)
+		embedGroup.SetLimit(concurrency)
 		progress := s.out.Progress()
 
 		markFailed := func(idx int, err error) {
@@ -369,7 +369,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 
 		for _, idx := range adrsToEmbed {
 			idx := idx
-			g.Go(func() error {
+			embedGroup.Go(func() error {
 				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
 
 				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
@@ -405,7 +405,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 			})
 		}
 
-		err := g.Wait()
+		err := embedGroup.Wait()
 		progress.Done()
 
 		if err != nil {

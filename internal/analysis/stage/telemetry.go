@@ -25,8 +25,8 @@ type Telemetry struct {
 
 func NewTelemetry(stages []Stage) *Telemetry {
 	t := &Telemetry{stages: stages, stats: make([]Stats, len(stages)), spent: make([]time.Duration, len(stages))}
-	for i, s := range stages {
-		t.stats[i].Name = s.Name
+	for i := range stages {
+		t.stats[i].Name = stages[i].Name
 	}
 
 	return t
@@ -54,9 +54,9 @@ func (t *Telemetry) Stats() []Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	out := make([]Stats, len(t.stats))
-	for i, s := range t.stats {
-		s.DurationMS = t.spent[i].Milliseconds()
-		out[i] = s
+	for i, entry := range t.stats {
+		entry.DurationMS = t.spent[i].Milliseconds()
+		out[i] = entry
 	}
 
 	return out

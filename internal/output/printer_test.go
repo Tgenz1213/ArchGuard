@@ -15,10 +15,10 @@ import (
 
 func TestPrinterLabels(t *testing.T) {
 	tests := []struct {
-		name  string
-		debug bool
-		print func(p *output.Printer)
-		want  string
+		name    string
+		debug   bool
+		printFn func(p *output.Printer)
+		want    string
 	}{
 		{"info", false, func(p *output.Printer) { p.Info("found %d", 2) }, "found 2\n"},
 		{"note", false, func(p *output.Printer) { p.Note("ignoring %s", "x") }, "Note: ignoring x\n"},
@@ -35,7 +35,7 @@ func TestPrinterLabels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 
-			tt.print(output.New(&buf, tt.debug))
+			tt.printFn(output.New(&buf, tt.debug))
 
 			if got := buf.String(); got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
@@ -47,10 +47,10 @@ func TestPrinterLabels(t *testing.T) {
 func TestGroupIndentsUnderHeaderAndPrintsOnFlush(t *testing.T) {
 	var buf bytes.Buffer
 
-	p := output.New(&buf, false)
-	g := p.Group("a.go")
-	g.Warn("slow")
-	inner := g.Group("ADR 7")
+	printer := output.New(&buf, false)
+	group := printer.Group("a.go")
+	group.Warn("slow")
+	inner := group.Group("ADR 7")
 	inner.Info("checked")
 	inner.Flush()
 
@@ -58,7 +58,7 @@ func TestGroupIndentsUnderHeaderAndPrintsOnFlush(t *testing.T) {
 		t.Fatalf("group wrote before Flush: %q", buf.String())
 	}
 
-	g.Flush()
+	group.Flush()
 
 	want := "a.go\n  Warning: slow\n  ADR 7\n    checked\n"
 	if got := buf.String(); got != want {
@@ -141,17 +141,17 @@ func TestGroupInheritsDebug(t *testing.T) {
 func TestParallelGroupsDoNotInterleave(t *testing.T) {
 	var buf bytes.Buffer
 
-	p := output.New(&buf, false)
+	printer := output.New(&buf, false)
 
 	var wg sync.WaitGroup
 	for i := range 20 {
 		wg.Go(func() {
-			g := p.Group(fmt.Sprintf("file%d", i))
+			group := printer.Group(fmt.Sprintf("file%d", i))
 			for range 5 {
-				g.Info("line")
+				group.Info("line")
 			}
 
-			g.Flush()
+			group.Flush()
 		})
 	}
 
@@ -167,9 +167,9 @@ func TestParallelGroupsDoNotInterleave(t *testing.T) {
 			t.Fatalf("line %d = %q, want a header", i, lines[i])
 		}
 
-		for _, l := range lines[i+1 : i+6] {
-			if l != "  line" {
-				t.Fatalf("block starting %q interleaved: %q", lines[i], l)
+		for _, line := range lines[i+1 : i+6] {
+			if line != "  line" {
+				t.Fatalf("block starting %q interleaved: %q", lines[i], line)
 			}
 		}
 	}
@@ -196,11 +196,11 @@ func TestProgressEndsLineBeforeNextMessage(t *testing.T) {
 func TestFlushEndsAGroupsUnfinishedProgressLine(t *testing.T) {
 	var buf bytes.Buffer
 
-	p := output.New(&buf, false)
-	g := p.Group("a.go")
-	g.Progress().Tick()
-	g.Flush()
-	p.Info("next")
+	printer := output.New(&buf, false)
+	group := printer.Group("a.go")
+	group.Progress().Tick()
+	group.Flush()
+	printer.Info("next")
 
 	want := "a.go\n.\nnext\n"
 	if got := buf.String(); got != want {
@@ -210,9 +210,9 @@ func TestFlushEndsAGroupsUnfinishedProgressLine(t *testing.T) {
 
 func TestColor(t *testing.T) {
 	tests := []struct {
-		name  string
-		print func(p *output.Printer)
-		want  string
+		name    string
+		printFn func(p *output.Printer)
+		want    string
 	}{
 		{"warn label", func(p *output.Printer) { p.Warn("a\nb") }, "\x1b[33mWarning: \x1b[0ma\n         b\n"},
 		{"error label", func(p *output.Printer) { p.Error("boom") }, "\x1b[31mError: \x1b[0mboom\n"},
@@ -241,7 +241,7 @@ func TestColor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 
-			tt.print(output.New(&buf, true, output.WithColor(true)))
+			tt.printFn(output.New(&buf, true, output.WithColor(true)))
 
 			if got := buf.String(); got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
@@ -317,7 +317,7 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
 func TestErrReportsFailedResultWrites(t *testing.T) {
 	tests := []struct {
 		name    string
-		print   func(p *output.Printer)
+		printFn func(p *output.Printer)
 		wantErr bool
 	}{
 		{"result line", func(p *output.Printer) { p.Result("1 new violation(s)") }, true},
@@ -347,7 +347,7 @@ func TestErrReportsFailedResultWrites(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := output.New(failingWriter{}, true)
-			tt.print(p)
+			tt.printFn(p)
 
 			err := p.Err()
 			if tt.wantErr && !errors.Is(err, errWrite) {
@@ -380,23 +380,23 @@ func TestErrIsNilAfterSuccessfulResults(t *testing.T) {
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	orig := os.Stderr
-	os.Stderr = w
+	os.Stderr = writer
 
 	defer func() { os.Stderr = orig }()
 
 	fn()
 
-	if err := w.Close(); err != nil {
+	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := io.ReadAll(r)
+	out, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,12 +45,12 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 	var validADRs []ADR
 	var stats FetchStats
 
-	err := filepath.Walk(p.dirPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(p.dirPath, func(path string, stat os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+		if !stat.IsDir() && strings.HasSuffix(stat.Name(), ".md") {
 			stats.Discovered++
 
 			adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)

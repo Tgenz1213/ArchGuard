@@ -1,6 +1,6 @@
 package index
 
-type IndexSummary struct {
+type Summary struct {
 	Discovered     int
 	Valid          int
 	ParseFailed    []string
@@ -10,12 +10,12 @@ type IndexSummary struct {
 	MalformedRules []MalformedRules
 }
 
-func (s IndexSummary) IsEmpty() bool {
+func (s Summary) IsEmpty() bool {
 	return s.Valid == 0
 }
 
 // Runs post-merge so duplicate IDs are caught across providers, not just within one.
-func summarizeCorpus(validADRs []ADR, stats FetchStats) IndexSummary {
+func summarizeCorpus(validADRs []ADR, stats FetchStats) Summary {
 	byID := make(map[string][]string)
 	var noScope []string
 	for _, adr := range validADRs {
@@ -32,7 +32,7 @@ func summarizeCorpus(validADRs []ADR, stats FetchStats) IndexSummary {
 		}
 	}
 
-	return IndexSummary{
+	return Summary{
 		Discovered:     stats.Discovered,
 		Valid:          len(validADRs),
 		ParseFailed:    stats.ParseFailed,

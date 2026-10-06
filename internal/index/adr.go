@@ -60,8 +60,8 @@ func (sp ScopePatterns) Serialize() string {
 	case 1:
 		return sp[0]
 	default:
-		data, _ := json.Marshal([]string(sp)) //nolint:errcheck // marshaling a []string can't fail
-		return string(data)
+		encoded, _ := json.Marshal([]string(sp)) //nolint:errcheck // marshaling a []string can't fail
+		return string(encoded)
 	}
 }
 
@@ -90,15 +90,15 @@ func (sp ScopePatterns) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string(sp))
 }
 
-func (sp *ScopePatterns) UnmarshalJSON(data []byte) error {
+func (sp *ScopePatterns) UnmarshalJSON(raw []byte) error {
 	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
+	if err := json.Unmarshal(raw, &single); err == nil {
 		*sp = ParseScopePatterns(single)
 		return nil
 	}
 
 	var multi []string
-	if err := json.Unmarshal(data, &multi); err != nil {
+	if err := json.Unmarshal(raw, &multi); err != nil {
 		return err
 	}
 
@@ -167,7 +167,7 @@ func ParseADR(path string, rootDir string, idPattern *regexp.Regexp, opts ParseO
 }
 
 func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts ParseOptions) (adr *ADR, rulesErr error, err error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -180,7 +180,7 @@ func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts Pa
 	filename := filepath.Base(path)
 	id := extractID(filename, idPattern)
 
-	return parseADR(data, id, relPath, opts, nil)
+	return parseADR(raw, id, relPath, opts, nil)
 }
 
 func extractID(filename string, idPattern *regexp.Regexp) string {
@@ -200,31 +200,31 @@ func extractID(filename string, idPattern *regexp.Regexp) string {
 	return strings.Split(filename, "-")[0]
 }
 
-func ParseADRContent(data []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
-	adr, _, err := parseADR(data, id, relPath, opts, nil) //nolint:errcheck // malformed rules are reported by providers, not here
+func ParseADRContent(raw []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
+	adr, _, err := parseADR(raw, id, relPath, opts, nil) //nolint:errcheck // malformed rules are reported by providers, not here
 	return adr, err
 }
 
 // The closing fence is the first line starting with "---", so a "---" inside a value can't end the
 // frontmatter; YAML lines never start with it.
-func splitFrontMatter(data []byte) (frontMatter, body []byte, ok bool) {
-	end := bytes.Index(data[3:], []byte("\n---"))
+func splitFrontMatter(raw []byte) (frontMatter, body []byte, ok bool) {
+	end := bytes.Index(raw[3:], []byte("\n---"))
 	if end < 0 {
 		return nil, nil, false
 	}
 
 	closing := 3 + end + 1
 
-	return data[3:closing], data[closing+3:], true
+	return raw[3:closing], raw[closing+3:], true
 }
 
 // rulesErr means the ADR is usable but its rules were dropped; err means the ADR is unusable.
-func parseADR(data []byte, id string, relPath string, opts ParseOptions, contentOverride *string) (adr *ADR, rulesErr error, err error) {
-	if !bytes.HasPrefix(data, []byte("---")) {
+func parseADR(raw []byte, id string, relPath string, opts ParseOptions, contentOverride *string) (adr *ADR, rulesErr error, err error) {
+	if !bytes.HasPrefix(raw, []byte("---")) {
 		return nil, nil, fmt.Errorf("no frontmatter found in %s", relPath)
 	}
 
-	frontMatter, body, ok := splitFrontMatter(data)
+	frontMatter, body, ok := splitFrontMatter(raw)
 	if !ok {
 		return nil, nil, fmt.Errorf("invalid frontmatter format in %s", relPath)
 	}

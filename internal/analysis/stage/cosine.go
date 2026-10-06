@@ -40,13 +40,13 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 	}
 
 	byKey := make(map[string]float64, len(found))
-	for _, r := range found {
-		byKey[adrKey(r.ADR)] = r.Score
+	for _, result := range found {
+		byKey[adrKey(result.ADR)] = result.Score
 	}
 
 	scores := make([]float64, len(candidates))
-	for i, cand := range candidates {
-		score, ok := byKey[adrKey(cand.ADR)]
+	for i, candidate := range candidates {
+		score, ok := byKey[adrKey(candidate.ADR)]
 		if !ok {
 			score = unscored
 		}

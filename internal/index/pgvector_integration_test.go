@@ -60,9 +60,9 @@ func setupPgContainer(ctx context.Context, tb testing.TB) string {
 	return connStr
 }
 
-func writeADRFiles(t *testing.T, dir string, n int) {
+func writeADRFiles(t *testing.T, dir string, count int) {
 	t.Helper()
-	for i := 0; i < n; i++ {
+	for i := 0; i < count; i++ {
 		content := fmt.Sprintf("---\ntitle: \"ADR %d\"\nstatus: \"Accepted\"\n---\nContent %d", i, i)
 		err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("adr_%d.md", i)), []byte(content), 0644)
 		require.NoError(t, err)
@@ -78,20 +78,20 @@ func modifyADRFile(t *testing.T, dir string, i int) {
 
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
 
 	orig := os.Stderr
-	os.Stderr = w
+	os.Stderr = writer
 	defer func() { os.Stderr = orig }()
 
 	fn()
 
-	require.NoError(t, w.Close())
+	require.NoError(t, writer.Close())
 	var buf bytes.Buffer
-	_, err = io.Copy(&buf, r)
+	_, err = io.Copy(&buf, reader)
 	require.NoError(t, err)
-	require.NoError(t, r.Close())
+	require.NoError(t, reader.Close())
 	return buf.String()
 }
 
