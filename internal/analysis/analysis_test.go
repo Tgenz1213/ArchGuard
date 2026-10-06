@@ -81,14 +81,15 @@ func TestDriftDetection(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 
 	if err == nil {
 		t.Fatal("Expected violation error, got nil")
 	}
 
-	if err.Error() != "found 1 architectural violations" {
-		t.Fatalf("Expected 'found 1 architectural violations', got '%v'", err)
+	var driftErr *analysis.DriftDetectedError
+	if !errors.As(err, &driftErr) || driftErr.Count != 1 {
+		t.Fatalf("err = %v, want a DriftDetectedError counting 1 violation", err)
 	}
 
 	if !errors.Is(err, analysis.ErrDriftDetected) {
@@ -129,7 +130,7 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 
 	engine.Cache = nil
-	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+	if err := engine.Run(t.Context()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -170,7 +171,7 @@ func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -252,7 +253,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 
 	engine.Cache = nil
-	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+	if err := engine.Run(t.Context()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -306,7 +307,7 @@ func TestRun_EmbedsWithEmbedNotChat(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, chatProvider, embedProvider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
+	if err := engine.Run(t.Context()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -358,7 +359,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -426,7 +427,7 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -477,7 +478,7 @@ func TestRun_SuppressesBaselinedViolation(t *testing.T) {
 	engine.Cache = nil
 	engine.Baseline = b
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error (violation should be suppressed by baseline), got: %v", err)
 	}
 }
@@ -521,7 +522,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	engine.Cache = nil
 	engine.Baseline = b
 
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 	if err == nil {
 		t.Fatal("expected DriftDetectedError, got nil")
 	}
@@ -572,7 +573,7 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -632,7 +633,7 @@ func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
 	engine.UpdateBaseline = true
 	engine.Baseline = priorBaseline
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -687,7 +688,7 @@ func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *t
 	engine.Baseline = priorBaseline
 	engine.BaselineReason = "false-positive"
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -737,7 +738,7 @@ func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testi
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -791,7 +792,7 @@ func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing
 	engine.Baseline = b
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -850,7 +851,7 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 
 	var runErr error
 	output := captureStderr(t, func() {
-		runErr = engine.Run(context.Background())
+		runErr = engine.Run(t.Context())
 	})
 
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
@@ -906,7 +907,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 
 	var runErr error
 	output := captureStderr(t, func() {
-		runErr = engine.Run(context.Background())
+		runErr = engine.Run(t.Context())
 	})
 
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
@@ -959,7 +960,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -1011,7 +1012,7 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
@@ -1034,7 +1035,7 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 func runEngine(t *testing.T, engine *analysis.Engine, wantDrift bool) {
 	t.Helper()
 
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 	if wantDrift && !errors.Is(err, analysis.ErrDriftDetected) {
 		t.Errorf("Run() = %v, want drift", err)
 	}
@@ -1148,7 +1149,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	var runErr error
 
 	output := captureStderr(t, func() {
-		runErr = engine.Run(context.Background())
+		runErr = engine.Run(t.Context())
 	})
 	if runErr != nil {
 		t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
@@ -1223,7 +1224,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 		var runErr error
 		output := captureStderr(t, func() {
-			runErr = engine.Run(context.Background())
+			runErr = engine.Run(t.Context())
 		})
 
 		if !errors.Is(runErr, analysis.ErrDriftDetected) {
@@ -1250,7 +1251,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 		var runErr error
 		output := captureStderr(t, func() {
-			runErr = engine.Run(context.Background())
+			runErr = engine.Run(t.Context())
 		})
 
 		if runErr != nil {
@@ -1273,7 +1274,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 		var runErr error
 		output := captureStderr(t, func() {
-			runErr = engine.Run(context.Background())
+			runErr = engine.Run(t.Context())
 		})
 
 		if runErr != nil {
@@ -1293,7 +1294,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 
 		var runErr error
 		output := captureStderr(t, func() {
-			runErr = engine.Run(context.Background())
+			runErr = engine.Run(t.Context())
 		})
 
 		if runErr != nil {
@@ -1415,7 +1416,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 
 	var runErr error
 	output := captureStderr(t, func() {
-		runErr = engine.Run(context.Background())
+		runErr = engine.Run(t.Context())
 	})
 
 	if !errors.Is(runErr, analysis.ErrDriftDetected) {
@@ -1511,7 +1512,7 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 
 	var driftErr *analysis.DriftDetectedError
 	if !errors.As(err, &driftErr) {
@@ -1699,7 +1700,7 @@ func TestRun_NonDebugMode_NeverCallsSearchTruncated(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1750,7 +1751,7 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1820,7 +1821,7 @@ func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *tes
 	engine.Debug = true
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1865,7 +1866,7 @@ func TestRun_NonDebugMode_NeverCallsSearchWithDebugInfo(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1909,7 +1910,7 @@ func TestRun_ADRSimilarityThresholdOverride_LowersEffectiveThreshold(t *testing.
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
-	err := engine.Run(context.Background())
+	err := engine.Run(t.Context())
 
 	var driftErr *analysis.DriftDetectedError
 	if !errors.As(err, &driftErr) {
@@ -1982,7 +1983,7 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		if err := engine.Run(context.Background()); err != nil {
+		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2013,7 +2014,7 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		if err := engine.Run(context.Background()); err != nil {
+		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2046,7 +2047,7 @@ func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		if err := engine.Run(context.Background()); err != nil {
+		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2074,7 +2075,7 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 	engine.Cache = nil
 
 	output := captureStderr(t, func() {
-		if err := engine.Run(context.Background()); err != nil {
+		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2545,7 +2546,7 @@ func TestRun_MaxRelevantADRs_RaisesLimitAboveDefault(t *testing.T) {
 	engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, provider, content)
 	engine.Cache = nil
 
-	if err := engine.Run(context.Background()); err != nil {
+	if err := engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -2577,7 +2578,7 @@ func TestRun_MaxRelevantADRs_DefaultsToThreeWhenUnsetOrNonPositive(t *testing.T)
 			engine := analysis.NewEngine(cfg, fourEquallyRelevantADRs(), provider, provider, content)
 			engine.Cache = nil
 
-			if err := engine.Run(context.Background()); err != nil {
+			if err := engine.Run(t.Context()); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 

@@ -928,9 +928,7 @@ func setupExecuteTestRepo(t *testing.T) string {
 
 	cleanRoot := filepath.Clean(strings.TrimSpace(string(resolvedRoot)))
 
-	if err := os.Chdir(cleanRoot); err != nil {
-		t.Fatalf("failed to chdir into repo root: %v", err)
-	}
+	t.Chdir(cleanRoot)
 
 	return cleanRoot
 }
@@ -938,18 +936,7 @@ func setupExecuteTestRepo(t *testing.T) string {
 func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	origArgs := os.Args
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get original working directory: %v", err)
-	}
-
-	defer func() {
-		os.Args = origArgs
-
-		if err := os.Chdir(origWd); err != nil {
-			t.Fatalf("failed to restore working directory: %v", err)
-		}
-	}()
+	defer func() { os.Args = origArgs }()
 
 	setupExecuteTestRepo(t)
 
@@ -972,18 +959,7 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	origArgs := os.Args
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get original working directory: %v", err)
-	}
-
-	defer func() {
-		os.Args = origArgs
-
-		if err := os.Chdir(origWd); err != nil {
-			t.Fatalf("failed to restore working directory: %v", err)
-		}
-	}()
+	defer func() { os.Args = origArgs }()
 
 	cleanRoot := setupExecuteTestRepo(t)
 

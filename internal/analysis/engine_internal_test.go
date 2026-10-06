@@ -62,7 +62,7 @@ func TestFetchContext_SmartTruncation(t *testing.T) {
 		Chat:    inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
 	}
 
-	content, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	content, _, mode, err := engine.fetchContext(t.Context(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestFetchContext_UpdateBaselineMode_PrefersTruncationOverDiff(t *testing.T)
 		UpdateBaseline: true,
 	}
 
-	_, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	_, _, mode, err := engine.fetchContext(t.Context(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestFetchContext_NonOpenAI_UsesProviderTokenCount(t *testing.T) {
 		Chat:    mockProvider,
 	}
 
-	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(t.Context(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 		Chat:    mockProvider,
 	}
 
-	_, _, _, err := engine.fetchContext(context.Background(), "test.go")
+	_, _, _, err := engine.fetchContext(t.Context(), "test.go")
 	if err == nil {
 		t.Fatal("expected fetchContext to return an error when CountTokens fails, got nil")
 	}
@@ -211,7 +211,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 		Chat:    mockProvider,
 	}
 
-	got, _, mode, err := engine.fetchContext(context.Background(), "test.go")
+	got, _, mode, err := engine.fetchContext(t.Context(), "test.go")
 	if err != nil {
 		t.Fatalf("fetchContext failed: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 
 	lastLen = -1 // this verification call is expected to re-measure the final candidate
 
-	finalTokens, err := mockProvider.CountTokens(context.Background(), got)
+	finalTokens, err := mockProvider.CountTokens(t.Context(), got)
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}

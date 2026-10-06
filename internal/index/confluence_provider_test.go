@@ -2,7 +2,6 @@ package index
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -77,7 +76,7 @@ We will use Python.</p>`
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +137,7 @@ We will use Go.</p>`
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 	provider.SetFrontmatterMappings(map[string]string{"scope": "applies_to"})
 
-	adrs, _, err := provider.GetADRs(context.Background())
+	adrs, _, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +173,7 @@ func confluenceADRsFromStorage(t *testing.T, storage string, configure func(*Con
 		configure(provider)
 	}
 
-	adrs, stats, err := provider.GetADRs(context.Background())
+	adrs, stats, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,7 +312,7 @@ Content 2</p>`
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
-	adrs, _, err := provider.GetADRs(context.Background())
+	adrs, _, err := provider.GetADRs(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -363,7 +362,7 @@ func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
-	_, _, err := provider.GetADRs(context.Background())
+	_, _, err := provider.GetADRs(t.Context())
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}

@@ -72,7 +72,7 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "gt_test_project", 5, index.HNSWOptions{}, nil)
@@ -260,7 +260,7 @@ func TestSeedProjectADRs_InsertsExpectedRowCount(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "seed_test_project", 5, index.HNSWOptions{}, nil)
@@ -282,7 +282,7 @@ func TestProbeIterativeScanSupport_ReturnsVersionWithoutError(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "probe_test_project", 5, index.HNSWOptions{}, nil)
@@ -353,7 +353,7 @@ var benchScalePoints = []scalePoint{
 
 // Run with -benchtime=1x; see CLAUDE.md.
 func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	connStr := setupPgContainer(ctx, b)
 
 	initStore, err := index.NewPgStore(connStr, "bench_init", 5, index.HNSWOptions{}, nil)
@@ -383,7 +383,7 @@ func BenchmarkPgStoreSearch_ProjectFiltering(b *testing.B) {
 			"ALTER ROLE postgres RESET enable_bitmapscan",
 			"ALTER ROLE postgres RESET enable_sort",
 		} {
-			_, _ = pool.Exec(ctx, stmt) //nolint:errcheck // best-effort reset during cleanup
+			_, _ = pool.Exec(context.WithoutCancel(ctx), stmt) //nolint:errcheck // best-effort reset during cleanup
 		}
 	})
 

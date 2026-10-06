@@ -37,16 +37,7 @@ func TestLocalStore_CalculateHash_ChangesWhenIDChanges(t *testing.T) {
 }
 
 func TestStore_Save_Atomic(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "archguard_index_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Errorf("Failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	store := NewLocalStore(5)
 	store.ModelName = "mock-model"
@@ -136,7 +127,7 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "mock-model", 4, provider, adrProvider); err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
@@ -166,7 +157,7 @@ func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "mock-model", 4, provider, adrProvider); err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
@@ -194,7 +185,7 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 
 	store := NewLocalStore(2)
 
-	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	result, err := store.BuildIndex(t.Context(), "mock-model", 2, provider, adrProvider)
 	if err != nil {
 		t.Fatalf("BuildIndex must not return an error for a single ADR embed failure, got: %v", err)
 	}
@@ -238,7 +229,7 @@ func TestLocalStore_BuildIndex_AttemptedFalseWhenFetchFails(t *testing.T) {
 
 	store := NewLocalStore(2)
 
-	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	result, err := store.BuildIndex(t.Context(), "mock-model", 2, provider, adrProvider)
 	if err == nil {
 		t.Fatal("expected an error when the ADR provider fails")
 	}
@@ -255,7 +246,7 @@ func TestLocalStore_BuildIndex_AttemptedTrueOnSuccess(t *testing.T) {
 
 	store := NewLocalStore(2)
 
-	result, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider)
+	result, err := store.BuildIndex(t.Context(), "mock-model", 2, provider, adrProvider)
 	if err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
@@ -274,11 +265,11 @@ func TestLocalStore_BuildIndex_DetectsCancelledContextOnNoEmbedRun(t *testing.T)
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if _, err := store.BuildIndex(context.Background(), "mock-model", 2, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "mock-model", 2, provider, adrProvider); err != nil {
 		t.Fatalf("initial BuildIndex failed: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	_, err := store.BuildIndex(ctx, "mock-model", 2, provider, adrProvider)
@@ -301,7 +292,7 @@ func TestLocalStore_BuildIndex_PreservesSimilarityThresholdOverride(t *testing.T
 	adrProvider := &mockADRProvider{adrs: adrs}
 
 	store := NewLocalStore(2)
-	if _, err := store.BuildIndex(context.Background(), "mock-model", 4, provider, adrProvider); err != nil {
+	if _, err := store.BuildIndex(t.Context(), "mock-model", 4, provider, adrProvider); err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
@@ -335,7 +326,7 @@ func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
 	store := NewLocalStore(1)
 	store.out = output.New(&buf, false)
 
-	_, err := store.BuildIndex(context.Background(), "model", 2, embedProvider, provider)
+	_, err := store.BuildIndex(t.Context(), "model", 2, embedProvider, provider)
 	if err != nil {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}

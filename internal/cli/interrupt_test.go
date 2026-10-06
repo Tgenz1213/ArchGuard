@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 )
@@ -9,18 +10,7 @@ import (
 func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 	origArgs := os.Args
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer func() {
-		os.Args = origArgs
-
-		if err := os.Chdir(origWd); err != nil {
-			t.Errorf("restoring working directory: %v", err)
-		}
-	}()
+	defer func() { os.Args = origArgs }()
 
 	setupExecuteTestRepo(t)
 
@@ -42,8 +32,8 @@ func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d (err: %v)", code, ExitInterrupted, execErr)
 	}
 
-	if execErr == nil || execErr.Error() != "interrupted" {
-		t.Errorf("err = %v, want \"interrupted\"", execErr)
+	if !errors.Is(execErr, errInterrupted) {
+		t.Errorf("err = %v, want errInterrupted", execErr)
 	}
 }
 

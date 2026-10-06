@@ -50,7 +50,7 @@ func setupPgContainer(ctx context.Context, tb testing.TB) string {
 	}
 
 	tb.Cleanup(func() {
-		if err := pgContainer.Terminate(ctx); err != nil {
+		if err := pgContainer.Terminate(context.WithoutCancel(ctx)); err != nil {
 			tb.Fatalf("failed to terminate container: %s", err)
 		}
 	})
@@ -109,7 +109,7 @@ func TestPgStore_Integration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "integration_test_project", 5, index.HNSWOptions{}, nil)
@@ -118,13 +118,7 @@ func TestPgStore_Integration(t *testing.T) {
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	tmpDir, err := os.MkdirTemp("", "archguard_integration")
-	require.NoError(t, err)
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	adrContent := `---
 title: "Integration Test ADR"
@@ -164,7 +158,7 @@ func TestPgStore_Integration_MultiPatternScopeRoundTrips(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "multi_scope_project", 5, index.HNSWOptions{}, nil)
@@ -172,13 +166,7 @@ func TestPgStore_Integration_MultiPatternScopeRoundTrips(t *testing.T) {
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	tmpDir, err := os.MkdirTemp("", "archguard_multi_scope")
-	require.NoError(t, err)
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	adrContent := "---\ntitle: \"Multi Scope ADR\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody."
 	err = os.WriteFile(filepath.Join(tmpDir, "0001-multi-scope.md"), []byte(adrContent), 0644)
@@ -202,7 +190,7 @@ func TestPgStore_Integration_SearchRejected(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rejected_project", 5, index.HNSWOptions{}, nil)
@@ -210,13 +198,7 @@ func TestPgStore_Integration_SearchRejected(t *testing.T) {
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	tmpDir, err := os.MkdirTemp("", "archguard_rejected")
-	require.NoError(t, err)
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	closeADR := `---
 title: "Close Miss ADR"
@@ -266,7 +248,7 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "truncated_project", 5, index.HNSWOptions{}, nil)
@@ -274,13 +256,7 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	tmpDir, err := os.MkdirTemp("", "archguard_truncated")
-	require.NoError(t, err)
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	adrDefs := []struct {
 		filename string
@@ -325,7 +301,7 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "debug_info_project", 5, index.HNSWOptions{}, nil)
@@ -333,13 +309,7 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 	err = store.Load("", "test-model", 2, "")
 	require.NoError(t, err)
 
-	tmpDir, err := os.MkdirTemp("", "archguard_debug_info")
-	require.NoError(t, err)
-	defer func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %s: %v", tmpDir, err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	adrDefs := []struct {
 		filename string
@@ -397,7 +367,7 @@ func TestPgStore_Integration_ReindexDisabled(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	disabled := false
@@ -423,7 +393,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
@@ -473,7 +443,7 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
@@ -529,7 +499,7 @@ func TestPgStore_Integration_IterativeScanDefaultEnabled(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "iterative_scan_default_project", 5, index.HNSWOptions{}, nil)
@@ -559,7 +529,7 @@ func TestPgStore_Integration_IterativeScanExplicitlyDisabled(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	disabled := false
@@ -578,7 +548,7 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "sync_metadata_project", 5, index.HNSWOptions{}, nil)
@@ -622,7 +592,7 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scope_only_edit_project", 5, index.HNSWOptions{}, nil)
@@ -666,7 +636,7 @@ func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "similarity_threshold_project", 5, index.HNSWOptions{}, nil)
@@ -703,7 +673,7 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "threshold_only_edit_project", 5, index.HNSWOptions{}, nil)
@@ -748,7 +718,7 @@ func TestPgStore_Integration_RulesRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rules_round_trip_project", 5, index.HNSWOptions{}, nil)
@@ -794,7 +764,7 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "rules_only_edit_project", 5, index.HNSWOptions{}, nil)
@@ -840,7 +810,7 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "embed_failure_project", 5, index.HNSWOptions{}, nil)
@@ -892,7 +862,7 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "reembed_failure_project", 5, index.HNSWOptions{}, nil)
@@ -964,7 +934,7 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "upsert_failure_project", 5, index.HNSWOptions{}, nil)
@@ -1016,7 +986,7 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "partial_delta_failure_project", 5, index.HNSWOptions{}, nil)
@@ -1066,7 +1036,7 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "legacy_no_load_project", 5, index.HNSWOptions{}, nil)
@@ -1117,7 +1087,7 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scan_failure_project", 5, index.HNSWOptions{}, nil)
@@ -1219,7 +1189,7 @@ func TestPgStore_Integration_EngineArchguardIgnoreSuppressesOnlyNamedADR(t *test
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	engine, store := buildTwoADREngineFixture(ctx, t, connStr, "engine_ignore_project", "archguard-ignore: 0001\nbad code\n")
@@ -1239,7 +1209,7 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	engine, store := buildTwoADREngineFixture(ctx, t, connStr, "engine_baseline_project", "bad code\n")
@@ -1261,7 +1231,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scope_before_topk_project", 5, index.HNSWOptions{}, nil)
@@ -1308,7 +1278,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "threshold_after_scope_project", 5, index.HNSWOptions{}, nil)
@@ -1361,7 +1331,7 @@ func TestPgStore_Integration_ExplicitPrinterReceivesProgressNotStderr(t *testing
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	var buf bytes.Buffer
@@ -1387,7 +1357,7 @@ func TestPgStore_Integration_ScopedADRs(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_project", 5, index.HNSWOptions{}, nil)
@@ -1436,7 +1406,7 @@ func TestPgStore_Integration_ScopedADRsAreCachedUntilBuildIndex(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_cache_project", 5, index.HNSWOptions{}, nil)
@@ -1483,7 +1453,7 @@ func TestPgStore_Integration_ScopedADRsReportsBackendFailure(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	connStr := setupPgContainer(ctx, t)
 
 	store, err := index.NewPgStore(connStr, "scoped_failure_project", 5, index.HNSWOptions{}, nil)

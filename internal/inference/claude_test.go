@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -41,7 +40,7 @@ func TestClaudeProvider_Chat(t *testing.T) {
 
 	p := NewClaudeProviderWithBaseURL("test-api-key", "claude-sonnet-4-5", server.URL, server.Client())
 
-	res, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -67,7 +66,7 @@ func TestClaudeProvider_CountTokens(t *testing.T) {
 
 	provider := NewClaudeProviderWithBaseURL("test-api-key", "claude-sonnet-4-5", server.URL, server.Client())
 
-	count, err := provider.CountTokens(context.Background(), "some text to count")
+	count, err := provider.CountTokens(t.Context(), "some text to count")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}

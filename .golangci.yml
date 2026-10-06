@@ -1,8 +1,16 @@
 version: "2"
 linters:
   default: standard
-  enable: [bodyclose, errorlint, gocritic, noctx, revive, wsl_v5]
+  enable: [bodyclose, errorlint, gocritic, noctx, revive, usetesting, wsl_v5]
   settings:
+    usetesting:
+      context-background: true
+      context-todo: true
+      os-chdir: true
+      os-mkdir-temp: true
+      os-setenv: true
+      os-create-temp: true
+      os-temp-dir: true
     wsl_v5:
       default: none
       enable: [if, after-block]

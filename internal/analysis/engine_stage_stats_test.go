@@ -18,7 +18,7 @@ func TestEngine_CollectsStageStatsInPipelineOrderUnderJSONOutput(t *testing.T) {
 		{Name: "rerank", Scorer: scoresByID(scores, nil), MaxKeep: 1},
 	}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -34,7 +34,7 @@ func TestEngine_ListsEveryStageEvenWhenThereAreNoFiles(t *testing.T) {
 	h.engine.JSONOutput = true
 	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: scoresByID(nil, nil)}, {Name: "rerank", Scorer: scoresByID(nil, nil)}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestEngine_ListsEveryStageWhenFileDiscoveryFails(t *testing.T) {
 	h.engine.JSONOutput = true
 	h.engine.Stages = []stage.Stage{{Name: "rank", Scorer: scoresByID(nil, nil)}, {Name: "rerank", Scorer: scoresByID(nil, nil)}}
 
-	if err := h.engine.Run(context.Background()); err == nil {
+	if err := h.engine.Run(t.Context()); err == nil {
 		t.Fatal("expected the file discovery error")
 	}
 
@@ -68,7 +68,7 @@ func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
 	h.engine.JSONOutput = true
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestEngine_FailedStageStillAppearsInStageStatsAlongsideItsFailure(t *testin
 		})},
 	}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestEngine_FailedStageStillAppearsInStageStatsAlongsideItsFailure(t *testin
 func TestEngine_CollectsNoStageStatsOutsideJSONOutput(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

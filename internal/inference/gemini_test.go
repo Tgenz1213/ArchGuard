@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -101,7 +100,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	res, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
@@ -183,7 +182,7 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 		client:     server.Client(),
 	}
 
-	res, err := provider.CreateEmbedding(context.Background(), "test text", EmbeddingTaskDocument)
+	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
 		t.Fatalf("CreateEmbedding failed: %v", err)
 	}
@@ -253,7 +252,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 				client:     server.Client(),
 			}
 
-			if _, err := p.CreateEmbedding(context.Background(), "test text", c.task); err != nil {
+			if _, err := p.CreateEmbedding(t.Context(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
 			}
 
@@ -317,7 +316,7 @@ func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system", "user")
+	_, err := p.Chat(t.Context(), "system", "user")
 	if err != nil {
 		t.Fatalf("Chat failed with special characters in API key: %v", err)
 	}
@@ -342,7 +341,7 @@ func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -376,7 +375,7 @@ func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -410,7 +409,7 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	_, err := p.Chat(context.Background(), "system prompt", "user prompt")
+	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err == nil {
 		t.Fatal("Expected error, got nil")
 	}
@@ -465,7 +464,7 @@ func TestGeminiProvider_CountTokens(t *testing.T) {
 		client:  server.Client(),
 	}
 
-	count, err := provider.CountTokens(context.Background(), "Hello, world!")
+	count, err := provider.CountTokens(t.Context(), "Hello, world!")
 	if err != nil {
 		t.Fatalf("CountTokens failed: %v", err)
 	}

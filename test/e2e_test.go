@@ -73,7 +73,7 @@ func buildSharedE2EBinary(t *testing.T) string {
 
 		sourceRoot := strings.TrimSpace(string(out))
 
-		binDir, err := os.MkdirTemp("", "archguard-e2e-bin")
+		binDir, err := os.MkdirTemp("", "archguard-e2e-bin") //nolint:usetesting // shared by every test; TestMain removes it
 		if err != nil {
 			sharedBinaryErr = fmt.Errorf("failed to create shared binary dir: %w", err)
 			return

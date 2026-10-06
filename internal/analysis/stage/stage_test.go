@@ -50,7 +50,7 @@ func ids(cs []stage.Candidate) string {
 func TestStage_DropsBelowMinimumAndOrdersBestFirst(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(0.4, 0.9, 0.2, 0.7), Min: stage.FixedMin(0.3)}
 
-	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c", "d"))
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c", "d"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestStage_DropsBelowMinimumAndOrdersBestFirst(t *testing.T) {
 func TestStage_MaxKeepCutsAfterOrdering(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(0.4, 0.9, 0.7), Min: stage.FixedMin(0), MaxKeep: 2}
 
-	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c"))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestStage_MaxKeepCutsAfterOrdering(t *testing.T) {
 func TestStage_NilMinDefaultsToZero(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(-0.5, 0)}
 
-	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestStage_PerADRThreshold(t *testing.T) {
 	cs[0].ADR.SimilarityThreshold = &strict
 	s := stage.Stage{Scorer: fixedScores(0.9, 0.9), Min: stage.ADRThreshold{Global: 0.5}}
 
-	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, cs)
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, cs)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
 	var buf bytes.Buffer
 	scoringStage := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := scoringStage.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := scoringStage.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Name: "rerank", Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
+	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
 	var buf bytes.Buffer
 	s := stage.Stage{Name: "rank", Scorer: fixedScores()}
 
-	if _, err := s.Apply(context.Background(), fakeFile{}, output.New(&buf, true), nil); err != nil {
+	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -181,7 +181,7 @@ func TestStage_DoesNotScoreWhenThereAreNoCandidates(t *testing.T) {
 		return nil, errors.New("scorer must not run without candidates")
 	})}
 
-	got, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, nil)
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, nil)
 	if err != nil || len(got) != 0 || called {
 		t.Fatalf("got=%v err=%v called=%v, want an empty result and no scorer call", got, err, called)
 	}
@@ -201,7 +201,7 @@ func TestStage_WrapsScorerErrorsWithAScoringAction(t *testing.T) {
 		return nil, boom
 	})}
 
-	_, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a"))
+	_, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a"))
 
 	var stageErr *stage.Error
 	if !errors.As(err, &stageErr) || stageErr.Action != "scoring candidates" || !errors.Is(err, boom) {
@@ -215,7 +215,7 @@ func TestStage_KeepsAScorersOwnErrorAction(t *testing.T) {
 		return nil, own
 	})}
 
-	_, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a"))
+	_, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a"))
 	if err != error(own) { //nolint:errorlint // identity check: the error must pass through unwrapped
 		t.Fatalf("err = %v, want the scorer's own *stage.Error passed through unchanged", err)
 	}
@@ -224,7 +224,7 @@ func TestStage_KeepsAScorersOwnErrorAction(t *testing.T) {
 func TestStage_RejectsWrongScoreCount(t *testing.T) {
 	s := stage.Stage{Scorer: fixedScores(1)}
 
-	_, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
+	_, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a", "b"))
 
 	var stageErr *stage.Error
 	if !errors.As(err, &stageErr) || stageErr.Action != "scoring candidates" {

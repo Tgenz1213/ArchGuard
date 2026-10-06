@@ -99,7 +99,7 @@ func TestPipeline_ScoresAllCandidatesInOneCall(t *testing.T) {
 	var calls [][]string
 	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1, "0003": 1}, &calls)}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestPipeline_OnlyWhatTheStageKeepsIsJudged(t *testing.T) {
 		MaxKeep: 2,
 	}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestPipeline_StagesRunInOrderOverSurvivors(t *testing.T) {
 		{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 0}, &calls), Min: stage.FixedMin(0.5)},
 	}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestPipeline_WithoutCosineMakesNoEmbeddingCalls(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
 	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1}, nil)}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestPipeline_OnlyScopeMatchedADRsAreCandidates(t *testing.T) {
 	var calls [][]string
 	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	var calls [][]string
 	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -219,7 +219,7 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 	}
 
 	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, output.Discard())
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
 		{Name: "rerank", Scorer: second},
 	}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -350,7 +350,7 @@ func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
 	harness.engine.Config.Analysis.MaxConcurrency = 3
 	harness.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
 
-	if err := harness.engine.Run(context.Background()); err != nil {
+	if err := harness.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -382,7 +382,7 @@ func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 		return nil, errors.New("scorer down")
 	})}}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -395,7 +395,7 @@ func TestPipeline_DefaultCosineSuppressedADRDoesNotConsumeTopKSlot(t *testing.T)
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "// archguard-ignore: 0001\npackage svc")
 	h.engine.Config.Analysis.MaxRelevantADRs = 2
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -407,7 +407,7 @@ func TestPipeline_DefaultCosineSuppressedADRDoesNotConsumeTopKSlot(t *testing.T)
 func TestPipeline_DefaultCosineEmbedsOncePerFile(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9)}, "svc.go", "package svc")
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -425,7 +425,7 @@ func TestPipeline_EmptyStagesFallsBackToTheDefaultCosineStage(t *testing.T) {
 	h.engine.Config.Analysis.MaxRelevantADRs = 2
 	h.engine.Stages = []stage.Stage{}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -444,7 +444,7 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
 	h.engine.Store = failingScopedStore{VectorStore: h.engine.Store}
 
-	if err := h.engine.Run(context.Background()); err != nil {
+	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

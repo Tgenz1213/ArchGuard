@@ -18,20 +18,7 @@ func initTestRepo(t *testing.T) string {
 	runGit(t, dir, "config", "user.email", "test@example.com")
 	runGit(t, dir, "config", "user.name", "Test")
 
-	origWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
-	}
-
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("failed to chdir into fixture repo: %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := os.Chdir(origWd); err != nil {
-			t.Fatalf("failed to restore working directory: %v", err)
-		}
-	})
+	t.Chdir(dir)
 
 	return dir
 }
