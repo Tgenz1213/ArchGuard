@@ -13,6 +13,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/inference"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type ExitCode int
@@ -59,38 +60,11 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	colors, restoreConsole := decideColors(inv.color())
 	defer restoreConsole()
 
-	// check's stdout carries only its result (docs/arch/0028).
-	isCheck := inv.command == "check"
-	jsonOutput := isCheck && inv.check.jsonOutput()
+	printBanner(inv)
 
-	const banner = "ArchGuard - Architectural Drift Detector"
-
-	switch {
-	case isCheck && !jsonOutput:
-		fmt.Fprintln(os.Stderr, banner)
-	case !isCheck:
-		fmt.Println(banner)
-	}
-
-	repoRoot, err := git.GetRepoRoot(ctx)
+	repoRoot, err := enterRepoRoot(ctx, inv)
 	if err != nil {
-		return ExitError, fmt.Errorf("%w (ArchGuard must be run inside a git repository)", err)
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ExitError, fmt.Errorf("error reading the working directory: %w", err)
-	}
-
-	repoRoot = filepath.Clean(repoRoot)
-	cwd = filepath.Clean(cwd)
-
-	inv.check.resolvePaths(cwd, repoRoot)
-
-	if !strings.EqualFold(cwd, repoRoot) {
-		if err := os.Chdir(repoRoot); err != nil {
-			return ExitError, fmt.Errorf("error changing to git root: %w", err)
-		}
+		return ExitError, err
 	}
 
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
@@ -105,9 +79,67 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 		return ExitSuccess, nil
 	}
 
+	warnings := colors.stdoutPrinter(false)
+	if inv.command == "check" {
+		warnings = colors.stderrPrinter(false)
+	}
+
+	setup, err := loadSetup(repoRoot, warnings, factories)
+	if err != nil {
+		return ExitConfig, err
+	}
+
+	if inv.command == "check" {
+		return runCheck(ctx, setup, inv.check, colors)
+	}
+
+	return runIndexCommand(ctx, setup, colors)
+}
+
+// check's stdout carries only its result (docs/arch/0028).
+func printBanner(inv *invocation) {
+	const banner = "ArchGuard - Architectural Drift Detector"
+
+	isCheck := inv.command == "check"
+
+	switch {
+	case isCheck && !inv.check.jsonOutput():
+		fmt.Fprintln(os.Stderr, banner)
+	case !isCheck:
+		fmt.Println(banner)
+	}
+}
+
+// Also rewrites inv.check's paths relative to the repo root before the chdir.
+func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
+	repoRoot, err := git.GetRepoRoot(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%w (ArchGuard must be run inside a git repository)", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("error reading the working directory: %w", err)
+	}
+
+	repoRoot = filepath.Clean(repoRoot)
+	cwd = filepath.Clean(cwd)
+
+	inv.check.resolvePaths(cwd, repoRoot)
+
+	if !strings.EqualFold(cwd, repoRoot) {
+		if err := os.Chdir(repoRoot); err != nil {
+			return "", fmt.Errorf("error changing to git root: %w", err)
+		}
+	}
+
+	return repoRoot, nil
+}
+
+func loadSetup(repoRoot string, warnings *output.Printer, factories ProviderFactories) (runSetup, error) {
 	cfg, err := config.LoadConfig(configFilename)
 	if err != nil {
-		return ExitConfig, fmt.Errorf("error loading config: %w", err)
+		return runSetup{}, fmt.Errorf("error loading config: %w", err)
 	}
 
 	if cfg.ProjectName == "" {
@@ -120,59 +152,32 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	}
 
 	if err := validateProviderConfig(cfg); err != nil {
-		return ExitConfig, err
+		return runSetup{}, err
 	}
 
 	adrIDPattern, err := compileADRIDPattern(cfg)
 	if err != nil {
-		return ExitConfig, err
+		return runSetup{}, err
 	}
 
 	frontmatterMappings, err := validateFrontmatterMappings(cfg)
 	if err != nil {
-		return ExitConfig, err
+		return runSetup{}, err
 	}
 
-	var (
-		chatProvider  inference.Chatter
-		embedProvider inference.Embedder
-	)
-
-	if factories.Chat != nil {
-		chat := factories.Chat(cfg)
-
-		embedProvider, err = resolveEmbedProviderInstance(cfg, chat, factories.Embed)
-		if err != nil {
-			return ExitConfig, err
-		}
-
-		chatProvider = chat
-	} else {
-		providerWarnings := colors.stdoutPrinter(false)
-		if isCheck {
-			providerWarnings = colors.stderrPrinter(false)
-		}
-
-		chatProvider, embedProvider, err = buildProviders(providerWarnings, cfg, os.Getenv("ARCHGUARD_API_KEY"), os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
-		if err != nil {
-			return ExitConfig, err
-		}
+	chat, embed, err := selectProviders(warnings, cfg, factories)
+	if err != nil {
+		return runSetup{}, err
 	}
 
-	setup := runSetup{
+	return runSetup{
 		cfg:                 cfg,
-		chat:                chatProvider,
-		embed:               embedProvider,
+		chat:                chat,
+		embed:               embed,
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
-	}
-
-	if inv.command == "check" {
-		return runCheck(ctx, setup, inv.check, colors)
-	}
-
-	return runIndexCommand(ctx, setup, colors)
+	}, nil
 }
 
 type runSetup struct {

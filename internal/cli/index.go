@@ -31,32 +31,7 @@ func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCod
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
-	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
-	localProvider.SetIDPattern(setup.adrIDPattern)
-	localProvider.SetFrontmatterMappings(setup.frontmatterMappings)
-	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetPrinter(out)
-	var providers []index.Provider
-	providers = append(providers, localProvider)
-
-	if cfg.Analysis.Confluence.Enabled {
-		confluenceProvider := index.NewConfluenceProvider(
-			cfg.Analysis.Confluence.Domain,
-			cfg.Analysis.Confluence.SpaceID,
-			cfg.Analysis.Confluence.Username,
-			cfg.Analysis.Confluence.Token,
-			cfg.Analysis.AcceptedStatuses,
-		)
-		confluenceProvider.SetFrontmatterMappings(setup.frontmatterMappings)
-		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetPrinter(out)
-		providers = append(providers, confluenceProvider)
-	}
-
-	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetPrinter(out)
-
-	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, setup.embed, adrProvider)
+	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, setup.embed, newADRProvider(setup, out))
 	if result.Attempted {
 		printIndexSummary(result, out)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -33,6 +34,21 @@ func resolveEmbedProviderInstance(cfg *config.Config, chatProvider inference.Emb
 	default:
 		return nil, fmt.Errorf("ProviderFactories.Embed is required: llm.provider and vector_store.provider name different providers")
 	}
+}
+
+func selectProviders(warnings *output.Printer, cfg *config.Config, factories ProviderFactories) (inference.Chatter, inference.Embedder, error) {
+	if factories.Chat == nil {
+		return buildProviders(warnings, cfg, os.Getenv("ARCHGUARD_API_KEY"), os.Getenv("ARCHGUARD_EMBEDDING_API_KEY"))
+	}
+
+	chat := factories.Chat(cfg)
+
+	embed, err := resolveEmbedProviderInstance(cfg, chat, factories.Embed)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return chat, embed, nil
 }
 
 func buildProviders(warnings *output.Printer, cfg *config.Config, chatAPIKey, embedEnvKey string) (inference.Chatter, inference.Embedder, error) {

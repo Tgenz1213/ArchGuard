@@ -18,193 +18,163 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
+type checkRun struct {
+	setup        runSetup
+	opts         checkCmd
+	log          *output.Printer
+	report       *output.Printer
+	jsonDest     io.Writer
+	reportBuffer bytes.Buffer
+}
+
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
-	cfg := setup.cfg
-	files := opts.Paths
-
-	jsonOutput := opts.jsonOutput()
-	logPrinter := colors.stderrPrinter(opts.Debug)
-
-	var (
-		reportBuffer  bytes.Buffer
-		reportPrinter *output.Printer
-		jsonDest      io.Writer
-	)
-
-	if opts.Output != "" {
-		if err := checkReportDestination(opts.Output); err != nil {
-			return ExitError, err
-		}
-
-		reportPrinter = output.New(&reportBuffer, false)
-		jsonDest = &reportBuffer
-	} else {
-		reportPrinter = colors.stdoutPrinter(false)
-		jsonDest = os.Stdout
-	}
-
-	saveReportFile := func() error {
-		if opts.Output == "" {
-			return nil
-		}
-
-		if err := saveReport(opts.Output, reportBuffer.Bytes()); err != nil {
-			return err
-		}
-
-		logPrinter.Info("Report written to %s", opts.Output)
-
-		return nil
+	run, err := newCheckRun(setup, opts, colors)
+	if err != nil {
+		return ExitError, err
 	}
 
 	defer func() {
-		if werr := reportPrinter.Err(); werr != nil && !jsonOutput && code != ExitInterrupted {
+		if werr := run.report.Err(); werr != nil && !opts.jsonOutput() && code != ExitInterrupted {
 			code, err = ExitError, errors.Join(outputWriteError(werr), err)
 		}
 	}()
 
 	if opts.Format == "json" && opts.UpdateBaseline {
-		logPrinter.Note("--format json has no effect with --update-baseline; ignoring it.")
+		run.log.Note("--format json has no effect with --update-baseline; ignoring it.")
 	}
 
-	store, err := index.NewVectorStore(cfg, logPrinter)
+	store, err := index.NewVectorStore(setup.cfg, run.log)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
-	// Held back because a rebuild may fetch the ADRs again and repeat these warnings.
-	fetchOut := logPrinter.Group("")
-
-	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)
-	localProvider.SetIDPattern(setup.adrIDPattern)
-	localProvider.SetFrontmatterMappings(setup.frontmatterMappings)
-	localProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-	localProvider.SetPrinter(fetchOut)
-	var providers []index.Provider
-	providers = append(providers, localProvider)
-
-	if cfg.Analysis.Confluence.Enabled {
-		confluenceProvider := index.NewConfluenceProvider(
-			cfg.Analysis.Confluence.Domain,
-			cfg.Analysis.Confluence.SpaceID,
-			cfg.Analysis.Confluence.Username,
-			cfg.Analysis.Confluence.Token,
-			cfg.Analysis.AcceptedStatuses,
-		)
-		confluenceProvider.SetFrontmatterMappings(setup.frontmatterMappings)
-		confluenceProvider.SetRulesHeading(cfg.Analysis.RulesHeading)
-		confluenceProvider.SetPrinter(fetchOut)
-		providers = append(providers, confluenceProvider)
+	if err := run.loadIndex(ctx, store); err != nil {
+		return ExitIndexError, err
 	}
 
-	adrProvider := index.NewCompositeProvider(providers...)
-	adrProvider.SetPrinter(fetchOut)
+	run.noteIgnoredBaselineFlags()
 
-	validADRs, _, err := adrProvider.GetADRs(ctx)
+	contentProvider := resolveContentProvider(run.log, opts.Paths, opts.Staged, opts.All, opts.UpdateBaseline)
+
+	run.log.Debug("Mode Enabled")
+
+	loadedBaseline, err := run.loadBaseline()
 	if err != nil {
-		fetchOut.Flush()
-		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %w", err)
+		return ExitError, err
 	}
 
-	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
-	if err != nil {
-		fetchOut.Flush()
-		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %w", err)
-	}
-
-	if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
-		fetchOut.Flush()
-	} else {
-		logPrinter.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
-
-		if _, err := runIndex(ctx, setup, logPrinter); err != nil {
-			return ExitIndexError, fmt.Errorf("index rebuild failed: %w", err)
-		}
-
-		currentHash, err = store.CalculateHash(validADRs, cfg.VectorStore.Model)
-		if err != nil {
-			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %w", err)
-		}
-
-		if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
-			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %w", err)
-		}
-	}
-
-	if opts.UpdateBaseline && (len(files) > 0 || opts.Staged) {
-		logPrinter.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
-	}
-
-	if opts.BaselineReason != "" && !opts.UpdateBaseline {
-		logPrinter.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
-	}
-
-	contentProvider := resolveContentProvider(logPrinter, files, opts.Staged, opts.All, opts.UpdateBaseline)
-
-	logPrinter.Debug("Mode Enabled")
-
-	var loadedBaseline *baseline.Baseline
-
-	loadedBaseline, err = baseline.Load(baseline.Path)
-	if err != nil {
-		if !opts.UpdateBaseline {
-			return ExitError, fmt.Errorf("failed to load baseline file %s: %w (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
-		}
-
-		logPrinter.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
-	}
-
-	engine := analysis.NewEngine(cfg, store, setup.chat, setup.embed, contentProvider)
-	engine.Debug = opts.Debug
-	engine.CI = opts.CI
-
-	analysisCache, cacheErr := cache.NewCache(".")
-	if cacheErr != nil {
-		logPrinter.Warn("analysis cache disabled: %v", cacheErr)
-	}
-
-	engine.Cache = analysisCache
-
-	engine.Stages = analysis.BuildStages(cfg, store, setup.embed, logPrinter)
-	engine.Baseline = loadedBaseline
-	engine.UpdateBaseline = opts.UpdateBaseline
-	engine.BaselineReason = opts.BaselineReason
-	engine.JSONOutput = jsonOutput
-	engine.Out = logPrinter
-	engine.SuggestFixes = opts.SuggestFixes
+	engine := run.newEngine(store, contentProvider, loadedBaseline)
 
 	runErr := engine.Run(ctx)
 	if runErr != nil && ctx.Err() != nil {
 		return ExitInterrupted, errInterrupted
 	}
 
-	stageFailureCode, stageFailureErr := stageFailureExit(engine.StageFailures)
-
 	if opts.UpdateBaseline {
-		if runErr != nil {
-			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %w", runErr)
-		}
-
-		if stageFailureErr != nil {
-			return stageFailureCode, fmt.Errorf("%w; baseline not written", stageFailureErr)
-		}
-
-		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
-			return ExitError, fmt.Errorf("failed to write baseline file %s: %w", baseline.Path, err)
-		}
-
-		reportPrinter.BaselineReport(engine.BaselineReport(baseline.Path))
-
-		if err := saveReportFile(); err != nil {
-			return ExitError, err
-		}
-
-		return ExitSuccess, nil
+		return run.finishUpdateBaseline(engine, runErr)
 	}
 
-	if !jsonOutput && output.InGitHubActions() {
+	return run.finishCheck(engine, runErr)
+}
+
+func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
+	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug)}
+
+	if opts.Output == "" {
+		run.report = colors.stdoutPrinter(false)
+		run.jsonDest = os.Stdout
+
+		return run, nil
+	}
+
+	if err := checkReportDestination(opts.Output); err != nil {
+		return nil, err
+	}
+
+	run.report = output.New(&run.reportBuffer, false)
+	run.jsonDest = &run.reportBuffer
+
+	return run, nil
+}
+
+func (r *checkRun) noteIgnoredBaselineFlags() {
+	if r.opts.UpdateBaseline && (len(r.opts.Paths) > 0 || r.opts.Staged) {
+		r.log.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
+	}
+
+	if r.opts.BaselineReason != "" && !r.opts.UpdateBaseline {
+		r.log.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
+	}
+}
+
+func (r *checkRun) loadBaseline() (*baseline.Baseline, error) {
+	loaded, err := baseline.Load(baseline.Path)
+	if err == nil {
+		return loaded, nil
+	}
+
+	if !r.opts.UpdateBaseline {
+		return nil, fmt.Errorf("failed to load baseline file %s: %w (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
+	}
+
+	r.log.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
+
+	return loaded, nil
+}
+
+func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.ContentProvider, loaded *baseline.Baseline) *analysis.Engine {
+	setup, opts := r.setup, r.opts
+
+	engine := analysis.NewEngine(setup.cfg, store, setup.chat, setup.embed, contentProvider)
+	engine.Debug = opts.Debug
+	engine.CI = opts.CI
+
+	analysisCache, err := cache.NewCache(".")
+	if err != nil {
+		r.log.Warn("analysis cache disabled: %v", err)
+	}
+
+	engine.Cache = analysisCache
+
+	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, r.log)
+	engine.Baseline = loaded
+	engine.UpdateBaseline = opts.UpdateBaseline
+	engine.BaselineReason = opts.BaselineReason
+	engine.JSONOutput = opts.jsonOutput()
+	engine.Out = r.log
+	engine.SuggestFixes = opts.SuggestFixes
+
+	return engine
+}
+
+func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (ExitCode, error) {
+	if runErr != nil {
+		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %w", runErr)
+	}
+
+	if stageCode, stageErr := stageFailureExit(engine.StageFailures); stageErr != nil {
+		return stageCode, fmt.Errorf("%w; baseline not written", stageErr)
+	}
+
+	if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
+		return ExitError, fmt.Errorf("failed to write baseline file %s: %w", baseline.Path, err)
+	}
+
+	r.report.BaselineReport(engine.BaselineReport(baseline.Path))
+
+	if err := r.saveReportFile(); err != nil {
+		return ExitError, err
+	}
+
+	return ExitSuccess, nil
+}
+
+func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode, error) {
+	stageCode, stageErr := stageFailureExit(engine.StageFailures)
+
+	if !r.opts.jsonOutput() && output.InGitHubActions() {
 		for _, v := range engine.CollectedViolations {
-			logPrinter.Annotation(v.Annotation())
+			r.log.Annotation(v.Annotation())
 		}
 	}
 
@@ -213,42 +183,60 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		analysisErr = fmt.Errorf("analysis failed: %w", runErr)
 	}
 
-	if jsonOutput {
-		if err := writeCheckReport(jsonDest, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
-			return ExitError, errors.Join(fmt.Errorf("failed to write json report: %w", err), stageFailureErr, analysisErr)
-		}
+	if err := r.writeReport(engine, runErr); err != nil {
+		return ExitError, errors.Join(err, stageErr, analysisErr)
 	}
 
-	if jsonOutput && (len(engine.SkippedFiles) > 0 || len(engine.FailedChecks) > 0) {
-		logPrinter.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
+	if stageErr != nil {
+		return stageCode, stageErr
 	}
 
-	var driftErr *analysis.DriftDetectedError
-
-	analysisFailed := runErr != nil && !errors.As(runErr, &driftErr)
-	if !jsonOutput && !analysisFailed {
-		reportPrinter.Report(engine.Report())
-	}
-
-	if jsonOutput || !analysisFailed {
-		if err := saveReportFile(); err != nil {
-			return ExitError, errors.Join(err, stageFailureErr, analysisErr)
-		}
-	}
-
-	if stageFailureErr != nil {
-		return stageFailureCode, stageFailureErr
-	}
-
-	if errors.As(runErr, &driftErr) {
+	if isDriftError(runErr) {
 		return ExitDriftDetected, nil
 	}
 
 	if runErr != nil {
-		return exitCodeForAnalysisError(runErr), analysisErr
+		return ExitError, analysisErr
 	}
 
 	return ExitSuccess, nil
+}
+
+// A run whose analysis failed outright in text mode has no report to write.
+func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
+	analysisFailed := runErr != nil && !isDriftError(runErr)
+
+	if r.opts.jsonOutput() {
+		if err := writeCheckReport(r.jsonDest, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures); err != nil {
+			return fmt.Errorf("failed to write json report: %w", err)
+		}
+
+		if len(engine.SkippedFiles) > 0 || len(engine.FailedChecks) > 0 {
+			r.log.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
+		}
+	} else if !analysisFailed {
+		r.report.Report(engine.Report())
+	}
+
+	if r.opts.jsonOutput() || !analysisFailed {
+		return r.saveReportFile()
+	}
+
+	return nil
+}
+
+func (r *checkRun) saveReportFile() error {
+	if r.opts.Output == "" {
+		return nil
+	}
+
+	if err := saveReport(r.opts.Output, r.reportBuffer.Bytes()); err != nil {
+		return err
+	}
+
+	r.log.Info("Report written to %s", r.opts.Output)
+
+	return nil
 }
 
 type checkReport struct {
@@ -289,43 +277,34 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 }
 
 func resolveContentProvider(out *output.Printer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
-	if updateBaseline {
+	switch {
+	case updateBaseline:
 		return &analysis.AllProvider{}
-	}
-
-	if len(files) > 0 {
-		if slices.Contains(files, ".") {
-			var extras []string
-			for _, f := range files {
-				if f != "." {
-					extras = append(extras, f)
-				}
-			}
-
-			if len(extras) > 0 {
-				out.Note("\".\" scans the whole repository; ignoring extra path argument(s): %v", extras)
-			}
-
-			return &analysis.AllProvider{}
+	case slices.Contains(files, "."):
+		if extras := slices.DeleteFunc(slices.Clone(files), func(path string) bool { return path == "." }); len(extras) > 0 {
+			out.Note("\".\" scans the whole repository; ignoring extra path argument(s): %v", extras)
 		}
 
-		return &analysis.MultiFileProvider{Paths: files}
-	}
-
-	if staged {
-		return &analysis.StagedProvider{}
-	}
-
-	if all {
 		return &analysis.AllProvider{}
+	case len(files) > 0:
+		return &analysis.MultiFileProvider{Paths: files}
+	case staged:
+		return &analysis.StagedProvider{}
+	case all:
+		return &analysis.AllProvider{}
+	default:
+		return &analysis.UncommittedProvider{}
 	}
+}
 
-	return &analysis.UncommittedProvider{}
+func isDriftError(err error) bool {
+	var driftErr *analysis.DriftDetectedError
+
+	return errors.As(err, &driftErr)
 }
 
 func exitCodeForAnalysisError(err error) ExitCode {
-	var driftErr *analysis.DriftDetectedError
-	if errors.As(err, &driftErr) {
+	if isDriftError(err) {
 		return ExitDriftDetected
 	}
 
