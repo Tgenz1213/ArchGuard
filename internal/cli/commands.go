@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/alecthomas/kong"
-
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -87,7 +86,8 @@ func parseCommandLine(args []string, stdout, stderr io.Writer) (*invocation, Exi
 	w := &writeRecorder{w: stdout}
 	exited := -1
 
-	parser, err := kong.New(&cl,
+	parser, err := kong.New(
+		&cl,
 		kong.Name("archguard"),
 		kong.Description("Checks changed code against the rules in your Architectural Decision Records."),
 		kong.Writers(w, stderr),

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/muesli/termenv"
-
 	"github.com/tgenz1213/archguard/internal/output"
 )
 

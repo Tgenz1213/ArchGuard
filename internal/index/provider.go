@@ -6,9 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/tgenz1213/archguard/internal/output"
+	"golang.org/x/sync/errgroup"
 )
 
 type FetchStats struct {

@@ -15,7 +15,6 @@ import (
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/tgenz1213/archguard/internal/index"
 )
 

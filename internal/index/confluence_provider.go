@@ -12,7 +12,6 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-
 	"github.com/tgenz1213/archguard/internal/output"
 )
 

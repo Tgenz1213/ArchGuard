@@ -38,3 +38,8 @@ linters:
         - name: use-any
         - name: var-declaration
         - name: var-naming
+formatters:
+  enable: [gci]
+  settings:
+    gci:
+      sections: [standard, default]

@@ -18,7 +18,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -31,7 +30,9 @@ import (
 func setupPgContainer(ctx context.Context, tb testing.TB) string {
 	tb.Helper()
 
-	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:0.8.6-pg16",
+	pgContainer, err := postgres.Run(
+		ctx,
+		"pgvector/pgvector:0.8.6-pg16",
 		postgres.WithDatabase("archguard_test"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
@@ -940,9 +941,11 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 
 	var gotContent string
 	var gotEmbedding pgvector.Vector
-	err = store.Pool().QueryRow(ctx,
+	err = store.Pool().QueryRow(
+		ctx,
 		"SELECT content, embedding FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2",
-		"reembed_failure_project", "0010-reembed.md",
+		"reembed_failure_project",
+		"0010-reembed.md",
 	).Scan(&gotContent, &gotEmbedding)
 	require.NoError(t, err, "the pre-existing row must still be present, not deleted")
 	assert.Contains(t, gotContent, originalBody, "the row must keep its original content")

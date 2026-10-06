@@ -37,8 +37,11 @@ func validateFrontmatterMappings(cfg *config.Config) (map[string]string, error) 
 
 	for canonical := range mappings {
 		if !canonicalFields[canonical] {
-			return nil, fmt.Errorf("unknown analysis.frontmatter_mappings field %q: must be one of %s",
-				canonical, strings.Join(index.CanonicalFrontMatterFields, ", "))
+			return nil, fmt.Errorf(
+				"unknown analysis.frontmatter_mappings field %q: must be one of %s",
+				canonical,
+				strings.Join(index.CanonicalFrontMatterFields, ", "),
+			)
 		}
 	}
 

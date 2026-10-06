@@ -268,8 +268,12 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 
 	// "wrong scope" is dropped by scope and "below threshold" scores 0 (rejected); the other three split into 2 hits and 1 truncated.
 	if len(hits) != 2 || len(rejected) != 1 || len(truncated) != 1 {
-		t.Fatalf("expected 2 hits, 1 rejected, 1 truncated, got hits=%d rejected=%d truncated=%d",
-			len(hits), len(rejected), len(truncated))
+		t.Fatalf(
+			"expected 2 hits, 1 rejected, 1 truncated, got hits=%d rejected=%d truncated=%d",
+			len(hits),
+			len(rejected),
+			len(truncated),
+		)
 	}
 
 	if rejected[0].ADR.Title != "below threshold" {
