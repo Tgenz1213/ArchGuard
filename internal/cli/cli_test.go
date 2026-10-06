@@ -697,7 +697,7 @@ func TestParseCommandLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
 
-			inv, code, err := parseCommandLine(tt.args, &out, &errOut)
+			inv, code, err := parseCommandLine(tt.args, &out, &errOut, "test")
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
@@ -754,7 +754,7 @@ func TestParseCommandLine_Color(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
-			inv, _, err := parseCommandLine(tt.args, io.Discard, io.Discard)
+			inv, _, err := parseCommandLine(tt.args, io.Discard, io.Discard, "test")
 			if err != nil || inv == nil {
 				t.Fatalf("parseCommandLine(%v) = %v, %v", tt.args, inv, err)
 			}
@@ -773,7 +773,7 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write fa
 func TestParseCommandLine_OutputWriteFailureExitsOne(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"check", "--help"}, {"--version"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			inv, code, err := parseCommandLine(args, failingWriter{}, io.Discard)
+			inv, code, err := parseCommandLine(args, failingWriter{}, io.Discard, "test")
 			if inv != nil || code != ExitError || err == nil {
 				t.Fatalf("got (%v, %d, %v), want (nil, %d, error)", inv, code, err, ExitError)
 			}
@@ -782,7 +782,7 @@ func TestParseCommandLine_OutputWriteFailureExitsOne(t *testing.T) {
 }
 
 func TestParseCommandLine_UsageErrorIgnoresBrokenStreams(t *testing.T) {
-	inv, code, err := parseCommandLine([]string{"typo"}, failingWriter{}, failingWriter{})
+	inv, code, err := parseCommandLine([]string{"typo"}, failingWriter{}, failingWriter{}, "test")
 	if inv != nil || code != ExitUsage || err == nil || !strings.Contains(err.Error(), "typo") {
 		t.Fatalf("got (%v, %d, %v), want the usage error with exit %d", inv, code, err, ExitUsage)
 	}
@@ -958,7 +958,7 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			if code, err := Execute(t.Context(), ProviderFactories{}); code != ExitConfig || err == nil {
+			if code, err := Execute(t.Context(), "test", ProviderFactories{}); code != ExitConfig || err == nil {
 				t.Errorf("Execute() = (%d, %v), want exit %d: this repo has no archguard.yaml", code, err, ExitConfig)
 			}
 		})
@@ -996,7 +996,7 @@ func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
 	var stderr string
 	captureStdout(t, func() {
 		stderr = captureStderr(t, func() {
-			if code, err := Execute(t.Context(), ProviderFactories{}); code != ExitConfig || err == nil {
+			if code, err := Execute(t.Context(), "test", ProviderFactories{}); code != ExitConfig || err == nil {
 				t.Errorf("Execute() = (%d, %v), want exit %d: this repo has no archguard.yaml", code, err, ExitConfig)
 			}
 		})
@@ -1018,7 +1018,7 @@ func TestExecute_TopLevelHelpExitsSuccess(t *testing.T) {
 			var err error
 
 			captured := captureStdout(t, func() {
-				exitCode, err = Execute(t.Context(), ProviderFactories{})
+				exitCode, err = Execute(t.Context(), "test", ProviderFactories{})
 			})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)

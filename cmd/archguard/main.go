@@ -15,11 +15,9 @@ var (
 )
 
 func main() {
-	cli.Version = fmt.Sprintf("%s, commit %s, built at %s", version, commit, date)
-
 	ctx, stop := cli.NotifyContext(context.Background())
 
-	exitCode, err := cli.Execute(ctx, cli.ProviderFactories{})
+	exitCode, err := cli.Execute(ctx, fmt.Sprintf("%s, commit %s, built at %s", version, commit, date), cli.ProviderFactories{})
 
 	stop()
 

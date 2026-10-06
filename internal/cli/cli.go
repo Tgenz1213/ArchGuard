@@ -41,8 +41,8 @@ type ProviderFactories struct {
 	Embed func(*config.Config) inference.Embedder
 }
 
-func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
-	code, err := execute(ctx, factories)
+func Execute(ctx context.Context, version string, factories ProviderFactories) (ExitCode, error) {
+	code, err := execute(ctx, version, factories)
 	if err != nil && ctx.Err() != nil {
 		return ExitInterrupted, errInterrupted
 	}
@@ -50,8 +50,8 @@ func Execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 	return code, err
 }
 
-func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error) {
-	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout, os.Stderr)
+func execute(ctx context.Context, version string, factories ProviderFactories) (ExitCode, error) {
+	inv, code, err := parseCommandLine(os.Args[1:], os.Stdout, os.Stderr, version)
 	if inv == nil {
 		return code, err
 	}

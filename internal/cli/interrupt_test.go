@@ -35,7 +35,7 @@ func TestExecute_ErrorWhileCancelledExitsInterrupted(t *testing.T) {
 	)
 
 	captureStdout(t, func() {
-		code, execErr = Execute(ctx, ProviderFactories{})
+		code, execErr = Execute(ctx, "test", ProviderFactories{})
 	})
 
 	if code != ExitInterrupted {
@@ -61,7 +61,7 @@ func TestExecute_NilErrorIsNotRemappedWhenCancelled(t *testing.T) {
 	captureStdout(t, func() {
 		var err error
 
-		code, err = Execute(ctx, ProviderFactories{})
+		code, err = Execute(ctx, "test", ProviderFactories{})
 		if err != nil {
 			t.Errorf("Execute() error = %v, want nil", err)
 		}

@@ -95,7 +95,7 @@ func main() {
 	}
 
 	factories := cli.ProviderFactories{Chat: chatProviderFactory, Embed: embedProviderFactory}
-	exitCode, err := cli.Execute(ctx, factories)
+	exitCode, err := cli.Execute(ctx, "e2e", factories)
 
 	stop()
 
