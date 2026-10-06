@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
@@ -111,294 +110,15 @@ func (e *Engine) printer() *output.Printer {
 }
 
 func (e *Engine) Run(ctx context.Context) error {
-	out := e.printer()
-
-	stages := e.Stages
-	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
-	}
-
-	telemetry := stage.NewTelemetry(stages)
+	run := newRunState(e.printer(), e.scoringStages())
 
 	files, err := e.Content.GetFiles(ctx)
 	if err != nil {
-		if e.JSONOutput {
-			e.CollectedStages = telemetry.Stats()
-		}
-
+		e.collectStageStats(run)
 		return err
 	}
 
-	var (
-		violations           int
-		baselinedCount       int
-		skippedFiles         []output.FileGap
-		failedChecks         []output.FailedCheck
-		recordedEntries      []output.RecordedEntry
-		unrecordedViolations []output.UnrecordedViolation
-		partialFiles         []output.FileGap
-		collectedEntries     []baseline.Entry
-		collectedViolations  []Violation
-		stageFailures        []StageFailure
-		mu                   sync.Mutex
-	)
-
-	concurrency := e.Config.Analysis.MaxConcurrency
-	if concurrency <= 0 {
-		concurrency = 5
-	}
-
-	var group errgroup.Group
-	group.SetLimit(concurrency)
-
-	_, explicitFiles := e.Content.(*MultiFileProvider)
-
-	for _, file := range files {
-		if e.shouldExclude(file) {
-			if explicitFiles && file != baseline.Path {
-				out.Debug("Skipping %s: explicitly requested but matches exclude_patterns", file)
-			}
-
-			continue
-		}
-
-		file := file
-		group.Go(func() error {
-			if ctx.Err() != nil {
-				return nil
-			}
-
-			fileOut := out.Group(file)
-			defer fileOut.Flush()
-
-			content, fullContent, diffMode, err := e.fetchContext(ctx, file)
-			if err != nil {
-				reason := fmt.Sprintf("reading file: %v", err)
-				fileOut.Error("%s", reason)
-				mu.Lock()
-				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
-				mu.Unlock()
-				return nil
-			}
-
-			fileOut.Debug("Context mode: %s", diffMode)
-
-			if diffMode == "truncated" && e.CI && !e.UpdateBaseline {
-				fileOut.Warn("truncated for analysis; in CI mode this is a warning, not a failure")
-				mu.Lock()
-				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: "too large to analyze in full; CI mode skips it instead of failing"})
-				mu.Unlock()
-
-				return nil
-			}
-
-			if diffMode == "truncated" {
-				fileOut.Warn("truncated for analysis; only the visible portion is checked")
-				mu.Lock()
-				partialFiles = append(partialFiles, output.FileGap{File: file, Reason: "too large to analyze in full; only the visible portion was checked"})
-				mu.Unlock()
-			}
-
-			hits, err := candidateSource{store: e.Store}.For(file, content, fileOut)
-			if err != nil {
-				reason := fmt.Sprintf("loading candidate ADRs: %v", err)
-				fileOut.Error("%s", reason)
-				mu.Lock()
-				skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
-				mu.Unlock()
-				return nil
-			}
-
-			query := &queryFile{path: file, content: content, provider: e.Content, updateBaseline: e.UpdateBaseline}
-			for i, st := range stages {
-				hits, err = telemetry.Apply(ctx, i, query, fileOut, hits)
-				if err != nil {
-					mu.Lock()
-					if st.FailOnError {
-						failure := newStageFailure(st.Name, file, err)
-						fileOut.Error("%s", failureMessage(failure))
-						stageFailures = append(stageFailures, failure)
-					} else {
-						reason := scoringErrorMessage(err)
-						fileOut.Error("%s", reason)
-						skippedFiles = append(skippedFiles, output.FileGap{File: file, Reason: reason})
-					}
-
-					mu.Unlock()
-					return nil
-				}
-			}
-
-			if len(hits) == 0 {
-				fileOut.Debug("No relevant ADRs found.")
-				return nil
-			}
-
-			// Baseline reads/writes compare against the untruncated file,
-			// not the possibly-partial content the LLM saw.
-			baselineContent := fullContent
-
-			localViolations := 0
-			localBaselined := 0
-			var localFailedChecks []output.FailedCheck
-			var localBaselineEntries []baseline.Entry
-			var localRecorded []output.RecordedEntry
-			var localUnrecorded []output.UnrecordedViolation
-			var localViolationRecords []Violation
-			for _, hit := range hits {
-				systemPrompt := e.Config.LLM.SystemPrompt
-				if systemPrompt == "" {
-					systemPrompt = inference.DefaultSystemPrompt
-				}
-
-				cacheKey := cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
-					ModelName:          e.Config.LLM.Model,
-					ADRContent:         hit.ADR.Content,
-					FileContent:        content,
-					SystemPrompt:       systemPrompt,
-					UserPromptTemplate: inference.ChatPrompt,
-				})
-
-				driftInput := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: content, Filename: file}
-
-				var result *inference.AnalysisResult
-
-				cached := false
-
-				if e.Cache != nil {
-					cachedRes, found, err := e.Cache.Get(cacheKey)
-					if err == nil && found {
-						cached = true
-						result = cachedRes
-					}
-				}
-
-				if result == nil {
-					result, err = inference.AnalyzeDrift(ctx, e.Chat, driftInput, systemPrompt)
-					if err != nil {
-						fileOut.Debug("%s", checkOutcomeLine(hit, "failed", false))
-						fileOut.Warn("LLM analysis failed: %v", err)
-						localFailedChecks = append(localFailedChecks, output.FailedCheck{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: err.Error()})
-						continue
-					}
-
-					if e.Cache != nil {
-						if err := e.Cache.Put(cacheKey, result); err != nil {
-							fileOut.Debug("Failed to cache analysis result: %v", err)
-						}
-					}
-				}
-
-				outcome := "compliant"
-				if result.Violation {
-					outcome = "violation"
-				}
-
-				fileOut.Debug("%s", checkOutcomeLine(hit, outcome, cached))
-
-				if result.Violation {
-					// Checked against the escaped content, which is what the LLM saw.
-					escapedContent := inference.EscapePromptDelimiter(content)
-					lineNum := e.findLineNumber(escapedContent, result.QuotedCode)
-					verified := result.QuotedCode == "" || strings.Contains(escapedContent, result.QuotedCode)
-					switch {
-					case e.UpdateBaseline:
-						reason := e.BaselineReason
-						if reason == "" {
-							reason = e.Baseline.ReasonFor(hit.ADR.ID, file)
-						}
-
-						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, false))
-						// A QuotedCode that can't match the file would suppress nothing, so skip it.
-						if result.QuotedCode == "" || strings.Contains(baselineContent, result.QuotedCode) {
-							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
-								ADRID:      hit.ADR.ID,
-								File:       file,
-								QuotedCode: result.QuotedCode,
-								Reason:     reason,
-							})
-							localRecorded = append(localRecorded, output.RecordedEntry{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Line: lineNum, Reason: reason})
-						} else {
-							fileOut.Warn("quoted code not found verbatim in file; skipping baseline entry")
-							localUnrecorded = append(localUnrecorded, output.UnrecordedViolation{File: file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: "the quoted code was not found verbatim in the file"})
-						}
-					case e.Baseline.IsSuppressed(hit.ADR.ID, file, baselineContent):
-						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, true))
-						localBaselined++
-					default:
-						var suggestion string
-
-						if e.SuggestFixes && verified {
-							suggestionKey := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
-								ModelName:                e.Config.LLM.Model,
-								ADRContent:               hit.ADR.Content,
-								FileContent:              content,
-								Filename:                 file,
-								Reasoning:                result.Reasoning,
-								QuotedCode:               result.QuotedCode,
-								SuggestionSystemPrompt:   inference.SuggestionSystemPrompt,
-								SuggestionPromptTemplate: inference.SuggestionPrompt,
-							})
-							if e.Cache != nil {
-								if cached, found, err := e.Cache.GetSuggestion(suggestionKey); err == nil && found {
-									suggestion = cached
-								}
-							}
-
-							if suggestion == "" {
-								suggested, suggestErr := inference.SuggestRemediation(ctx, e.Chat, driftInput, *result)
-								switch {
-								case suggestErr != nil:
-									fileOut.Warn("suggestion generation failed: %v", suggestErr)
-								case suggested == "":
-									fileOut.Warn("suggestion generation returned an empty suggestion")
-								default:
-									suggestion = suggested
-									if e.Cache != nil {
-										if err := e.Cache.PutSuggestion(suggestionKey, suggested); err != nil {
-											fileOut.Debug("Failed to cache suggestion: %v", err)
-										}
-									}
-								}
-							}
-						}
-
-						record := Violation{
-							File:       file,
-							ADRID:      hit.ADR.ID,
-							ADRTitle:   hit.ADR.Title,
-							Line:       lineNum,
-							Reasoning:  result.Reasoning,
-							QuotedCode: result.QuotedCode,
-							Suggestion: suggestion,
-							lineInDiff: diffMode == "diff",
-							unverified: !verified,
-						}
-						fileOut.Info("%s", violationLine(record, false))
-						localViolations++
-						localViolationRecords = append(localViolationRecords, record)
-					}
-				}
-			}
-
-			mu.Lock()
-			violations += localViolations
-			baselinedCount += localBaselined
-			failedChecks = append(failedChecks, localFailedChecks...)
-
-			if e.UpdateBaseline {
-				collectedEntries = append(collectedEntries, localBaselineEntries...)
-				recordedEntries = append(recordedEntries, localRecorded...)
-				unrecordedViolations = append(unrecordedViolations, localUnrecorded...)
-			}
-
-			collectedViolations = append(collectedViolations, localViolationRecords...)
-			mu.Unlock()
-			return nil
-		})
-	}
-
-	if err := group.Wait(); err != nil {
+	if err := e.checkFiles(ctx, run, files); err != nil {
 		return err
 	}
 
@@ -407,42 +127,95 @@ func (e *Engine) Run(ctx context.Context) error {
 		return err
 	}
 
-	e.SkippedFiles = skippedFiles
-	e.FailedChecks = failedChecks
-	e.Baselined = baselinedCount
-	e.RecordedEntries = recordedEntries
-	e.UnrecordedViolations = unrecordedViolations
-	e.PartialFiles = partialFiles
-	sort.Slice(stageFailures, func(i, j int) bool {
-		if stageFailures[i].File != stageFailures[j].File {
-			return stageFailures[i].File < stageFailures[j].File
+	e.publish(run)
+
+	if !e.UpdateBaseline && run.violations > 0 {
+		return &DriftDetectedError{Count: run.violations}
+	}
+
+	return nil
+}
+
+func (e *Engine) scoringStages() []stage.Stage {
+	if len(e.Stages) > 0 {
+		return e.Stages
+	}
+
+	return []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+}
+
+func (e *Engine) maxConcurrency() int {
+	if e.Config.Analysis.MaxConcurrency <= 0 {
+		return 5
+	}
+
+	return e.Config.Analysis.MaxConcurrency
+}
+
+func (e *Engine) checkFiles(ctx context.Context, run *runState, files []string) error {
+	var group errgroup.Group
+	group.SetLimit(e.maxConcurrency())
+
+	_, explicitFiles := e.Content.(*MultiFileProvider)
+
+	for _, file := range files {
+		if e.shouldExclude(file) {
+			if explicitFiles && file != baseline.Path {
+				run.out.Debug("Skipping %s: explicitly requested but matches exclude_patterns", file)
+			}
+
+			continue
 		}
 
-		return stageFailures[i].Stage < stageFailures[j].Stage
-	})
+		group.Go(func() error {
+			if ctx.Err() == nil {
+				e.checkFile(ctx, run, file)
+			}
 
-	e.StageFailures = stageFailures
-	e.CollectedViolations = collectedViolations
-
-	if e.JSONOutput {
-		e.CollectedStages = telemetry.Stats()
+			return nil
+		})
 	}
+
+	return group.Wait()
+}
+
+func (e *Engine) collectStageStats(run *runState) {
+	if e.JSONOutput {
+		e.CollectedStages = run.telemetry.Stats()
+	}
+}
+
+func (e *Engine) publish(run *runState) {
+	e.SkippedFiles = run.skipped
+	e.FailedChecks = run.failedChecks
+	e.Baselined = run.baselined
+	e.RecordedEntries = run.recorded
+	e.UnrecordedViolations = run.unrecorded
+	e.PartialFiles = run.partial
+	e.StageFailures = sortedStageFailures(run.stageFailures)
+	e.CollectedViolations = run.collected
+	e.collectStageStats(run)
 
 	if e.UpdateBaseline {
 		snapshot := baseline.New()
-		for _, entry := range collectedEntries {
+		for _, entry := range run.entries {
 			snapshot.Add(entry)
 		}
 
 		e.CollectedBaseline = snapshot
-		return nil
 	}
+}
 
-	if violations > 0 {
-		return &DriftDetectedError{Count: violations}
-	}
+func sortedStageFailures(failures []StageFailure) []StageFailure {
+	sort.Slice(failures, func(i, j int) bool {
+		if failures[i].File != failures[j].File {
+			return failures[i].File < failures[j].File
+		}
 
-	return nil
+		return failures[i].Stage < failures[j].Stage
+	})
+
+	return failures
 }
 
 func (e *Engine) shouldExclude(path string) bool {
