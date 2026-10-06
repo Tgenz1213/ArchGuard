@@ -118,8 +118,6 @@ func TestVoyageProvider_DefaultsEmbedModel(t *testing.T) {
 	}
 }
 
-// TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody guards
-// against doRequest discarding a non-2xx response's JSON error detail.
 func TestVoyageProvider_CreateEmbedding_ErrorIncludesResponseBody(t *testing.T) {
 	const wantDetail = "model \"bogus-model\" is not a valid Voyage model name"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

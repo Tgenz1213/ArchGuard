@@ -427,8 +427,7 @@ func measureScalePoint(ctx context.Context, b *testing.B, env benchEnv, sp scale
 		require.NoError(b, seedProjectADRs(ctx, pool, rng, syntheticProject{name: noiseProject, adrs: sp.adrsPerProject, dim: benchEmbeddingDim}))
 	}
 
-	// Without this the planner costs plans off default/absent statistics (~1 row
-	// estimated vs. 100+ actual), which was part of why it avoided HNSW in the first place.
+	// Without stats the planner estimates ~1 row against 100+ actual and avoids HNSW.
 	_, err = pool.Exec(ctx, "ANALYZE archguard_adrs")
 	require.NoError(b, err)
 

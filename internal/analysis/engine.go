@@ -297,8 +297,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				fileOut.Debug("%s", checkOutcomeLine(hit, outcome, cached))
 
 				if res.Violation {
-					// Verified against the escaped form of content -- what the LLM
-					// actually saw (inference.EscapePromptDelimiter), not the raw file.
+					// Checked against the escaped content, which is what the LLM saw.
 					escapedContent := inference.EscapePromptDelimiter(content)
 					lineNum := e.findLineNumber(escapedContent, res.QuotedCode)
 					verified := res.QuotedCode == "" || strings.Contains(escapedContent, res.QuotedCode)
@@ -310,8 +309,7 @@ func (e *Engine) Run(ctx context.Context) error {
 						}
 
 						fileOut.Info("%s", violationLine(Violation{File: file, ADRID: hit.ADR.ID, ADRTitle: hit.ADR.Title, Line: lineNum, unverified: !verified}, false))
-						// A QuotedCode that won't match the file verbatim would
-						// suppress nothing -- skip rather than write a dead entry.
+						// A QuotedCode that can't match the file would suppress nothing, so skip it.
 						if res.QuotedCode == "" || strings.Contains(baselineContent, res.QuotedCode) {
 							localBaselineEntries = append(localBaselineEntries, baseline.Entry{
 								ADRID:      hit.ADR.ID,

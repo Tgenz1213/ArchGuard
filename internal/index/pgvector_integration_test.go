@@ -426,7 +426,6 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
-	// High threshold (50%): a later 10% churn should NOT trigger a reindex.
 	highTmpDir := t.TempDir()
 	writeADRFiles(t, highTmpDir, 10)
 	highLocalProvider := index.NewLocalProvider(highTmpDir, []string{"Accepted"})
@@ -435,8 +434,7 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	storeHigh, err := index.NewPgStore(connStr, "reindex_threshold_high", 5, index.HNSWOptions{Threshold: &highThreshold}, nil)
 	require.NoError(t, err)
 	require.NoError(t, storeHigh.Load("", "test-model", 2, ""))
-	// Baseline build: 100% churn (first build), ignored -- only sets up the
-	// "existing" state so the next build's churn reflects the real edit below.
+	// First build is 100% churn and ignored; it only sets up the existing state.
 	_, err = storeHigh.BuildIndex(ctx, "test-model", 3, provider, highLocalProvider)
 	require.NoError(t, err)
 
@@ -448,7 +446,6 @@ func TestPgStore_Integration_ReindexThresholdRespected(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, outputHigh, "Rebuilding HNSW index", "10% churn should not exceed a 50% threshold")
 
-	// Low threshold (5%): the same 10% churn pattern SHOULD trigger a reindex.
 	lowTmpDir := t.TempDir()
 	writeADRFiles(t, lowTmpDir, 10)
 	lowLocalProvider := index.NewLocalProvider(lowTmpDir, []string{"Accepted"})
@@ -479,7 +476,6 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	connStr := setupPgContainer(ctx, t)
 	provider := mockEmbedProvider()
 
-	// Default (Concurrently unset): should log the "(concurrently)" mode.
 	defaultTmpDir := t.TempDir()
 	writeADRFiles(t, defaultTmpDir, 3)
 	defaultLocalProvider := index.NewLocalProvider(defaultTmpDir, []string{"Accepted"})
@@ -495,7 +491,6 @@ func TestPgStore_Integration_ReindexConcurrentlyConfigured(t *testing.T) {
 	assert.Contains(t, outputDefault, "Rebuilding HNSW index (concurrently)", "default should use the non-blocking CONCURRENTLY form")
 	assert.NotContains(t, outputDefault, "Warning: failed to reindex", "REINDEX INDEX CONCURRENTLY should actually succeed against a real pgvector HNSW index")
 
-	// Explicit false: should log the "(blocking)" mode instead.
 	blocking := false
 	blockingTmpDir := t.TempDir()
 	writeADRFiles(t, blockingTmpDir, 3)
@@ -590,7 +585,6 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	// Simulate a legacy row with adr_id/scope still NULL.
 	_, err = store.Pool().Exec(ctx, `
 		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -622,8 +616,6 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	assert.Equal(t, index.ScopePatterns{"**/*.go"}, results[0].ADR.Scope, "scope should be backfilled from NULL by the sync path")
 }
 
-// TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit covers the other
-// adrsToSync trigger: a scope-only edit, not a legacy NULL row.
 func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -705,8 +697,6 @@ func TestPgStore_Integration_SimilarityThresholdRoundTrips(t *testing.T) {
 	assert.Nil(t, byTitle["Default ADR"].ADR.SimilarityThreshold, "ADR without an override should round-trip as nil, not zero")
 }
 
-// mirrors TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit's adrsToSync
-// trigger, but for a similarity_threshold-only edit.
 func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1157,8 +1147,7 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to scan existing ADR row")
 }
 
-// fakeContentProvider is a minimal analysis.ContentProvider for exercising
-// Engine.Run against a real PgStore without needing git plumbing.
+// Minimal ContentProvider so Engine.Run needs no git plumbing.
 type fakeContentProvider struct {
 	files map[string]string
 }
@@ -1264,7 +1253,6 @@ func TestPgStore_Integration_EngineBaselineSuppressesOnlyNamedADR(t *testing.T) 
 	assert.Equal(t, 1, driftErr.Count, "ADR A (0001) should be baselined while ADR B (0002) still surfaces as a new violation")
 }
 
-// mirrors search_test.go's LocalStore scope-before-topK regression test against a real PgStore.
 func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1311,8 +1299,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 	assert.Equal(t, "Scope Match", results[0].ADR.Title)
 }
 
-// mirrors the topK-vs-scope regression above, but for threshold-vs-scope:
-// scope filtering must see every candidate before threshold is applied.
+// Scope filtering must see every candidate before threshold is applied.
 func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -1337,8 +1324,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
 	}
 
-	// "Scope Match" is orthogonal to the query (0.0 similarity, below the 0.5
-	// threshold), but it's the only ADR scoped to "service.go" -- a SQL-level threshold predicate would've dropped it before scope filtering ever ran.
+	// "Scope Match" is below threshold but the only ADR scoped to "service.go"; a SQL threshold predicate would drop it before scope filtering.
 	provider := &inference.MockProvider{
 		EmbeddingDim: 2,
 		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {

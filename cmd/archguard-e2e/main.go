@@ -106,7 +106,7 @@ func main() {
 	os.Exit(int(exitCode))
 }
 
-// defaultMockEmbedding replicates inference.MockProvider's own zero-value CreateEmbedding fallback (non-zero vector, avoids NaN in cosine similarity).
+// Mirrors inference.MockProvider's default embedding: non-zero, so cosine similarity avoids NaN.
 func defaultMockEmbedding(dim int) []float32 {
 	if dim == 0 {
 		dim = 1536

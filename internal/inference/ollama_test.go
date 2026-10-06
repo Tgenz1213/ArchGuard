@@ -82,8 +82,6 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-// TestOllamaProvider_CreateEmbedding_NomicTaskPrefix asserts the nomic
-// search_query:/search_document: prefix is gated to nomic-embed-text models.
 func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 	cases := []struct {
 		name       string

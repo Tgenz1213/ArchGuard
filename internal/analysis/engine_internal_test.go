@@ -232,8 +232,6 @@ func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
 	}
 }
 
-// diffHeaderLines returns the diff --git preamble lines so fixtures below
-// only need to spell out the interesting part: the hunk body.
 func diffHeaderLines(file string) []string {
 	return []string{
 		"diff --git a/" + file + " b/" + file,

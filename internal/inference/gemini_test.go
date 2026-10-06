@@ -127,7 +127,6 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			t.Errorf("Unexpected API key: %s", r.Header.Get("x-goog-api-key"))
 		}
 
-		// Validate request body
 		var reqBody struct {
 			Requests []struct {
 				Content struct {
@@ -201,8 +200,6 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 }
 
-// TestGeminiProvider_CreateEmbedding_TaskType asserts CreateEmbedding sends
-// Gemini's own TaskType string for each EmbeddingTaskType role.
 func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -268,9 +265,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 }
 
 func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
-	// Test that API keys with special characters are properly sent in header
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check that the API key is properly received in header
 		key := r.Header.Get("x-goog-api-key")
 		if key != "test+key&with=special%chars" {
 			t.Errorf("API key header mismatch. Expected 'test+key&with=special%%chars', got: %s", key)
@@ -421,7 +416,6 @@ func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
 	}
 
 	errMsg := err.Error()
-	// Should include the raw body when message is empty
 	if !strings.Contains(errMsg, `{"error": {"message": ""}}`) {
 		t.Errorf("Expected error to contain raw body when message is empty, got: %s", errMsg)
 	}

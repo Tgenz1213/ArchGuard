@@ -15,8 +15,7 @@ type Entry struct {
 	ADRID      string `json:"adr_id"`
 	File       string `json:"file"`
 	QuotedCode string `json:"quoted_code"`
-	// Reason is informational only -- it does not affect IsSuppressed.
-	// Typical values: "accepted-debt", "false-positive", or free text.
+	// Informational only; IsSuppressed ignores it.
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -90,8 +89,6 @@ func (b *Baseline) Add(entry Entry) {
 	b.Entries = append(b.Entries, entry)
 }
 
-// ReasonFor returns the Reason of the entry matching (adrID, file), or ""
-// if there is no such entry or b is nil.
 func (b *Baseline) ReasonFor(adrID, file string) string {
 	if b == nil {
 		return ""

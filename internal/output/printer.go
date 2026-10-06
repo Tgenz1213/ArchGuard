@@ -45,7 +45,6 @@ func New(w io.Writer, debug bool, opts ...Option) *Printer {
 	return &Printer{sink: s, debug: debug}
 }
 
-// Err returns the first failed write of primary output, or nil.
 func (p *Printer) Err() error {
 	out := p.out()
 
@@ -67,7 +66,6 @@ func (p *Printer) DebugEnabled() bool {
 	return p != nil && p.debug
 }
 
-// Result prints a line of the command's primary output, such as a summary.
 func (p *Printer) Result(format string, args ...any) { p.line(lineRole{result: true}, format, args...) }
 
 func (p *Printer) Info(format string, args ...any) { p.line(lineRole{}, format, args...) }

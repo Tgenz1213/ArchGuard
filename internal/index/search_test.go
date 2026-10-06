@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// reproduces #134: a lower-similarity scope-matching ADR must still be
-// evaluated over 3+ higher-similarity non-matching-scope ADRs.
+// A lower-similarity scope match must survive 3+ higher-similarity out-of-scope ADRs.
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
@@ -16,8 +15,7 @@ func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteLowerSimilarity(t *tes
 		{Title: "Scope Match", Scope: ScopePatterns{"**/*.go"}, Embedding: []float32{1, 1}},
 	}
 
-	// "Scope Match" has lower similarity (~0.707) than the distractors
-	// (1.0), so pre-fix rank-then-filter code would have dropped it.
+	// "Scope Match" scores ~0.707 against the distractors' 1.0, so ranking before scope-filtering would drop it.
 	results := store.Search([]float32{1, 0}, 0.5, 3, "service.go")
 
 	if len(results) != 1 {
@@ -64,8 +62,7 @@ func TestLocalStore_Search_RespectsThresholdAndTopK(t *testing.T) {
 	}
 }
 
-// documents the #140 ordering: filterByScope and filterByThreshold both
-// run before rankAndLimit, though a below-threshold ADR is excluded either way.
+// Scope and threshold both filter before rankAndLimit; a below-threshold ADR is excluded either way.
 func TestLocalStore_Search_ScopeMatchingADRSurvivesDespiteBelowThresholdSimilarity(t *testing.T) {
 	store := NewLocalStore(1)
 	store.ADRs = []ADR{
@@ -245,9 +242,7 @@ func TestLocalStore_SearchTruncated_RespectsScopeAndThreshold(t *testing.T) {
 		{Title: "qualifies 2", Embedding: []float32{1, 0.1}},
 	}
 
-	// Query [1,0], threshold 0.5, topK 1: "wrong scope" filtered by scope,
-	// "below threshold" filtered by threshold -- neither should ever appear
-	// in SearchTruncated even though topK=1 would otherwise leave room.
+	// Scope- and threshold-filtered ADRs never appear in SearchTruncated, even though topK=1 leaves room.
 	truncated := store.SearchTruncated([]float32{1, 0}, 0.5, 1, "service.go")
 
 	if len(truncated) != 1 {
@@ -271,9 +266,7 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 
 	hits, rejected, truncated := store.SearchWithDebugInfo([]float32{1, 0}, 0.5, 2, "service.go")
 
-	// "wrong scope" is excluded by scope entirely; "below threshold" scores 0
-	// against [1,0] and lands in rejected; the three remaining qualifying
-	// ADRs split into 2 hits (topK=2) and 1 truncated.
+	// "wrong scope" is dropped by scope and "below threshold" scores 0 (rejected); the other three split into 2 hits and 1 truncated.
 	if len(hits) != 2 || len(rejected) != 1 || len(truncated) != 1 {
 		t.Fatalf("expected 2 hits, 1 rejected, 1 truncated, got hits=%d rejected=%d truncated=%d",
 			len(hits), len(rejected), len(truncated))
@@ -298,9 +291,7 @@ func TestLocalStore_SearchWithDebugInfo_MatchesIndependentCallsAndIsMutuallyExcl
 		}
 	}
 
-	// Independent calls must agree with the consolidated call -- LocalStore
-	// is deterministic (no approximate index), so this is guaranteed by
-	// construction, but the test pins the invariant explicitly.
+	// LocalStore is deterministic, so independent calls must agree with the consolidated one.
 	independentHits := store.Search([]float32{1, 0}, 0.5, 2, "service.go")
 
 	independentTruncated := store.SearchTruncated([]float32{1, 0}, 0.5, 2, "service.go")

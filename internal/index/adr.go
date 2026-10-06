@@ -33,15 +33,11 @@ type FrontMatter struct {
 	Rules               yaml.Node     `yaml:"rules"`
 }
 
-// CanonicalFrontMatterFields lists the FrontMatter fields that
-// analysis.frontmatter_mappings may remap to a different YAML key.
 var CanonicalFrontMatterFields = []string{"title", "status", "scope", "similarity_threshold", "rules"}
 
-// ScopePatterns holds one or more glob patterns from an ADR's scope
-// frontmatter, matched with OR semantics; nil/empty means unrestricted.
+// Patterns are matched with OR semantics; nil or empty means unrestricted.
 type ScopePatterns []string
 
-// Matches reports whether filePath matches any pattern, or true if sp is empty.
 func (sp ScopePatterns) Matches(filePath string) bool {
 	if len(sp) == 0 {
 		return true
@@ -56,8 +52,7 @@ func (sp ScopePatterns) Matches(filePath string) bool {
 	return false
 }
 
-// Serialize renders sp for TEXT-column storage: a lone pattern as raw text
-// (matching pre-existing PgStore rows), multiple patterns as a JSON array.
+// A lone pattern stays raw text to match existing PgStore rows; several become a JSON array.
 func (sp ScopePatterns) Serialize() string {
 	switch len(sp) {
 	case 0:

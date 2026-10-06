@@ -15,8 +15,6 @@ func filterByScope(candidates []SearchResult, filePath string) []SearchResult {
 	return filtered
 }
 
-// EffectiveThreshold returns an ADR's own similarity_threshold override
-// when set, otherwise the global vector_store.similarity_threshold value.
 func EffectiveThreshold(adr *ADR, global float64) float64 {
 	if adr.SimilarityThreshold != nil {
 		return *adr.SimilarityThreshold
@@ -25,14 +23,11 @@ func EffectiveThreshold(adr *ADR, global float64) float64 {
 	return global
 }
 
-// meetsThreshold is the single predicate filterByThreshold and
-// filterBelowThreshold both key off, so the two can never drift apart.
+// Shared by both threshold filters so they can't drift apart.
 func meetsThreshold(c SearchResult, global float64) bool {
 	return c.Score >= EffectiveThreshold(c.ADR, global)
 }
 
-// filterByThreshold keeps candidates whose Score is at least threshold,
-// mirroring filterByScope's placement ahead of rankAndLimit.
 func filterByThreshold(candidates []SearchResult, threshold float64) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
@@ -44,8 +39,7 @@ func filterByThreshold(candidates []SearchResult, threshold float64) []SearchRes
 	return filtered
 }
 
-// filterBelowThreshold keeps candidates whose Score is below threshold --
-// filterByThreshold's complement, for --debug diagnostics only.
+// Debug only.
 func filterBelowThreshold(candidates []SearchResult, threshold float64) []SearchResult {
 	filtered := candidates[:0]
 	for _, c := range candidates {
@@ -57,8 +51,6 @@ func filterBelowThreshold(candidates []SearchResult, threshold float64) []Search
 	return filtered
 }
 
-// rankAndLimit sorts candidates by descending similarity score and
-// truncates to at most topK.
 func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
 	if topK < 0 {
 		topK = 0
@@ -73,8 +65,7 @@ func rankAndLimit(candidates []SearchResult, topK int) []SearchResult {
 	return candidates
 }
 
-// truncatedByTopK returns the candidates ranked after topK -- rankAndLimit's
-// complement, ranked descending by score -- for --debug diagnostics only.
+// Debug only: the candidates rankAndLimit cuts.
 func truncatedByTopK(candidates []SearchResult, topK int) []SearchResult {
 	if topK < 0 {
 		topK = 0

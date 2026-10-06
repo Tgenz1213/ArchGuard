@@ -16,7 +16,6 @@ import (
 
 func TestConfluenceProvider_GetADRs_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify authorization headers and request params
 		if r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -29,7 +28,6 @@ func TestConfluenceProvider_GetADRs_Success(t *testing.T) {
 
 		response := ConfluenceSearchResponse{}
 
-		// Page 1: Valid ADR (Accepted)
 		validPage := struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
@@ -51,7 +49,6 @@ status: Accepted
 We will use Go.</p>`
 		validPage.Links.WebUI = "/spaces/ARCH/pages/1/Use+Go"
 
-		// Page 2: Rejected ADR
 		rejectedPage := validPage
 		rejectedPage.ID = "2"
 		rejectedPage.Title = "Use Python"
@@ -62,7 +59,6 @@ status: Rejected
 We will use Python.</p>`
 		rejectedPage.Links.WebUI = "/spaces/ARCH/pages/2/Use+Python"
 
-		// Page 3: Not an ADR (No Frontmatter)
 		invalidPage := validPage
 		invalidPage.ID = "3"
 		invalidPage.Title = "Meeting Notes"
@@ -79,8 +75,6 @@ We will use Python.</p>`
 	}))
 	defer ts.Close()
 
-	// The provider expects domain. Since we updated the provider to respect prefixes,
-	// we can just pass the full URL.
 	provider := NewConfluenceProvider(ts.URL, "ARCH", "user", "token", []string{"Accepted"})
 
 	adrs, stats, err := provider.GetADRs(context.Background())

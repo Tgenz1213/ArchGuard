@@ -72,7 +72,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
 	}
 
-	// Held until we know whether a rebuild will fetch the ADRs again and repeat these warnings.
+	// Held back because a rebuild may fetch the ADRs again and repeat these warnings.
 	fetchOut := logPrinter.Group("")
 
 	localProvider := index.NewLocalProvider(cfg.Analysis.ADRPath, cfg.Analysis.AcceptedStatuses)

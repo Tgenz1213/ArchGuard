@@ -1,5 +1,4 @@
-// Package atomicfile provides a shared write-tmp-then-rename helper so
-// callers get all-or-nothing file writes without duplicating the pattern.
+// Package atomicfile writes files all-or-nothing via a temp file and rename.
 package atomicfile
 
 import (
@@ -7,8 +6,7 @@ import (
 	"path/filepath"
 )
 
-// Write writes data to path via a temp file plus rename, so a reader never
-// observes a partially-written file.
+// Write replaces path via a temp file and rename, so a reader never sees a partial file.
 func Write(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {

@@ -56,8 +56,7 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 	}
 }
 
-// Fixed digests computed from the pre-#183 positional-argument implementation,
-// pinning field order so a future field reorder can't slip past self-consistency checks alone.
+// Fixed digests pin field order so a field reorder cannot slip past self-consistency checks.
 func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
 	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 

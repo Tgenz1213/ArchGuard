@@ -151,8 +151,6 @@ func TestLocalStore_BuildIndex_GeneratesEmbeddings(t *testing.T) {
 	}
 }
 
-// TestLocalStore_BuildIndex_UsesDocumentTaskType asserts BuildIndex embeds
-// ADR content with EmbeddingTaskDocument, not EmbeddingTaskQuery.
 func TestLocalStore_BuildIndex_UsesDocumentTaskType(t *testing.T) {
 	adrs := []ADR{
 		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},

@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// MockProvider is defined in mock.go
-
 func TestAnalyzeDrift_Retry(t *testing.T) {
 	attempts := 0
 	provider := &MockProvider{

@@ -23,7 +23,6 @@ func NewOpenAIProvider(apiKey, model, embedModel string) *OpenAIProvider {
 	return NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, openAIBaseURL, &http.Client{})
 }
 
-// NewOpenAIProviderWithBaseURL lets tests inject an httptest.Server.
 func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, httpClient *http.Client) *OpenAIProvider {
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),

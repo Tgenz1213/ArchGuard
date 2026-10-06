@@ -1031,7 +1031,6 @@ func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
 	}
 }
 
-// runEngine fails the test unless Run returns drift exactly when wantDrift is set.
 func runEngine(t *testing.T, engine *analysis.Engine, wantDrift bool) {
 	t.Helper()
 
@@ -1075,8 +1074,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// partialErrorContentProvider lets a test deterministically exercise
-// Run's per-file fail-open path via a chosen file's GetContent error.
 type partialErrorContentProvider struct {
 	files    []string
 	content  map[string]string
@@ -1480,8 +1477,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	}
 }
 
-// proves Engine.Run's file path reaches Store.Search's scope filter: same
-// embedding for both files, so only scope explains the differing outcome.
+// Same embedding for both files, so only scope explains the differing outcome.
 func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
@@ -1517,8 +1513,6 @@ func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 	engine.Cache = nil
 	err := engine.Run(context.Background())
 
-	// Only service.go's ADR check should fire and produce a violation;
-	// service.rb's scope mismatch means the ADR is never evaluated for it.
 	var driftErr *analysis.DriftDetectedError
 	if !errors.As(err, &driftErr) {
 		t.Fatalf("expected a DriftDetectedError, got %v", err)
@@ -1663,8 +1657,7 @@ func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T)
 	}
 }
 
-// countingTruncatedStore wraps a VectorStore to record how many times
-// SearchTruncated is called, so non-debug runs can be proven not to pay for it.
+// Proves non-debug runs do not pay for SearchTruncated.
 type countingTruncatedStore struct {
 	index.VectorStore
 	searchTruncatedCalls int
@@ -1715,8 +1708,7 @@ func TestRun_NonDebugMode_NeverCallsSearchTruncated(t *testing.T) {
 	}
 }
 
-// countingStore wraps a VectorStore to record how many times SearchRejected
-// is called, so non-debug runs can be proven not to pay for it.
+// Proves non-debug runs do not pay for SearchRejected.
 type countingStore struct {
 	index.VectorStore
 	searchRejectedCalls int
@@ -1767,8 +1759,7 @@ func TestRun_NonDebugMode_NeverCallsSearchRejected(t *testing.T) {
 	}
 }
 
-// countingDebugInfoStore counts each Search* call, to prove debug runs make one
-// SearchWithDebugInfo query rather than three that could disagree.
+// Proves debug runs make one SearchWithDebugInfo query rather than three that could disagree.
 type countingDebugInfoStore struct {
 	index.VectorStore
 	searchCalls              int
@@ -2114,7 +2105,6 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
-	// engine.SuggestFixes left at its zero value (false) -- this is the default-off assertion.
 
 	output := captureStderr(t, func() {
 		runEngine(t, engine, true)

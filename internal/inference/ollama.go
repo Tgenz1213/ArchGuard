@@ -26,8 +26,7 @@ func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 	return newOllamaProvider(baseURL, model, embedModel, temperature)
 }
 
-// NewOllamaProviderWithBaseURL is like NewOllamaProvider but never defaults
-// an empty baseURL to localhost, so tests can point it at an httptest.Server.
+// Unlike NewOllamaProvider, never defaults an empty baseURL to localhost.
 func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
 	return newOllamaProvider(baseURL, model, embedModel, temperature)
 }
@@ -35,8 +34,7 @@ func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string, temperature
 func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
 	base, err := url.Parse(baseURL)
 	if err != nil {
-		// Fall back to a client with no configured host; requests will fail
-		// with a descriptive error rather than panicking on a nil base URL.
+		// Requests will fail with a descriptive error instead of panicking on a nil base URL.
 		base = &url.URL{}
 	}
 

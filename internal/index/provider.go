@@ -68,7 +68,7 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 			defer mu.Unlock()
 
 			if err != nil {
-				// Do not crash the entire run if one remote provider drops connection.
+				// One failing provider must not fail the run.
 				c.out.Warn("failed to fetch ADRs from a provider: %v", err)
 				errs = append(errs, err)
 				return nil

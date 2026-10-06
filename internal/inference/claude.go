@@ -23,7 +23,6 @@ func NewClaudeProvider(apiKey, model string) *ClaudeProvider {
 	return NewClaudeProviderWithBaseURL(apiKey, model, claudeBaseURL, &http.Client{})
 }
 
-// NewClaudeProviderWithBaseURL lets tests inject an httptest.Server.
 func NewClaudeProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.Client) *ClaudeProvider {
 	client := anthropic.NewClient(
 		option.WithAPIKey(apiKey),

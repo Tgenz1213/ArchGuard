@@ -1,16 +1,10 @@
 package testutil
 
 const (
-	// MockViolationTrigger is the specific string that the mock LLM provider
-	// looks for to simulate an architectural violation during E2E testing.
 	MockViolationTrigger = "password"
 
-	// MockEmbedFailureTrigger is the specific string that the mock LLM
-	// providers look for to simulate an embedding failure during E2E testing.
 	MockEmbedFailureTrigger = "TRIGGER_EMBED_FAILURE"
 
-	// MockChatFailureTrigger is the specific string that the mock chat LLM
-	// provider looks for to simulate a Chat-call failure during E2E testing.
 	MockChatFailureTrigger = "TRIGGER_CHAT_FAILURE"
 
 	// MockInterruptTrigger makes the mock providers cancel the run's context, as SIGINT would.

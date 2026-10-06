@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// quotepath=true is git's real default; the fix must work against it, not an environment where it's off.
+// quotepath=true is git's real default; the test must run against it, not an environment where it is off.
 func initTestRepo(t *testing.T) string {
 	t.Helper()
 

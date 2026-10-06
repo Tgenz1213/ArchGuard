@@ -136,8 +136,6 @@ func writeNoSecretsADR(t *testing.T, dir string) {
 	}
 }
 
-// violationFixtureContent returns JS source that trips the mock provider's
-// violation detection.
 func violationFixtureContent() string {
 	return fmt.Sprintf(`
 function sensitiveData() {
@@ -301,7 +299,6 @@ analysis:
 			t.Fatalf("Failed to corrupt index: %v", err)
 		}
 
-		// The index will auto-rebuild because it's corrupt. Then analysis will run and find the violation.
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
 	})
 
@@ -365,7 +362,6 @@ func TestE2E_SubcommandHelpWorksWithoutConfig(t *testing.T) {
 	}
 }
 
-// checkReport mirrors internal/cli's --format json document shape.
 type checkReport struct {
 	Violations []struct {
 		File       string `json:"file"`
@@ -1096,8 +1092,7 @@ scope: "**"
 ## Decision
 This ADR is permanently unembeddable: %s`, testutil.MockEmbedFailureTrigger)
 
-// TestE2E_IndexSurvivesPersistentEmbedFailure guards the rebuild loop: a
-// permanently unembeddable ADR must not make every `check` exit 5 forever.
+// A permanently unembeddable ADR must not make every check exit 5.
 func TestE2E_IndexSurvivesPersistentEmbedFailure(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 

@@ -22,8 +22,7 @@ const defaultReindexThreshold = 0.20
 
 const hnswIndexName = "archguard_adrs_embedding_idx"
 
-// HNSWOptions controls PgStore's HNSW tuning. *bool fields default to
-// true when nil -- a plain bool can't distinguish "unset" from "false".
+// A nil *bool means enabled; a plain bool can't tell unset from false.
 type HNSWOptions struct {
 	Enabled       *bool    // nil = enabled
 	Threshold     *float64 // nil = defaultReindexThreshold; explicit 0.0 reindexes on any churn
@@ -142,8 +141,6 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 	}, nil
 }
 
-// Pool exposes the store's connection pool for integration tests that need to
-// inspect real pooled-connection state (e.g. AfterConnect-applied GUCs).
 func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
 
 func (s *PgStore) Close() {
