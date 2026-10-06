@@ -132,7 +132,7 @@ analysis:
 `, adrPath)
 }
 
-func ensureGitignore() error {
+func ensureGitignore() (err error) {
 	const gitignorePath = ".gitignore"
 	const archguardEntry = ".archguard/"
 
