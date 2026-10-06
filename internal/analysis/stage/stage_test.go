@@ -216,7 +216,7 @@ func TestStage_KeepsAScorersOwnErrorAction(t *testing.T) {
 	})}
 
 	_, err := s.Apply(context.Background(), fakeFile{}, stage.NoDebug, candidates("a"))
-	if err != error(own) {
+	if err != error(own) { //nolint:errorlint // identity check: the error must pass through unwrapped
 		t.Fatalf("err = %v, want the scorer's own *stage.Error passed through unchanged", err)
 	}
 }

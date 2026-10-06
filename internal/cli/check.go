@@ -69,7 +69,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	store, err := index.NewVectorStore(cfg, logPrinter)
 	if err != nil {
-		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
 	// Held back because a rebuild may fetch the ADRs again and repeat these warnings.
@@ -103,13 +103,13 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	validADRs, _, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		fetchOut.Flush()
-		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to fetch ADRs: %w", err)
 	}
 
 	currentHash, err := store.CalculateHash(validADRs, cfg.VectorStore.Model)
 	if err != nil {
 		fetchOut.Flush()
-		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %v", err)
+		return ExitIndexError, fmt.Errorf("failed to calculate index hash: %w", err)
 	}
 
 	if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err == nil {
@@ -118,16 +118,16 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		logPrinter.Info("Index metadata mismatch or missing index. Triggering index rebuild: %v", err)
 
 		if _, err := runIndex(ctx, setup, logPrinter); err != nil {
-			return ExitIndexError, fmt.Errorf("index rebuild failed: %v", err)
+			return ExitIndexError, fmt.Errorf("index rebuild failed: %w", err)
 		}
 
 		currentHash, err = store.CalculateHash(validADRs, cfg.VectorStore.Model)
 		if err != nil {
-			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %v", err)
+			return ExitIndexError, fmt.Errorf("failed to calculate rebuilt index hash: %w", err)
 		}
 
 		if err := store.Load(setup.indexFile, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, currentHash); err != nil {
-			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %v", err)
+			return ExitIndexError, fmt.Errorf("failed to load rebuilt index: %w", err)
 		}
 	}
 
@@ -148,7 +148,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	loadedBaseline, err = baseline.Load(baseline.Path)
 	if err != nil {
 		if !opts.UpdateBaseline {
-			return ExitError, fmt.Errorf("failed to load baseline file %s: %v (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
+			return ExitError, fmt.Errorf("failed to load baseline file %s: %w (fix it, or regenerate it with `archguard check --update-baseline`)", baseline.Path, err)
 		}
 
 		logPrinter.Warn("failed to load existing baseline file %s (baseline reasons will not carry forward): %v", baseline.Path, err)
@@ -182,15 +182,15 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	if opts.UpdateBaseline {
 		if runErr != nil {
-			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %v", runErr)
+			return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %w", runErr)
 		}
 
 		if stageFailureErr != nil {
-			return stageFailureCode, fmt.Errorf("%v; baseline not written", stageFailureErr)
+			return stageFailureCode, fmt.Errorf("%w; baseline not written", stageFailureErr)
 		}
 
 		if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
-			return ExitError, fmt.Errorf("failed to write baseline file %s: %v", baseline.Path, err)
+			return ExitError, fmt.Errorf("failed to write baseline file %s: %w", baseline.Path, err)
 		}
 
 		reportPrinter.BaselineReport(engine.BaselineReport(baseline.Path))
@@ -210,7 +210,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	var analysisErr error
 	if runErr != nil {
-		analysisErr = fmt.Errorf("analysis failed: %v", runErr)
+		analysisErr = fmt.Errorf("analysis failed: %w", runErr)
 	}
 
 	if jsonOutput {

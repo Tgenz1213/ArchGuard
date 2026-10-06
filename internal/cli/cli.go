@@ -74,7 +74,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 	repoRoot, err := git.GetRepoRoot(ctx)
 	if err != nil {
-		return ExitError, fmt.Errorf("%v (ArchGuard must be run inside a git repository)", err)
+		return ExitError, fmt.Errorf("%w (ArchGuard must be run inside a git repository)", err)
 	}
 
 	cwd, err := os.Getwd()
@@ -89,7 +89,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
-			return ExitError, fmt.Errorf("error changing to git root: %v", err)
+			return ExitError, fmt.Errorf("error changing to git root: %w", err)
 		}
 	}
 
@@ -107,7 +107,7 @@ func execute(ctx context.Context, factories ProviderFactories) (ExitCode, error)
 
 	cfg, err := config.LoadConfig(configFilename)
 	if err != nil {
-		return ExitConfig, fmt.Errorf("error loading config: %v", err)
+		return ExitConfig, fmt.Errorf("error loading config: %w", err)
 	}
 
 	if cfg.ProjectName == "" {

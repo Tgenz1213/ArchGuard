@@ -15,7 +15,7 @@ func runInit() error {
 	scanner.Scan()
 
 	if scanner.Err() != nil {
-		return fmt.Errorf("input error: %v", scanner.Err())
+		return fmt.Errorf("input error: %w", scanner.Err())
 	}
 
 	adrPath := strings.TrimSpace(scanner.Text())
@@ -30,12 +30,12 @@ func runInit() error {
 		scanner.Scan()
 
 		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
+			return fmt.Errorf("input error: %w", scanner.Err())
 		}
 
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
 			if err := os.MkdirAll(adrPath, 0755); err != nil {
-				return fmt.Errorf("failed to create ADR directory: %v", err)
+				return fmt.Errorf("failed to create ADR directory: %w", err)
 			}
 
 			fmt.Printf("Created directory: %s\n", adrPath)
@@ -50,13 +50,13 @@ func runInit() error {
 		scanner.Scan()
 
 		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
+			return fmt.Errorf("input error: %w", scanner.Err())
 		}
 
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
 			templatePath := filepath.Join(adrPath, "ADR_TEMPLATE.md")
 			if err := os.WriteFile(templatePath, []byte(adrTemplateContent), 0644); err != nil {
-				return fmt.Errorf("failed to create ADR template: %v", err)
+				return fmt.Errorf("failed to create ADR template: %w", err)
 			}
 
 			fmt.Printf("Created template: %s\n", templatePath)
@@ -68,7 +68,7 @@ func runInit() error {
 		scanner.Scan()
 
 		if scanner.Err() != nil {
-			return fmt.Errorf("input error: %v", scanner.Err())
+			return fmt.Errorf("input error: %w", scanner.Err())
 		}
 
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
@@ -79,19 +79,19 @@ func runInit() error {
 
 	configContent := generateConfig(adrPath)
 	if err := os.WriteFile(configFilename, []byte(configContent), 0644); err != nil {
-		return fmt.Errorf("failed to create config file: %v", err)
+		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
 	fmt.Printf("Created config: %s\n", configFilename)
 
 	if err := os.MkdirAll(".archguard/cache", 0755); err != nil {
-		return fmt.Errorf("failed to create .archguard directory: %v", err)
+		return fmt.Errorf("failed to create .archguard directory: %w", err)
 	}
 
 	fmt.Println("Created directory: .archguard/cache")
 
 	if err := ensureGitignore(); err != nil {
-		return fmt.Errorf("failed to update .gitignore: %v", err)
+		return fmt.Errorf("failed to update .gitignore: %w", err)
 	}
 
 	fmt.Println("\nArchGuard initialized successfully!")
