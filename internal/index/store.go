@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
-	"golang.org/x/sync/errgroup"
 )
 
 type SkippedADR struct {
@@ -153,103 +151,30 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		return BuildIndexResult{}, err
 	}
 
-	existingMap := make(map[string]ADR)
-	for _, stored := range s.ADRs {
-		existingMap[stored.RelPath] = stored
-	}
-
-	var adrsToEmbed []int
-	for i, valid := range validADRs {
-		existing, ok := existingMap[valid.RelPath]
-		if ok && existing.Content == valid.Content && existing.Title == valid.Title && existing.Status == valid.Status {
-			validADRs[i].Embedding = existing.Embedding
-		} else {
-			adrsToEmbed = append(adrsToEmbed, i)
-		}
-	}
+	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs)
 
 	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
 
 	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
-	failed := make(map[int]bool)
+	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out}
 
-	if len(adrsToEmbed) > 0 {
-		concurrency := s.concurrency
-		if concurrency <= 0 {
-			concurrency = 5
-		}
+	outcome, err := job.run(ctx, adrsToEmbed)
+	result.Skipped = outcome.skipped
 
-		var mu sync.Mutex
-		embedGroup := new(errgroup.Group)
-		embedGroup.SetLimit(concurrency)
-		progress := s.out.Progress()
-
-		markFailed := func(idx int, err error) {
-			mu.Lock()
-			failed[idx] = true
-			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			mu.Unlock()
-			s.out.Warn("skipping ADR %s: %v", validADRs[idx].RelPath, err)
-		}
-
-		for _, idx := range adrsToEmbed {
-			idx := idx
-			embedGroup.Go(func() error {
-				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
-
-				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
-				if embErr != nil {
-					markFailed(idx, embErr)
-					return nil
-				}
-
-				validADRs[idx].Embedding = emb
-				progress.Tick()
-				return nil
-			})
-		}
-
-		err := embedGroup.Wait()
-		progress.Done()
-
-		if err != nil {
-			return result, err
-		}
+	if err != nil {
+		return result, err
 	}
 
 	// Valid means successfully indexed, not merely status-accepted.
-	result.Valid = len(validADRs) - len(failed)
+	result.Valid = len(validADRs) - len(outcome.failed)
 
-	// Checked unconditionally: a ctx canceled before a no-embed run (every
-	// ADR unchanged) must still surface, not fall through as success.
-	if ctx.Err() != nil {
-		return result, ctx.Err()
+	if err := outcome.check(ctx, len(validADRs), "embed"); err != nil {
+		return result, err
 	}
 
-	if len(validADRs) > 0 && len(failed) == len(validADRs) {
-		return result, fmt.Errorf("all %d ADR(s) failed to embed; index not updated", len(validADRs))
-	}
+	s.replaceADRs(validADRs, outcome.failed, modelName, dim)
 
-	finalADRs := make([]ADR, 0, len(validADRs))
-	for i, adr := range validADRs {
-		if failed[i] {
-			continue
-		}
-
-		finalADRs = append(finalADRs, adr)
-	}
-
-	s.ADRs = finalADRs
-
-	s.ModelName = modelName
-	if dim > 0 {
-		s.Dim = dim
-	} else if len(finalADRs) > 0 && len(finalADRs[0].Embedding) > 0 {
-		s.Dim = len(finalADRs[0].Embedding)
-	}
-
-	// Hash the full fetched set, not finalADRs: the hash answers "does this
-	// index match the ADR files on disk", and a skipped ADR is still on disk.
+	// Hash the full fetched set, not the embedded subset: a skipped ADR is still on disk.
 	hash, err := s.CalculateHash(validADRs, modelName)
 	if err != nil {
 		return result, fmt.Errorf("failed to calculate hash: %w", err)
@@ -258,4 +183,42 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	s.Hash = hash
 
 	return result, nil
+}
+
+func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR) []int {
+	existing := make(map[string]ADR, len(s.ADRs))
+	for _, stored := range s.ADRs {
+		existing[stored.RelPath] = stored
+	}
+
+	var toEmbed []int
+
+	for i, adr := range adrs {
+		if stored, ok := existing[adr.RelPath]; ok && adrUnchanged(stored, adr) {
+			adrs[i].Embedding = stored.Embedding
+		} else {
+			toEmbed = append(toEmbed, i)
+		}
+	}
+
+	return toEmbed
+}
+
+func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName string, dim int) {
+	kept := make([]ADR, 0, len(adrs))
+
+	for i, adr := range adrs {
+		if !failed[i] {
+			kept = append(kept, adr)
+		}
+	}
+
+	s.ADRs = kept
+	s.ModelName = modelName
+
+	if dim > 0 {
+		s.Dim = dim
+	} else if len(kept) > 0 && len(kept[0].Embedding) > 0 {
+		s.Dim = len(kept[0].Embedding)
+	}
 }
