@@ -217,6 +217,19 @@ func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 
 // Both Load and BuildIndex call this: cli.runIndex calls BuildIndex without a preceding Load.
 func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
+	if err := s.createSchema(ctx, dim); err != nil {
+		return err
+	}
+
+	present, err := s.existingMetadataColumns(ctx)
+	if err != nil {
+		return err
+	}
+
+	return s.addMissingColumns(ctx, present)
+}
+
+func (s *PgStore) createSchema(ctx context.Context, dim int) error {
 	createQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
 			id SERIAL PRIMARY KEY,
@@ -230,24 +243,29 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 		);
 		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
 	`, dim, hnswIndexName)
-	if _, err := s.pool.Exec(ctx, createQuery); err != nil {
-		return err
-	}
 
+	_, err := s.pool.Exec(ctx, createQuery)
+
+	return err
+}
+
+func (s *PgStore) existingMetadataColumns(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT column_name FROM information_schema.columns
 		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold', 'rules')
 	`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	present := make(map[string]bool)
+
 	for rows.Next() {
 		var col string
 		if err := rows.Scan(&col); err != nil {
 			rows.Close()
-			return err
+
+			return nil, err
 		}
 
 		present[col] = true
@@ -256,32 +274,35 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	rows.Close()
 
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
 
+	return present, nil
+}
+
+var metadataColumns = []struct{ name, ddl string }{
+	{"adr_id", "ADD COLUMN IF NOT EXISTS adr_id TEXT"},
+	{"scope", "ADD COLUMN IF NOT EXISTS scope TEXT"},
+	{"similarity_threshold", "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION"},
+	{"rules", "ADD COLUMN IF NOT EXISTS rules TEXT"},
+}
+
+func (s *PgStore) addMissingColumns(ctx context.Context, present map[string]bool) error {
 	var alters []string
-	if !present["adr_id"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS adr_id TEXT")
+
+	for _, column := range metadataColumns {
+		if !present[column.name] {
+			alters = append(alters, column.ddl)
+		}
 	}
 
-	if !present["scope"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS scope TEXT")
+	if len(alters) == 0 {
+		return nil
 	}
 
-	if !present["similarity_threshold"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION")
-	}
+	_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
 
-	if !present["rules"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS rules TEXT")
-	}
-
-	if len(alters) > 0 {
-		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
