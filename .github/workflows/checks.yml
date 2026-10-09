@@ -29,8 +29,23 @@ jobs:
           version: latest
           args: --timeout=5m
 
-  test:
+  unit:
     name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+
+      - name: Run Tests
+        run: go test -v -race -cover ./...
+
+  integration:
+    name: Integration Tests
     runs-on: ubuntu-latest
     needs: lint
     env:
@@ -50,8 +65,23 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run Tests
-        run: go test -v -race -cover ./...
+      - name: Run Integration Tests
+        run: go test -v -race -tags integration ./internal/index
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+
+      - name: Run E2E Tests
+        run: go test -v -race -tags e2e ./test
 
   build:
     name: Verify Build
