@@ -50,26 +50,31 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 			return err
 		}
 
-		if !stat.IsDir() && strings.HasSuffix(stat.Name(), ".md") {
-			stats.Discovered++
+		if stat.IsDir() || !strings.HasSuffix(stat.Name(), ".md") {
+			return nil
+		}
 
-			adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
-			if err != nil {
-				p.out.Warn("skipping %s: %v", path, err)
-				stats.ParseFailed = append(stats.ParseFailed, path)
-				return nil
-			}
+		stats.Discovered++
 
-			if isAcceptedStatus(adr.Status, p.acceptedStatuses) {
-				validADRs = append(validADRs, *adr)
+		adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
+		if err != nil {
+			p.out.Warn("skipping %s: %v", path, err)
+			stats.ParseFailed = append(stats.ParseFailed, path)
 
-				if rulesErr != nil {
-					p.out.Warn("ignoring rules in %s: %v", path, rulesErr)
-					stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
-				}
-			} else {
-				stats.StatusRejected++
-			}
+			return nil
+		}
+
+		if !isAcceptedStatus(adr.Status, p.acceptedStatuses) {
+			stats.StatusRejected++
+
+			return nil
+		}
+
+		validADRs = append(validADRs, *adr)
+
+		if rulesErr != nil {
+			p.out.Warn("ignoring rules in %s: %v", path, rulesErr)
+			stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
 		}
 
 		return nil

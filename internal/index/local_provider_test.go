@@ -50,6 +50,32 @@ func TestLocalProvider_GetADRs_ReportsFetchStats(t *testing.T) {
 	}
 }
 
+func TestLocalProvider_GetADRs_IgnoresNonMarkdownFilesAndMarkdownNamedDirectories(t *testing.T) {
+	dir := t.TempDir()
+
+	writeADRFile(t, dir, "0001-accepted.md", "---\ntitle: A\nstatus: Accepted\n---\ncontent")
+	writeADRFile(t, dir, "0002-notes.txt", "---\ntitle: B\nstatus: Accepted\n---\ncontent")
+
+	if err := os.Mkdir(filepath.Join(dir, "nested.md"), 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	writeADRFile(t, filepath.Join(dir, "nested.md"), "0003-inner.md", "---\ntitle: C\nstatus: Accepted\n---\ncontent")
+
+	adrs, stats, err := NewLocalProvider(dir, []string{"Accepted"}).GetADRs(t.Context())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(adrs) != 2 {
+		t.Errorf("expected the two markdown files, got %+v", adrs)
+	}
+
+	if stats.Discovered != 2 || len(stats.ParseFailed) != 0 {
+		t.Errorf("expected 2 discovered and none parse-failed, got %d discovered and %v parse-failed", stats.Discovered, stats.ParseFailed)
+	}
+}
+
 func TestLocalProvider_GetADRs_MalformedRulesAreDroppedReportedAndWarned(t *testing.T) {
 	dir := t.TempDir()
 	writeADRFile(t, dir, "0001-bad-rules.md", "---\ntitle: A\nstatus: Accepted\nrules: nope\n---\ncontent")
