@@ -1,0 +1,25 @@
+version: "1"
+
+llm:
+  provider: "gemini"
+  model: "gemini-3.1-flash-lite"
+  max_tokens: 8000
+  temperature: 0.0
+
+vector_store:
+  provider: "gemini"
+  model: "gemini-embedding-2"
+  embedding_dim: 3072
+  similarity_threshold: 0.75
+  embedding_concurrency: 2
+
+analysis:
+  adr_path: "./docs/arch"
+  accepted_statuses: ["Accepted", "Active"]
+  max_concurrency: 2
+  exclude_patterns:
+    - "**/*_test.go"
+    - "vendor/**"
+    - "go.sum"
+    - "README.md"
+    - "bin/**"
