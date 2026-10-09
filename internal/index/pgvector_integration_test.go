@@ -32,7 +32,7 @@ func setupPgContainer(ctx context.Context, tb testing.TB) string {
 
 	pgContainer, err := postgres.Run(
 		ctx,
-		"pgvector/pgvector:0.8.6-pg16",
+		"pgvector/pgvector:0.8.7-pg16",
 		postgres.WithDatabase("archguard_test"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
