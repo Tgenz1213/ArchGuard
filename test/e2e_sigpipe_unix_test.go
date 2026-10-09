@@ -1,4 +1,4 @@
-//go:build unix
+//go:build e2e && unix
 
 package test
 

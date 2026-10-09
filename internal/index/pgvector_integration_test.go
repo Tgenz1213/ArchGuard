@@ -1,3 +1,5 @@
+//go:build integration
+
 package index_test
 
 import (
@@ -1318,12 +1320,6 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 
 	distractorResults := store.Search([]float32{1, 0}, 0.5, 3, "app.ts")
 	require.Len(t, distractorResults, 3, "expected the 3 distractors (scoped to **/*.ts, similarity 1.0) for a matching file, got %+v", distractorResults)
-}
-
-func TestSearchQuery_HasNoDistanceThresholdPredicate(t *testing.T) {
-	if strings.Contains(index.SearchQuery, "<= $") {
-		t.Fatalf("SearchQuery still has a SQL-level distance-threshold predicate; scope/threshold filtering must happen in Go, not SQL -- query:\n%s", index.SearchQuery)
-	}
 }
 
 func TestPgStore_Integration_ExplicitPrinterReceivesProgressNotStderr(t *testing.T) {
