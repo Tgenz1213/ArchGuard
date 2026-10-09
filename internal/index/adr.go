@@ -184,20 +184,26 @@ func parseADRFile(path string, rootDir string, idPattern *regexp.Regexp, opts Pa
 }
 
 func extractID(filename string, idPattern *regexp.Regexp) string {
-	if idPattern != nil {
-		if m := idPattern.FindStringSubmatch(filename); m != nil {
-			id := m[0]
-			if len(m) > 1 {
-				id = m[1]
-			}
-
-			if id != "" {
-				return id
-			}
-		}
+	fallback := strings.Split(filename, "-")[0]
+	if idPattern == nil {
+		return fallback
 	}
 
-	return strings.Split(filename, "-")[0]
+	m := idPattern.FindStringSubmatch(filename)
+	if m == nil {
+		return fallback
+	}
+
+	id := m[0]
+	if len(m) > 1 {
+		id = m[1]
+	}
+
+	if id == "" {
+		return fallback
+	}
+
+	return id
 }
 
 func ParseADRContent(raw []byte, id string, relPath string, opts ParseOptions) (*ADR, error) {
