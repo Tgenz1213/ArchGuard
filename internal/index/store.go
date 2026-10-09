@@ -153,22 +153,11 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 
 	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs)
 
-	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
-
 	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out}
 
-	outcome, err := job.run(ctx, adrsToEmbed)
-	result.Skipped = outcome.skipped
-
+	outcome, err := job.embedInto(ctx, adrsToEmbed, &result)
 	if err != nil {
-		return result, err
-	}
-
-	// Valid means successfully indexed, not merely status-accepted.
-	result.Valid = len(validADRs) - len(outcome.failed)
-
-	if err := outcome.check(ctx, len(validADRs), "embed"); err != nil {
 		return result, err
 	}
 

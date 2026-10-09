@@ -84,7 +84,7 @@ func TestEmbedJob_Run_BoundsConcurrency(t *testing.T) {
 		wantMax     int32
 	}{
 		{name: "explicit limit", concurrency: 2, wantMax: 2},
-		{name: "zero uses the default", concurrency: 0, wantMax: defaultEmbedConcurrency},
+		{name: "zero uses the default", concurrency: 0, wantMax: 5},
 	}
 
 	for _, tt := range tests {
@@ -138,6 +138,83 @@ func TestEmbedJob_Run_NoIndicesIsANoOp(t *testing.T) {
 	assert.Empty(t, outcome.skipped)
 }
 
+func TestEmbedJob_Run_PersistsOnlyEmbeddedADRs(t *testing.T) {
+	adrs := []ADR{{RelPath: "a.md", Title: "a"}, {RelPath: "b.md", Title: "b"}}
+	job := newEmbedJob(adrs, func(text string) ([]float32, error) {
+		if strings.Contains(text, "Title: a\n") {
+			return nil, errors.New("rejected")
+		}
+
+		return []float32{1}, nil
+	})
+
+	var (
+		mu        sync.Mutex
+		persisted []string
+	)
+
+	job.persist = func(_ context.Context, adr ADR) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		persisted = append(persisted, adr.RelPath)
+
+		return nil
+	}
+
+	_, err := job.run(t.Context(), []int{0, 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b.md"}, persisted)
+}
+
+func TestEmbedJob_EmbedInto(t *testing.T) {
+	persist := func(context.Context, ADR) error { return nil }
+
+	tests := []struct {
+		name        string
+		persist     func(context.Context, ADR) error
+		failTitles  []string
+		wantValid   int
+		wantSkipped int
+		wantErr     string
+	}{
+		{name: "all embedded", wantValid: 2},
+		{name: "partial failure counts only indexed ADRs", failTitles: []string{"a"}, wantValid: 1, wantSkipped: 1},
+		{name: "all failed without persist", failTitles: []string{"a", "b"}, wantSkipped: 2, wantErr: "all 2 ADR(s) failed to embed; index not updated"},
+		{name: "all failed with persist", persist: persist, failTitles: []string{"a", "b"}, wantSkipped: 2, wantErr: "all 2 ADR(s) failed to embed or persist; index not updated"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adrs := []ADR{{RelPath: "a.md", Title: "a"}, {RelPath: "b.md", Title: "b"}}
+			job := newEmbedJob(adrs, func(text string) ([]float32, error) {
+				for _, title := range tt.failTitles {
+					if strings.Contains(text, "Title: "+title+"\n") {
+						return nil, errors.New("rejected")
+					}
+				}
+
+				return []float32{1}, nil
+			})
+			job.persist = tt.persist
+
+			var result BuildIndexResult
+
+			_, err := job.embedInto(t.Context(), []int{0, 1}, &result)
+
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+
+			assert.Equal(t, tt.wantValid, result.Valid)
+			assert.Len(t, result.Skipped, tt.wantSkipped)
+		})
+	}
+}
+
 func TestEmbedJob_Run_PersistErrorSkipsADR(t *testing.T) {
 	adrs := []ADR{{RelPath: "a.md", Title: "a"}, {RelPath: "b.md", Title: "b"}}
 	job := newEmbedJob(adrs, func(string) ([]float32, error) { return []float32{1}, nil })
@@ -184,25 +261,19 @@ func TestEmbedOutcome_Check(t *testing.T) {
 		ctx     context.Context
 		failed  map[int]bool
 		total   int
-		action  string
 		wantErr string
 	}{
 		{name: "no failures", ctx: t.Context(), total: 2},
-		{name: "action names the failure", ctx: t.Context(), failed: map[int]bool{0: true}, total: 1, action: "embed", wantErr: "all 1 ADR(s) failed to embed; index not updated"},
 		{name: "partial failure is tolerated", ctx: t.Context(), failed: map[int]bool{0: true}, total: 2},
-		{name: "every ADR failed", ctx: t.Context(), failed: map[int]bool{0: true, 1: true}, total: 2, wantErr: "all 2 ADR(s) failed to embed or persist; index not updated"},
+		{name: "cancelled context wins over all failed", ctx: cancelled, failed: map[int]bool{0: true, 1: true}, total: 2, wantErr: context.Canceled.Error()},
+		{name: "every ADR failed", ctx: t.Context(), failed: map[int]bool{0: true, 1: true}, total: 2, wantErr: "all 2 ADR(s) failed to embed; index not updated"},
 		{name: "empty corpus is not all-failed", ctx: t.Context(), total: 0},
 		{name: "cancelled context with nothing to embed", ctx: cancelled, total: 2, wantErr: context.Canceled.Error()},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action := tt.action
-			if action == "" {
-				action = "embed or persist"
-			}
-
-			err := embedOutcome{failed: tt.failed}.check(tt.ctx, tt.total, action)
+			err := embedOutcome{failed: tt.failed}.check(tt.ctx, tt.total, "embed")
 
 			if tt.wantErr == "" {
 				assert.NoError(t, err)

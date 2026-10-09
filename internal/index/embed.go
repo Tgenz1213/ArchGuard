@@ -30,6 +30,27 @@ func adrUnchanged(existing, current ADR) bool {
 	return existing.Content == current.Content && existing.Title == current.Title && existing.Status == current.Status
 }
 
+func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildIndexResult) (embedOutcome, error) {
+	j.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(j.adrs), len(toEmbed))
+
+	outcome, err := j.run(ctx, toEmbed)
+	result.Skipped = outcome.skipped
+
+	if err != nil {
+		return outcome, err
+	}
+
+	// Valid means successfully indexed, not merely status-accepted.
+	result.Valid = len(j.adrs) - len(outcome.failed)
+
+	action := "embed"
+	if j.persist != nil {
+		action = "embed or persist"
+	}
+
+	return outcome, outcome.check(ctx, len(j.adrs), action)
+}
+
 // A failed ADR never returns an error to the errgroup: that would cancel the embeds still in flight.
 func (j embedJob) run(ctx context.Context, indices []int) (embedOutcome, error) {
 	outcome := embedOutcome{failed: make(map[int]bool)}
