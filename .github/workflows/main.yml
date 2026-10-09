@@ -16,3 +16,11 @@ jobs:
       docker-login: true
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  archguard:
+    name: ArchGuard
+    uses: ./.github/workflows/archguard.yml
+    with:
+      base: ${{ github.event.before }}
+    secrets:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -1,0 +1,54 @@
+name: ArchGuard
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        description: Commit to diff against; the files changed since it are checked
+        type: string
+        required: true
+    secrets:
+      GEMINI_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+
+      - name: Install ArchGuard
+        run: go install ./cmd/archguard
+
+      - name: Use the CI config
+        run: cp .github/archguard-ci.yaml archguard.yaml
+
+      - name: Restore analysis cache
+        uses: actions/cache@v4
+        with:
+          path: .archguard/cache
+          key: archguard-cache-${{ github.run_id }}
+          restore-keys: archguard-cache-
+
+      - name: Check changed files
+        env:
+          ARCHGUARD_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          BASE: ${{ inputs.base }}
+        run: |
+          mapfile -t files < <(git diff --name-only --diff-filter=d "$BASE" HEAD)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed files to check."
+            exit 0
+          fi
+          archguard check --ci "${files[@]}"
