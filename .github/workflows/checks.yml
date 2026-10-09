@@ -2,6 +2,14 @@ name: Checks
 
 on:
   workflow_call:
+    inputs:
+      docker-login:
+        description: Authenticate to Docker Hub before running tests
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 jobs:
   lint:
@@ -25,6 +33,8 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
+    env:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
@@ -32,6 +42,13 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: "1.27"
+
+      - name: Log in to Docker Hub
+        if: inputs.docker-login && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run Tests
         run: go test -v -race -cover ./...
