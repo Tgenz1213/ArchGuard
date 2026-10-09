@@ -491,7 +491,7 @@ func TestResolveContentProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveContentProvider(output.New(os.Stdout, false), tt.files, tt.staged, tt.all, tt.updateBaseline)
+			got := checkCmd{Paths: tt.files, Staged: tt.staged, All: tt.all, UpdateBaseline: tt.updateBaseline}.contentProvider(output.New(os.Stdout, false))
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
@@ -519,7 +519,7 @@ func TestResolveContentProvider_DotMixedWithExtraArgsWarns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got analysis.ContentProvider
 			captured := captureStdout(t, func() {
-				got = resolveContentProvider(output.New(os.Stdout, false), tt.files, false, false, false)
+				got = checkCmd{Paths: tt.files}.contentProvider(output.New(os.Stdout, false))
 			})
 
 			if _, ok := got.(*analysis.AllProvider); !ok {
