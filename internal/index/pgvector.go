@@ -15,7 +15,6 @@ import (
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
-	"golang.org/x/sync/errgroup"
 )
 
 const defaultReindexThreshold = 0.20
@@ -298,13 +297,44 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 		return BuildIndexResult{}, err
 	}
 
+	existing, err := s.loadExistingADRs(ctx)
+	if err != nil {
+		return BuildIndexResult{}, err
+	}
+
+	adrsToEmbed, adrsToSync := classifyADRs(existing, validADRs)
+
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
+	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out, embedLabel: "embed", persist: s.upsertADR}
+
+	outcome, err := job.embedInto(ctx, adrsToEmbed, &result)
+	if err != nil {
+		return result, err
+	}
+
+	if err := s.syncMetadata(ctx, validADRs, adrsToSync); err != nil {
+		return result, err
+	}
+
+	removed, err := s.deleteRemoved(ctx, existing, validADRs)
+	if err != nil {
+		return result, err
+	}
+
+	s.reindexIfChurned(ctx, len(adrsToEmbed)-len(outcome.failed)+len(removed), len(validADRs)+len(removed))
+
+	return result, nil
+}
+
+func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]ADR, error) {
 	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold, rules FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
-		return BuildIndexResult{}, fmt.Errorf("failed to query existing ADRs: %w", err)
+		return nil, fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
 	defer rows.Close()
 
-	existingMap := make(map[string]ADR)
+	existing := make(map[string]ADR)
+
 	for rows.Next() {
 		var relPath, title, status, content, adrID, scope string
 
@@ -312,10 +342,10 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 
 		var rules Rules
 		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold, &rules); err != nil {
-			return BuildIndexResult{}, fmt.Errorf("failed to scan existing ADR row: %w", err)
+			return nil, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 
-		existingMap[relPath] = ADR{
+		existing[relPath] = ADR{
 			ID:                  adrID,
 			Title:               title,
 			Status:              status,
@@ -327,175 +357,133 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 	}
 
 	if err := rows.Err(); err != nil {
-		return BuildIndexResult{}, fmt.Errorf("failed to read existing ADRs: %w", err)
+		return nil, fmt.Errorf("failed to read existing ADRs: %w", err)
 	}
 
-	var adrsToEmbed []int
-	var adrsToSync []int
-	for i, valid := range validADRs {
-		existing, ok := existingMap[valid.RelPath]
+	return existing, nil
+}
+
+func classifyADRs(existing map[string]ADR, adrs []ADR) (toEmbed, toSync []int) {
+	for i, adr := range adrs {
+		stored, ok := existing[adr.RelPath]
+
 		switch {
-		case !ok || existing.Content != valid.Content || existing.Title != valid.Title || existing.Status != valid.Status:
-			adrsToEmbed = append(adrsToEmbed, i)
-		case existing.ID != valid.ID || !slices.Equal(existing.Scope, valid.Scope) || !thresholdsEqual(existing.SimilarityThreshold, valid.SimilarityThreshold) ||
-			!rulesEqual(existing.Rules, valid.Rules):
-			adrsToSync = append(adrsToSync, i)
+		case !ok || !adrUnchanged(stored, adr):
+			toEmbed = append(toEmbed, i)
+		case stored.ID != adr.ID || !slices.Equal(stored.Scope, adr.Scope) || !thresholdsEqual(stored.SimilarityThreshold, adr.SimilarityThreshold) ||
+			!rulesEqual(stored.Rules, adr.Rules):
+			toSync = append(toSync, i)
 		}
 	}
 
-	s.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(validADRs), len(adrsToEmbed))
+	return toEmbed, toSync
+}
 
-	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
-	failed := make(map[int]bool)
+func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (project_name, rel_path) DO UPDATE SET
+			title = EXCLUDED.title,
+			status = EXCLUDED.status,
+			content = EXCLUDED.content,
+			embedding = EXCLUDED.embedding,
+			adr_id = EXCLUDED.adr_id,
+			scope = EXCLUDED.scope,
+			similarity_threshold = EXCLUDED.similarity_threshold,
+			rules = EXCLUDED.rules
+	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules)
+	if err != nil {
+		return fmt.Errorf("upsert: %w", err)
+	}
 
-	if len(adrsToEmbed) > 0 {
-		concurrency := s.concurrency
-		if concurrency <= 0 {
-			concurrency = 5
-		}
+	return nil
+}
 
-		var mu sync.Mutex
-		embedGroup := new(errgroup.Group)
-		embedGroup.SetLimit(concurrency)
-		progress := s.out.Progress()
+func (s *PgStore) syncMetadata(ctx context.Context, adrs []ADR, toSync []int) error {
+	if len(toSync) == 0 {
+		return nil
+	}
 
-		markFailed := func(idx int, err error) {
-			mu.Lock()
-			failed[idx] = true
-			result.Skipped = append(result.Skipped, SkippedADR{RelPath: validADRs[idx].RelPath, Err: err})
-			mu.Unlock()
-			s.out.Warn("skipping ADR %s: %v", validADRs[idx].RelPath, err)
-		}
+	s.out.Info("Syncing ID/scope/threshold metadata for %d unchanged ADR(s)...", len(toSync))
 
-		for _, idx := range adrsToEmbed {
-			idx := idx
-			embedGroup.Go(func() error {
-				textToEmbed := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content)
+	batch := &pgx.Batch{}
+	for _, idx := range toSync {
+		batch.Queue(`
+			UPDATE archguard_adrs SET adr_id = $1, scope = $2, similarity_threshold = $3, rules = $4
+			WHERE project_name = $5 AND rel_path = $6
+		`, adrs[idx].ID, adrs[idx].Scope, adrs[idx].SimilarityThreshold, adrs[idx].Rules, s.projectName, adrs[idx].RelPath)
+	}
 
-				emb, embErr := embedder.CreateEmbedding(ctx, textToEmbed, inference.EmbeddingTaskDocument)
-				if embErr != nil {
-					markFailed(idx, fmt.Errorf("embed: %w", embErr))
-					return nil
-				}
-
-				validADRs[idx].Embedding = emb
-
-				vec := pgvector.NewVector(emb)
-
-				_, upsertErr := s.pool.Exec(ctx, `
-					INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-					ON CONFLICT (project_name, rel_path) DO UPDATE SET
-						title = EXCLUDED.title,
-						status = EXCLUDED.status,
-						content = EXCLUDED.content,
-						embedding = EXCLUDED.embedding,
-						adr_id = EXCLUDED.adr_id,
-						scope = EXCLUDED.scope,
-						similarity_threshold = EXCLUDED.similarity_threshold,
-						rules = EXCLUDED.rules
-				`, s.projectName, validADRs[idx].RelPath, validADRs[idx].Title, validADRs[idx].Status, validADRs[idx].Content, vec, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold, validADRs[idx].Rules)
-				if upsertErr != nil {
-					markFailed(idx, fmt.Errorf("upsert: %w", upsertErr))
-					return nil
-				}
-
-				progress.Tick()
-				return nil
-			})
-		}
-
-		err := embedGroup.Wait()
-		progress.Done()
-
+	br := s.pool.SendBatch(ctx, batch)
+	for _, idx := range toSync {
+		tag, err := br.Exec()
 		if err != nil {
-			return result, err
+			_ = br.Close() //nolint:errcheck // cleanup; the Exec error wins
+			return fmt.Errorf("failed to sync metadata for ADR %s: %w", adrs[idx].RelPath, err)
+		}
+
+		if tag.RowsAffected() == 0 {
+			s.out.Warn("sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)", adrs[idx].RelPath)
 		}
 	}
 
-	// Valid means successfully indexed, not merely status-accepted.
-	result.Valid = len(validADRs) - len(failed)
-
-	// Checked unconditionally: a ctx canceled before a no-embed run (every
-	// ADR unchanged) must still surface, not fall through as success.
-	if ctx.Err() != nil {
-		return result, ctx.Err()
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("failed to close sync batch: %w", err)
 	}
 
-	if len(validADRs) > 0 && len(failed) == len(validADRs) {
-		return result, fmt.Errorf("all %d ADR(s) failed to embed or persist; index not updated", len(validADRs))
+	return nil
+}
+
+func (s *PgStore) deleteRemoved(ctx context.Context, existing map[string]ADR, valid []ADR) ([]string, error) {
+	current := make(map[string]bool, len(valid))
+	for _, adr := range valid {
+		current[adr.RelPath] = true
 	}
 
-	if len(adrsToSync) > 0 {
-		s.out.Info("Syncing ID/scope/threshold metadata for %d unchanged ADR(s)...", len(adrsToSync))
-		batch := &pgx.Batch{}
-		for _, idx := range adrsToSync {
-			batch.Queue(`
-				UPDATE archguard_adrs SET adr_id = $1, scope = $2, similarity_threshold = $3, rules = $4
-				WHERE project_name = $5 AND rel_path = $6
-			`, validADRs[idx].ID, validADRs[idx].Scope, validADRs[idx].SimilarityThreshold, validADRs[idx].Rules, s.projectName, validADRs[idx].RelPath)
-		}
+	var removed []string
 
-		br := s.pool.SendBatch(ctx, batch)
-		for _, idx := range adrsToSync {
-			tag, err := br.Exec()
-			if err != nil {
-				_ = br.Close() //nolint:errcheck // cleanup; the Exec error wins
-				return result, fmt.Errorf("failed to sync metadata for ADR %s: %w", validADRs[idx].RelPath, err)
-			}
-
-			if tag.RowsAffected() == 0 {
-				s.out.Warn("sync UPDATE for %s affected 0 rows (row may have been deleted concurrently)", validADRs[idx].RelPath)
-			}
-		}
-
-		if err := br.Close(); err != nil {
-			return result, fmt.Errorf("failed to close sync batch: %w", err)
+	for relPath := range existing {
+		if !current[relPath] {
+			removed = append(removed, relPath)
 		}
 	}
 
-	validMap := make(map[string]bool)
-	for _, valid := range validADRs {
-		validMap[valid.RelPath] = true
+	if len(removed) == 0 {
+		return nil, nil
 	}
 
-	var toDelete []string
-	for relPath := range existingMap {
-		if !validMap[relPath] {
-			toDelete = append(toDelete, relPath)
+	s.out.Info("Deleting %d removed ADRs from database...", len(removed))
+
+	for _, relPath := range removed {
+		if _, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath); err != nil {
+			return nil, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
 		}
 	}
 
-	if len(toDelete) > 0 {
-		s.out.Info("Deleting %d removed ADRs from database...", len(toDelete))
-		for _, relPath := range toDelete {
-			_, err := s.pool.Exec(ctx, "DELETE FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", s.projectName, relPath)
-			if err != nil {
-				return result, fmt.Errorf("failed to delete ADR %s: %w", relPath, err)
-			}
-		}
+	return removed, nil
+}
+
+func (s *PgStore) reindexIfChurned(ctx context.Context, modified, total int) {
+	if !s.reindexEnabled() {
+		return
 	}
 
-	if s.reindexEnabled() {
-		modifiedCount := (len(adrsToEmbed) - len(failed)) + len(toDelete)
-		totalCount := len(validADRs) + len(toDelete)
-
-		threshold := s.reindexThreshold()
-		if totalCount > 0 && float64(modifiedCount)/float64(totalCount) >= threshold {
-			mode := "blocking"
-			if s.reindexConcurrently() {
-				mode = "concurrently"
-			}
-
-			s.out.Info("Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...", threshold*100, mode)
-
-			if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
-				s.out.Warn("failed to reindex HNSW graph: %v", err)
-			}
-		}
+	threshold := s.reindexThreshold()
+	if total == 0 || float64(modified)/float64(total) < threshold {
+		return
 	}
 
-	return result, nil
+	mode := "blocking"
+	if s.reindexConcurrently() {
+		mode = "concurrently"
+	}
+
+	s.out.Info("Modifications exceeded %.0f%% threshold. Rebuilding HNSW index (%s)...", threshold*100, mode)
+
+	if _, err := s.pool.Exec(ctx, s.reindexStatement()); err != nil {
+		s.out.Warn("failed to reindex HNSW graph: %v", err)
+	}
 }
 
 // SearchQuery is exported so pgvector_bench_test.go can EXPLAIN this exact
