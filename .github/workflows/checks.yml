@@ -1,15 +1,7 @@
-name: PR Checks
+name: Checks
 
 on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
+  workflow_call:
 
 jobs:
   lint:
