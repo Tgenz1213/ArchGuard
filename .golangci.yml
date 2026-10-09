@@ -1,8 +1,29 @@
 version: "2"
 linters:
   default: standard
-  enable: [bodyclose, errorlint, gocritic, noctx, revive, usetesting, wsl_v5]
+  enable:
+    - bodyclose
+    - errorlint
+    - funlen
+    - gocognit
+    - gocritic
+    - nestif
+    - noctx
+    - revive
+    - usetesting
+    - wsl_v5
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [funlen, gocognit, nestif]
   settings:
+    funlen:
+      lines: 60
+      statements: 40
+    gocognit:
+      min-complexity: 30
+    nestif:
+      min-complexity: 4
     usetesting:
       context-background: true
       context-todo: true
