@@ -16,85 +16,7 @@ import (
 func main() {
 	ctx, stop := cli.NotifyContext(context.Background())
 
-	// Markers print on invocation, not construction, so tests can prove a
-	// call was routed to the right provider.
-	chatProviderFactory := func(cfg *config.Config) inference.Provider {
-		mock := &inference.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
-
-		mock.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
-			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
-
-			if strings.Contains(system, "Remediation Advisor") {
-				return `{"suggestion": "Mock suggestion: move this logic into a Go service."}`, nil
-			}
-
-			if codeContextContainsTrigger(user, testutil.MockInterruptTrigger) {
-				stop()
-				return "", ctx.Err()
-			}
-
-			if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
-				return "", fmt.Errorf("mock chat failure (E2E trigger)")
-			}
-
-			result := inference.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
-			if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
-				result = inference.AnalysisResult{
-					Violation:  true,
-					Reasoning:  "Mock violation: trigger found",
-					QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
-				}
-			}
-
-			resp, err := json.Marshal(result)
-			if err != nil {
-				return "", err
-			}
-
-			return string(resp), nil
-		}
-
-		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
-		mock.EmbedFunc = func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
-			fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
-
-			if strings.Contains(text, testutil.MockInterruptTrigger) {
-				stop()
-				return nil, ctx.Err()
-			}
-
-			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
-				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
-			}
-
-			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
-		}
-
-		return mock
-	}
-
-	embedProviderFactory := func(cfg *config.Config) inference.Embedder {
-		mock := &inference.MockProvider{EmbeddingDim: cfg.VectorStore.EmbeddingDim}
-
-		mock.EmbedFunc = func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
-			fmt.Fprintln(os.Stderr, testutil.MockEmbedProviderMarker)
-
-			if strings.Contains(text, testutil.MockInterruptTrigger) {
-				stop()
-				return nil, ctx.Err()
-			}
-
-			if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
-				return nil, fmt.Errorf("mock embed failure (E2E trigger)")
-			}
-
-			return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
-		}
-
-		return mock
-	}
-
-	factories := cli.ProviderFactories{Chat: chatProviderFactory, Embed: embedProviderFactory}
+	factories := cli.ProviderFactories{Chat: chatProviderFactory(stop), Embed: embedProviderFactory(stop)}
 	exitCode, err := cli.Execute(ctx, "e2e", factories)
 
 	stop()
@@ -104,6 +26,80 @@ func main() {
 	}
 
 	os.Exit(int(exitCode))
+}
+
+func chatProviderFactory(stop context.CancelFunc) func(*config.Config) inference.Provider {
+	return func(cfg *config.Config) inference.Provider {
+		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
+		return &inference.MockProvider{
+			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
+			ChatFunc:     mockChat(stop),
+			EmbedFunc:    mockEmbed(cfg, stop, testutil.MockChatProviderMarker),
+		}
+	}
+}
+
+func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inference.Embedder {
+	return func(cfg *config.Config) inference.Embedder {
+		return &inference.MockProvider{
+			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
+			EmbedFunc:    mockEmbed(cfg, stop, testutil.MockEmbedProviderMarker),
+		}
+	}
+}
+
+// Markers print on invocation, not construction, so tests can prove a
+// call was routed to the right provider.
+func mockChat(stop context.CancelFunc) func(ctx context.Context, system, user string) (string, error) {
+	return func(ctx context.Context, system, user string) (string, error) {
+		fmt.Fprintln(os.Stderr, testutil.MockChatProviderMarker)
+
+		if strings.Contains(system, "Remediation Advisor") {
+			return `{"suggestion": "Mock suggestion: move this logic into a Go service."}`, nil
+		}
+
+		if codeContextContainsTrigger(user, testutil.MockInterruptTrigger) {
+			stop()
+			return "", ctx.Err()
+		}
+
+		if codeContextContainsTrigger(user, testutil.MockChatFailureTrigger) {
+			return "", fmt.Errorf("mock chat failure (E2E trigger)")
+		}
+
+		result := inference.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
+		if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
+			result = inference.AnalysisResult{
+				Violation:  true,
+				Reasoning:  "Mock violation: trigger found",
+				QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
+			}
+		}
+
+		resp, err := json.Marshal(result)
+		if err != nil {
+			return "", err
+		}
+
+		return string(resp), nil
+	}
+}
+
+func mockEmbed(cfg *config.Config, stop context.CancelFunc, marker string) func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
+	return func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
+		fmt.Fprintln(os.Stderr, marker)
+
+		if strings.Contains(text, testutil.MockInterruptTrigger) {
+			stop()
+			return nil, ctx.Err()
+		}
+
+		if strings.Contains(text, testutil.MockEmbedFailureTrigger) {
+			return nil, fmt.Errorf("mock embed failure (E2E trigger)")
+		}
+
+		return defaultMockEmbedding(cfg.VectorStore.EmbeddingDim), nil
+	}
 }
 
 // Mirrors inference.MockProvider's default embedding: non-zero, so cosine similarity avoids NaN.
