@@ -81,7 +81,7 @@ jobs:
           go-version: "1.27"
 
       - name: Run E2E Tests
-        run: go test -v -race -tags e2e ./test
+        run: go test -v -race -tags e2e ./test/e2e
 
   build:
     name: Verify Build
