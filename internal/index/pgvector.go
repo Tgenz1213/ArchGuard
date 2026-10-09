@@ -76,54 +76,19 @@ const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname 
 func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOptions, out *output.Printer) (*PgStore, error) {
 	ctx := context.Background()
 
-	// The extension must exist before the pool's AfterConnect registers vector types.
-	tempConn, err := pgx.Connect(ctx, connStr)
+	probe, err := ensureVectorExtension(ctx, connStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
+		return nil, err
 	}
 
-	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	if err != nil {
-		_ = tempConn.Close(ctx) //nolint:errcheck // cleanup; the extension error wins
-		return nil, fmt.Errorf("failed to create vector extension: %w", err)
-	}
-
-	// A query error here is treated as unsupported, not a fatal error.
-	var pgvectorVersion string
-	versionErr := tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&pgvectorVersion)
-	_ = tempConn.Close(ctx) //nolint:errcheck // a one-off probe connection; the pool opens its own
-
-	iterativeScanWanted := hnsw.iterativeScanConfigured()
-	applyIterativeScan := false
-	switch {
-	case versionErr != nil:
-		if iterativeScanWanted {
-			out.Warn("failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.", versionErr)
-		}
-	case iterativeScanWanted && IterativeScanSupportedVersion(pgvectorVersion):
-		applyIterativeScan = true
-	case iterativeScanWanted:
-		out.Warn("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.", pgvectorVersion)
-	}
+	applyIterativeScan := iterativeScanDecision(probe, hnsw.iterativeScanConfigured(), out)
 
 	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
-			return err
-		}
-
-		if applyIterativeScan {
-			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
-				out.Warn("failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.", err)
-			}
-		}
-
-		return nil
-	}
+	config.AfterConnect = afterConnect(applyIterativeScan, out)
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -138,6 +103,65 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		hnsw:             hnsw,
 		out:              out,
 	}, nil
+}
+
+type extensionProbe struct {
+	version    string
+	versionErr error
+}
+
+func ensureVectorExtension(ctx context.Context, connStr string) (extensionProbe, error) {
+	// The extension must exist before the pool's AfterConnect registers vector types.
+	tempConn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return extensionProbe{}, fmt.Errorf("failed to initially connect to database: %w", err)
+	}
+
+	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+	if err != nil {
+		_ = tempConn.Close(ctx) //nolint:errcheck // cleanup; the extension error wins
+
+		return extensionProbe{}, fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
+	// A query error here is treated as unsupported, not a fatal error.
+	var probe extensionProbe
+
+	probe.versionErr = tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&probe.version)
+	_ = tempConn.Close(ctx) //nolint:errcheck // a one-off probe connection; the pool opens its own
+
+	return probe, nil
+}
+
+func iterativeScanDecision(probe extensionProbe, wanted bool, out *output.Printer) bool {
+	switch {
+	case probe.versionErr != nil:
+		if wanted {
+			out.Warn("failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.", probe.versionErr)
+		}
+	case wanted && IterativeScanSupportedVersion(probe.version):
+		return true
+	case wanted:
+		out.Warn("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.", probe.version)
+	}
+
+	return false
+}
+
+func afterConnect(applyIterativeScan bool, out *output.Printer) func(context.Context, *pgx.Conn) error {
+	return func(ctx context.Context, conn *pgx.Conn) error {
+		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+			return err
+		}
+
+		if applyIterativeScan {
+			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
+				out.Warn("failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.", err)
+			}
+		}
+
+		return nil
+	}
 }
 
 func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
@@ -193,6 +217,19 @@ func (s *PgStore) CalculateHash(adrs []ADR, modelName string) (string, error) {
 
 // Both Load and BuildIndex call this: cli.runIndex calls BuildIndex without a preceding Load.
 func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
+	if err := s.createSchema(ctx, dim); err != nil {
+		return err
+	}
+
+	present, err := s.existingMetadataColumns(ctx)
+	if err != nil {
+		return err
+	}
+
+	return s.addMissingColumns(ctx, present)
+}
+
+func (s *PgStore) createSchema(ctx context.Context, dim int) error {
 	createQuery := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS archguard_adrs (
 			id SERIAL PRIMARY KEY,
@@ -206,24 +243,29 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 		);
 		CREATE INDEX IF NOT EXISTS %s ON archguard_adrs USING hnsw (embedding vector_cosine_ops);
 	`, dim, hnswIndexName)
-	if _, err := s.pool.Exec(ctx, createQuery); err != nil {
-		return err
-	}
 
+	_, err := s.pool.Exec(ctx, createQuery)
+
+	return err
+}
+
+func (s *PgStore) existingMetadataColumns(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT column_name FROM information_schema.columns
 		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold', 'rules')
 	`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	present := make(map[string]bool)
+
 	for rows.Next() {
 		var col string
 		if err := rows.Scan(&col); err != nil {
 			rows.Close()
-			return err
+
+			return nil, err
 		}
 
 		present[col] = true
@@ -232,32 +274,35 @@ func (s *PgStore) ensureSchema(ctx context.Context, dim int) error {
 	rows.Close()
 
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
 
+	return present, nil
+}
+
+var metadataColumns = []struct{ name, ddl string }{
+	{"adr_id", "ADD COLUMN IF NOT EXISTS adr_id TEXT"},
+	{"scope", "ADD COLUMN IF NOT EXISTS scope TEXT"},
+	{"similarity_threshold", "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION"},
+	{"rules", "ADD COLUMN IF NOT EXISTS rules TEXT"},
+}
+
+func (s *PgStore) addMissingColumns(ctx context.Context, present map[string]bool) error {
 	var alters []string
-	if !present["adr_id"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS adr_id TEXT")
+
+	for _, column := range metadataColumns {
+		if !present[column.name] {
+			alters = append(alters, column.ddl)
+		}
 	}
 
-	if !present["scope"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS scope TEXT")
+	if len(alters) == 0 {
+		return nil
 	}
 
-	if !present["similarity_threshold"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION")
-	}
+	_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
 
-	if !present["rules"] {
-		alters = append(alters, "ADD COLUMN IF NOT EXISTS rules TEXT")
-	}
-
-	if len(alters) > 0 {
-		_, err := s.pool.Exec(ctx, "ALTER TABLE archguard_adrs "+strings.Join(alters, ", "))
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (s *PgStore) Load(path, modelName string, dim int, currentHash string) error {
