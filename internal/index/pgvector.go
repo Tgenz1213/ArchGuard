@@ -76,54 +76,19 @@ const PgvectorVersionQuery = "SELECT extversion FROM pg_extension WHERE extname 
 func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOptions, out *output.Printer) (*PgStore, error) {
 	ctx := context.Background()
 
-	// The extension must exist before the pool's AfterConnect registers vector types.
-	tempConn, err := pgx.Connect(ctx, connStr)
+	probe, err := ensureVectorExtension(ctx, connStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initially connect to database: %w", err)
+		return nil, err
 	}
 
-	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	if err != nil {
-		_ = tempConn.Close(ctx) //nolint:errcheck // cleanup; the extension error wins
-		return nil, fmt.Errorf("failed to create vector extension: %w", err)
-	}
-
-	// A query error here is treated as unsupported, not a fatal error.
-	var pgvectorVersion string
-	versionErr := tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&pgvectorVersion)
-	_ = tempConn.Close(ctx) //nolint:errcheck // a one-off probe connection; the pool opens its own
-
-	iterativeScanWanted := hnsw.iterativeScanConfigured()
-	applyIterativeScan := false
-	switch {
-	case versionErr != nil:
-		if iterativeScanWanted {
-			out.Warn("failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.", versionErr)
-		}
-	case iterativeScanWanted && IterativeScanSupportedVersion(pgvectorVersion):
-		applyIterativeScan = true
-	case iterativeScanWanted:
-		out.Warn("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.", pgvectorVersion)
-	}
+	applyIterativeScan := iterativeScanDecision(probe, hnsw.iterativeScanConfigured(), out)
 
 	config, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
-			return err
-		}
-
-		if applyIterativeScan {
-			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
-				out.Warn("failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.", err)
-			}
-		}
-
-		return nil
-	}
+	config.AfterConnect = afterConnect(applyIterativeScan, out)
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
@@ -138,6 +103,65 @@ func NewPgStore(connStr string, projectName string, concurrency int, hnsw HNSWOp
 		hnsw:             hnsw,
 		out:              out,
 	}, nil
+}
+
+type extensionProbe struct {
+	version    string
+	versionErr error
+}
+
+func ensureVectorExtension(ctx context.Context, connStr string) (extensionProbe, error) {
+	// The extension must exist before the pool's AfterConnect registers vector types.
+	tempConn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return extensionProbe{}, fmt.Errorf("failed to initially connect to database: %w", err)
+	}
+
+	_, err = tempConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+	if err != nil {
+		_ = tempConn.Close(ctx) //nolint:errcheck // cleanup; the extension error wins
+
+		return extensionProbe{}, fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
+	// A query error here is treated as unsupported, not a fatal error.
+	var probe extensionProbe
+
+	probe.versionErr = tempConn.QueryRow(ctx, PgvectorVersionQuery).Scan(&probe.version)
+	_ = tempConn.Close(ctx) //nolint:errcheck // a one-off probe connection; the pool opens its own
+
+	return probe, nil
+}
+
+func iterativeScanDecision(probe extensionProbe, wanted bool, out *output.Printer) bool {
+	switch {
+	case probe.versionErr != nil:
+		if wanted {
+			out.Warn("failed to check pgvector version for hnsw.iterative_scan support (%v); leaving it disabled for all connections from this store.", probe.versionErr)
+		}
+	case wanted && IterativeScanSupportedVersion(probe.version):
+		return true
+	case wanted:
+		out.Warn("pgvector %s does not support hnsw.iterative_scan (requires 0.8.0+); project-filtered search recall may be degraded at scale. See docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md.", probe.version)
+	}
+
+	return false
+}
+
+func afterConnect(applyIterativeScan bool, out *output.Printer) func(context.Context, *pgx.Conn) error {
+	return func(ctx context.Context, conn *pgx.Conn) error {
+		if err := pgxvec.RegisterTypes(ctx, conn); err != nil {
+			return err
+		}
+
+		if applyIterativeScan {
+			if _, err := conn.Exec(ctx, "SET hnsw.iterative_scan = 'relaxed_order'"); err != nil {
+				out.Warn("failed to enable hnsw.iterative_scan on a new connection (%v); this connection will use standard (non-iterative) HNSW search instead.", err)
+			}
+		}
+
+		return nil
+	}
 }
 
 func (s *PgStore) Pool() *pgxpool.Pool { return s.pool }
