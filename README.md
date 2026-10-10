@@ -451,7 +451,15 @@ jobs:
           provider: 'ollama'
 ```
 
-This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on your codebase. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
+This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on the files your pull request or push changed. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `provider` | required | The provider configured in `archguard.yaml`. |
+| `scope` | `changed` | `changed` checks the files the event changed; `all` checks every tracked file. |
+| `base` | the pull request base, or the commit before a push | The commit to compare against when `scope` is `changed`. |
+
+The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file.
 
 Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
 
