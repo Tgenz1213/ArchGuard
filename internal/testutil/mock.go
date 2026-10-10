@@ -3,6 +3,9 @@ package testutil
 const (
 	MockViolationTrigger = "password"
 
+	// MockRequiredMarker tags a line the mock treats as required by the ADR, so removing it is a violation.
+	MockRequiredMarker = "archguard-required"
+
 	MockEmbedFailureTrigger = "TRIGGER_EMBED_FAILURE"
 
 	MockChatFailureTrigger = "TRIGGER_CHAT_FAILURE"

@@ -522,3 +522,65 @@ func TestViolation_QuotedCodeAlwaysPresentInJSON(t *testing.T) {
 		t.Fatalf("expected \"quoted_code\" key to be present even when empty, got: %s", data)
 	}
 }
+
+const changeModeDiff = "diff --git a/test.go b/test.go\n--- a/test.go\n+++ b/test.go\n@@ -1,2 +1,3 @@\n a\n+b\n c\n"
+
+func TestFetchContext_ChangeMode(t *testing.T) {
+	const wantHunks = "@@ -1,2 +1,3 @@\n a\n+b\n c\n"
+
+	tests := []struct {
+		name        string
+		provider    *MockDiffCapableProvider
+		wantMode    string
+		wantContent string
+	}{
+		{"a small file still sends its hunks", &MockDiffCapableProvider{Content: "a\nb\nc\n", Diff: changeModeDiff}, "change", wantHunks},
+		{"a large file sends its hunks too", &MockDiffCapableProvider{Content: strings.Repeat("line\n", 5000), Diff: changeModeDiff}, "change", wantHunks},
+		{"no hunks means nothing to judge", &MockDiffCapableProvider{Content: "a\n", Diff: "diff --git a/x b/x\nBinary files differ\n"}, "empty", ""},
+		{"an empty diff means nothing to judge", &MockDiffCapableProvider{Content: "a\n", Diff: ""}, "empty", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := &Engine{
+				Config:      &config.Config{LLM: config.LLMConfig{MaxTokens: 8000, Model: "gpt-3.5-turbo"}},
+				Content:     tt.provider,
+				Chat:        inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+				JudgeChange: true,
+			}
+
+			content, full, mode, err := engine.fetchContext(t.Context(), "test.go")
+			if err != nil || mode != tt.wantMode || content != tt.wantContent || full != tt.provider.Content {
+				t.Fatalf("fetchContext() = %q, %q, %q, %v; want content %q, mode %q, and the whole file as fullContent", content, full, mode, err, tt.wantContent, tt.wantMode)
+			}
+		})
+	}
+}
+
+func TestFetchContext_ChangeModeTruncatesAnOversizedDiff(t *testing.T) {
+	diff := "diff --git a/test.go b/test.go\n--- a/test.go\n+++ b/test.go\n@@ -1 +1,400 @@\n" + strings.Repeat("+added line of code here\n", 400)
+
+	engine := &Engine{
+		Config:      &config.Config{LLM: config.LLMConfig{MaxTokens: 50, Model: "gpt-3.5-turbo"}},
+		Content:     &MockDiffCapableProvider{Content: "x\n", Diff: diff},
+		Chat:        inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+		JudgeChange: true,
+	}
+
+	content, _, mode, err := engine.fetchContext(t.Context(), "test.go")
+	if err != nil || mode != "truncated" || !strings.HasPrefix(content, "@@") || len(content) >= len(diff) {
+		t.Fatalf("fetchContext() = %q, %q, %v; want a truncated diff that still starts at a hunk", content, mode, err)
+	}
+}
+
+func TestFetchContext_WholeFileModeIsUnchangedWithoutJudgeChange(t *testing.T) {
+	engine := &Engine{
+		Config:  &config.Config{LLM: config.LLMConfig{MaxTokens: 8000, Model: "gpt-3.5-turbo"}},
+		Content: &MockDiffCapableProvider{Content: "a\nb\nc\n", Diff: changeModeDiff},
+		Chat:    inference.NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model"),
+	}
+
+	content, _, mode, err := engine.fetchContext(t.Context(), "test.go")
+	if err != nil || mode != "full" || content != "a\nb\nc\n" {
+		t.Fatalf("fetchContext() = %q, %q, %v; want the whole file in full mode", content, mode, err)
+	}
+}
