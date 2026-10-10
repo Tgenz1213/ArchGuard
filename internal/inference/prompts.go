@@ -32,6 +32,37 @@ File Path: %s
   "quoted_code": "The snippet breaking the rule."
 }`
 
+const ChatPromptDiff = `### INPUT DATA
+File Path: %s
+
+<adr_content>
+%s
+</adr_content>
+
+<code_context>
+%s
+</code_context>
+
+### HOW TO READ THE CODE
+The code context is a unified diff of one file. Lines starting with "+" were added by this change, lines starting with "-" were removed by it, and lines starting with a space are unchanged context.
+Judge the code this change leaves behind. Report a violation only when (a) an added line directly contradicts the ADR, or (b) a removed line was something the ADR requires, so removing it makes the code contradict the ADR. Removing code that itself broke the ADR is not a violation. Unchanged context lines are never violations.
+In "quoted_code", quote the added or removed line without its leading "+" or "-". Several consecutive lines may be quoted together, one per line.
+
+### OUTPUT FORMAT (JSON ONLY)
+{
+  "violation": bool,
+  "reasoning": "Single sentence explaining the contradiction.",
+  "quoted_code": "The added or removed snippet breaking the rule."
+}`
+
+func PromptTemplate(diff bool) string {
+	if diff {
+		return ChatPromptDiff
+	}
+
+	return ChatPrompt
+}
+
 // EscapePromptDelimiter neutralises the prompt's container delimiters to block prompt injection.
 func EscapePromptDelimiter(input string) string {
 	s := strings.ReplaceAll(input, "</adr_content>", "[ADR_END]")
@@ -47,11 +78,15 @@ func sanitizeFilename(filename string) string {
 }
 
 func GetAnalyzeDriftPrompt(adrContent, codeContext, filename string) string {
-	safeADR := EscapePromptDelimiter(adrContent)
-	safeCode := EscapePromptDelimiter(codeContext)
-	safeFilename := sanitizeFilename(filename)
+	return renderDriftPrompt(ChatPrompt, adrContent, codeContext, filename)
+}
 
-	return fmt.Sprintf(ChatPrompt, safeFilename, safeADR, safeCode)
+func GetAnalyzeDriftDiffPrompt(adrContent, codeContext, filename string) string {
+	return renderDriftPrompt(ChatPromptDiff, adrContent, codeContext, filename)
+}
+
+func renderDriftPrompt(template, adrContent, codeContext, filename string) string {
+	return fmt.Sprintf(template, sanitizeFilename(filename), EscapePromptDelimiter(adrContent), EscapePromptDelimiter(codeContext))
 }
 
 const SuggestionSystemPrompt = `You are an Architectural Remediation Advisor.
