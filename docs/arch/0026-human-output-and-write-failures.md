@@ -22,12 +22,10 @@ All human-readable output goes through `internal/output.Printer`, passed down fr
 - **Diagnostics are best-effort.** Every other `Printer` write ignores its error, so a broken stderr can't turn a clean check into a failure, which also protects the GitHub Action's exit codes.
 - In text mode `check`'s report is primary and on stdout, and its log, including the line for each violation, is on stderr. Under `--format json` the log is on stderr and only the JSON document is primary. With `--output` the report goes to a file, and a failed save exits `1`.
 - `init`'s prompts and status lines, the startup banner, `--version` and `main`'s final `Error:` line use `fmt` directly; kong prints help and usage (`docs/arch/0025-kong-command-line.md`).
-- errcheck runs with `check-blank: true`. A discarded error is allowed only for cleanup after an error that already wins, or a call whose error can't occur or can't change the result, and each carries `//nolint:errcheck // <reason>` on the same line.
 
 ## Consequences
 
 - New output uses the `Printer` of the component that prints it: `Result` for primary lines, `Info`/`Note`/`Warn`/`Error`/`Debug` for diagnostics.
-- A `//nolint:errcheck` without the second `//` is not recognized and does not suppress anything, so `golangci-lint` flags it.
 - `cli.NotifyContext` ignores SIGPIPE, so on Unix a broken stdout or stderr pipe returns `EPIPE` and follows the same rules: `archguard check | head -1` exits `1` with `failed to write output: broken pipe`, and a broken stderr pipe changes nothing.
 - When a failed write overrides the exit code, the command's own error is kept in the message alongside the write error.
 - `NewEngine` leaves `Engine.Cache` unset; `cli` creates the cache and warns when it can't, so a run without a usable `.archguard/cache` proceeds uncached rather than failing.

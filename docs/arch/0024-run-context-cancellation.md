@@ -26,7 +26,7 @@ A cancelled run is a failed run, never a partial success:
 - `runCheck` returns `ExitInterrupted` (130, the shell's 128 + SIGINT) before writing the baseline or the `--format json` report. SIGTERM also exits 130 rather than the conventional 143: callers need one "stopped by a signal" code, not which signal it was.
 - `cli.Execute` maps any error returned while the context is done to `ExitInterrupted` with the error `interrupted`, which covers `index`, ADR fetching, and repo-root discovery. A command that returns no error keeps its exit code even if a signal arrived afterward. A signal landing after `runCheck` has already printed its report still turns a drift (4) or stage-failure (6/7) exit into 130; the window is microseconds and the report is complete, so this is accepted rather than special-cased.
 
-golangci-lint's `noctx` enforces the subprocess half: an `exec.Command` or HTTP request without a context fails CI, tests included (tests use `t.Context()`).
+golangci-lint's `noctx` enforces the subprocess half: an `exec.Command` or HTTP request without a context fails CI, tests included.
 
 Rejected: passing `context.TODO()` at each call site to satisfy the linter. It silences the lint without making anything cancellable.
 
@@ -39,5 +39,5 @@ Rejected: passing `context.TODO()` at each call site to satisfy the linter. It s
 
 - Ctrl-C and CI timeouts stop a run within one in-flight call, exit `130`, and never leave a partial baseline.
 - `analysis.ContentProvider`, `stage.File` and `cli.Execute` take a context, so new implementations and callers must thread one.
-- An already-cancelled context ends a run before any file is read, so a test that needs to skip LLM retry backoff returns a `backoff.Permanent` error instead.
+- An already-cancelled context ends a run before any file is read (`docs/standards/testing.md` covers skipping retry backoff in a test).
 - Postgres queries through `index.VectorStore` are not yet cancellable (#217).
