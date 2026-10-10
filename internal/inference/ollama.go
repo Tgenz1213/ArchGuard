@@ -11,27 +11,27 @@ import (
 )
 
 type OllamaProvider struct {
-	host        string
-	model       string
-	embedModel  string
-	temperature float64
-	client      *api.Client
+	temperature
+	host       string
+	model      string
+	embedModel string
+	client     *api.Client
 }
 
-func NewOllamaProvider(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
+func NewOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
 
-	return newOllamaProvider(baseURL, model, embedModel, temperature)
+	return newOllamaProvider(baseURL, model, embedModel)
 }
 
 // Unlike NewOllamaProvider, never defaults an empty baseURL to localhost.
-func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
-	return newOllamaProvider(baseURL, model, embedModel, temperature)
+func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string) *OllamaProvider {
+	return newOllamaProvider(baseURL, model, embedModel)
 }
 
-func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *OllamaProvider {
+func newOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
 	base, err := url.Parse(baseURL)
 	if err != nil {
 		// Requests will fail with a descriptive error instead of panicking on a nil base URL.
@@ -39,11 +39,10 @@ func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 	}
 
 	return &OllamaProvider{
-		host:        baseURL,
-		model:       model,
-		embedModel:  embedModel,
-		temperature: temperature,
-		client:      api.NewClient(base, http.DefaultClient),
+		host:       baseURL,
+		model:      model,
+		embedModel: embedModel,
+		client:     api.NewClient(base, http.DefaultClient),
 	}
 }
 
@@ -53,13 +52,17 @@ func newOllamaProvider(baseURL, model, embedModel string, temperature float64) *
 
 func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string, error) {
 	stream := false
+	options := map[string]any{}
+
+	if value := p.Temperature(); value != nil {
+		options["temperature"] = *value
+	}
+
 	req := &api.ChatRequest{
-		Model:  p.model,
-		Stream: &stream,
-		Format: json.RawMessage(`"json"`),
-		Options: map[string]any{
-			"temperature": p.temperature,
-		},
+		Model:   p.model,
+		Stream:  &stream,
+		Format:  json.RawMessage(`"json"`),
+		Options: options,
 		Messages: []api.Message{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},

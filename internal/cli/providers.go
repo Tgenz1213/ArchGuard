@@ -84,7 +84,10 @@ func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Co
 
 		return inference.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
 	case "ollama":
-		return inference.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model, cfg.LLM.Temperature), nil
+		provider := inference.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model)
+		provider.SetTemperature(cfg.LLM.Temperature)
+
+		return provider, nil
 	case "gemini":
 		if apiKey == "" {
 			warnings.Warn("no API key set for %s provider. Requests may fail.", name)

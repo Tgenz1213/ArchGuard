@@ -10,7 +10,7 @@ func TestProviderRoles(t *testing.T) {
 		wantEmbed bool
 	}{
 		{"openai", NewOpenAIProvider("key", "chat-model", "embed-model"), true, true},
-		{"ollama", NewOllamaProvider("http://localhost:11434", "chat-model", "embed-model", 0), true, true},
+		{"ollama", NewOllamaProvider("http://localhost:11434", "chat-model", "embed-model"), true, true},
 		{"gemini", NewGeminiProvider("key", "chat-model", "embed-model"), true, true},
 		{"claude", NewClaudeProvider("key", "chat-model"), true, false},
 		{"voyage", NewVoyageProvider("key", "embed-model"), false, true},

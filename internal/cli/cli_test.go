@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -607,6 +609,41 @@ func TestBuildProviders_SameNameSharesOneInstance(t *testing.T) {
 
 	if n := strings.Count(buf.String(), "no API key set"); n != 1 {
 		t.Errorf("expected one missing-API-key warning, got %d: %q", n, buf.String())
+	}
+}
+
+func TestBuildProviders_OllamaChatSendsConfiguredTemperature(t *testing.T) {
+	var options map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Options map[string]any `json:"options"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+
+		options = body.Options
+
+		if _, err := w.Write([]byte(`{"message":{"role":"assistant","content":"{}"},"done":true}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{LLM: config.LLMConfig{Provider: "ollama", Model: "m", BaseURL: server.URL, Temperature: new(0.4)}}
+
+	chat, _, err := buildProviders(output.Discard(), cfg, "", "")
+	if err != nil {
+		t.Fatalf("buildProviders failed: %v", err)
+	}
+
+	if _, err := chat.Chat(t.Context(), "system", "user"); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	if got := options["temperature"]; got != 0.4 {
+		t.Errorf("temperature = %v, want 0.4", got)
 	}
 }
 
