@@ -15,6 +15,10 @@ inputs:
     description: 'Commit to compare against when scope is changed. Defaults to the pull request base, or the commit before a push.'
     required: false
     default: ''
+  debug:
+    description: 'true passes --debug to the check, which logs each file and ADR it judged.'
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
@@ -46,6 +50,7 @@ runs:
       shell: bash
       env:
         SCOPE: ${{ inputs.scope }}
+        DEBUG: ${{ inputs.debug }}
         BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before }}
       run: |
         case "$SCOPE" in
@@ -53,11 +58,20 @@ runs:
           *) echo "scope must be 'changed' or 'all', got '$SCOPE'" >&2; exit 2 ;;
         esac
 
+        case "$DEBUG" in
+          true|false) ;;
+          *) echo "debug must be 'true' or 'false', got '$DEBUG'" >&2; exit 2 ;;
+        esac
+
         case "$BASE" in
           -*) echo "base must be a commit, got '$BASE'" >&2; exit 2 ;;
         esac
 
         args=(--ci)
+        if [ "$DEBUG" = "true" ]; then
+          args+=(--debug)
+        fi
+
         if [ "$SCOPE" = "changed" ] && [ -n "${BASE//0/}" ]; then
           if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE"
