@@ -23,9 +23,7 @@ The codebase is organized into several internal packages to maintain a strict se
 
 ## Technical Standards
 
-We follow a minimalist approach to code documentation. Avoid adding conversational or obvious comments to your code. Instead, prioritize clean variable naming and modular design.
-
-For public-facing functions and complex logic, use **Structured Block Commenting** combined with **Explicit Type Documentation**. This ensures that the intent of the logic is clear for future contributors.
+How code is written here is set out in [`docs/standards/`](docs/standards/README.md). Pull requests are reviewed against it.
 
 ### Analysis Pipeline & Performance
 
@@ -39,7 +37,7 @@ For public-facing functions and complex logic, use **Structured Block Commenting
 
 ## Testing and Pull Requests
 
-We maintain a robust testing suite that includes unit tests for internal logic and E2E tests for the CLI. Run `go test ./...` to execute the full suite. Our E2E tests utilize a mock provider to verify logic without incurring API costs or requiring a running Ollama instance.
+We maintain a robust testing suite that includes unit tests for internal logic and E2E tests for the CLI. Which tests run under which command is in `docs/standards/testing.md`. Our E2E tests utilize a mock provider to verify logic without incurring API costs or requiring a running Ollama instance.
 
 When you are ready to submit your changes, please use **Conventional Commits** for your messages. For example, use `feat: add support for local vector caching` or `fix: handle malformed JSON from LLM`. Pull requests will be reviewed for idiomatic Go patterns and architectural alignment.
 
