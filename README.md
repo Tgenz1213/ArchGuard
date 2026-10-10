@@ -345,7 +345,7 @@ In text mode a `check` run produces two outputs. **stdout carries the report**, 
 archguard check --all > report.txt
 ```
 
-The report lists every new violation grouped by file, then everything the run could not check in full, then one summary line. This is a run with one violation and one ADR check that failed:
+The report lists every new violation grouped by file, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
 
 ```
 Violations:
@@ -357,10 +357,11 @@ src/auth.js
 Failed ADR checks:
   src/flaky.js: ADR 0007 No Secrets in Logs: analysis failed after 3 retries: request timed out
 
+Checked 2 file(s) against 3 ADR check(s); 4 file(s) had no relevant ADR.
 1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
 ```
 
-Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. A run with nothing to report prints one line.
+Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. A run with nothing to report prints the coverage line and the result.
 
 Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
 
@@ -368,6 +369,8 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Partly checked files**: the file was too large for the LLM, so only a truncated view of it was checked. In `--ci` mode such a file is skipped instead.
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
+
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.` The exit code is the same either way.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 
@@ -405,12 +408,15 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
     }
   ],
   "count": 1,
+  "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4 },
   "stages": [
     { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
     { "name": "rerank", "received": 4, "kept": 2, "duration_ms": 640 }
   ]
 }
 ```
+
+`coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against.
 
 `stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and the ones it dropped with the reason.
 
