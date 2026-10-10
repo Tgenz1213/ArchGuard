@@ -15,7 +15,7 @@ scope:
 
 - **Go code in this repository follows the conventions in `docs/standards/`.** The pages hold the rules, one per concern, and its `README.md` indexes them and fixes the order of precedence among this repository's docs and the external Go style guides. This ADR records the decision to follow them and holds no rules of its own.
 - **The standards bind new and changed code.** A rule changes by changing its page in the same pull request as the code that needs it; this ADR stays valid.
-- **Each rule has one home.** `CLAUDE.md` summarizes a rule in a line and points to its page rather than restating it.
+- **Each rule has one home.** Other documents point to a rule's page rather than restating it.
 - **Lint enforces what it can see.** The rest is held in review. Function-size and complexity limits (`funlen`, `gocognit`, `nestif`) are enabled in `.golangci.yml` at the thresholds in `docs/standards/functions.md`, for non-test code, so lint carries no standing `//nolint` exemptions for them.
 
 ## Rules
