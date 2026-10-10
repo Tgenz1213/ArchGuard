@@ -54,7 +54,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	run.noteIgnoredBaselineFlags()
 
-	contentProvider := resolveContentProvider(run.log, opts.Paths, opts.Staged, opts.All, opts.UpdateBaseline)
+	contentProvider := opts.contentProvider(run.log)
 
 	run.log.Debug("Mode Enabled")
 
@@ -276,21 +276,23 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
-func resolveContentProvider(out *output.Printer, files []string, staged, all, updateBaseline bool) analysis.ContentProvider {
+func (c checkCmd) contentProvider(out *output.Printer) analysis.ContentProvider {
 	switch {
-	case updateBaseline:
+	case c.UpdateBaseline:
 		return &analysis.AllProvider{}
-	case slices.Contains(files, "."):
-		if extras := slices.DeleteFunc(slices.Clone(files), func(path string) bool { return path == "." }); len(extras) > 0 {
+	case slices.Contains(c.Paths, "."):
+		if extras := slices.DeleteFunc(slices.Clone(c.Paths), func(path string) bool { return path == "." }); len(extras) > 0 {
 			out.Note("\".\" scans the whole repository; ignoring extra path argument(s): %v", extras)
 		}
 
 		return &analysis.AllProvider{}
-	case len(files) > 0:
-		return &analysis.MultiFileProvider{Paths: files}
-	case staged:
+	case len(c.Paths) > 0:
+		return &analysis.MultiFileProvider{Paths: c.Paths}
+	case c.Since != "":
+		return &analysis.ChangedSinceProvider{Ref: string(c.Since)}
+	case c.Staged:
 		return &analysis.StagedProvider{}
-	case all:
+	case c.All:
 		return &analysis.AllProvider{}
 	default:
 		return &analysis.UncommittedProvider{}

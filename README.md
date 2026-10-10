@@ -313,8 +313,9 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `<path>`: Scans a specific file or directory.
   - `--staged`: Scan only staged (index) changes.
   - `--all`: Scan all tracked files.
+  - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, analyzing large files by their diff. For a pull request, use its base commit; if `<ref>` has moved on since the branch started, use `$(git merge-base <ref> HEAD)`. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
   - `--debug`: Enable verbose logging.
-  - `--ci`: Enable CI-safe mode.
+  - `--ci`: Enable CI-safe mode. It needs a scope (`--since`, `--all`, `--staged` or paths): a CI checkout has no uncommitted changes, so a bare `--ci` would check nothing and is rejected.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
   - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its baseline report as text.
@@ -450,13 +451,21 @@ jobs:
           provider: 'ollama'
 ```
 
-This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on your codebase. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
+This action automatically sets up Go, installs ArchGuard, and runs `archguard check --ci` on the files your pull request or push changed. If you set `provider: 'ollama'`, it will also automatically install and configure Ollama with the required models.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `provider` | required | The provider configured in `archguard.yaml`. |
+| `scope` | `changed` | `changed` checks the files the event changed; `all` checks every tracked file. |
+| `base` | the pull request base, or the commit before a push | The commit to compare against when `scope` is `changed`. |
+
+The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file. Use it on `pull_request` events: under `pull_request_target` the default checkout is the base branch, so there is nothing to compare unless you check out the pull request's head yourself.
 
 Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
 
 #### Other CI Providers
 
-If you are not using GitHub Actions, you can run ArchGuard manually by using the `--ci` flag in your pipeline.
+If you are not using GitHub Actions, run ArchGuard in your pipeline with the `--ci` flag. `--ci` needs a scope: use `--since <base commit>` to check what a change touched, or `--all` to check every tracked file.
 
 **Warn-Open Policy:**
 Large files may be truncated to fit the LLM context. In `--ci` mode, truncated files result in a **Warning** rather than a failure, ensuring your pipeline doesn't break due to inconclusive analysis on massive files.

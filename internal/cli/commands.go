@@ -27,11 +27,29 @@ type indexCmd struct {
 	colorOption `embed:""`
 }
 
+type baseRef string
+
+func (r *baseRef) Decode(ctx *kong.DecodeContext) error {
+	var value string
+	if err := ctx.Scan.PopValueInto("ref", &value); err != nil {
+		return err
+	}
+
+	if value == "" {
+		return errors.New("--since needs a commit or ref")
+	}
+
+	*r = baseRef(value)
+
+	return nil
+}
+
 type checkCmd struct {
 	Staged         bool     `help:"Scan staged files only."`
 	All            bool     `help:"Scan all tracked files."`
+	Since          baseRef  `placeholder:"REF" help:"Scan the files that differ between REF and HEAD, large files by their diff. For a pull request, REF is its base commit; if REF has moved on since the branch started, use $(git merge-base REF HEAD). Not combinable with paths, --staged, --all or --update-baseline."`
 	Debug          bool     `help:"Enable debug logging."`
-	CI             bool     `name:"ci" help:"Enable CI-safe mode (Warn-Open behavior)."`
+	CI             bool     `name:"ci" help:"Enable CI-safe mode (Warn-Open behavior). Needs a scope: --since, --all, --staged or paths, because a CI checkout has no uncommitted changes."`
 	UpdateBaseline bool     `help:"Scan the full repository and (re)write the baseline file, replacing any existing baseline."`
 	BaselineReason string   `placeholder:"TEXT" help:"Reason recorded on every entry --update-baseline writes (e.g. \"accepted-debt\"), overwriting reasons carried forward from the previous baseline. When omitted, a re-run keeps each matching (ADR ID, file) entry's existing reason."`
 	Format         string   `enum:"text,json" default:"text" help:"Output format: text or json."`
@@ -40,6 +58,38 @@ type checkCmd struct {
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
 
 	colorOption `embed:""`
+}
+
+// kong calls Validate after parsing; a conflict is a usage error (exit 2).
+func (c checkCmd) Validate() error {
+	if c.CI && !c.hasScope() {
+		return errors.New("--ci needs something to check: pass --since <ref>, --all, --staged or paths")
+	}
+
+	if c.Since == "" {
+		return nil
+	}
+
+	conflicts := []struct {
+		flag string
+		set  bool
+	}{
+		{"--staged", c.Staged},
+		{"--all", c.All},
+		{"--update-baseline", c.UpdateBaseline},
+		{"a path argument", len(c.Paths) > 0},
+	}
+	for _, conflict := range conflicts {
+		if conflict.set {
+			return fmt.Errorf("--since cannot be combined with %s", conflict.flag)
+		}
+	}
+
+	return nil
+}
+
+func (c checkCmd) hasScope() bool {
+	return c.Since != "" || c.Staged || c.All || c.UpdateBaseline || len(c.Paths) > 0
 }
 
 // --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.

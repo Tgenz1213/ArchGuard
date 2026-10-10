@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -47,6 +48,40 @@ func GetWorktreeDiff(ctx context.Context, path string) (string, error) {
 	return string(out), nil
 }
 
+func GetFilesChangedSince(ctx context.Context, ref string) ([]string, error) {
+	if err := validateRef(ref); err != nil {
+		return nil, err
+	}
+
+	files, err := runGitLines(ctx, "diff", "--name-only", "--diff-filter=ACMR", ref, "HEAD", "--")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files changed since %q: %w", ref, err)
+	}
+
+	return files, nil
+}
+
+func GetDiffSince(ctx context.Context, ref, path string) (string, error) {
+	if err := validateRef(ref); err != nil {
+		return "", err
+	}
+
+	out, err := output(ctx, "diff", "--unified=100", ref, "HEAD", "--", path)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff for %s since %q: %w", path, ref, err)
+	}
+
+	return string(out), nil
+}
+
+func validateRef(ref string) error {
+	if ref == "" || strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("invalid git ref %q", ref)
+	}
+
+	return nil
+}
+
 func GetRepoRoot(ctx context.Context) (string, error) {
 	out, err := output(ctx, "rev-parse", "--show-toplevel")
 	if err != nil {
@@ -56,8 +91,9 @@ func GetRepoRoot(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// -z goes right after the subcommand (args[0]) so a caller's arguments can end in "--" and a pathspec.
 func runGitLines(ctx context.Context, args ...string) ([]string, error) {
-	out, err := output(ctx, append(args, "-z")...)
+	out, err := output(ctx, slices.Insert(slices.Clone(args), 1, "-z")...)
 	if err != nil {
 		return nil, fmt.Errorf("git command failed %v: %w", args, err)
 	}

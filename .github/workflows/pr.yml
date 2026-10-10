@@ -21,7 +21,5 @@ jobs:
     name: ArchGuard
     if: github.event.pull_request.user.login == github.repository_owner
     uses: ./.github/workflows/archguard.yml
-    with:
-      base: ${{ github.event.pull_request.base.sha }}
     secrets:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

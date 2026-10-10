@@ -7,6 +7,14 @@ inputs:
   provider:
     description: 'The LLM provider configured in archguard.yaml (e.g., ollama, openai, gemini)'
     required: true
+  scope:
+    description: 'changed (default) checks the files the pull request or push changed; all checks every tracked file.'
+    required: false
+    default: 'changed'
+  base:
+    description: 'Commit to compare against when scope is changed. Defaults to the pull request base, or the commit before a push.'
+    required: false
+    default: ''
 runs:
   using: "composite"
   steps:
@@ -36,4 +44,29 @@ runs:
     
     - name: Run ArchGuard Check
       shell: bash
-      run: archguard check --ci
+      env:
+        SCOPE: ${{ inputs.scope }}
+        BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before }}
+      run: |
+        case "$SCOPE" in
+          changed|all) ;;
+          *) echo "scope must be 'changed' or 'all', got '$SCOPE'" >&2; exit 2 ;;
+        esac
+
+        case "$BASE" in
+          -*) echo "base must be a commit, got '$BASE'" >&2; exit 2 ;;
+        esac
+
+        args=(--ci)
+        if [ "$SCOPE" = "changed" ] && [ -n "${BASE//0/}" ]; then
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE"
+          fi
+
+          args+=(--since "$BASE")
+        else
+          echo "Checking every tracked file."
+          args+=(--all)
+        fi
+
+        archguard check "${args[@]}"
