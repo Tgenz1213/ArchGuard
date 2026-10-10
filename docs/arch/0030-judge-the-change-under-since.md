@@ -39,3 +39,4 @@ scope:
 - A weak model may report a removed violating line as a violation; the prompt tells it not to, and the engine cannot check.
 - A quote that cannot be located in the diff stays unverified and still fails the run, so a model that paraphrases a real finding is reported, and so is one that paraphrases a finding in unchanged code. Whitespace differences inside a line are ignored; a multi-line quote that spans a blank line does not verify.
 - Changing `ChatPromptDiff` changes the cache key, so earlier results are not reused.
+
