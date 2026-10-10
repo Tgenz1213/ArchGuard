@@ -10,7 +10,7 @@ vector_store:
   provider: "gemini"
   model: "gemini-embedding-2"
   embedding_dim: 3072
-  similarity_threshold: 0.75
+  similarity_threshold: 0.5
   embedding_concurrency: 2
 
 analysis:
