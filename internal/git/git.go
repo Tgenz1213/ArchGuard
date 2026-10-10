@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -56,8 +57,9 @@ func GetRepoRoot(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// -z goes right after the subcommand (args[0]) so a caller's arguments can end in "--" and a pathspec.
 func runGitLines(ctx context.Context, args ...string) ([]string, error) {
-	out, err := output(ctx, append(args, "-z")...)
+	out, err := output(ctx, slices.Insert(slices.Clone(args), 1, "-z")...)
 	if err != nil {
 		return nil, fmt.Errorf("git command failed %v: %w", args, err)
 	}
