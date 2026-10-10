@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +16,8 @@ type diffLine struct {
 var hunkStart = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
 func hunksOnly(diff string) string {
+	fmt.Println("hunksOnly called")
+
 	if strings.HasPrefix(diff, "@@") {
 		return diff
 	}

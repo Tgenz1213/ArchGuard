@@ -57,7 +57,7 @@ runs:
           -*) echo "base must be a commit, got '$BASE'" >&2; exit 2 ;;
         esac
 
-        args=(--ci)
+        args=(--ci --debug)
         if [ "$SCOPE" = "changed" ] && [ -n "${BASE//0/}" ]; then
           if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE"
