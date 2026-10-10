@@ -44,6 +44,7 @@ type Engine struct {
 	CollectedViolations  []Violation
 	CollectedStages      []stage.Stats
 	StageFailures        []StageFailure
+	Coverage             output.Coverage
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
 	Stages       []stage.Stage
@@ -193,6 +194,7 @@ func (e *Engine) publish(run *runState) {
 	e.RecordedEntries = run.recorded
 	e.UnrecordedViolations = run.unrecorded
 	e.PartialFiles = run.partial
+	e.Coverage = run.coverage
 	e.StageFailures = sortedStageFailures(run.stageFailures)
 	e.CollectedViolations = run.collected
 	e.collectStageStats(run)

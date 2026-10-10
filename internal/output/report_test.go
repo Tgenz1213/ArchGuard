@@ -28,6 +28,7 @@ func TestReportLayout(t *testing.T) {
 		FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
 		FailedStages: []output.FailedStage{{Stage: "rerank", File: "d.go", Reason: "unavailable"}},
 		Baselined:    2,
+		Coverage:     output.Coverage{FilesJudged: 2, ADRChecks: 5, FilesWithoutADR: 1},
 	})
 
 	want := `Violations:
@@ -52,6 +53,7 @@ Failed ADR checks:
 Failed stages:
   d.go: stage rerank: unavailable
 
+Checked 2 file(s) against 5 ADR check(s); 1 file(s) had no relevant ADR.
 3 new violation(s) in 2 file(s), 2 baselined. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s).
 `
 	if got != want {
@@ -59,14 +61,15 @@ Failed stages:
 	}
 }
 
-func TestReportWithNothingToReportIsOneLine(t *testing.T) {
+func TestReportWithNothingToReportStatesCoverageThenTheResult(t *testing.T) {
 	tests := []struct {
 		name   string
 		report output.Report
 		want   string
 	}{
-		{"nothing", output.Report{}, "No new architectural violations found.\n"},
-		{"only baselined", output.Report{Baselined: 3}, "No new architectural violations found (3 baselined).\n"},
+		{"clean", output.Report{Coverage: output.Coverage{FilesJudged: 4, ADRChecks: 6, FilesWithoutADR: 2}}, "Checked 4 file(s) against 6 ADR check(s); 2 file(s) had no relevant ADR.\nNo new architectural violations found.\n"},
+		{"only baselined", output.Report{Baselined: 3, Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1}}, "Checked 1 file(s) against 1 ADR check(s); 0 file(s) had no relevant ADR.\nNo new architectural violations found (3 baselined).\n"},
+		{"nothing judged", output.Report{Coverage: output.Coverage{FilesWithoutADR: 12}}, "Checked 0 file(s) against 0 ADR check(s); 12 file(s) had no relevant ADR.\nNo new architectural violations found, but no file was checked against an ADR.\n"},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +78,29 @@ func TestReportWithNothingToReportIsOneLine(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestReportWithGapsStatesCoverageBeforeTheSummary(t *testing.T) {
+	got := renderReport(output.Report{
+		SkippedFiles: []output.FileGap{{File: "x.go", Reason: "r"}},
+		Coverage:     output.Coverage{FilesJudged: 3, ADRChecks: 4},
+	})
+
+	want := "Checked 3 file(s) against 4 ADR check(s); 0 file(s) had no relevant ADR.\n0 new violation(s)"
+	if !strings.Contains(got, want) {
+		t.Errorf("coverage line missing or misplaced:\n%s", got)
+	}
+}
+
+func TestReportWithGapsAndNothingJudgedStatesZeroCoverage(t *testing.T) {
+	got := renderReport(output.Report{
+		SkippedFiles: []output.FileGap{{File: "x.go", Reason: "r"}},
+		Coverage:     output.Coverage{FilesWithoutADR: 2},
+	})
+
+	if !strings.Contains(got, "Checked 0 file(s) against 0 ADR check(s); 2 file(s) had no relevant ADR.\n") {
+		t.Errorf("coverage line missing:\n%s", got)
 	}
 }
 

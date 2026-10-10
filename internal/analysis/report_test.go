@@ -52,6 +52,10 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 	if skipped := engine.Report().SkippedFiles; len(skipped) != 1 || skipped[0].File != "service.py" {
 		t.Errorf("expected service.py listed as skipped, got %+v", skipped)
 	}
+
+	if coverage := engine.Report().Coverage; coverage != (output.Coverage{}) {
+		t.Errorf("coverage = %+v, want nothing counted for a skipped file", coverage)
+	}
 }
 
 func baselineEngine(t *testing.T, chatResponse string, content analysis.ContentProvider, maxTokens int) *analysis.Engine {
@@ -170,5 +174,9 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 
 	if len(report.SkippedFiles) != 0 {
 		t.Errorf("a file that was analyzed was also listed as skipped: %+v", report.SkippedFiles)
+	}
+
+	if want := (output.Coverage{ADRChecks: 1}); report.Coverage != want {
+		t.Errorf("coverage = %+v, want %+v: the check ran but the file was only partly judged", report.Coverage, want)
 	}
 }

@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func TestWriteCheckReport_EmptyListsEncodeAsArraysNotNull(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeCheckReport(&buf, nil, nil, nil); err != nil {
+	if err := writeCheckReport(&buf, nil, nil, nil, output.Coverage{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -20,11 +21,52 @@ func TestWriteCheckReport_EmptyListsEncodeAsArraysNotNull(t *testing.T) {
 	}
 }
 
+func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing(t *testing.T) {
+	tests := []struct {
+		name     string
+		coverage output.Coverage
+	}{
+		{"clean", output.Coverage{FilesJudged: 3, ADRChecks: 5, FilesWithoutADR: 1}},
+		{"nothing judged", output.Coverage{FilesWithoutADR: 12}},
+		{"no files", output.Coverage{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := writeCheckReport(&buf, nil, nil, nil, tt.coverage); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var report struct {
+				Coverage struct {
+					FilesJudged     *int `json:"files_judged"`
+					ADRChecks       *int `json:"adr_checks"`
+					FilesWithoutADR *int `json:"files_without_relevant_adr"`
+				} `json:"coverage"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+				t.Fatalf("report is not valid JSON: %v\n%s", err, buf.String())
+			}
+
+			got := report.Coverage
+			if got.FilesJudged == nil || got.ADRChecks == nil || got.FilesWithoutADR == nil {
+				t.Fatalf("coverage fields missing from %s", buf.String())
+			}
+
+			want := tt.coverage
+			if *got.FilesJudged != want.FilesJudged || *got.ADRChecks != want.ADRChecks || *got.FilesWithoutADR != want.FilesWithoutADR {
+				t.Fatalf("coverage = %d/%d/%d, want %+v", *got.FilesJudged, *got.ADRChecks, *got.FilesWithoutADR, want)
+			}
+		})
+	}
+}
+
 func TestWriteCheckReport_StagesKeepTheirJSONFields(t *testing.T) {
 	var buf bytes.Buffer
 
 	stages := []stage.Stats{{Name: "rank", Received: 6, Kept: 4, DurationMS: 812}, {Name: "rerank"}}
-	if err := writeCheckReport(&buf, nil, stages, nil); err != nil {
+	if err := writeCheckReport(&buf, nil, stages, nil, output.Coverage{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

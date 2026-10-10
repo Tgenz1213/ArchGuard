@@ -93,7 +93,7 @@ func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 
 func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeCheckReport(&buf, nil, nil, nil); err != nil {
+	if err := writeCheckReport(&buf, nil, nil, nil, output.Coverage{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +106,7 @@ func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 	var buf bytes.Buffer
 
 	failures := []analysis.StageFailure{{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable, Error: "down"}}
-	if err := writeCheckReport(&buf, nil, nil, failures); err != nil {
+	if err := writeCheckReport(&buf, nil, nil, failures, output.Coverage{}); err != nil {
 		t.Fatal(err)
 	}
 

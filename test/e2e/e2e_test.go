@@ -378,6 +378,11 @@ type checkReport struct {
 		QuotedCode string `json:"quoted_code"`
 		Suggestion string `json:"suggestion,omitempty"`
 	} `json:"violations"`
+	Coverage struct {
+		FilesJudged     int `json:"files_judged"`
+		ADRChecks       int `json:"adr_checks"`
+		FilesWithoutADR int `json:"files_without_relevant_adr"`
+	} `json:"coverage"`
 	Count  int `json:"count"`
 	Stages []struct {
 		Name       string `json:"name"`
@@ -470,6 +475,10 @@ analysis:
 
 		if v.ADRID == "" || v.ADRTitle == "" || v.Reasoning == "" {
 			t.Errorf("expected populated adr_id/adr_title/reasoning, got %+v", v)
+		}
+
+		if report.Coverage.FilesJudged != 1 || report.Coverage.ADRChecks != 1 || report.Coverage.FilesWithoutADR != 0 {
+			t.Errorf("coverage = %+v, want 1 file judged by 1 ADR check", report.Coverage)
 		}
 	})
 

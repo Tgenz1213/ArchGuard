@@ -8,7 +8,7 @@ import (
 )
 
 func (e *Engine) Report() output.Report {
-	report := output.Report{Gaps: e.gaps(), Baselined: e.Baselined}
+	report := output.Report{Gaps: e.gaps(), Baselined: e.Baselined, Coverage: e.Coverage}
 
 	for _, violation := range e.CollectedViolations {
 		report.Violations = append(report.Violations, output.Violation{
