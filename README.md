@@ -458,6 +458,7 @@ This action automatically sets up Go, installs ArchGuard, and runs `archguard ch
 | `provider` | required | The provider configured in `archguard.yaml`. |
 | `scope` | `changed` | `changed` checks the files the event changed; `all` checks every tracked file. |
 | `base` | the pull request base, or the commit before a push | The commit to compare against when `scope` is `changed`. |
+| `debug` | `false` | `true` passes `--debug`, which logs each file and ADR the check judged. |
 
 The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file. Use it on `pull_request` events: under `pull_request_target` the default checkout is the base branch, so there is nothing to compare unless you check out the pull request's head yourself.
 

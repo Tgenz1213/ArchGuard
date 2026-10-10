@@ -19,6 +19,13 @@ jobs:
       - name: Use the CI config
         run: cp .github/archguard-ci.yaml archguard.yaml
 
+      - name: Restore ADR index
+        id: index-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .archguard/index.json
+          key: archguard-index-${{ hashFiles('docs/arch/**', '.github/archguard-ci.yaml', 'internal/inference/embedding.go', 'internal/inference/gemini.go', 'internal/index/embed.go', 'internal/index/adr.go', 'go.mod') }}
+
       - name: Restore analysis cache
         uses: actions/cache@v4
         with:
@@ -32,3 +39,11 @@ jobs:
           ARCHGUARD_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           provider: gemini
+          debug: "true"
+
+      - name: Save ADR index
+        if: always() && steps.index-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .archguard/index.json
+          key: ${{ steps.index-cache.outputs.cache-primary-key }}
