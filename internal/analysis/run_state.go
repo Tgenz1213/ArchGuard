@@ -25,11 +25,15 @@ type runState struct {
 	entries       []baseline.Entry
 	collected     []Violation
 	stageFailures []StageFailure
+	coverage      output.Coverage
 }
 
 type fileResult struct {
 	violations   int
 	baselined    int
+	checks       int
+	judged       bool
+	withoutADR   bool
 	failedChecks []output.FailedCheck
 	recorded     []output.RecordedEntry
 	unrecorded   []output.UnrecordedViolation
@@ -68,9 +72,20 @@ func (r *runState) merge(result *fileResult) {
 
 	r.violations += result.violations
 	r.baselined += result.baselined
+	r.coverage.ADRChecks += result.checks
+	r.coverage.FilesJudged += boolToInt(result.judged)
+	r.coverage.FilesWithoutADR += boolToInt(result.withoutADR)
 	r.failedChecks = append(r.failedChecks, result.failedChecks...)
 	r.recorded = append(r.recorded, result.recorded...)
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)
 	r.entries = append(r.entries, result.entries...)
 	r.collected = append(r.collected, result.records...)
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+
+	return 0
 }

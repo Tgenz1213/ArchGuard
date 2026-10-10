@@ -21,6 +21,7 @@ type fileCheck struct {
 	// Baseline reads/writes compare against fullContent, not the possibly-partial content the LLM saw.
 	fullContent string
 	mode        string
+	partial     bool
 	findings    fileResult
 }
 
@@ -44,13 +45,14 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 
 	if len(hits) == 0 {
 		fc.out.Debug("No relevant ADRs found.")
-		return
 	}
 
 	for _, hit := range hits {
 		fc.checkADR(ctx, hit)
 	}
 
+	fc.findings.withoutADR = !fc.partial && len(hits) == 0
+	fc.findings.judged = !fc.partial && fc.findings.checks > 0
 	run.merge(&fc.findings)
 }
 
@@ -88,6 +90,7 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 
 	fc.out.Warn("truncated for analysis; only the visible portion is checked")
 	fc.run.addPartial(fc.file, "too large to analyze in full; only the visible portion was checked")
+	fc.partial = true
 
 	return true
 }
@@ -145,6 +148,8 @@ func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
 
 		return
 	}
+
+	fc.findings.checks++
 
 	outcome := "compliant"
 	if result.Violation {
