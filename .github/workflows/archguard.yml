@@ -39,6 +39,7 @@ jobs:
           ARCHGUARD_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           provider: gemini
+          debug: "true"
 
       - name: Save ADR index
         if: always() && steps.index-cache.outputs.cache-hit != 'true'

@@ -3,20 +3,21 @@ version: "1"
 llm:
   provider: "gemini"
   model: "gemini-3.5-flash-lite"
-  max_tokens: 8000
+  max_tokens: 32000 # input budget per file; --ci skips a diff over it
   temperature: 0.0
 
 vector_store:
   provider: "gemini"
   model: "gemini-embedding-2"
   embedding_dim: 3072
-  similarity_threshold: 0.75
+  similarity_threshold: 0.5 # 0.75 left most Go files with no ADR (#277)
   embedding_concurrency: 2
 
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
   max_concurrency: 2
+  max_relevant_adrs: 6 # 3 missed the relevant ADR; 6 judged 78 checks in about 70s, no rate limit (#277)
   exclude_patterns:
     - "**/*_test.go"
     - "vendor/**"
