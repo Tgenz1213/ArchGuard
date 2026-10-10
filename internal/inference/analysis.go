@@ -20,10 +20,15 @@ type DriftInput struct {
 	ADRContent  string
 	CodeContext string
 	Filename    string
+	Diff        bool
 }
 
 func AnalyzeDrift(ctx context.Context, chat Chatter, in DriftInput, systemPrompt string) (*AnalysisResult, error) {
 	prompt := GetAnalyzeDriftPrompt(in.ADRContent, in.CodeContext, in.Filename)
+	if in.Diff {
+		prompt = GetAnalyzeDriftDiffPrompt(in.ADRContent, in.CodeContext, in.Filename)
+	}
+
 	return chatJSON[AnalysisResult](ctx, chat, systemPrompt, prompt, "analysis")
 }
 

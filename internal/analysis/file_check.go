@@ -70,6 +70,11 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 
 	fc.out.Debug("Context mode: %s", fc.mode)
 
+	if fc.mode == "empty" {
+		fc.out.Debug("No judgeable changes; skipping")
+		return false
+	}
+
 	if fc.mode != "truncated" {
 		return true
 	}
@@ -88,7 +93,12 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 }
 
 func (fc *fileCheck) candidates() ([]stage.Candidate, bool) {
-	hits, err := candidateSource{store: fc.engine.Store}.For(fc.file, fc.content, fc.out)
+	source := fc.content
+	if fc.engine.JudgeChange {
+		source = fc.fullContent
+	}
+
+	hits, err := candidateSource{store: fc.engine.Store}.For(fc.file, source, fc.out)
 	if err != nil {
 		fc.skip(fmt.Sprintf("loading candidate ADRs: %v", err))
 		return nil, false
@@ -125,7 +135,7 @@ func (fc *fileCheck) failStage(st stage.Stage, err error) {
 }
 
 func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
-	input := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: fc.content, Filename: fc.file}
+	input := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: fc.content, Filename: fc.file, Diff: fc.engine.JudgeChange}
 
 	result, cached, err := fc.analyze(ctx, hit, input)
 	if err != nil {
@@ -161,7 +171,7 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 		ADRContent:         hit.ADR.Content,
 		FileContent:        fc.content,
 		SystemPrompt:       systemPrompt,
-		UserPromptTemplate: inference.ChatPrompt,
+		UserPromptTemplate: inference.PromptTemplate(e.JudgeChange),
 	})
 
 	if e.Cache != nil {
@@ -185,19 +195,9 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 }
 
 func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {
-	// Checked against the escaped content, which is what the LLM saw.
-	escapedContent := inference.EscapePromptDelimiter(fc.content)
-	verified := result.QuotedCode == "" || strings.Contains(escapedContent, result.QuotedCode)
-
-	record := Violation{
-		File:       fc.file,
-		ADRID:      hit.ADR.ID,
-		ADRTitle:   hit.ADR.Title,
-		Line:       fc.engine.findLineNumber(escapedContent, result.QuotedCode),
-		Reasoning:  result.Reasoning,
-		QuotedCode: result.QuotedCode,
-		lineInDiff: fc.mode == "diff",
-		unverified: !verified,
+	record, keep := fc.locate(hit, result)
+	if !keep {
+		return
 	}
 
 	switch {
@@ -209,6 +209,39 @@ func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input infer
 	default:
 		fc.reportViolation(ctx, hit, input, result, record)
 	}
+}
+
+func (fc *fileCheck) locate(hit stage.Candidate, result *inference.AnalysisResult) (Violation, bool) {
+	record := Violation{
+		File:       fc.file,
+		ADRID:      hit.ADR.ID,
+		ADRTitle:   hit.ADR.Title,
+		Reasoning:  result.Reasoning,
+		QuotedCode: result.QuotedCode,
+	}
+
+	// Checked against the escaped content, which is what the LLM saw.
+	escapedContent := inference.EscapePromptDelimiter(fc.content)
+
+	if !fc.engine.JudgeChange {
+		record.Line = fc.engine.findLineNumber(escapedContent, result.QuotedCode)
+		record.lineInDiff = fc.mode == "diff"
+		record.unverified = result.QuotedCode != "" && !strings.Contains(escapedContent, result.QuotedCode)
+
+		return record, true
+	}
+
+	where, line := locateQuote(parseDiff(escapedContent), result.QuotedCode)
+	if where == placedInContext {
+		fc.out.Debug("Dropping a finding in unchanged code: %s", violationLine(record, false))
+
+		return record, false
+	}
+
+	record.Line = line
+	record.unverified = where == placedNowhere
+
+	return record, true
 }
 
 func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.AnalysisResult, record Violation) {

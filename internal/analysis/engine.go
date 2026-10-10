@@ -27,6 +27,7 @@ type Engine struct {
 	Content              ContentProvider
 	Debug                bool
 	CI                   bool
+	JudgeChange          bool
 	Cache                *cache.Cache
 	Baseline             *baseline.Baseline
 	UpdateBaseline       bool
@@ -246,6 +247,12 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 		return "", "", "", err
 	}
 
+	if e.JudgeChange {
+		content, mode, err = e.fetchChange(ctx, path, maxTokens)
+
+		return content, fullContent, mode, err
+	}
+
 	totalTokens, err := e.Chat.CountTokens(ctx, fullContent)
 	if err != nil {
 		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
@@ -270,6 +277,34 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	}
 
 	return truncated, fullContent, "truncated", nil
+}
+
+func (e *Engine) fetchChange(ctx context.Context, path string, maxTokens int) (content, mode string, err error) {
+	diff, err := e.Content.GetDiff(ctx, path)
+	if err != nil {
+		return "", "", fmt.Errorf("reading diff for %s: %w", path, err)
+	}
+
+	hunks := hunksOnly(diff)
+	if hunks == "" {
+		return "", "empty", nil
+	}
+
+	total, err := e.Chat.CountTokens(ctx, hunks)
+	if err != nil {
+		return "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
+	}
+
+	if total <= maxTokens {
+		return hunks, "change", nil
+	}
+
+	truncated, err := e.truncateToTokenLimit(ctx, hunks, total, maxTokens)
+	if err != nil {
+		return "", "", fmt.Errorf("truncating content for %s: %w", path, err)
+	}
+
+	return truncated, "truncated", nil
 }
 
 func (e *Engine) truncateToTokenLimit(ctx context.Context, content string, totalTokens, maxTokens int) (string, error) {

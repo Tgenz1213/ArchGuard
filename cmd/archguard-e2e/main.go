@@ -68,12 +68,9 @@ func mockChat(stop context.CancelFunc) func(ctx context.Context, system, user st
 		}
 
 		result := inference.AnalysisResult{Violation: false, Reasoning: "Mock: no violation", QuotedCode: ""}
-		if codeContextContainsTrigger(user, testutil.MockViolationTrigger) {
-			result = inference.AnalysisResult{
-				Violation:  true,
-				Reasoning:  "Mock violation: trigger found",
-				QuotedCode: extractTriggerLine(user, testutil.MockViolationTrigger),
-			}
+
+		if quote, violation := mockVerdict(user); violation {
+			result = inference.AnalysisResult{Violation: true, Reasoning: "Mock violation: trigger found", QuotedCode: quote}
 		}
 
 		resp, err := json.Marshal(result)
@@ -83,6 +80,18 @@ func mockChat(stop context.CancelFunc) func(ctx context.Context, system, user st
 
 		return string(resp), nil
 	}
+}
+
+func mockVerdict(prompt string) (quote string, violation bool) {
+	if strings.Contains(prompt, "The code context is a unified diff") {
+		return diffVerdict(prompt)
+	}
+
+	if codeContextContainsTrigger(prompt, testutil.MockViolationTrigger) {
+		return extractTriggerLine(prompt, testutil.MockViolationTrigger), true
+	}
+
+	return "", false
 }
 
 func mockEmbed(cfg *config.Config, stop context.CancelFunc, marker string) func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
@@ -152,4 +161,35 @@ func extractTriggerLine(prompt, trigger string) string {
 	}
 
 	return ""
+}
+
+// Stands in for a diff-aware model: an added trigger or a removed required line is a violation; a trigger in unchanged context is reported too, so the engine has something to drop.
+func diffVerdict(prompt string) (quote string, violation bool) {
+	start := strings.Index(prompt, "<code_context>")
+	end := strings.Index(prompt, "</code_context>")
+
+	if start == -1 || end < start {
+		return "", false
+	}
+
+	unchanged := ""
+
+	for _, line := range strings.Split(prompt[start+len("<code_context>"):end], "\n") {
+		if line == "" {
+			continue
+		}
+
+		text := strings.TrimSpace(line[1:])
+
+		switch {
+		case line[0] == '+' && strings.Contains(line, testutil.MockViolationTrigger):
+			return text, true
+		case line[0] == '-' && strings.Contains(line, testutil.MockRequiredMarker):
+			return text, true
+		case line[0] == ' ' && unchanged == "" && strings.Contains(line, testutil.MockViolationTrigger):
+			unchanged = text
+		}
+	}
+
+	return unchanged, unchanged != ""
 }

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,7 +123,7 @@ func assertContainsExactly(t *testing.T, got, want []string) {
 	}
 }
 
-func TestGetFilesChangedSince(t *testing.T) {
+func TestGetChangedSince(t *testing.T) {
 	dir := initTestRepo(t)
 
 	writeFile(t, dir, "keep.go", "package a\n")
@@ -140,7 +141,7 @@ func TestGetFilesChangedSince(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "change")
 
-	got, err := GetFilesChangedSince(t.Context(), "HEAD~1")
+	got, err := changedPaths(t.Context(), "HEAD~1")
 	if err != nil {
 		t.Fatalf("GetFilesChangedSince: %v", err)
 	}
@@ -159,7 +160,7 @@ func TestGetFilesChangedSince_NothingChangedIsEmpty(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "base")
 
-	got, err := GetFilesChangedSince(t.Context(), "HEAD")
+	got, err := changedPaths(t.Context(), "HEAD")
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got %v, %v; want no files and no error", got, err)
 	}
@@ -175,7 +176,7 @@ func TestGetFilesChangedSince_RefNamedLikeAFile(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "change")
 
-	got, err := GetFilesChangedSince(t.Context(), "same.go")
+	got, err := changedPaths(t.Context(), "same.go")
 	if err != nil || !slices.Equal(got, []string{"other.go"}) {
 		t.Fatalf("got %v, %v; want [other.go] for a branch that shares its name with a file", got, err)
 	}
@@ -189,7 +190,7 @@ func TestGetFilesChangedSince_RejectsBadRefs(t *testing.T) {
 
 	for _, ref := range []string{"does-not-exist", "--output=/tmp/x", "-1"} {
 		t.Run(ref, func(t *testing.T) {
-			_, err := GetFilesChangedSince(t.Context(), ref)
+			_, err := changedPaths(t.Context(), ref)
 			if err == nil || !strings.Contains(err.Error(), ref) {
 				t.Fatalf("expected an error naming %q, got %v", ref, err)
 			}
@@ -211,5 +212,76 @@ func TestGetDiffSince_ReturnsOnlyThatFilesChange(t *testing.T) {
 	got, err := GetDiffSince(t.Context(), "HEAD~1", "a.go")
 	if err != nil || !strings.Contains(got, "+// added line") || strings.Contains(got, "-// added line") || strings.Contains(got, "other") {
 		t.Fatalf("diff = %q, err = %v; want only a.go's change, as additions", got, err)
+	}
+}
+
+func changedPaths(ctx context.Context, ref string) ([]string, error) {
+	files, err := GetChangedSince(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+
+	return paths, nil
+}
+
+func renameFixture(t *testing.T, edit string) string {
+	t.Helper()
+
+	dir := initTestRepo(t)
+	body := "package a\n\nfunc keep() {\n\tlog(\"password: old\")\n}\n"
+
+	writeFile(t, dir, "old.go", body)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "base")
+	runGit(t, dir, "mv", "old.go", "new.go")
+	writeFile(t, dir, "new.go", body+edit)
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "rename")
+
+	return dir
+}
+
+func TestGetChangedSince_ReportsTheOldPathOfARename(t *testing.T) {
+	renameFixture(t, "")
+
+	got, err := GetChangedSince(t.Context(), "HEAD~1")
+	want := []ChangedFile{{Path: "new.go", OldPath: "old.go"}}
+
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("GetChangedSince() = %+v, %v; want %+v", got, err, want)
+	}
+}
+
+func TestGetDiffSince_ARenamedFileShowsOnlyItsRealChanges(t *testing.T) {
+	tests := []struct {
+		name     string
+		edit     string
+		wantEdit bool
+	}{
+		{"a pure rename has no changed lines", "", false},
+		{"a rename with an edit shows only the edit", "\n// edited\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			renameFixture(t, tt.edit)
+
+			got, err := GetDiffSince(t.Context(), "HEAD~1", "old.go", "new.go")
+			if err != nil {
+				t.Fatalf("GetDiffSince: %v", err)
+			}
+
+			if strings.Contains(got, "+package a") {
+				t.Fatalf("untouched lines are reported as added:\n%s", got)
+			}
+
+			if strings.Contains(got, "+// edited") != tt.wantEdit {
+				t.Fatalf("edit present = %v, want %v:\n%s", !tt.wantEdit, tt.wantEdit, got)
+			}
+		})
 	}
 }
