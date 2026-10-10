@@ -142,9 +142,5 @@ func runGitLines(ctx context.Context, args ...string) ([]string, error) {
 // A killed git surfaces as a bare exit error; report the cancellation that caused it instead.
 func output(ctx context.Context, args ...string) ([]byte, error) {
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
-	if err != nil && ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
 	return out, err
 }
