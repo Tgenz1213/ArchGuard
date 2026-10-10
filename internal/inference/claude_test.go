@@ -50,6 +50,41 @@ func TestClaudeProvider_Chat(t *testing.T) {
 	}
 }
 
+func TestClaudeProvider_Chat_Temperature(t *testing.T) {
+	const response = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"{}"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`
+
+	tests := []struct {
+		name string
+		set  *float64
+		want *float64
+	}{
+		{"unset", nil, nil},
+		{"zero", new(0.0), new(0.0)},
+		{"explicit", new(0.2), new(0.2)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, body := serveCapturing(t, response)
+
+			p := NewClaudeProviderWithBaseURL("test-api-key", "claude-sonnet-4-5", server.URL, server.Client())
+			p.SetTemperature(tt.set)
+
+			if _, err := p.Chat(t.Context(), "system", "user"); err != nil {
+				t.Fatalf("Chat failed: %v", err)
+			}
+
+			got, present := body()["temperature"]
+			if present != (tt.want != nil) {
+				t.Fatalf("temperature present = %v, want %v", present, tt.want != nil)
+			}
+
+			if present && got != *tt.want {
+				t.Errorf("temperature = %v, want %v", got, *tt.want)
+			}
+		})
+	}
+}
+
 func TestClaudeProvider_CountTokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages/count_tokens" {

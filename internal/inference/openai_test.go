@@ -56,6 +56,39 @@ func TestOpenAIProvider_Chat(t *testing.T) {
 	}
 }
 
+func TestOpenAIProvider_Chat_Temperature(t *testing.T) {
+	tests := []struct {
+		name string
+		set  *float64
+		want *float64
+	}{
+		{"unset", nil, nil},
+		{"zero", new(0.0), new(0.0)},
+		{"explicit", new(0.2), new(0.2)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, body := serveCapturing(t, `{"choices":[{"message":{"content":"{}"}}]}`)
+
+			p := NewOpenAIProviderWithBaseURL("test-api-key", "gpt-4o-mini", "text-embedding-3-small", server.URL, server.Client())
+			p.SetTemperature(tt.set)
+
+			if _, err := p.Chat(t.Context(), "system", "user"); err != nil {
+				t.Fatalf("Chat failed: %v", err)
+			}
+
+			got, present := body()["temperature"]
+			if present != (tt.want != nil) {
+				t.Fatalf("temperature present = %v, want %v", present, tt.want != nil)
+			}
+
+			if present && got != *tt.want {
+				t.Errorf("temperature = %v, want %v", got, *tt.want)
+			}
+		})
+	}
+}
+
 func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "embeddings") {

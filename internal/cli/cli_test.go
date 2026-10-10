@@ -647,6 +647,33 @@ func TestBuildProviders_OllamaChatSendsConfiguredTemperature(t *testing.T) {
 	}
 }
 
+func TestBuildProviders_EveryChatProviderGetsConfiguredTemperature(t *testing.T) {
+	type temperatureReader interface{ Temperature() *float64 }
+
+	for _, name := range []string{"openai", "gemini", "ollama", "claude"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &config.Config{
+				LLM:         config.LLMConfig{Provider: name, Model: "m", Temperature: new(0.3)},
+				VectorStore: config.VectorStore{Provider: "ollama", Model: "e"},
+			}
+
+			chat, _, err := buildProviders(output.Discard(), cfg, "key", "")
+			if err != nil {
+				t.Fatalf("buildProviders failed: %v", err)
+			}
+
+			reader, ok := chat.(temperatureReader)
+			if !ok {
+				t.Fatalf("%T does not expose its temperature", chat)
+			}
+
+			if got := reader.Temperature(); got == nil || *got != 0.3 {
+				t.Errorf("temperature = %v, want 0.3", got)
+			}
+		})
+	}
+}
+
 func TestBuildProviders_DifferentNamesBuildEachRole(t *testing.T) {
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "claude", Model: "claude-sonnet-4-5"},

@@ -14,6 +14,7 @@ import (
 const openAIBaseURL = "https://api.openai.com/v1"
 
 type OpenAIProvider struct {
+	temperature
 	client     openai.Client
 	model      string
 	embedModel string
@@ -37,7 +38,7 @@ func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, htt
 }
 
 func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	resp, err := p.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionNewParams{
 		Model: p.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(system),
@@ -46,7 +47,13 @@ func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string,
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		},
-	})
+	}
+
+	if value := p.Temperature(); value != nil {
+		params.Temperature = openai.Float(*value)
+	}
+
+	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("openai chat completion failed: %w", err)
 	}

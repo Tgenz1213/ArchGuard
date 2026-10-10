@@ -82,7 +82,10 @@ func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Co
 			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
-		return inference.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+		provider := inference.NewOpenAIProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
+		provider.SetTemperature(cfg.LLM.Temperature)
+
+		return provider, nil
 	case "ollama":
 		provider := inference.NewOllamaProvider(cfg.LLM.BaseURL, cfg.LLM.Model, cfg.VectorStore.Model)
 		provider.SetTemperature(cfg.LLM.Temperature)
@@ -93,7 +96,10 @@ func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Co
 			warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 		}
 
-		return inference.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model), nil
+		provider := inference.NewGeminiProvider(apiKey, cfg.LLM.Model, cfg.VectorStore.Model)
+		provider.SetTemperature(cfg.LLM.Temperature)
+
+		return provider, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
@@ -108,7 +114,10 @@ func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *confi
 		warnings.Warn("no API key set for %s provider. Requests may fail.", name)
 	}
 
-	return inference.NewClaudeProvider(apiKey, cfg.LLM.Model), nil
+	provider := inference.NewClaudeProvider(apiKey, cfg.LLM.Model)
+	provider.SetTemperature(cfg.LLM.Temperature)
+
+	return provider, nil
 }
 
 func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (inference.Embedder, error) {

@@ -12,6 +12,7 @@ import (
 )
 
 type GeminiProvider struct {
+	temperature
 	apiKey     string
 	model      string
 	embedModel string
@@ -124,6 +125,11 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 	contents := []*genai.Content{genai.NewContentFromText(fullPrompt, genai.RoleUser)}
 	config := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
+	}
+
+	if value := p.Temperature(); value != nil {
+		narrowed := float32(*value)
+		config.Temperature = &narrowed
 	}
 
 	resp, err := client.Models.GenerateContent(ctx, p.model, contents, config)

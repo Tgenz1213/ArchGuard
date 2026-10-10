@@ -111,6 +111,41 @@ func TestGeminiProvider_Chat(t *testing.T) {
 	}
 }
 
+func TestGeminiProvider_Chat_Temperature(t *testing.T) {
+	tests := []struct {
+		name string
+		set  *float64
+		want *float64
+	}{
+		{"unset", nil, nil},
+		{"zero", new(0.0), new(0.0)},
+		{"explicit", new(0.2), new(0.2)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, body := serveCapturing(t, `{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}`)
+
+			p := &GeminiProvider{apiKey: "test-api-key", model: "gemini-1.5-flash", baseURL: server.URL, client: server.Client()}
+			p.SetTemperature(tt.set)
+
+			if _, err := p.Chat(t.Context(), "system", "user"); err != nil {
+				t.Fatalf("Chat failed: %v", err)
+			}
+
+			generationConfig, _ := body()["generationConfig"].(map[string]any)
+			got, present := generationConfig["temperature"]
+
+			if present != (tt.want != nil) {
+				t.Fatalf("temperature present = %v, want %v (generationConfig %v)", present, tt.want != nil, generationConfig)
+			}
+
+			if present && got != *tt.want {
+				t.Errorf("temperature = %v, want %v", got, *tt.want)
+			}
+		})
+	}
+}
+
 func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	// genai always calls ":batchEmbedContents", never the singular endpoint.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
