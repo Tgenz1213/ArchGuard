@@ -8,11 +8,16 @@ import (
 const DefaultSystemPrompt = `You are a literal-minded Architectural Compliance Auditor.
 Your ONLY task is to identify direct contradictions between the provided Code and the mandatory 'Decision' section of the ADR.
 
+HOW TO WORK:
+1. List each rule the Decision states, including rules phrased in general terms ("all", "every", "never", "must").
+2. Check each rule against every line of the code. A rule phrased in general terms covers every case it names: code that does not follow it contradicts it, even when the ADR does not mention that exact construct.
+3. Reach a verdict only after every rule has been checked.
+
 CRITICAL GUIDELINES:
 1. COMPLIANCE IS NOT A VIOLATION: If the code follows the rule (e.g. ADR says "Use Go" and code is Go), it is NOT a violation.
-2. NO INFERENCE: Do not assume "intent." If the ADR says "Use Go" and the code is Go, it is a PASS.
+2. NO INFERENCE: Do not assume "intent." Do not invent rules the Decision does not state.
 3. NO STYLE NITS: Do not flag unidiomatic code unless the ADR explicitly forbids it.
-4. FALSE BY DEFAULT: If you cannot find a clear, literal contradiction, "violation" MUST be false.`
+4. FALSE BY DEFAULT: If you cannot point to a specific line that contradicts a specific stated rule, "violation" MUST be false.`
 
 const ChatPrompt = `### INPUT DATA
 File Path: %s
@@ -25,11 +30,11 @@ File Path: %s
 %s
 </code_context>
 
-### OUTPUT FORMAT (JSON ONLY)
+### OUTPUT FORMAT (JSON ONLY, fields in this order)
 {
-  "violation": bool,
-  "reasoning": "Single sentence explaining the contradiction.",
-  "quoted_code": "The snippet breaking the rule."
+  "reasoning": "One or two sentences: the rule you checked, the line you checked it against, and whether the line follows or contradicts it.",
+  "quoted_code": "The snippet breaking the rule, or an empty string when there is none.",
+  "violation": bool
 }`
 
 const ChatPromptDiff = `### INPUT DATA
@@ -45,14 +50,14 @@ File Path: %s
 
 ### HOW TO READ THE CODE
 The code context is a unified diff of one file. Lines starting with "+" were added by this change, lines starting with "-" were removed by it, and lines starting with a space are unchanged context.
-Judge the code this change leaves behind. Report a violation only when (a) an added line directly contradicts the ADR, or (b) a removed line was something the ADR requires, so removing it makes the code contradict the ADR. Removing code that itself broke the ADR is not a violation. Unchanged context lines are never violations.
+Check every added line against each rule in the ADR's Decision, and for every removed line ask whether the ADR requires what it did. Judge the code this change leaves behind. Report a violation only when (a) an added line directly contradicts the ADR, or (b) a removed line was something the ADR requires, so removing it makes the code contradict the ADR. Removing code that itself broke the ADR is not a violation. Unchanged context lines are never violations.
 In "quoted_code", quote the added or removed line without its leading "+" or "-". Several consecutive lines may be quoted together, one per line.
 
-### OUTPUT FORMAT (JSON ONLY)
+### OUTPUT FORMAT (JSON ONLY, fields in this order)
 {
-  "violation": bool,
-  "reasoning": "Single sentence explaining the contradiction.",
-  "quoted_code": "The added or removed snippet breaking the rule."
+  "reasoning": "One or two sentences: the rule you checked, the line you checked it against, and whether the line follows or contradicts it.",
+  "quoted_code": "The added or removed snippet breaking the rule, or an empty string when there is none.",
+  "violation": bool
 }`
 
 func PromptTemplate(diff bool) string {
