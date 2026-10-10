@@ -47,7 +47,7 @@ func (r *baseRef) Decode(ctx *kong.DecodeContext) error {
 type checkCmd struct {
 	Staged         bool     `help:"Scan staged files only."`
 	All            bool     `help:"Scan all tracked files."`
-	Since          baseRef  `placeholder:"REF" help:"Scan the files that differ between REF and HEAD, large files by their diff. For a pull request, REF is its base commit; if REF has moved on since the branch started, use $(git merge-base REF HEAD). Not combinable with paths, --staged, --all or --update-baseline."`
+	Since          baseRef  `placeholder:"REF" help:"Scan the files that differ between REF and HEAD, judging only the lines the change added or removed; a finding that quotes only code it left alone is dropped. For a pull request, REF is its base commit; if REF has moved on since the branch started, use $(git merge-base REF HEAD). Not combinable with paths, --staged, --all or --update-baseline."`
 	Debug          bool     `help:"Enable debug logging."`
 	CI             bool     `name:"ci" help:"Enable CI-safe mode (Warn-Open behavior). Needs a scope: --since, --all, --staged or paths, because a CI checkout has no uncommitted changes."`
 	UpdateBaseline bool     `help:"Scan the full repository and (re)write the baseline file, replacing any existing baseline."`
