@@ -23,8 +23,8 @@ scope:
 
 ## Rules
 
-- A `--since` check MUST send the model a file's diff, not the whole file.
-- A finding whose quoted code is only in unchanged context MUST NOT be reported under `--since`.
+- Code that sends the model a whole file for a `--since` check, instead of the file's diff hunks.
+- Code that reports a `--since` finding whose quoted code is only in unchanged context lines.
 
 ## Alternatives considered
 
