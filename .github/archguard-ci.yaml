@@ -17,6 +17,7 @@ analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
   max_concurrency: 2
+  max_relevant_adrs: 6
   exclude_patterns:
     - "**/*_test.go"
     - "vendor/**"
