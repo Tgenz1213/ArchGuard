@@ -313,6 +313,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `<path>`: Scans a specific file or directory.
   - `--staged`: Scan only staged (index) changes.
   - `--all`: Scan all tracked files.
+  - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, analyzing large files by their diff. For a pull request, use its base commit. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).

@@ -429,6 +429,7 @@ func TestResolveContentProvider(t *testing.T) {
 		staged         bool
 		all            bool
 		updateBaseline bool
+		since          string
 		want           analysis.ContentProvider
 	}{
 		{
@@ -487,11 +488,16 @@ func TestResolveContentProvider(t *testing.T) {
 			updateBaseline: true,
 			want:           &analysis.AllProvider{},
 		},
+		{
+			name:  "since scans the files changed since that ref",
+			since: "abc123",
+			want:  &analysis.ChangedSinceProvider{Ref: "abc123"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkCmd{Paths: tt.files, Staged: tt.staged, All: tt.all, UpdateBaseline: tt.updateBaseline}.contentProvider(output.New(os.Stdout, false))
+			got := checkCmd{Paths: tt.files, Staged: tt.staged, All: tt.all, UpdateBaseline: tt.updateBaseline, Since: tt.since}.contentProvider(output.New(os.Stdout, false))
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
@@ -677,6 +683,15 @@ func TestParseCommandLine(t *testing.T) {
 				t.Error("jsonOutput() = true, want false")
 			}
 		}},
+		{name: "since", args: []string{"check", "--since", "abc123"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if c.Since != "abc123" || len(c.Paths) != 0 {
+				t.Errorf("Since = %q, Paths = %v", c.Since, c.Paths)
+			}
+		}},
+		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},
+		{name: "since with all", args: []string{"check", "--since", "abc123", "--all"}, wantCode: ExitUsage, wantErr: true},
+		{name: "since with update-baseline", args: []string{"check", "--since", "abc123", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
+		{name: "since with a path", args: []string{"check", "--since", "abc123", "main.go"}, wantCode: ExitUsage, wantErr: true},
 		{name: "index", args: []string{"index"}, wantCommand: "index"},
 		{name: "init", args: []string{"init"}, wantCommand: "init"},
 		{name: "--help", args: []string{"--help"}, wantOut: "Usage: archguard <command>"},

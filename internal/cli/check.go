@@ -288,6 +288,8 @@ func (c checkCmd) contentProvider(out *output.Printer) analysis.ContentProvider 
 		return &analysis.AllProvider{}
 	case len(c.Paths) > 0:
 		return &analysis.MultiFileProvider{Paths: c.Paths}
+	case c.Since != "":
+		return &analysis.ChangedSinceProvider{Ref: c.Since}
 	case c.Staged:
 		return &analysis.StagedProvider{}
 	case c.All:

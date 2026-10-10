@@ -30,6 +30,7 @@ type indexCmd struct {
 type checkCmd struct {
 	Staged         bool     `help:"Scan staged files only."`
 	All            bool     `help:"Scan all tracked files."`
+	Since          string   `placeholder:"REF" help:"Scan the files that differ between REF and HEAD, large files by their diff. For a pull request, REF is its base commit. Not combinable with paths, --staged, --all or --update-baseline."`
 	Debug          bool     `help:"Enable debug logging."`
 	CI             bool     `name:"ci" help:"Enable CI-safe mode (Warn-Open behavior)."`
 	UpdateBaseline bool     `help:"Scan the full repository and (re)write the baseline file, replacing any existing baseline."`
@@ -40,6 +41,30 @@ type checkCmd struct {
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
 
 	colorOption `embed:""`
+}
+
+// kong calls Validate after parsing; a conflict is a usage error (exit 2).
+func (c checkCmd) Validate() error {
+	if c.Since == "" {
+		return nil
+	}
+
+	conflicts := []struct {
+		flag string
+		set  bool
+	}{
+		{"--staged", c.Staged},
+		{"--all", c.All},
+		{"--update-baseline", c.UpdateBaseline},
+		{"a path argument", len(c.Paths) > 0},
+	}
+	for _, conflict := range conflicts {
+		if conflict.set {
+			return fmt.Errorf("--since cannot be combined with %s", conflict.flag)
+		}
+	}
+
+	return nil
 }
 
 // --update-baseline prints a maintenance summary, not a violation report, so it ignores --format.
