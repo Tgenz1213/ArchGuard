@@ -64,7 +64,7 @@ func TestE2E_Since_ChecksOnlyWhatChangedOnACleanCheckout(t *testing.T) {
 		args     []string
 		wantExit cli.ExitCode
 	}{
-		{"a clean checkout with no scope checks nothing", []string{"--ci"}, cli.ExitSuccess},
+		{"ci with no scope is refused, not a silent pass", []string{"--ci"}, cli.ExitUsage},
 		{"since the base commit finds the violation", []string{"--ci", "--since", "HEAD~1"}, cli.ExitDriftDetected},
 		{"nothing changed since HEAD is a clean pass", []string{"--ci", "--since", "HEAD"}, cli.ExitSuccess},
 	}

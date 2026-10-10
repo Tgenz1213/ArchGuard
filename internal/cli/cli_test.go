@@ -497,7 +497,7 @@ func TestResolveContentProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checkCmd{Paths: tt.files, Staged: tt.staged, All: tt.all, UpdateBaseline: tt.updateBaseline, Since: tt.since}.contentProvider(output.New(os.Stdout, false))
+			got := checkCmd{Paths: tt.files, Staged: tt.staged, All: tt.all, UpdateBaseline: tt.updateBaseline, Since: baseRef(tt.since)}.contentProvider(output.New(os.Stdout, false))
 			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
 				t.Fatalf("expected type %T, got %T", tt.want, got)
 			}
@@ -688,6 +688,14 @@ func TestParseCommandLine(t *testing.T) {
 				t.Errorf("Since = %q, Paths = %v", c.Since, c.Paths)
 			}
 		}},
+		{name: "ci without a scope", args: []string{"check", "--ci"}, wantCode: ExitUsage, wantErr: true},
+		{name: "ci with since", args: []string{"check", "--ci", "--since", "abc123"}, wantCommand: "check"},
+		{name: "ci with all", args: []string{"check", "--ci", "--all"}, wantCommand: "check"},
+		{name: "ci with staged", args: []string{"check", "--ci", "--staged"}, wantCommand: "check"},
+		{name: "ci with a path", args: []string{"check", "--ci", "main.go"}, wantCommand: "check"},
+		{name: "ci with update-baseline", args: []string{"check", "--ci", "--update-baseline"}, wantCommand: "check"},
+		{name: "since with an empty ref", args: []string{"check", "--since", ""}, wantCode: ExitUsage, wantErr: true},
+		{name: "since= with an empty ref", args: []string{"check", "--since="}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with all", args: []string{"check", "--since", "abc123", "--all"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with update-baseline", args: []string{"check", "--since", "abc123", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
