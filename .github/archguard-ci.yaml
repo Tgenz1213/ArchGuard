@@ -2,7 +2,7 @@ version: "1"
 
 llm:
   provider: "gemini"
-  model: "gemini-3.6-flash"
+  model: "gemini-3.5-flash-lite"
   max_tokens: 8000
   temperature: 0.0
 

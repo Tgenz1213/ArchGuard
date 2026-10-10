@@ -39,6 +39,15 @@ func GetStagedDiff(ctx context.Context, path string) (string, error) {
 	return string(out), nil
 }
 
+func GetHeadSubject() (string, error) {
+	out, err := exec.Command("git", "log", "-1", "--format=%s").Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
 func GetWorktreeDiff(ctx context.Context, path string) (string, error) {
 	out, err := output(ctx, "diff", "--unified=100", "--", path)
 	if err != nil {

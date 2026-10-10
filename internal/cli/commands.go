@@ -100,9 +100,7 @@ func (c checkCmd) jsonOutput() bool {
 type versionFlag bool
 
 func (versionFlag) BeforeReset(app *kong.Kong, vars kong.Vars) error {
-	if _, err := fmt.Fprintf(app.Stdout, "ArchGuard version %s\n", vars["version"]); err != nil {
-		return err
-	}
+	fmt.Fprintf(app.Stdout, "ArchGuard version %s\n", vars["version"])
 
 	app.Exit(int(ExitSuccess))
 
