@@ -48,27 +48,58 @@ func GetWorktreeDiff(ctx context.Context, path string) (string, error) {
 	return string(out), nil
 }
 
-func GetFilesChangedSince(ctx context.Context, ref string) ([]string, error) {
+type ChangedFile struct {
+	Path string
+	// Set when the file was renamed, so its diff can be taken against the old path.
+	OldPath string
+}
+
+func GetChangedSince(ctx context.Context, ref string) ([]ChangedFile, error) {
 	if err := validateRef(ref); err != nil {
 		return nil, err
 	}
 
-	files, err := runGitLines(ctx, "diff", "--name-only", "--diff-filter=ACMR", ref, "HEAD", "--")
+	out, err := output(ctx, "diff", "-z", "--name-status", "-M", "--diff-filter=ACMR", ref, "HEAD", "--")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files changed since %q: %w", ref, err)
 	}
 
-	return files, nil
+	return parseNameStatus(strings.Split(string(out), "\x00")), nil
 }
 
-func GetDiffSince(ctx context.Context, ref, path string) (string, error) {
+func parseNameStatus(fields []string) []ChangedFile {
+	var files []ChangedFile
+
+	for i := 0; i < len(fields); {
+		status := fields[i]
+
+		switch {
+		case status == "":
+			i++
+		case (status[0] == 'R' || status[0] == 'C') && i+2 < len(fields):
+			files = append(files, ChangedFile{Path: fields[i+2], OldPath: fields[i+1]})
+			i += 3
+		case i+1 < len(fields):
+			files = append(files, ChangedFile{Path: fields[i+1]})
+			i += 2
+		default:
+			i++
+		}
+	}
+
+	return files
+}
+
+func GetDiffSince(ctx context.Context, ref string, paths ...string) (string, error) {
 	if err := validateRef(ref); err != nil {
 		return "", err
 	}
 
-	out, err := output(ctx, "diff", "--unified=100", ref, "HEAD", "--", path)
+	args := append([]string{"diff", "-M", "--unified=100", ref, "HEAD", "--"}, paths...)
+
+	out, err := output(ctx, args...)
 	if err != nil {
-		return "", fmt.Errorf("failed to get diff for %s since %q: %w", path, ref, err)
+		return "", fmt.Errorf("failed to get diff for %v since %q: %w", paths, ref, err)
 	}
 
 	return string(out), nil

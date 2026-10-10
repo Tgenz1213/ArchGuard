@@ -65,10 +65,29 @@ func (p *AllProvider) GetDiff(ctx context.Context, path string) (string, error) 
 	return git.GetWorktreeDiff(ctx, path)
 }
 
-type ChangedSinceProvider struct{ Ref string }
+type ChangedSinceProvider struct {
+	Ref     string
+	oldPath map[string]string
+}
 
 func (p *ChangedSinceProvider) GetFiles(ctx context.Context) ([]string, error) {
-	return git.GetFilesChangedSince(ctx, p.Ref)
+	changed, err := git.GetChangedSince(ctx, p.Ref)
+	if err != nil {
+		return nil, err
+	}
+
+	p.oldPath = make(map[string]string)
+	files := make([]string, 0, len(changed))
+
+	for _, file := range changed {
+		files = append(files, file.Path)
+
+		if file.OldPath != "" {
+			p.oldPath[file.Path] = file.OldPath
+		}
+	}
+
+	return files, nil
 }
 
 func (p *ChangedSinceProvider) GetContent(_ context.Context, path string) (string, error) {
@@ -81,6 +100,10 @@ func (p *ChangedSinceProvider) GetContent(_ context.Context, path string) (strin
 }
 
 func (p *ChangedSinceProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	if old, renamed := p.oldPath[path]; renamed {
+		return git.GetDiffSince(ctx, p.Ref, old, path)
+	}
+
 	return git.GetDiffSince(ctx, p.Ref, path)
 }
 

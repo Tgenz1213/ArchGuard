@@ -107,6 +107,21 @@ func TestE2E_Change_JudgesOnlyWhatTheChangeTouched(t *testing.T) {
 		}
 	})
 
+	t.Run("renaming a file does not make its old violation new", func(t *testing.T) {
+		dir, binary := setup(t)
+
+		if err := os.Rename(filepath.Join(dir, "app.go"), filepath.Join(dir, "service.go")); err != nil {
+			t.Fatalf("rename: %v", err)
+		}
+
+		commitAll(t, dir, "rename app.go to service.go")
+		runIndexCmd(t, dir, binary, int(cli.ExitSuccess))
+
+		if _, code := checkSince(t, dir, binary); code != int(cli.ExitSuccess) {
+			t.Fatalf("exit = %d, want %d: a pure rename changes no lines", code, cli.ExitSuccess)
+		}
+	})
+
 	t.Run("an ignore directive outside the diff still suppresses the ADR", func(t *testing.T) {
 		dir, binary := buildE2EBinary(t)
 		writeE2EConfig(t, dir, sinceConfig)
