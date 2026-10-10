@@ -20,6 +20,7 @@ type Violation struct {
 type Report struct {
 	Violations []Violation
 	Baselined  int
+	Coverage   Coverage
 	Gaps
 }
 
@@ -66,12 +67,8 @@ func (p *Printer) Report(report Report) {
 	gaps := report.gapSummary()
 
 	if len(files) == 0 && len(gaps) == 0 {
-		if report.Baselined > 0 {
-			p.Result("No new architectural violations found (%d baselined).", report.Baselined)
-			return
-		}
-
-		p.Result("No new architectural violations found.")
+		p.Result("%s", report.Coverage.line())
+		p.Result("%s", report.Coverage.cleanResult(report.Baselined))
 
 		return
 	}
@@ -83,6 +80,7 @@ func (p *Printer) Report(report Report) {
 	}
 
 	p.reportGaps(report.Gaps)
+	p.Result("%s", report.Coverage.line())
 
 	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined.", len(report.Violations), len(files), report.Baselined)
 	if len(gaps) > 0 {
