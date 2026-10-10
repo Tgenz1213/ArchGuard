@@ -65,6 +65,25 @@ func (p *AllProvider) GetDiff(ctx context.Context, path string) (string, error) 
 	return git.GetWorktreeDiff(ctx, path)
 }
 
+type ChangedSinceProvider struct{ Ref string }
+
+func (p *ChangedSinceProvider) GetFiles(ctx context.Context) ([]string, error) {
+	return git.GetFilesChangedSince(ctx, p.Ref)
+}
+
+func (p *ChangedSinceProvider) GetContent(_ context.Context, path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
+}
+
+func (p *ChangedSinceProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return git.GetDiffSince(ctx, p.Ref, path)
+}
+
 type MultiFileProvider struct{ Paths []string }
 
 func (p *MultiFileProvider) GetFiles(_ context.Context) ([]string, error) {
