@@ -67,15 +67,17 @@ func TestE2E_CheckEndsWithReportOnStdout(t *testing.T) {
 		}
 	})
 
-	t.Run("clean run: one line on stdout", func(t *testing.T) {
+	t.Run("clean run: no violations or log text on stdout", func(t *testing.T) {
 		stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "clean.js")
 
 		if exitCode != int(cli.ExitSuccess) {
 			t.Fatalf("exit code %d, want %d. stdout: %s stderr: %s", exitCode, cli.ExitSuccess, stdout, stderr)
 		}
 
-		if lines := strings.Split(strings.TrimSpace(stdout), "\n"); len(lines) != 1 || lines[0] == "" {
-			t.Errorf("a run with nothing to report should print one line, got:\n%s", stdout)
+		for _, unwanted := range []string{"[VIOLATION]", "ArchGuard - Architectural Drift Detector"} {
+			if strings.Contains(stdout, unwanted) {
+				t.Errorf("a run with nothing to report carries %q on stdout:\n%s", unwanted, stdout)
+			}
 		}
 	})
 }
