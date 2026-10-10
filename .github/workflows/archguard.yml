@@ -23,8 +23,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .archguard/cache
-          key: archguard-cache-exp-b2-${{ github.run_id }}
-          restore-keys: archguard-cache-exp-b2-
+          key: archguard-cache-exp-a2-${{ github.run_id }}
+          restore-keys: archguard-cache-exp-a2-
 
       - name: Check changed files
         uses: ./
