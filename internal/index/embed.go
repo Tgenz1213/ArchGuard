@@ -42,7 +42,6 @@ func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildInd
 
 	// Valid means successfully indexed, not merely status-accepted.
 	result.Valid = len(j.adrs) - len(outcome.failed)
-	result.Embedded = len(toEmbed) - len(outcome.failed)
 
 	action := "embed"
 	if j.persist != nil {
@@ -101,11 +100,7 @@ func (j embedJob) embedOne(ctx context.Context, idx int) error {
 	adr := j.adrs[idx]
 	text := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", adr.Title, adr.Status, adr.Content)
 
-	emb, embedded, err := inference.EmbedToFit(ctx, j.embedder, text, inference.EmbeddingTaskDocument)
-	if len(embedded) < len(text) {
-		j.out.Note("ADR %s shortened from %d to %d characters to fit the embedding model", adr.RelPath, len(text), len(embedded))
-	}
-
+	emb, err := j.embedder.CreateEmbedding(ctx, text, inference.EmbeddingTaskDocument)
 	if err != nil {
 		if j.embedLabel != "" {
 			return fmt.Errorf("%s: %w", j.embedLabel, err)

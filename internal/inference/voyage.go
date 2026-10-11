@@ -141,12 +141,7 @@ func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, re
 			return fmt.Errorf("voyage api error: %s", resp.Status)
 		}
 
-		apiErr := fmt.Errorf("voyage api error: %s: %s", resp.Status, strings.TrimSpace(string(body)))
-		if resp.StatusCode == http.StatusBadRequest && bytes.Contains(body, []byte("context window")) {
-			return fmt.Errorf("%w: %w", ErrInputTooLong, apiErr)
-		}
-
-		return apiErr
+		return fmt.Errorf("voyage api error: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(respBody); err != nil {

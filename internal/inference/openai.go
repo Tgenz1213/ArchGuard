@@ -2,10 +2,8 @@ package inference
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -79,11 +77,6 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 		Model: p.embedModel,
 	})
 	if err != nil {
-		var apiErr *openai.Error
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && strings.Contains(apiErr.Message, "maximum context length") {
-			return Embedding{}, fmt.Errorf("openai embedding request failed: %w: %w", ErrInputTooLong, err)
-		}
-
 		return Embedding{}, fmt.Errorf("openai embedding request failed: %w", err)
 	}
 

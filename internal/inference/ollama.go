@@ -114,20 +114,11 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 		Embedding []float32 `json:"embedding"`
 	}
 	if err := p.post(ctx, "/api/embeddings", req, &resp); err != nil {
-		return Embedding{}, ollamaEmbeddingError(err)
+		return Embedding{}, err
 	}
 
 	// Ollama's /api/embeddings endpoint reports no token count.
 	return Embedding{Vector: resp.Embedding}, nil
-}
-
-// The legacy embeddings endpoint answers every failure with 500, so only the message identifies an over-long input.
-func ollamaEmbeddingError(err error) error {
-	if msg := err.Error(); strings.Contains(msg, "exceeds") && strings.Contains(msg, "context length") {
-		return fmt.Errorf("%w: %w", ErrInputTooLong, err)
-	}
-
-	return err
 }
 
 func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, error) {

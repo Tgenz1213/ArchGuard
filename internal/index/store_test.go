@@ -476,34 +476,6 @@ func (e *recordingEmbedder) embeddedTitles() []string {
 	return slices.Sorted(slices.Values(e.titles))
 }
 
-func TestLocalStore_BuildIndex_ShortensAnADRTheModelRejectsAsTooLong(t *testing.T) {
-	adrs := []ADR{{RelPath: "0001-long.md", Title: "Long", Status: "Accepted", Content: strings.Repeat("a long decision\n", 100)}}
-	embedder := &inference.MockProvider{EmbedFunc: func(_ context.Context, text string, _ inference.EmbeddingTaskType) ([]float32, error) {
-		if len(text) > 500 {
-			return nil, inference.ErrInputTooLong
-		}
-
-		return []float32{1, 0}, nil
-	}}
-
-	var out bytes.Buffer
-	store := NewLocalStore(1)
-	store.out = output.New(&out, false)
-
-	result, err := store.BuildIndex(t.Context(), "model", 2, embedder, &mockADRProvider{adrs: adrs})
-	if err != nil {
-		t.Fatalf("BuildIndex: %v", err)
-	}
-
-	if len(result.Skipped) != 0 || len(store.ADRs) != 1 || len(store.ADRs[0].Embedding) != 2 {
-		t.Fatalf("expected the long ADR indexed, got skipped %v and %d ADRs", result.Skipped, len(store.ADRs))
-	}
-
-	if !strings.Contains(out.String(), "0001-long.md") {
-		t.Errorf("expected a note naming the shortened ADR, got %q", out.String())
-	}
-}
-
 func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "index.json")
 
