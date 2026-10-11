@@ -22,6 +22,7 @@ func TestStaleReason(t *testing.T) {
 			err:  errors.Join(fmt.Errorf("%w: model", index.ErrEmbeddingModelChanged), fmt.Errorf("%w: dim", index.ErrEmbeddingModelChanged)),
 			want: "embedding model changed",
 		},
+		{name: "embedding format", err: fmt.Errorf("%w: saved \"\", current \"1\"", index.ErrEmbeddingFormatChanged), want: "embedding format changed"},
 		{name: "unreadable", err: errors.New("invalid character"), want: "saved index unreadable"},
 	}
 
