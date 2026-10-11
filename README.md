@@ -518,6 +518,7 @@ Intentionally ignore a violation for a specific file using a comment:
 ```
 
 - The ignore token must match the **ADR ID** — by default the numeric prefix of the filename, or whatever `analysis.adr_id_pattern` extracts if configured.
+- The comment must be in the file's first 2000 bytes. One further down is not seen.
 
 ### Continuous Integration (CI)
 
