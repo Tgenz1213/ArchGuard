@@ -1,6 +1,6 @@
 # Coding standards
 
-How Go code is written in this repository. `docs/arch/` records why the design is the way it is; these pages record how code is written. Read the page for the thing you are about to write.
+How Go code and agent guidance are written in this repository. `docs/arch/` records why the design is the way it is; these pages record how code and guidance are written. Read the page for the thing you are about to write.
 
 | Page | Covers |
 |---|---|
@@ -11,10 +11,11 @@ How Go code is written in this repository. `docs/arch/` records why the design i
 | [formatting.md](formatting.md) | `gofmt`, blank-line rules, imports, wrapping calls and chains |
 | [comments.md](comments.md) | When a comment is allowed and how long it may be |
 | [testing.md](testing.md) | Table-driven tests, mocks, what a test may assert |
+| [guidance.md](guidance.md) | Where a fact goes: `CLAUDE.md`, rules files, `doc.go`, the README, ADRs, settings, lint or skills |
 
 ## Precedence
 
-1. These pages, which `docs/arch/0029-coding-standards.md` makes binding.
+1. These pages, which `docs/arch/0029-coding-standards.md` (Go) and `docs/arch/0036-agent-guidance-standard.md` (guidance) make binding.
 2. `CLAUDE.md` and the rules files in `.claude/rules/`.
 3. [Effective Go](https://go.dev/doc/effective_go)
 4. [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)
