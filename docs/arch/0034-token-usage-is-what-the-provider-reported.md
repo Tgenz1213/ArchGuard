@@ -25,9 +25,9 @@ scope:
 
 ## Rules
 
-- A provider's `Chat` or `CreateEmbedding` that sets `Usage.Reported` to true without a token count from the backend's response.
-- A table of model prices built into the binary.
-- A `--dry-run` path that sends a judgment or suggestion chat call, or writes to the analysis cache.
+- A provider's `Chat` or `CreateEmbedding` MUST NOT set `Usage.Reported` to true without a token count from the backend's response.
+- Model prices MUST NOT be built into the binary.
+- A `--dry-run` path MUST NOT send a judgment or suggestion chat call, or write to the analysis cache.
 
 ## Alternatives considered
 

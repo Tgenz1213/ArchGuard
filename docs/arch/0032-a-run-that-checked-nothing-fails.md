@@ -22,7 +22,7 @@ A file is skipped when it cannot be read, when its candidate ADRs cannot be load
 
 ## Rules
 
-- Code that lets a check run in which errors left no ADR check exit `0`.
+- A check run in which errors left no ADR check MUST NOT exit `0`.
 
 ## Alternatives considered
 

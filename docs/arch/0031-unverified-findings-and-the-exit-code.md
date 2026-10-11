@@ -22,8 +22,8 @@ The engine checks every finding's quoted code against what the model read. A fin
 
 ## Rules
 
-- Code that counts an unverified finding toward `count` or the drift exit code `4`.
-- Code that lists an unverified finding among `violations` in the text report or the JSON document.
+- An unverified finding MUST NOT count toward `count` or the drift exit code `4`.
+- An unverified finding MUST NOT be listed among `violations` in the text report or the JSON document.
 
 ## Alternatives considered
 
