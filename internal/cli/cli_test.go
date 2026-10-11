@@ -165,24 +165,24 @@ func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
 	}
 }
 
-func TestWarnIgnoredExcludeHeaders(t *testing.T) {
+func TestWarnIgnoredExcludedHeaders(t *testing.T) {
 	tests := []struct {
 		name     string
 		analysis config.Analysis
 		wantWarn bool
 	}{
-		{name: "both set", analysis: config.Analysis{IncludedHeaders: []string{"Rules"}, ExcludeHeaders: []string{"Context"}}, wantWarn: true},
+		{name: "both set", analysis: config.Analysis{IncludedHeaders: []string{"Rules"}, ExcludedHeaders: []string{"Context"}}, wantWarn: true},
 		{name: "only included", analysis: config.Analysis{IncludedHeaders: []string{"Rules"}}},
-		{name: "only excluded", analysis: config.Analysis{ExcludeHeaders: []string{"Context"}}},
+		{name: "only excluded", analysis: config.Analysis{ExcludedHeaders: []string{"Context"}}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 
-			warnIgnoredExcludeHeaders(output.New(&buf, false), tt.analysis)
+			warnIgnoredExcludedHeaders(output.New(&buf, false), tt.analysis)
 
-			if warned := strings.Contains(buf.String(), "exclude_headers"); warned != tt.wantWarn {
+			if warned := strings.Contains(buf.String(), "excluded_headers"); warned != tt.wantWarn {
 				t.Errorf("warned = %v, want %v: %q", warned, tt.wantWarn, buf.String())
 			}
 		})

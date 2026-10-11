@@ -68,7 +68,7 @@ func NewLocalStore(concurrency int) *LocalStore {
 }
 
 func NewVectorStore(cfg *config.Config, out *output.Printer) (VectorStore, error) {
-	sections := NewSectionSelection(cfg.Analysis.IncludedHeaders, cfg.Analysis.ExcludeHeaders)
+	sections := NewSectionSelection(cfg.Analysis.IncludedHeaders, cfg.Analysis.ExcludedHeaders)
 
 	if cfg.VectorStore.ConnectionString != "" {
 		store, err := NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{

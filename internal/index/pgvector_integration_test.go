@@ -1524,7 +1524,7 @@ func TestPgStore_Integration_ReembedsEveryRowWhenSectionSelectionChanges(t *test
 
 	cfg := &config.Config{ProjectName: project}
 	cfg.VectorStore.ConnectionString = connStr
-	cfg.Analysis.ExcludeHeaders = []string{"Context"}
+	cfg.Analysis.ExcludedHeaders = []string{"Context"}
 
 	selecting, err := index.NewVectorStore(cfg, nil)
 	require.NoError(t, err)

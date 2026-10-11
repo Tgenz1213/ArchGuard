@@ -11,7 +11,7 @@ import (
 	"github.com/yuin/goldmark/text"
 )
 
-var errNoEmbeddableText = errors.New("no text left to embed after analysis.included_headers or analysis.exclude_headers")
+var errNoEmbeddableText = errors.New("no text left to embed after analysis.included_headers or analysis.excluded_headers")
 
 // The zero value embeds an ADR's whole content.
 type SectionSelection struct {
@@ -51,7 +51,7 @@ func (s SectionSelection) format() string {
 	case len(s.include) > 0:
 		return fmt.Sprintf("%s included_headers=%q", embeddingFormat, s.include)
 	case len(s.exclude) > 0:
-		return fmt.Sprintf("%s exclude_headers=%q", embeddingFormat, s.exclude)
+		return fmt.Sprintf("%s excluded_headers=%q", embeddingFormat, s.exclude)
 	default:
 		return embeddingFormat
 	}

@@ -10,9 +10,9 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
-func warnIgnoredExcludeHeaders(warnings *output.Printer, analysis config.Analysis) {
-	if len(analysis.IncludedHeaders) > 0 && len(analysis.ExcludeHeaders) > 0 {
-		warnings.Warn("analysis.exclude_headers is ignored because analysis.included_headers is set")
+func warnIgnoredExcludedHeaders(warnings *output.Printer, analysis config.Analysis) {
+	if len(analysis.IncludedHeaders) > 0 && len(analysis.ExcludedHeaders) > 0 {
+		warnings.Warn("analysis.excluded_headers is ignored because analysis.included_headers is set")
 	}
 }
 

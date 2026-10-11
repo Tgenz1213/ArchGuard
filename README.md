@@ -123,7 +123,7 @@ analysis:
     rules: "rules"
   rules_heading: "Rules" # Optional: the ADR body section whose bullets are read as screening rules; this is the default
   # included_headers: ["Decision", "Rules"] # Optional: embed only these ADR sections; see Embedded Sections
-  # exclude_headers: ["Context"] # Optional: embed every ADR section but these; ignored when included_headers is set
+  # excluded_headers: ["Context"] # Optional: embed every ADR section but these; ignored when included_headers is set
   pipeline: # Optional: how candidate ADRs are ranked before the LLM judges them; this rank stage matches the default
     rank:
       scorer: "cosine"
@@ -147,7 +147,7 @@ analysis:
   max_concurrency: 5 # Number of files analyzed in parallel
 ```
 
-The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`), [Screening Rules](#screening-rules) (`rules_heading`), and [Embedded Sections](#embedded-sections) (`included_headers`, `exclude_headers`).
+The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`), [Screening Rules](#screening-rules) (`rules_heading`), and [Embedded Sections](#embedded-sections) (`included_headers`, `excluded_headers`).
 
 ### Supported Statuses
 You can filter ADRs by their status (e.g. `["Accepted"]`). If you want ArchGuard to evaluate against *all* ADRs regardless of status, use `["*"]`.
@@ -313,20 +313,20 @@ If an ADR declares rules in both places, only the frontmatter rules are used. An
 
 ### Embedded Sections
 
-By default ArchGuard embeds each ADR's whole body, so narrative sections such as Context take part in deciding which ADRs a changed file is matched against. `analysis.included_headers` and `analysis.exclude_headers` choose which `##` sections are embedded instead:
+By default ArchGuard embeds each ADR's whole body, so narrative sections such as Context take part in deciding which ADRs a changed file is matched against. `analysis.included_headers` and `analysis.excluded_headers` choose which `##` sections are embedded instead:
 
 ```yaml
 analysis:
   included_headers: # embed only these sections
     - Decision
     - Rules
-  # exclude_headers: # or embed every section but these
+  # excluded_headers: # or embed every section but these
   #   - Context
 ```
 
 - A section runs from its `##` heading to the next `#` or `##` heading, so it includes any `###` beneath it. Headings are matched ignoring case, inline formatting and a trailing colon, like `rules_heading`.
-- With `included_headers`, text before the first `##` heading is left out; with `exclude_headers` it is kept. Each ADR's title and status are always embedded.
-- When both are set, `included_headers` applies and a warning says `exclude_headers` is ignored.
+- With `included_headers`, text before the first `##` heading is left out; with `excluded_headers` it is kept. Each ADR's title and status are always embedded.
+- When both are set, `included_headers` applies and a warning says `excluded_headers` is ignored.
 - Only the embedding changes: the LLM still judges each file against the full ADR.
 - An ADR with no text left to embed is not indexed, and the `archguard index` summary lists it under `Failed to embed or persist`.
 - Changing either setting embeds every ADR again on the next `archguard index`, and with the local index on the next `archguard check` too.

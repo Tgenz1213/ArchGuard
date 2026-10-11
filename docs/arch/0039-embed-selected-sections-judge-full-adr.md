@@ -14,7 +14,7 @@ Each ADR is embedded whole, so narrative sections such as Context blur its simil
 
 ## Decision
 
-- **A project can choose which `##` sections of each ADR are embedded,** by heading, with `analysis.included_headers` or `analysis.exclude_headers`. `included_headers` wins when both are set.
+- **A project can choose which `##` sections of each ADR are embedded,** by heading, with `analysis.included_headers` or `analysis.excluded_headers`. `included_headers` wins when both are set.
 - **The selection changes only the embedding.** The LLM judges each file against the full ADR.
 - **The selection is part of the embedding format** (`docs/arch/0038-embedding-format-saved-with-the-index.md`), so changing it embeds every ADR again.
 - **An ADR left with no text to embed is reported and not indexed,** never embedded empty.

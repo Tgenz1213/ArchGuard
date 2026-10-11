@@ -62,7 +62,7 @@ type Analysis struct {
 	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
 	RulesHeading        string            `yaml:"rules_heading"`
 	IncludedHeaders     []string          `yaml:"included_headers"`
-	ExcludeHeaders      []string          `yaml:"exclude_headers"`
+	ExcludedHeaders     []string          `yaml:"excluded_headers"`
 	Pipeline            *Pipeline         `yaml:"pipeline"`
 }
 
