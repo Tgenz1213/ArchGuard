@@ -6,5 +6,6 @@ paths:
 
 # ADRs in `docs/arch/`
 
-- ADR files require YAML frontmatter with `title` and `status`; `scope` is optional and may be a single glob string or a list of globs; `rules` (or a `## Rules` body section) is optional too. `status` must appear in `analysis.accepted_statuses` (or use `["*"]`) to be considered.
-- ADRs are matched to files structurally via YAML frontmatter `scope` (a glob, matched with `internal/index.MatchGlob`, supporting `**`, applied inside `VectorStore.Search` before the topK similarity cut -- see `docs/arch/0007-scope-filtered-before-topk-similarity.md`; `scope` may also be a YAML list of globs matched with OR semantics, see `docs/arch/0018-multi-pattern-adr-scope.md`) and semantically via embedding similarity — both must pass for an ADR to apply to a given file.
+- ADR files require YAML frontmatter with `title` and `status`; `scope` (one glob or a list), `similarity_threshold` and `rules` (or a `## Rules` body section) are optional. `status` must appear in `analysis.accepted_statuses` (or use `["*"]`) to be considered.
+- An ADR applies to a file only when its `scope` matches and its embedding similarity passes the threshold (`docs/arch/0007-scope-filtered-before-topk-similarity.md`, `docs/arch/0018-multi-pattern-adr-scope.md`).
+- This repo's own ADRs are checked by ArchGuard in CI, so a `## Rules` section here becomes rule statements (`docs/arch/0023-adr-screening-rules.md`).

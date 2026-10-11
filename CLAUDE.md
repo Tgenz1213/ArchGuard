@@ -41,7 +41,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | ADR docs | `docs/arch/` | `.claude/rules/adr-docs.md` |
 | Tests | `*_test.go`, `test/`, `internal/testutil/`, `cmd/archguard-e2e/` | `.claude/rules/tests.md` |
 
-`internal/atomicfile` has no rules file: `Write(path string, data []byte) error` is the shared write-tmp-then-rename helper used by `baseline.Save` and `index.LocalStore.Save`, so both get identical atomic-write-and-cleanup-on-failure behavior instead of two independently-maintained (and already-diverged) copies.
+`internal/atomicfile` has no rules file: its `Write` is the one write-tmp-then-rename helper, used by the baseline, the local index and `check --output`.
 
 ## Conventions
 
