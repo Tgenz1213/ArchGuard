@@ -12,11 +12,13 @@ scope: "internal/**"
 
 ## Decision
 
-`config.Analysis` gains an optional `ADRIDPattern string` field (`adr_id_pattern` in YAML). `internal/cli.compileADRIDPattern` compiles it once at startup, right after `validateProviderConfig`, so a bad regex fails fast with `ExitConfig` instead of surfacing per-file during a scan. An unset field compiles to `(nil, nil)`, preserving today's behavior byte-for-byte.
+`config.Analysis` gains an optional `ADRIDPattern string` field (`adr_id_pattern` in YAML). `internal/cli.compileADRIDPattern` compiles it once at startup, right after `validateProviderConfig`, so a bad regex fails fast with `ExitConfig` instead of surfacing per-file during a scan. An unset field compiles to `(nil, nil)`, preserving today's behavior byte-for-byte. A pattern with more than one capture group (named groups included) is also rejected with `ExitConfig`, because `extractID` would silently take group 1 whether or not it is the ID; `(?:...)` groups don't count.
 
 `ParseADR` takes the compiled pattern as a new third parameter and delegates ID extraction to `extractID(filename string, idPattern *regexp.Regexp) string`: when the pattern matches, capture group 1 is used if the pattern defines one, otherwise the whole match; when `idPattern` is nil or doesn't match a given filename, extraction falls back to the existing first-hyphen split. The fallback is per-file, not corpus-wide, so a mixed-convention corpus (some files matching the custom pattern, others not) still gets a sensible ID for every file rather than failing outright.
 
 `LocalProvider` stores the compiled pattern via a new `SetIDPattern(re *regexp.Regexp)` setter (nil is also the zero value `NewLocalProvider` starts with) and passes it through to `ParseADR` in `GetADRs`. `internal/cli.Execute` compiles the pattern once and threads it through both `runCheck` and `runIndex`, each of which calls `SetIDPattern` on the `LocalProvider` it constructs.
+
+When a pattern is set and matches none of the `.md` files `LocalProvider` discovers, `GetADRs` prints a warning through its printer (stderr under `check`) and carries on: the per-file fallback still gives every ADR an ID, but a pattern that matches nothing is almost always a typo. A pattern that matches some files is not warned about, so a mixed-convention corpus stays quiet.
 
 `ConfluenceProvider` is unaffected: it derives ADR IDs from Confluence page IDs, not filenames, so this option has no meaning there.
 

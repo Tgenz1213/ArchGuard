@@ -178,20 +178,6 @@ func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
 	}
 }
 
-func TestCompileADRIDPattern_ValidPatternCompiles(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Analysis.ADRIDPattern = `^adr-(\d+)-`
-
-	re, err := compileADRIDPattern(cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if re == nil {
-		t.Fatal("re = nil, want compiled pattern")
-	}
-}
-
 func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.ADRIDPattern = `[unterminated`
@@ -199,6 +185,40 @@ func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	_, err := compileADRIDPattern(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid regex, got nil")
+	}
+}
+
+func TestCompileADRIDPattern_CaptureGroups(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		wantErr bool
+	}{
+		{"no group uses the whole match", `^adr-\d+`, false},
+		{"one group is the ID", `^adr-(\d+)-`, false},
+		{"a non-capturing group does not count", `^(?:adr|ADR)-(\d+)-`, false},
+		{"two groups are ambiguous", `^(adr)-(\d+)-`, true},
+		{"named groups count too", `^(?P<kind>adr)-(?P<id>\d+)-`, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Analysis.ADRIDPattern = tt.pattern
+
+			re, err := compileADRIDPattern(cfg)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "analysis.adr_id_pattern") {
+					t.Fatalf("err = %v, want an error naming analysis.adr_id_pattern", err)
+				}
+
+				return
+			}
+
+			if err != nil || re == nil {
+				t.Fatalf("compileADRIDPattern() = %v, %v; want a compiled pattern", re, err)
+			}
+		})
 	}
 }
 
