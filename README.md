@@ -481,9 +481,13 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
     { "name": "rerank", "received": 4, "kept": 2, "duration_ms": 640 }
   ],
   "usage": {
-    "judgment": { "input_tokens": 48210, "output_tokens": 1630, "estimated_cost": 0.16908 },
-    "suggestion": { "input_tokens": 3120, "output_tokens": 210, "estimated_cost": 0.01251 },
-    "embedding": { "tokens": null, "estimated_cost": null }
+    "judgment": { "input_tokens": 48210, "output_tokens": 1630, "estimated_cost": 0.16908, "calls": 10, "cache_hits": 3, "cache_misses": 9, "retries": 1 },
+    "suggestion": { "input_tokens": 3120, "output_tokens": 210, "estimated_cost": 0.01251, "calls": 1, "cache_hits": 0, "cache_misses": 1, "retries": 0 },
+    "embedding": { "tokens": null, "estimated_cost": null, "calls": 6 },
+    "files": [
+      { "file": "internal/api/handler.go", "duration_ms": 4210 },
+      { "file": "internal/api/routes.go", "duration_ms": 1980 }
+    ]
   }
 }
 ```
@@ -495,6 +499,13 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
 `usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`, and never under `--dry-run`. Under `--dry-run`, `judgment.output_tokens` is `null`, `judgment.estimated_cost` prices the input alone, and the document also carries `"dry_run": { "judgment_calls": 12, "cached": 3 }`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
+
+`usage` also says where the calls and time went, which the text report does not show:
+
+- `calls` is every request sent to the provider, failed ones and retries included.
+- `cache_hits` counts the ADR checks (or suggestions) answered from the cache, which make no call. `cache_misses` counts the ones that went to the model, once each however many retries they took, so `calls` is `cache_misses` plus `retries`. Under `--dry-run` a miss is a judgment the run would have sent, and `calls` is `0`.
+- `embedding.calls` counts query embeddings and any index rebuild's, failed ones included.
+- `files` lists every file the run checked, slowest first, with the time it took in `duration_ms`: reading it, scoring its candidates and every ADR check on it, waits between retries included. Files are checked concurrently, so the durations can add up to more than the run's wall-clock time.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `unverified` lists the unverified findings with the same fields, a `line` of `0`, and no `suggestion`; they are not counted in `count`. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 

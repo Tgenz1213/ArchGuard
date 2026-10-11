@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
@@ -26,6 +27,9 @@ type fileCheck struct {
 }
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
+	start := time.Now()
+	defer func() { run.addDuration(file, time.Since(start)) }()
+
 	fc := &fileCheck{engine: e, run: run, out: run.out.Group(file), file: file}
 	defer fc.out.Flush()
 
@@ -177,10 +181,14 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 	cacheKey := fc.analysisKey(hit)
 
 	if hitRes, found := fc.cachedVerdict(cacheKey); found {
+		fc.findings.judgment.CacheHits++
 		return hitRes, true, nil
 	}
 
-	result, err = inference.AnalyzeDrift(ctx, e.Chat, input, e.systemPrompt())
+	result, retries, err := inference.AnalyzeDrift(ctx, e.Chat, input, e.systemPrompt())
+	fc.findings.judgment.CacheMisses++
+	fc.findings.judgment.Retries += retries
+
 	if err != nil {
 		return nil, false, err
 	}
@@ -355,11 +363,15 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit stage.Candidate, input 
 
 	if e.Cache != nil {
 		if cached, found, err := e.Cache.GetSuggestion(key); err == nil && found && cached != "" {
+			fc.findings.suggestion.CacheHits++
 			return cached
 		}
 	}
 
-	suggestion, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
+	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
+	fc.findings.suggestion.CacheMisses++
+	fc.findings.suggestion.Retries += retries
+
 	if err != nil {
 		fc.out.Warn("suggestion generation failed: %v", err)
 		return ""

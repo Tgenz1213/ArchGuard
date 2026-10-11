@@ -70,6 +70,10 @@ func TestDryRun_CountsThePromptsInsteadOfSendingThem(t *testing.T) {
 		t.Errorf("Projection = %+v, want %+v", engine.Projection, want)
 	}
 
+	if got, want := engine.JudgmentCounts, (output.ChatCounts{CacheMisses: 2}); got != want {
+		t.Errorf("JudgmentCounts = %+v, want %+v", got, want)
+	}
+
 	if len(engine.CollectedViolations) != 0 {
 		t.Errorf("a dry run reported %d violations", len(engine.CollectedViolations))
 	}
@@ -94,6 +98,10 @@ func TestDryRun_CachedVerdictCostsNothing(t *testing.T) {
 	want := analysis.Projection{Cached: 2, Usage: inference.Usage{Reported: true}}
 	if engine.Projection != want {
 		t.Errorf("Projection = %+v, want %+v", engine.Projection, want)
+	}
+
+	if got, want := engine.JudgmentCounts, (output.ChatCounts{CacheHits: 2}); got != want {
+		t.Errorf("JudgmentCounts = %+v, want %+v", got, want)
 	}
 }
 

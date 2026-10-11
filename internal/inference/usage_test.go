@@ -192,6 +192,10 @@ func TestMeteredChatter_TotalsConcurrentCalls(t *testing.T) {
 	if got := meter.Usage(); got != want {
 		t.Errorf("Usage() = %+v, want %+v", got, want)
 	}
+
+	if got := meter.Calls(); got != 20 {
+		t.Errorf("Calls() = %d, want 20", got)
+	}
 }
 
 func TestMeteredChatter_UsageTotals(t *testing.T) {
@@ -226,7 +230,7 @@ func TestMeteredChatter_UsageTotals(t *testing.T) {
 	}
 }
 
-func TestMeteredChatter_FailedCallAddsNothing(t *testing.T) {
+func TestMeteredChatter_FailedCallCountsAsACallWithNoTokens(t *testing.T) {
 	mock := &MockProvider{
 		ChatFunc: func(context.Context, string, string) (string, error) { return "", errors.New("down") },
 	}
@@ -238,6 +242,10 @@ func TestMeteredChatter_FailedCallAddsNothing(t *testing.T) {
 
 	if got, want := meter.Usage(), (Usage{Reported: true}); got != want {
 		t.Errorf("Usage() = %+v, want %+v", got, want)
+	}
+
+	if got := meter.Calls(); got != 1 {
+		t.Errorf("Calls() = %d, want 1", got)
 	}
 }
 
@@ -252,5 +260,9 @@ func TestMeteredEmbedder_TotalsCalls(t *testing.T) {
 
 	if got, want := meter.Usage(), (Usage{InputTokens: 12, Reported: true}); got != want {
 		t.Errorf("Usage() = %+v, want %+v", got, want)
+	}
+
+	if got := meter.Calls(); got != 3 {
+		t.Errorf("Calls() = %d, want 3", got)
 	}
 }

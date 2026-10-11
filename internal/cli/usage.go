@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -21,14 +22,21 @@ func newUsageMeters(setup runSetup) usageMeters {
 	}
 }
 
-func (m usageMeters) report(cfg *config.Config, suggestFixes bool) *output.Usage {
+func (m usageMeters) report(cfg *config.Config, suggestFixes bool, engine *analysis.Engine) *output.Usage {
+	judgment := chatUsage(m.judgment.Usage(), cfg.LLM)
+	judgment.Calls = m.judgment.Calls()
+	judgment.ChatCounts = engine.JudgmentCounts
+
 	usage := &output.Usage{
-		Judgment:  chatUsage(m.judgment.Usage(), cfg.LLM),
-		Embedding: embeddingUsage(m.embedding.Usage(), cfg.VectorStore.CostPer1KTokens),
+		Judgment:  judgment,
+		Embedding: m.embeddingUsage(cfg),
+		Files:     nonNil(engine.FileDurations),
 	}
 
 	if suggestFixes {
 		suggestion := chatUsage(m.suggestion.Usage(), cfg.LLM)
+		suggestion.Calls = m.suggestion.Calls()
+		suggestion.ChatCounts = engine.SuggestionCounts
 		usage.Suggestion = &suggestion
 	}
 
@@ -36,11 +44,22 @@ func (m usageMeters) report(cfg *config.Config, suggestFixes bool) *output.Usage
 }
 
 // A dry run sends no judgment, so only its input is known and priced.
-func (m usageMeters) dryRunReport(cfg *config.Config, projected inference.Usage) *output.Usage {
+func (m usageMeters) dryRunReport(cfg *config.Config, engine *analysis.Engine) *output.Usage {
+	judgment := projectedChatUsage(engine.Projection.Usage, cfg.LLM.CostPer1KInputTokens)
+	judgment.ChatCounts = engine.JudgmentCounts
+
 	return &output.Usage{
-		Judgment:  projectedChatUsage(projected, cfg.LLM.CostPer1KInputTokens),
-		Embedding: embeddingUsage(m.embedding.Usage(), cfg.VectorStore.CostPer1KTokens),
+		Judgment:  judgment,
+		Embedding: m.embeddingUsage(cfg),
+		Files:     nonNil(engine.FileDurations),
 	}
+}
+
+func (m usageMeters) embeddingUsage(cfg *config.Config) output.EmbeddingUsage {
+	usage := embeddingUsage(m.embedding.Usage(), cfg.VectorStore.CostPer1KTokens)
+	usage.Calls = m.embedding.Calls()
+
+	return usage
 }
 
 func projectedChatUsage(usage inference.Usage, costPer1KInput *float64) output.ChatUsage {

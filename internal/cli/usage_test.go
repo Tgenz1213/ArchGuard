@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -47,7 +48,7 @@ func TestUsageMeters_Report(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage := meteredSetup(t, tt.chat, tt.chat).report(tt.cfg, false)
+			usage := meteredSetup(t, tt.chat, tt.chat).report(tt.cfg, false, &analysis.Engine{})
 
 			assertChatUsage(t, usage.Judgment, tt.wantTokens, tt.chat)
 			assertCost(t, "judgment", usage.Judgment.Cost, tt.wantChatCost)
@@ -95,11 +96,11 @@ func assertCost(t *testing.T, role string, got *float64, want float64) {
 func TestUsageMeters_ReportCountsSuggestionsOnlyWhenOn(t *testing.T) {
 	meters := meteredSetup(t, inference.Usage{Reported: true}, inference.Usage{Reported: true})
 
-	if usage := meters.report(&config.Config{}, false); usage.Suggestion != nil {
+	if usage := meters.report(&config.Config{}, false, &analysis.Engine{}); usage.Suggestion != nil {
 		t.Errorf("suggestion usage = %+v without --suggest-fixes, want nil", usage.Suggestion)
 	}
 
-	if usage := meters.report(&config.Config{}, true); usage.Suggestion == nil {
+	if usage := meters.report(&config.Config{}, true, &analysis.Engine{}); usage.Suggestion == nil {
 		t.Error("suggestion usage is nil with --suggest-fixes")
 	}
 }
@@ -132,7 +133,7 @@ func TestUsageMeters_DryRunReportPricesInputOnly(t *testing.T) {
 	meters := meteredSetup(t, inference.Usage{}, inference.Usage{InputTokens: 10, Reported: true})
 	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(0.5), CostPer1KOutputTokens: new(2.0)}}
 
-	usage := meters.dryRunReport(cfg, inference.Usage{InputTokens: 4000, Reported: true})
+	usage := meters.dryRunReport(cfg, &analysis.Engine{Projection: analysis.Projection{Usage: inference.Usage{InputTokens: 4000, Reported: true}}})
 
 	if usage.Judgment.InputTokens == nil || *usage.Judgment.InputTokens != 4000 || usage.Judgment.OutputTokens != nil {
 		t.Errorf("judgment tokens = %v/%v, want 4000 input and no output", usage.Judgment.InputTokens, usage.Judgment.OutputTokens)
@@ -148,9 +149,48 @@ func TestUsageMeters_DryRunReportPricesInputOnly(t *testing.T) {
 func TestUsageMeters_DryRunReportWithAFailedCount(t *testing.T) {
 	meters := meteredSetup(t, inference.Usage{}, inference.Usage{})
 
-	usage := meters.dryRunReport(&config.Config{}, inference.Usage{InputTokens: 4000})
+	usage := meters.dryRunReport(&config.Config{}, &analysis.Engine{Projection: analysis.Projection{Usage: inference.Usage{InputTokens: 4000}}})
 
 	if usage.Judgment.InputTokens != nil {
 		t.Errorf("judgment input = %v, want unavailable when a count failed", *usage.Judgment.InputTokens)
+	}
+}
+
+func TestUsageMeters_ReportCounts(t *testing.T) {
+	meters := meteredSetup(t, inference.Usage{Reported: true}, inference.Usage{Reported: true})
+	if _, err := meters.suggestion.Chat(t.Context(), "system", "user"); err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+
+	engine := &analysis.Engine{
+		JudgmentCounts:   output.ChatCounts{CacheHits: 2, CacheMisses: 1, Retries: 3},
+		SuggestionCounts: output.ChatCounts{CacheHits: 1, CacheMisses: 1},
+		FileDurations:    []output.FileDuration{{File: "slow.go", DurationMS: 900}},
+	}
+
+	usage := meters.report(&config.Config{}, true, engine)
+
+	if usage.Judgment.Calls != 1 || usage.Judgment.ChatCounts != engine.JudgmentCounts {
+		t.Errorf("judgment = %d call(s), %+v, want 1 and %+v", usage.Judgment.Calls, usage.Judgment.ChatCounts, engine.JudgmentCounts)
+	}
+
+	if usage.Suggestion.Calls != 1 || usage.Suggestion.ChatCounts != engine.SuggestionCounts {
+		t.Errorf("suggestion = %d call(s), %+v, want 1 and %+v", usage.Suggestion.Calls, usage.Suggestion.ChatCounts, engine.SuggestionCounts)
+	}
+
+	if usage.Embedding.Calls != 1 {
+		t.Errorf("embedding calls = %d, want 1", usage.Embedding.Calls)
+	}
+
+	if len(usage.Files) != 1 || usage.Files[0] != engine.FileDurations[0] {
+		t.Errorf("files = %+v, want %+v", usage.Files, engine.FileDurations)
+	}
+}
+
+func TestUsageMeters_ReportListsNoFilesAsEmpty(t *testing.T) {
+	usage := meteredSetup(t, inference.Usage{}, inference.Usage{}).report(&config.Config{}, false, &analysis.Engine{})
+
+	if usage.Files == nil {
+		t.Error("files is nil, want an empty list so the JSON has [] and not null")
 	}
 }

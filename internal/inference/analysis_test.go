@@ -16,7 +16,7 @@ func TestAnalyzeDrift_DiffInputUsesTheDiffTemplateAndKeepsACustomSystemPrompt(t 
 	}}
 
 	in := DriftInput{ADRContent: "adr", CodeContext: "+x", Filename: "a.go", Diff: true}
-	if _, err := AnalyzeDrift(t.Context(), chat, in, "my custom system prompt"); err != nil {
+	if _, _, err := AnalyzeDrift(t.Context(), chat, in, "my custom system prompt"); err != nil {
 		t.Fatalf("AnalyzeDrift: %v", err)
 	}
 
@@ -34,7 +34,7 @@ func TestAnalyzeDrift_WholeFileInputKeepsTheWholeFileTemplate(t *testing.T) {
 		return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
 	}}
 
-	if _, err := AnalyzeDrift(t.Context(), chat, DriftInput{ADRContent: "adr", CodeContext: "x", Filename: "a.go"}, "system"); err != nil {
+	if _, _, err := AnalyzeDrift(t.Context(), chat, DriftInput{ADRContent: "adr", CodeContext: "x", Filename: "a.go"}, "system"); err != nil {
 		t.Fatalf("AnalyzeDrift: %v", err)
 	}
 

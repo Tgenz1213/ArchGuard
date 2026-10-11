@@ -17,6 +17,10 @@ type chatUsage struct {
 	InputTokens  *int     `json:"input_tokens"`
 	OutputTokens *int     `json:"output_tokens"`
 	Cost         *float64 `json:"estimated_cost"`
+	Calls        int      `json:"calls"`
+	CacheHits    int      `json:"cache_hits"`
+	CacheMisses  int      `json:"cache_misses"`
+	Retries      int      `json:"retries"`
 }
 
 type usageReport struct {
@@ -26,7 +30,12 @@ type usageReport struct {
 		Embedding  struct {
 			Tokens *int     `json:"tokens"`
 			Cost   *float64 `json:"estimated_cost"`
+			Calls  int      `json:"calls"`
 		} `json:"embedding"`
+		Files []struct {
+			File       string `json:"file"`
+			DurationMS *int64 `json:"duration_ms"`
+		} `json:"files"`
 	} `json:"usage"`
 }
 
@@ -94,6 +103,18 @@ func assertChatTokens(t *testing.T, role string, got *chatUsage, wantCalls int) 
 	}
 }
 
+type chatCounts struct {
+	calls, hits, misses int
+}
+
+func assertChatCounts(t *testing.T, role string, got *chatUsage, want chatCounts) {
+	t.Helper()
+
+	if got.Calls != want.calls || got.CacheHits != want.hits || got.CacheMisses != want.misses || got.Retries != 0 {
+		t.Errorf("%s counts = %d calls, %d hits, %d misses, %d retries, want %+v and no retries", role, got.Calls, got.CacheHits, got.CacheMisses, got.Retries, want)
+	}
+}
+
 func TestE2E_CheckReportsTokenUsage(t *testing.T) {
 	dir, binaryPath := setupUsageRepo(t)
 
@@ -103,9 +124,17 @@ func TestE2E_CheckReportsTokenUsage(t *testing.T) {
 		assertChatTokens(t, "judgment", &report.Usage.Judgment, 1)
 		assertChatTokens(t, "suggestion", report.Usage.Suggestion, 1)
 
+		assertChatCounts(t, "judgment", &report.Usage.Judgment, chatCounts{calls: 1, misses: 1})
+		assertChatCounts(t, "suggestion", report.Usage.Suggestion, chatCounts{calls: 1, misses: 1})
+
 		embedding := report.Usage.Embedding
-		if embedding.Tokens == nil || *embedding.Tokens != testutil.MockEmbedTokens {
-			t.Errorf("embedding tokens = %v, want %d", embedding.Tokens, testutil.MockEmbedTokens)
+		if embedding.Tokens == nil || *embedding.Tokens != testutil.MockEmbedTokens || embedding.Calls != 1 {
+			t.Errorf("embedding = %v tokens in %d call(s), want %d in 1", embedding.Tokens, embedding.Calls, testutil.MockEmbedTokens)
+		}
+
+		files := report.Usage.Files
+		if len(files) != 1 || files[0].File != fixtureFilename || files[0].DurationMS == nil {
+			t.Errorf("files = %+v, want one entry for %s with a duration", files, fixtureFilename)
 		}
 	})
 
@@ -114,6 +143,8 @@ func TestE2E_CheckReportsTokenUsage(t *testing.T) {
 
 		assertChatTokens(t, "judgment", &report.Usage.Judgment, 0)
 		assertChatTokens(t, "suggestion", report.Usage.Suggestion, 0)
+		assertChatCounts(t, "judgment", &report.Usage.Judgment, chatCounts{hits: 1})
+		assertChatCounts(t, "suggestion", report.Usage.Suggestion, chatCounts{hits: 1})
 	})
 }
 

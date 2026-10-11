@@ -1,7 +1,9 @@
 package analysis
 
 import (
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
@@ -30,6 +32,9 @@ type runState struct {
 	coverage      output.Coverage
 	projection    Projection
 	uncounted     bool
+	judgment      output.ChatCounts
+	suggestion    output.ChatCounts
+	durations     []output.FileDuration
 }
 
 type fileResult struct {
@@ -47,6 +52,8 @@ type fileResult struct {
 	unverified     []Violation
 	projection     Projection
 	uncounted      bool
+	judgment       output.ChatCounts
+	suggestion     output.ChatCounts
 }
 
 func newRunState(out *output.Printer, stages []stage.Stage) *runState {
@@ -82,6 +89,13 @@ func (r *runState) addStageFailure(failure StageFailure) {
 	r.stageFailures = append(r.stageFailures, failure)
 }
 
+func (r *runState) addDuration(file string, spent time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.durations = append(r.durations, output.FileDuration{File: file, DurationMS: spent.Milliseconds()})
+}
+
 func (r *runState) merge(result *fileResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -102,6 +116,30 @@ func (r *runState) merge(result *fileResult) {
 	r.projection.Cached += result.projection.Cached
 	r.projection.Usage.InputTokens += result.projection.Usage.InputTokens
 	r.uncounted = r.uncounted || result.uncounted
+	r.judgment = addCounts(r.judgment, result.judgment)
+	r.suggestion = addCounts(r.suggestion, result.suggestion)
+}
+
+func addCounts(total, more output.ChatCounts) output.ChatCounts {
+	return output.ChatCounts{
+		CacheHits:   total.CacheHits + more.CacheHits,
+		CacheMisses: total.CacheMisses + more.CacheMisses,
+		Retries:     total.Retries + more.Retries,
+	}
+}
+
+func (r *runState) slowestFirst() []output.FileDuration {
+	durations := append([]output.FileDuration{}, r.durations...)
+
+	sort.SliceStable(durations, func(i, j int) bool {
+		if durations[i].DurationMS != durations[j].DurationMS {
+			return durations[i].DurationMS > durations[j].DurationMS
+		}
+
+		return durations[i].File < durations[j].File
+	})
+
+	return durations
 }
 
 func (r *runState) projected() Projection {
