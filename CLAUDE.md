@@ -21,7 +21,7 @@ It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commi
 - Local release dry-run: `goreleaser release --snapshot --clean`
 - Exercise the CLI locally: `archguard init` → `archguard index` → `archguard check --staged` (or `--all`, `--ci --all`, `--debug`, or a specific path)
 
-The module builds on Go 1.27, so a golangci-lint built with an older Go can't lint it.
+The module builds on Go 1.27, so a golangci-lint built with an older Go can't lint it. In cloud sessions, `.claude/hooks/session-start.sh` installs one built with `go.mod`'s Go version and puts it first on `PATH`.
 
 ## Architecture
 
