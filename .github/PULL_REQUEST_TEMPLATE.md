@@ -25,5 +25,5 @@ Known gaps or deferred work, with an issue link if one exists.
 - [ ] `go test -race -cover ./...` passes
 - [ ] `golangci-lint run --timeout=5m` is clean
 - [ ] `CLAUDE.md` or the matching `.claude/rules/` file updated if this changes build/test commands, adds or renames a top-level package, changes a cross-package interface, or adds a footgun
-- [ ] A new ADR added under `docs/arch/` if this embodies an architecturally-significant decision
+- [ ] A new ADR added under `docs/arch/` if this makes an architectural decision: short, decision only, and superseding any ADR it changes rather than editing it (`docs/standards/guidance.md`)
 - [ ] Code follows the pages in `docs/standards/`
