@@ -8,24 +8,22 @@ scope: "internal/**"
 
 ## Context
 
-`ParseADR` derives an ADR's ID by splitting its filename on the first hyphen, assuming the `NNNN-title.md` convention. A corpus using a different naming convention, e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, has every file collapse to the same ID (`adr`), silently colliding IDs across unrelated ADRs. See #154.
+An ADR's ID comes from its filename, split on the first hyphen, which assumes the `NNNN-title.md` convention. A corpus named differently, such as `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, gives every file the same ID (`adr`), so unrelated ADRs collide silently. See #154.
 
 ## Decision
 
-`config.Analysis` gains an optional `ADRIDPattern string` field (`adr_id_pattern` in YAML). `internal/cli.compileADRIDPattern` compiles it once at startup, right after `validateProviderConfig`, so a bad regex fails fast with `ExitConfig` instead of surfacing per-file during a scan. An unset field compiles to `(nil, nil)`, preserving today's behavior byte-for-byte. A pattern with more than one capture group (named groups included) is also rejected with `ExitConfig`, because `extractID` would silently take group 1 whether or not it is the ID; `(?:...)` groups don't count.
+`archguard.yaml` accepts an optional `analysis.adr_id_pattern` regex. It is compiled once at startup, so a bad regex fails fast with the config exit code instead of surfacing per file during a scan. A pattern with more than one capture group, named groups included, is also a config error, because the extractor would silently take group 1 whether or not it is the ID. Non-capturing `(?:...)` groups do not count.
 
-`ParseADR` takes the compiled pattern as a new third parameter and delegates ID extraction to `extractID(filename string, idPattern *regexp.Regexp) string`: when the pattern matches, capture group 1 is used if the pattern defines one, otherwise the whole match; when `idPattern` is nil or doesn't match a given filename, extraction falls back to the existing first-hyphen split. The fallback is per-file, not corpus-wide, so a mixed-convention corpus (some files matching the custom pattern, others not) still gets a sensible ID for every file rather than failing outright.
+When the pattern matches a filename, capture group 1 is the ID if the pattern has one, otherwise the whole match. When the pattern is unset, or does not match a given filename, that file falls back to the first-hyphen split. The fallback is per file, not per corpus, so a mixed-convention corpus still gets a sensible ID for every file.
 
-`LocalProvider` stores the compiled pattern via a new `SetIDPattern(re *regexp.Regexp)` setter (nil is also the zero value `NewLocalProvider` starts with) and passes it through to `ParseADR` in `GetADRs`. `internal/cli.Execute` compiles the pattern once and threads it through both `runCheck` and `runIndex`, each of which calls `SetIDPattern` on the `LocalProvider` it constructs.
+When a pattern is set and matches none of the ADR files, the local provider prints a warning and carries on, since a pattern that matches nothing is almost always a typo. A pattern that matches some files is not warned about, so a mixed-convention corpus stays quiet.
 
-When a pattern is set and matches none of the `.md` files `LocalProvider` discovers, `GetADRs` prints a warning through its printer (stderr under `check`) and carries on: the per-file fallback still gives every ADR an ID, but a pattern that matches nothing is almost always a typo. A pattern that matches some files is not warned about, so a mixed-convention corpus stays quiet.
-
-`ConfluenceProvider` is unaffected: it derives ADR IDs from Confluence page IDs, not filenames, so this option has no meaning there.
+The Confluence provider is unaffected: its IDs come from page IDs, not filenames.
 
 ## Consequences
 
-- Corpora using a naming convention other than `NNNN-title.md` can now get distinct, stable ADR IDs by setting `analysis.adr_id_pattern`, without renaming files.
-- Existing configs are unaffected: an unset `adr_id_pattern` compiles to a nil pattern, and `extractID` with a nil pattern is exactly the old `strings.Split(filename, "-")[0]` logic.
-- A pattern that doesn't match a particular file doesn't error — that file just falls back to the default split — so introducing `adr_id_pattern` for a subset of a corpus's files doesn't require every file to conform to it.
-- A malformed regex is caught once at startup (`ExitConfig`), not per-ADR during indexing or checking, keeping the failure mode consistent with other config validation.
-- `LocalStore.CalculateHash` includes each ADR's `ID` alongside `RelPath`/`Content`, so adding or changing `adr_id_pattern` on an existing repo changes the computed hash and triggers `runCheck`'s automatic rebuild-on-mismatch -- no manual `archguard index` is needed for the new IDs to take effect.
+- A corpus with another naming convention gets distinct, stable ADR IDs without renaming files.
+- Existing configs are unaffected: with no pattern, IDs come from the first-hyphen split as before.
+- A file that does not match the pattern falls back instead of erroring, so a pattern can cover only part of a corpus.
+- A malformed regex is caught once at startup, consistent with other config validation, not per ADR during indexing or checking.
+- `LocalStore`'s index hash includes each ADR's ID, so adding or changing `adr_id_pattern` triggers `check`'s automatic rebuild. No manual `archguard index` is needed.
