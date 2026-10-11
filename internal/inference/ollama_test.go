@@ -5,8 +5,43 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
+
+func serveCapturing(t *testing.T, response string) (*httptest.Server, func() map[string]any) {
+	t.Helper()
+
+	var (
+		mu   sync.Mutex
+		body map[string]any
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var decoded map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&decoded); err != nil {
+			t.Errorf("decoding request body: %v", err)
+		}
+
+		mu.Lock()
+		body = decoded
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if _, err := w.Write([]byte(response)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	return server, func() map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return body
+	}
+}
 
 func TestOllamaProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +66,7 @@ func TestOllamaProvider_Chat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text")
 
 	res, err := p.Chat(t.Context(), "system prompt", "user prompt")
 	if err != nil {
@@ -62,7 +97,7 @@ func TestOllamaProvider_CreateEmbedding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text")
 
 	res, err := provider.CreateEmbedding(t.Context(), "test text", EmbeddingTaskDocument)
 	if err != nil {
@@ -116,7 +151,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 			}))
 			defer server.Close()
 
-			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", c.embedModel, 0.0)
+			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", c.embedModel)
 
 			if _, err := p.CreateEmbedding(t.Context(), "test text", c.task); err != nil {
 				t.Fatalf("CreateEmbedding failed: %v", err)
@@ -130,7 +165,7 @@ func TestOllamaProvider_CreateEmbedding_NomicTaskPrefix(t *testing.T) {
 }
 
 func TestNewOllamaProvider_DefaultsBaseURL(t *testing.T) {
-	p := NewOllamaProvider("", "llama3.2", "nomic-embed-text", 0.0)
+	p := NewOllamaProvider("", "llama3.2", "nomic-embed-text")
 	if p.host != "http://localhost:11434" {
 		t.Errorf("expected default host http://localhost:11434, got %q", p.host)
 	}
@@ -179,7 +214,7 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text", 0.0)
+	provider := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text")
 
 	count, err := provider.CountTokens(t.Context(), representativeString)
 	if err != nil {
@@ -188,5 +223,40 @@ func TestOllamaProvider_CountTokens(t *testing.T) {
 
 	if count != realPromptEvalCount {
 		t.Errorf("expected %d tokens (real llama3.2 count), got %d", realPromptEvalCount, count)
+	}
+}
+
+func TestOllamaProvider_Chat_Temperature(t *testing.T) {
+	tests := []struct {
+		name string
+		set  *float64
+		want *float64
+	}{
+		{"unset", nil, nil},
+		{"zero", new(0.0), new(0.0)},
+		{"explicit", new(0.4), new(0.4)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, body := serveCapturing(t, `{"message":{"role":"assistant","content":"{}"},"done":true}`)
+
+			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text")
+			p.SetTemperature(tt.set)
+
+			if _, err := p.Chat(t.Context(), "system", "user"); err != nil {
+				t.Fatalf("Chat failed: %v", err)
+			}
+
+			options, _ := body()["options"].(map[string]any)
+			got, present := options["temperature"]
+
+			if present != (tt.want != nil) {
+				t.Fatalf("temperature present = %v, want %v (options %v)", present, tt.want != nil, options)
+			}
+
+			if present && got != *tt.want {
+				t.Errorf("temperature = %v, want %v", got, *tt.want)
+			}
+		})
 	}
 }

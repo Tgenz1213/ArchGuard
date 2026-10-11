@@ -96,7 +96,7 @@ llm:
   model: "llama3.2"
   base_url: "http://localhost:11434"
   max_tokens: 8000
-  temperature: 0.0
+  temperature: 0.0 # Optional; ollama, openai, gemini and claude all send it, unset sends nothing. Omit it for models that reject it (e.g. OpenAI reasoning models).
   # system_prompt: "..." # optional; fully replaces ArchGuard's default judgment
   #   instructions (literal-contradiction, no-inference rules). When set, it is
   #   the only source of judgment behavior sent to the LLM.

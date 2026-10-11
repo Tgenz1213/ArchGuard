@@ -17,12 +17,12 @@ type Config struct {
 }
 
 type LLMConfig struct {
-	Provider     string  `yaml:"provider"`
-	Model        string  `yaml:"model"`
-	BaseURL      string  `yaml:"base_url"`
-	MaxTokens    int     `yaml:"max_tokens"`
-	Temperature  float64 `yaml:"temperature"`
-	SystemPrompt string  `yaml:"system_prompt"`
+	Provider     string   `yaml:"provider"`
+	Model        string   `yaml:"model"`
+	BaseURL      string   `yaml:"base_url"`
+	MaxTokens    int      `yaml:"max_tokens"`
+	Temperature  *float64 `yaml:"temperature"`
+	SystemPrompt string   `yaml:"system_prompt"`
 }
 
 type VectorStore struct {

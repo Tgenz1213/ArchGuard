@@ -15,6 +15,7 @@ const claudeBaseURL = "https://api.anthropic.com"
 const claudeMaxResponseTokens = 1024
 
 type ClaudeProvider struct {
+	temperature
 	client anthropic.Client
 	model  string
 }
@@ -33,7 +34,7 @@ func NewClaudeProviderWithBaseURL(apiKey, model, baseURL string, httpClient *htt
 }
 
 func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string, error) {
-	message, err := p.client.Messages.New(ctx, anthropic.MessageNewParams{
+	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(p.model),
 		MaxTokens: claudeMaxResponseTokens,
 		System: []anthropic.TextBlockParam{
@@ -42,7 +43,13 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(user)),
 		},
-	})
+	}
+
+	if value := p.Temperature(); value != nil {
+		params.Temperature = anthropic.Float(*value)
+	}
+
+	message, err := p.client.Messages.New(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("claude chat request failed: %w", err)
 	}
