@@ -26,14 +26,15 @@ Exit codes are meaningful and tested; preserve them if you touch command dispatc
 
 | Code | Meaning |
 |---|---|
-| `0` | Success, including files skipped under the default `on_error: skip` and runs whose only findings are unverified |
+| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, and runs whose only findings are unverified |
 | `1` | General error, including a failed write of primary output, which wins over every code but `130` |
 | `2` | Usage |
 | `3` | Config |
 | `4` | Drift detected, returned with a nil error so `main` prints no `Error:` line |
 | `5` | Index error, including zero valid ADRs (`docs/arch/0010-index-corpus-health-reporting.md`) |
 | `6` | A stage with `on_error: fail` hit an unavailable dependency |
-| `7` | A stage with `on_error: fail` hit an unmet precondition; wins over `6`, and both win over `4` |
+| `7` | A stage with `on_error: fail` hit an unmet precondition; wins over `6`, and both win over `8` and `4` |
+| `8` | Errors left the run with no ADR check (`docs/arch/0032-a-run-that-checked-nothing-fails.md`) |
 | `130` | Interrupted by SIGINT or SIGTERM (`docs/arch/0024-run-context-cancellation.md`) |
 
 ## Footguns

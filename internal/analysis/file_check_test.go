@@ -373,3 +373,57 @@ func TestEngine_DoesNotCountAPartlyCheckedFileWithNoCandidateAsWithoutADR(t *tes
 		t.Fatalf("partial = %+v, coverage = %+v; want the file partly checked and nothing counted", report.PartialFiles, report.Coverage)
 	}
 }
+
+func TestEngine_CheckedNothing(t *testing.T) {
+	failFor := func(files ...string) stage.Scorer {
+		return scorerFunc(func(_ context.Context, file stage.File, _ stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+			if slices.Contains(files, file.Path()) {
+				return nil, errors.New("down")
+			}
+
+			return slices.Repeat([]float64{1}, len(candidates)), nil
+		})
+	}
+	failingChat := &inference.MockProvider{ChatFunc: func(context.Context, string, string) (string, error) {
+		return "", backoff.Permanent(errors.New("down"))
+	}}
+
+	tests := []struct {
+		name        string
+		setup       func(h *scorerHarness)
+		wantSkipped int
+		want        bool
+	}{
+		{"every file's scoring failed", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("a.go", "b.go")}} }, 2, true},
+		{"one file judged beside a failed one", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}} }, 1, false},
+		{"every ADR check failed", func(h *scorerHarness) { h.engine.Chat = failingChat }, 0, true},
+		{"a file with no relevant ADR beside a failed one", func(h *scorerHarness) {
+			h.engine.Store.(*index.LocalStore).ADRs[0].Scope = []string{"b.go"}
+			h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}}
+		}, 1, true},
+		{"files too large in CI mode are not errors", func(h *scorerHarness) {
+			h.engine.Content = &fallbackOnlyContentProvider{files: map[string]string{"a.go": "package a", "b.go": "package b"}}
+			h.engine.CI = true
+			h.engine.Config.LLM.MaxTokens = 1
+		}, 2, false},
+		{"no relevant ADR and no error", func(h *scorerHarness) {
+			h.engine.Store.(*index.LocalStore).ADRs[0].Scope = []string{"docs/**"}
+		}, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
+			h.engine.Content.(*MockContentProvider).Files = map[string]string{"a.go": "package a", "b.go": "package b"}
+			h.engine.Out = output.Discard()
+			tt.setup(h)
+
+			if err := h.engine.Run(t.Context()); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(h.engine.SkippedFiles) != tt.wantSkipped || h.engine.CheckedNothing != tt.want {
+				t.Fatalf("skipped = %+v, CheckedNothing = %v; want %d skipped and %v (failed checks %+v, coverage %+v)", h.engine.SkippedFiles, h.engine.CheckedNothing, tt.wantSkipped, tt.want, h.engine.FailedChecks, h.engine.Coverage)
+			}
+		})
+	}
+}

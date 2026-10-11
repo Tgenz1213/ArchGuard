@@ -15,6 +15,7 @@ type runState struct {
 	telemetry *stage.Telemetry
 
 	mu            sync.Mutex
+	failedFiles   int
 	violations    int
 	baselined     int
 	skipped       []output.FileGap
@@ -52,6 +53,14 @@ func (r *runState) addSkipped(file, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.skipped = append(r.skipped, output.FileGap{File: file, Reason: reason})
+}
+
+func (r *runState) addFailedFile(file, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failedFiles++
 	r.skipped = append(r.skipped, output.FileGap{File: file, Reason: reason})
 }
 
@@ -93,4 +102,9 @@ func boolToInt(b bool) int {
 	}
 
 	return 0
+}
+
+// A file skipped as too large in CI mode is not an error, so it alone never makes a run count as unchecked.
+func (r *runState) checkedNothing() bool {
+	return (r.failedFiles > 0 || len(r.failedChecks) > 0) && r.coverage.ADRChecks == 0
 }

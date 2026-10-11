@@ -210,7 +210,7 @@ An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-r
 
 #### When a stage fails
 
-By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
 
 ```yaml
 analysis:
@@ -226,7 +226,7 @@ Under `fail`, a failed stage stops that file's remaining stages, other files sti
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
 | `precondition_not_met` | The stage could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7` without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -355,9 +355,10 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 - **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
 - **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
+- **8**: Errors left the run with no ADR check: files were skipped or ADR checks failed (for example the database, the embedding provider or the LLM was unreachable) and no ADR check returned a verdict. The report still lists what failed. A run where at least one ADR check returned a verdict exits as usual, with the failures listed in the report. A file skipped as too large under `--ci` does not count. See [ADR 0032](docs/arch/0032-a-run-that-checked-nothing-fails.md).
 - **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
 
-Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file and the run exits `0` (see [Ranking Stages](#ranking-stages)).
+Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file, and the run exits `0` unless that left it with no ADR check (`8`) (see [Ranking Stages](#ranking-stages)). Codes `6` and `7` also take precedence over `8`.
 
 ### Reading a Check Run
 
@@ -402,7 +403,7 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
 
-The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold when that is why. The exit code is the same either way.
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 

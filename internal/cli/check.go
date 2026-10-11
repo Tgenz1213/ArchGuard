@@ -18,6 +18,8 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
+var errNothingChecked = errors.New("nothing was checked against an ADR because of errors; see the skipped files and failed ADR checks in the report")
+
 type checkRun struct {
 	setup        runSetup
 	opts         checkCmd
@@ -157,6 +159,10 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 		return stageCode, fmt.Errorf("%w; baseline not written", stageErr)
 	}
 
+	if engine.CheckedNothing {
+		return ExitNothingChecked, fmt.Errorf("%w; baseline not written", errNothingChecked)
+	}
+
 	if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 		return ExitError, fmt.Errorf("failed to write baseline file %s: %w", baseline.Path, err)
 	}
@@ -190,6 +196,10 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 
 	if stageErr != nil {
 		return stageCode, stageErr
+	}
+
+	if engine.CheckedNothing {
+		return ExitNothingChecked, errNothingChecked
 	}
 
 	if isDriftError(runErr) {

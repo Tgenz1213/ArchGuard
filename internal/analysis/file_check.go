@@ -62,7 +62,7 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 
 func (fc *fileCheck) skip(reason string) {
 	fc.out.Error("%s", reason)
-	fc.run.addSkipped(fc.file, reason)
+	fc.run.addFailedFile(fc.file, reason)
 }
 
 func (fc *fileCheck) load(ctx context.Context) bool {

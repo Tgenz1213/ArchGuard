@@ -27,6 +27,7 @@ const (
 	ExitIndexError        ExitCode = 5
 	ExitStageUnavailable  ExitCode = 6
 	ExitStagePrecondition ExitCode = 7
+	ExitNothingChecked    ExitCode = 8
 	// 128 + SIGINT, the shell convention for a run stopped by a signal.
 	ExitInterrupted ExitCode = 130
 )

@@ -29,7 +29,7 @@ Alternatives considered:
 - **The report on stderr with the log.** It cannot be saved or piped apart from the log.
 - **One "not fully checked" count for skipped files and failed checks.** It hides whether a file was never read or only missed a rule.
 - **Printing a line per file in a clean run.** It is too noisy to read, and the counts answer the same question.
-- **A non-zero exit when no file was judged.** It changes what a pipeline treats as failure, which is a policy decision of its own.
+- **A non-zero exit when no file was judged.** It changes what a pipeline treats as failure, which is a policy decision of its own: a run that errors left with no ADR check exits `8` (`docs/arch/0032-a-run-that-checked-nothing-fails.md`), and one that judged nothing without an error exits `0`.
 - **Writing the report to a file by default.** It adds a side effect nobody asked for.
 
 ## Consequences
