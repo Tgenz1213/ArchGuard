@@ -73,6 +73,21 @@ func TestE2E_Change_JudgesOnlyWhatTheChangeTouched(t *testing.T) {
 		}
 	})
 
+	t.Run("with --whole-file a violation on an unchanged line near an edit fails", func(t *testing.T) {
+		dir, binary := setup(t)
+		commitFile(t, dir, "app.go", "package app\n\nfunc a() {\n"+oldLine+"\tlog(\"two\")\n}\n", "edit a neighbour")
+		runIndexCmd(t, dir, binary, int(cli.ExitSuccess))
+
+		stdout, code := checkSince(t, dir, binary, "--whole-file", "--format", "json")
+		if code != int(cli.ExitDriftDetected) {
+			t.Fatalf("exit = %d, want %d: --whole-file judges the old line too", code, cli.ExitDriftDetected)
+		}
+
+		if got := reportedLines(t, stdout); len(got) != 1 || got[0] != 4 {
+			t.Fatalf("lines = %v, want [4]", got)
+		}
+	})
+
 	t.Run("a violation on an added line fails and points at that line", func(t *testing.T) {
 		dir, binary := setup(t)
 		commitFile(t, dir, "app.go", "package app\n\nfunc a() {\n"+oldLine+"\tlog(\"one\")\n\tlog(\"password: new\")\n}\n", "add a violation")
