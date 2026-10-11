@@ -27,6 +27,7 @@ type changeRunOptions struct {
 	quote          string
 	judgeChange    bool
 	updateBaseline bool
+	maxTokens      int
 	cache          *cache.Cache
 }
 
@@ -59,6 +60,7 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+		LLM:         config.LLMConfig{MaxTokens: opts.maxTokens},
 	}
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
@@ -191,6 +193,42 @@ func TestRun_UpdateBaselineRecordsUnwrappedQuote(t *testing.T) {
 	entries := run.engine.CollectedBaseline.Entries
 	if len(entries) != 1 || entries[0].QuotedCode != `import "os"` {
 		t.Fatalf("baseline entries = %+v, want one recording the unwrapped quote", entries)
+	}
+}
+
+func TestRun_ReportsFileLinesForAFileAnalyzedThroughItsDiff(t *testing.T) {
+	whole := strings.Repeat("// filler\n", 197) + "func a() {}\nfunc b() {}\nvar leak = password\n"
+	diff := changeSamplePreamble + "@@ -198,3 +198,3 @@\n func a() {}\n-func old() {}\n+func b() {}\n+var leak = password\n"
+
+	tests := []struct {
+		name         string
+		quote        string
+		wantLine     int
+		wantVerified bool
+	}{
+		{"an added line", "var leak = password", 200, true},
+		{"an unchanged line", "func a() {}", 198, true},
+		{"lines across an unchanged and an added line", "func a() {}\nfunc b() {}", 198, true},
+		{"a removed line is not in the file", "func old() {}", 0, false},
+		{"a quote found nowhere", "something the model invented", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := runChange(t, changeRunOptions{whole: whole, diff: diff, quote: tt.quote, maxTokens: 10})
+
+			found := run.engine.CollectedViolations
+			if len(found) != 1 {
+				t.Fatalf("findings = %+v, want 1", found)
+			}
+
+			if found[0].Line != tt.wantLine {
+				t.Errorf("line = %d, want %d", found[0].Line, tt.wantLine)
+			}
+
+			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
+			}
+		})
 	}
 }
 

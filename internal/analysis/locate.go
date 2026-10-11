@@ -1,6 +1,9 @@
 package analysis
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 type placement int
 
@@ -128,4 +131,45 @@ func sameText(text, want string, partial bool) bool {
 	}
 
 	return text == want
+}
+
+// For a whole-file judgment made through a diff: only added and unchanged lines are in the file, and a changed line wins a tie.
+func locateInNewFile(lines []diffLine, quote string) (placement, int) {
+	want := quoteLines(quote)
+	if len(want) == 0 {
+		return placedNowhere, 0
+	}
+
+	newFile := slices.DeleteFunc(slices.Clone(lines), func(line diffLine) bool { return line.Kind == '-' })
+
+	for _, exact := range []bool{true, false} {
+		for _, addedOnly := range []bool{true, false} {
+			for start, line := range newFile {
+				if (!addedOnly || line.Kind == '+') && newFileRunMatches(newFile, start, want, exact) {
+					return placedInFile, line.Number
+				}
+			}
+		}
+	}
+
+	return placedNowhere, 0
+}
+
+func newFileRunMatches(lines []diffLine, start int, want []string, exact bool) bool {
+	if start+len(want) > len(lines) {
+		return false
+	}
+
+	for i, w := range want {
+		at := start + i
+		if i > 0 && lines[at].Number != lines[at-1].Number+1 {
+			return false
+		}
+
+		if !lineMatches(lines[at], w, len(want) == 1 && !exact) {
+			return false
+		}
+	}
+
+	return true
 }

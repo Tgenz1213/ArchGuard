@@ -45,11 +45,11 @@ func TestRun_AnnotatesNewViolations(t *testing.T) {
 			name: "LLM saw the diff",
 			content: &diffCapableContentProvider{
 				content: "a long preamble that pushes the file over the token limit\n" + quote + "\n",
-				diff:    "@@ -1,1 +1,1 @@\n-old\n+" + quote + "\n",
+				diff:    "@@ -1,2 +1,2 @@\n a long preamble that pushes the file over the token limit\n-old\n+" + quote + "\n",
 			},
 			maxTokens:  1,
 			quotedCode: "+" + quote,
-			want:       []output.Annotation{fileLevel},
+			want:       []output.Annotation{onLine2},
 		},
 		{
 			name:       "baselined",

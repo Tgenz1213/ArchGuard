@@ -235,7 +235,6 @@ func (fc *fileCheck) locate(hit stage.Candidate, result *inference.AnalysisResul
 		Line:       line,
 		Reasoning:  result.Reasoning,
 		QuotedCode: quote,
-		lineInDiff: fc.mode == "diff",
 		unverified: where == placedNowhere,
 	}
 
@@ -270,6 +269,10 @@ func (fc *fileCheck) place(content, quote string) (string, placement, int) {
 func (fc *fileCheck) find(content, quote string) (placement, int) {
 	if fc.engine.JudgeChange {
 		return locateQuote(parseDiff(content), quote)
+	}
+
+	if fc.mode == "diff" {
+		return locateInNewFile(parseDiff(content), quote)
 	}
 
 	if quote != "" && !strings.Contains(content, quote) {
