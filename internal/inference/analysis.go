@@ -23,7 +23,8 @@ type DriftInput struct {
 	Diff        bool
 }
 
-func AnalyzeDrift(ctx context.Context, chat Chatter, in DriftInput, systemPrompt string) (*AnalysisResult, error) {
+// retries counts the requests sent after the first, whether or not the call succeeded.
+func AnalyzeDrift(ctx context.Context, chat Chatter, in DriftInput, systemPrompt string) (result *AnalysisResult, retries int, err error) {
 	return chatJSON[AnalysisResult](ctx, chat, systemPrompt, DriftPrompt(in), "analysis")
 }
 
@@ -37,18 +38,18 @@ type suggestionResult struct {
 
 // SuggestRemediation should only be called after AnalyzeDrift has returned
 // Violation == true.
-func SuggestRemediation(ctx context.Context, chat Chatter, in DriftInput, violation AnalysisResult) (string, error) {
+func SuggestRemediation(ctx context.Context, chat Chatter, in DriftInput, violation AnalysisResult) (suggestion string, retries int, err error) {
 	prompt := GetSuggestionPrompt(in.ADRContent, in.CodeContext, in.Filename, violation.Reasoning, violation.QuotedCode)
 
-	result, err := chatJSON[suggestionResult](ctx, chat, SuggestionSystemPrompt, prompt, "suggestion generation")
+	result, retries, err := chatJSON[suggestionResult](ctx, chat, SuggestionSystemPrompt, prompt, "suggestion generation")
 	if err != nil {
-		return "", err
+		return "", retries, err
 	}
 
-	return result.Suggestion, nil
+	return result.Suggestion, retries, nil
 }
 
-func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt, operationLabel string) (*T, error) {
+func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt, operationLabel string) (*T, int, error) {
 	const maxRetries = 3
 
 	bo := backoff.NewExponentialBackOff()
@@ -60,7 +61,11 @@ func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt
 	var lastErr error
 	var final T
 
+	attempts := 0
+
 	operation := func() error {
+		attempts++
+
 		reply, err := chat.Chat(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			lastErr = err
@@ -84,15 +89,18 @@ func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt
 	}
 
 	retryPolicy := backoff.WithContext(backoff.WithMaxRetries(bo, maxRetries), ctx)
-	if err := backoff.Retry(operation, retryPolicy); err != nil {
+	err := backoff.Retry(operation, retryPolicy)
+	retries := attempts - 1
+
+	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return nil, retries, ctxErr
 		}
 
-		return nil, fmt.Errorf("%s failed after %d retries: %w", operationLabel, maxRetries, lastErr)
+		return nil, retries, fmt.Errorf("%s failed after %d retries: %w", operationLabel, retries, lastErr)
 	}
 
-	return &final, nil
+	return &final, retries, nil
 }
 
 func CleanJSON(input string) string {

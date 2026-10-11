@@ -17,6 +17,7 @@ func TestWriteCheckReport_EmptyListsEncodeAsArraysNotNull(t *testing.T) {
 	usage := &output.Usage{
 		Judgment:  output.ChatUsage{InputTokens: &tokens, OutputTokens: &tokens, Cost: new(0.0)},
 		Embedding: output.EmbeddingUsage{Tokens: &tokens, Cost: new(0.0)},
+		Files:     []output.FileDuration{},
 	}
 
 	if err := writeCheckReport(&buf, &analysis.Engine{}, usage); err != nil {

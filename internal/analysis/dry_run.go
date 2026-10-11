@@ -21,11 +21,13 @@ func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inf
 	if _, found := fc.cachedVerdict(fc.analysisKey(hit)); found {
 		fc.out.Debug("%s", checkOutcomeLine(hit, "dry run", true))
 		fc.findings.projection.Cached++
+		fc.findings.judgment.CacheHits++
 
 		return
 	}
 
 	e := fc.engine
+	fc.findings.judgment.CacheMisses++
 
 	tokens, err := e.Chat.CountTokens(ctx, e.systemPrompt()+"\n\n"+inference.DriftPrompt(input))
 	if err != nil {

@@ -11,18 +11,35 @@ type ChatUsage struct {
 	InputTokens  *int     `json:"input_tokens"`
 	OutputTokens *int     `json:"output_tokens"`
 	Cost         *float64 `json:"estimated_cost"`
+	// Every request sent, retries and failures included.
+	Calls int `json:"calls"`
+	ChatCounts
+}
+
+// A cache hit makes no call. A miss counts once however many retries it took.
+type ChatCounts struct {
+	CacheHits   int `json:"cache_hits"`
+	CacheMisses int `json:"cache_misses"`
+	Retries     int `json:"retries"`
 }
 
 type EmbeddingUsage struct {
 	Tokens *int     `json:"tokens"`
 	Cost   *float64 `json:"estimated_cost"`
+	Calls  int      `json:"calls"`
 }
 
-// Suggestion is nil when suggestions were off.
+// Suggestion is nil when suggestions were off. Files is ordered slowest first.
 type Usage struct {
 	Judgment   ChatUsage      `json:"judgment"`
 	Suggestion *ChatUsage     `json:"suggestion,omitempty"`
 	Embedding  EmbeddingUsage `json:"embedding"`
+	Files      []FileDuration `json:"files"`
+}
+
+type FileDuration struct {
+	File       string `json:"file"`
+	DurationMS int64  `json:"duration_ms"`
 }
 
 func (u Usage) line() string {

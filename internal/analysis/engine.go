@@ -54,6 +54,10 @@ type Engine struct {
 	Stages      []stage.Stage
 	DryRun      bool
 	Projection  Projection
+	// Counted in every mode; under --dry-run a miss is a judgment that would have been sent.
+	JudgmentCounts   output.ChatCounts
+	SuggestionCounts output.ChatCounts
+	FileDurations    []output.FileDuration
 }
 
 type Violation struct {
@@ -215,6 +219,9 @@ func (e *Engine) publish(run *runState) {
 	e.CollectedViolations = run.collected
 	e.UnverifiedFindings = run.unverified
 	e.Projection = run.projected()
+	e.JudgmentCounts = run.judgment
+	e.SuggestionCounts = run.suggestion
+	e.FileDurations = run.slowestFirst()
 	e.collectStageStats(run)
 
 	if e.UpdateBaseline {

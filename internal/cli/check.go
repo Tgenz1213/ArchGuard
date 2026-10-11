@@ -262,10 +262,10 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 
 func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
 	if r.opts.DryRun {
-		return r.meters.dryRunReport(r.setup.cfg, engine.Projection.Usage)
+		return r.meters.dryRunReport(r.setup.cfg, engine)
 	}
 
-	return r.meters.report(r.setup.cfg, r.opts.SuggestFixes)
+	return r.meters.report(r.setup.cfg, r.opts.SuggestFixes, engine)
 }
 
 func (r *checkRun) saveReportFile() error {
