@@ -1,4 +1,4 @@
-name: Throwaway embedding input-limit probe (#228)
+name: Throwaway embedding input-limit probe (#228, run 2)
 
 on:
   push:
