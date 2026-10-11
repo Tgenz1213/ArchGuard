@@ -18,7 +18,7 @@ Agent guidance in `CLAUDE.md` and `.claude/rules/` follows `docs/standards/guida
 
 ## Rules
 
-- Agent guidance MUST follow `docs/standards/guidance.md`: it MUST NOT restate what the code does, such as call flows, which function calls which, file inventories or default values.
+- Agent guidance MUST NOT narrate how the code runs: which function calls which, the order of calls, or an inventory of files. An invariant, a footgun or a "when you change X, also change Y" pointer is allowed even when it names code.
 
 ## Consequences
 
