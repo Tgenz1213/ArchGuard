@@ -16,9 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Use the CI config
-        run: cp .github/archguard-ci.yaml archguard.yaml
-
       - name: Restore ADR index
         id: index-cache
         uses: actions/cache/restore@v4
@@ -39,6 +36,7 @@ jobs:
           ARCHGUARD_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           provider: gemini
+          config: .github/archguard-ci.yaml
 
       - name: Save ADR index
         if: always() && steps.index-cache.outputs.cache-hit != 'true'
