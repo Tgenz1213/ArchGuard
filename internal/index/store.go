@@ -136,6 +136,28 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 	return nil
 }
 
+// LoadSaved reads a saved index without validating it, so BuildIndex can reuse
+// its embeddings. A missing file leaves the store empty and is not an error.
+func (s *LocalStore) LoadSaved(path string) error {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	var saved LocalStore
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		return err
+	}
+
+	s.ADRs, s.ModelName, s.Dim = saved.ADRs, saved.ModelName, saved.Dim
+
+	return nil
+}
+
 func (s *LocalStore) Save(path string) error {
 	encoded, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -151,7 +173,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		return BuildIndexResult{}, err
 	}
 
-	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs)
+	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs, modelName, dim)
 
 	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out}
@@ -174,10 +196,12 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	return result, nil
 }
 
-func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR) []int {
+func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR, modelName string, dim int) []int {
 	existing := make(map[string]ADR, len(s.ADRs))
-	for _, stored := range s.ADRs {
-		existing[stored.RelPath] = stored
+	if s.embeddedWith(modelName, dim) {
+		for _, stored := range s.ADRs {
+			existing[stored.RelPath] = stored
+		}
 	}
 
 	var toEmbed []int
@@ -191,6 +215,11 @@ func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR) []int {
 	}
 
 	return toEmbed
+}
+
+// A dim of 0 means the config leaves it unset, so only the model name can be compared.
+func (s *LocalStore) embeddedWith(modelName string, dim int) bool {
+	return s.ModelName == modelName && (dim == 0 || s.Dim == dim)
 }
 
 func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName string, dim int) {

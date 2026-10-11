@@ -31,6 +31,12 @@ func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCod
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
+	if local, ok := store.(*index.LocalStore); ok {
+		if err := local.LoadSaved(setup.indexFile); err != nil {
+			out.Warn("saved index unreadable, embedding every ADR: %v", err)
+		}
+	}
+
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, setup.embed, newADRProvider(setup, out))
 	if result.Attempted {
 		printIndexSummary(result, out)

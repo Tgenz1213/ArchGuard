@@ -24,7 +24,7 @@ ADR ingestion and the vector store.
 
 ## Building the index
 
-Both stores embed through `embed.go`, so a change to how ADRs are embedded is made there once; `PgStore` plugs its upsert in as the `persist` hook. An ADR is re-embedded when no stored ADR has its `RelPath`, or the stored one's `Content`, `Title` or `Status` differs. One ADR failing to embed is skipped, not fatal; a cancelled context or every ADR failing is (`docs/arch/0008-buildindex-partial-success.md`).
+Both stores embed through `embed.go`, so a change to how ADRs are embedded is made there once; `PgStore` plugs its upsert in as the `persist` hook. An ADR is re-embedded when no stored ADR has its `RelPath`, or the stored one's `Content`, `Title` or `Status` differs. `runIndex` first fills a `LocalStore` from the saved index with `LoadSaved`, and `BuildIndex` reuses those embeddings only when the saved model name and dimension match the config; a missing or unreadable saved index means every ADR is embedded. One ADR failing to embed is skipped, not fatal; a cancelled context or every ADR failing is (`docs/arch/0008-buildindex-partial-success.md`).
 
 **Staleness detection differs by backend.**
 

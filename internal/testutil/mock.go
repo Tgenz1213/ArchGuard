@@ -19,4 +19,7 @@ const (
 	// MockChatProviderMarker and MockEmbedProviderMarker are shared with archguard-e2e's mocks so assertions can't drift from what they print.
 	MockChatProviderMarker  = "Using Mock Chat LLM Provider (E2E)"
 	MockEmbedProviderMarker = "Using Mock Embed LLM Provider (E2E)"
+
+	// MockEmbedDocumentMarker prints once per ADR embedding, so tests can count them apart from query embeddings.
+	MockEmbedDocumentMarker = "Mock embedded an ADR (E2E)"
 )
