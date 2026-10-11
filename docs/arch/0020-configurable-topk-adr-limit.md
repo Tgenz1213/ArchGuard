@@ -18,4 +18,4 @@ The limit is the `analysis.max_relevant_adrs` setting. Like `analysis.max_concur
 
 - A project whose files regularly match more relevant ADRs than the default can raise the limit in `archguard.yaml` without a custom build.
 - The Postgres store's internal candidate cap stays far above any reasonable limit, so the two interact only with an extreme limit and a corpus of that size.
-- Raising the limit does not remove the need for the `--debug` topK-truncation diagnostic (`docs/arch/0037-debug-visibility-for-topk-truncated-adr-candidates.md`). It only moves the cutoff, and a corpus can still exceed a raised limit.
+- Raising the limit does not remove the need for `--debug` to show the ADRs the limit cut. It only moves the cutoff, and a corpus can still exceed a raised limit.

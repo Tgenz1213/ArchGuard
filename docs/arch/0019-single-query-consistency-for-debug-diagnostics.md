@@ -8,7 +8,7 @@ scope: "internal/**"
 
 ## Context
 
-Under `--debug`, each file's hits, below-threshold candidates (`docs/arch/0009-debug-visibility-for-rejected-adr-candidates.md`) and topK-truncated candidates (`docs/arch/0037-debug-visibility-for-topk-truncated-adr-candidates.md`) came from three separate queries. On Postgres with relaxed-order iterative HNSW scans (`docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md`), search is approximate, and two queries with the same vector need not return the same candidates. A `--debug` run could report an ADR as truncated when it was in fact a hit, or the reverse. Flagged by automated PR review on #192.
+Under `--debug`, each file's hits, below-threshold candidates (`docs/arch/0009-debug-visibility-for-rejected-adr-candidates.md`) and candidates cut by the topK limit came from three separate queries. On Postgres with relaxed-order iterative HNSW scans (`docs/arch/0005-hnsw-iterative-scan-for-project-filtered-search.md`), search is approximate, and two queries with the same vector need not return the same candidates. A `--debug` run could report an ADR as truncated when it was in fact a hit, or the reverse. Flagged by automated PR review on #192.
 
 ## Decision
 
