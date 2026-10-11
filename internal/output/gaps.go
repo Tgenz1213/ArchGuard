@@ -13,10 +13,11 @@ type FailedStage struct {
 
 // Gaps is everything a run could not check in full.
 type Gaps struct {
-	SkippedFiles []FileGap
-	FailedChecks []FailedCheck
-	FailedStages []FailedStage
-	PartialFiles []FileGap
+	SkippedFiles  []FileGap
+	FailedChecks  []FailedCheck
+	FailedStages  []FailedStage
+	PartialFiles  []FileGap
+	UnindexedADRs []ADRGap
 }
 
 func (gaps Gaps) sortedGaps() Gaps {
@@ -24,9 +25,11 @@ func (gaps Gaps) sortedGaps() Gaps {
 	gaps.FailedChecks = append([]FailedCheck(nil), gaps.FailedChecks...)
 	gaps.FailedStages = append([]FailedStage(nil), gaps.FailedStages...)
 	gaps.PartialFiles = append([]FileGap(nil), gaps.PartialFiles...)
+	gaps.UnindexedADRs = append([]ADRGap(nil), gaps.UnindexedADRs...)
 
 	sort.SliceStable(gaps.SkippedFiles, func(i, j int) bool { return gaps.SkippedFiles[i].File < gaps.SkippedFiles[j].File })
 	sort.SliceStable(gaps.PartialFiles, func(i, j int) bool { return gaps.PartialFiles[i].File < gaps.PartialFiles[j].File })
+	sort.SliceStable(gaps.UnindexedADRs, func(i, j int) bool { return gaps.UnindexedADRs[i].ADR < gaps.UnindexedADRs[j].ADR })
 	sort.SliceStable(gaps.FailedChecks, func(i, j int) bool {
 		left, right := gaps.FailedChecks[i], gaps.FailedChecks[j]
 		if left.File != right.File {
@@ -64,6 +67,10 @@ func (gaps Gaps) gapSummary() []string {
 
 	if count := len(gaps.FailedStages); count > 0 {
 		parts = append(parts, fmt.Sprintf("%d stage failure(s)", count))
+	}
+
+	if count := len(gaps.UnindexedADRs); count > 0 {
+		parts = append(parts, fmt.Sprintf("%d ADR(s) not indexed", count))
 	}
 
 	return parts
@@ -109,6 +116,17 @@ func (p *Printer) reportGaps(gaps Gaps) {
 		list := p.Indented()
 		for _, failure := range gaps.FailedStages {
 			list.Result("%s: stage %s: %s", failure.File, failure.Stage, failure.Reason)
+		}
+
+		p.Result("")
+	}
+
+	if len(gaps.UnindexedADRs) > 0 {
+		p.Result("ADRs not in the index (no file was checked against them):")
+
+		list := p.Indented()
+		for _, adr := range gaps.UnindexedADRs {
+			list.Result("%s: %s", adr.ADR, adr.Reason)
 		}
 
 		p.Result("")

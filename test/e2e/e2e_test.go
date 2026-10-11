@@ -738,12 +738,12 @@ analysis:
 		t.Fatalf("expected 1 violation, got count=%d len(violations)=%d. stdout: %s", report.Count, len(report.Violations), stdout)
 	}
 
-	if !strings.Contains(stderr, "Found 1 valid ADRs") {
-		t.Errorf("expected BuildIndex's progress text on stderr (not silently dropped), got: %s", stderr)
+	if !strings.Contains(stderr, "Rebuilt the ADR index") {
+		t.Errorf("expected the rebuild notice on stderr (not silently dropped), got: %s", stderr)
 	}
 
-	if strings.Contains(stdout, "Found") || strings.Contains(stdout, "Generating embeddings") {
-		t.Errorf("BuildIndex progress text leaked onto stdout: %s", stdout)
+	if strings.Contains(stdout, "Rebuilt the ADR index") {
+		t.Errorf("the rebuild notice leaked onto stdout: %s", stdout)
 	}
 }
 
@@ -890,7 +890,7 @@ analysis:
 	}
 
 	rebuild := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
-	if !strings.Contains(rebuild, "Triggering index rebuild") {
+	if !strings.Contains(rebuild, "Rebuilt the ADR index") {
 		t.Fatalf("expected the edit to trigger a rebuild. Output:\n%s", rebuild)
 	}
 

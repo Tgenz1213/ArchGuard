@@ -110,6 +110,10 @@ func mockEmbed(cfg *config.Config, stop context.CancelFunc, marker string) func(
 	return func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
 		fmt.Fprintln(os.Stderr, marker)
 
+		if task == inference.EmbeddingTaskDocument {
+			fmt.Fprintln(os.Stderr, testutil.MockEmbedDocumentMarker)
+		}
+
 		if strings.Contains(text, testutil.MockInterruptTrigger) {
 			stop()
 			return nil, ctx.Err()

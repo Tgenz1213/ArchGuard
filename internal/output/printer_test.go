@@ -403,3 +403,43 @@ func captureStderr(t *testing.T, fn func()) string {
 
 	return string(out)
 }
+
+func TestProgressWithoutDotsStillEndsTheLine(t *testing.T) {
+	var buf bytes.Buffer
+
+	p := output.New(&buf, false, output.WithProgress(false))
+	pr := p.Progress()
+	pr.Tick()
+	p.Warn("skipping a.md")
+	pr.Done()
+
+	if got, want := buf.String(), "Warning: skipping a.md\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestQuietPrintsInfoOnlyUnderDebug(t *testing.T) {
+	tests := []struct {
+		name  string
+		debug bool
+		want  string
+	}{
+		{name: "without debug", want: "Warning: w\nNote: n\n"},
+		{name: "with debug", debug: true, want: "i\nWarning: w\nNote: n\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			quiet := output.New(&buf, tc.debug).Quiet()
+			quiet.Info("i")
+			quiet.Warn("w")
+			quiet.Note("n")
+
+			if got := buf.String(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

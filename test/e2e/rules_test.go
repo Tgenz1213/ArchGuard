@@ -66,7 +66,7 @@ analysis:
 	}
 
 	output := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
-	if strings.Contains(output, "Triggering index rebuild") {
+	if strings.Contains(output, "Rebuilt the ADR index") {
 		t.Errorf("check resolved different rules than index, so it rebuilt a fresh index:\n%s", output)
 	}
 }

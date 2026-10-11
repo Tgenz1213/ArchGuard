@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -23,7 +23,8 @@ type SkippedADR struct {
 // Skipped can be non-empty even when BuildIndex also returns an error.
 type BuildIndexResult struct {
 	Summary
-	Skipped []SkippedADR
+	Embedded int
+	Skipped  []SkippedADR
 	// Attempted is false only when BuildIndex failed before fetching ADRs,
 	// distinguishing that from a fetch that genuinely found nothing.
 	Attempted bool
@@ -32,6 +33,7 @@ type BuildIndexResult struct {
 type VectorStore interface {
 	// ScopedADRs needs no embedding, so pipelines without a cosine stage never embed.
 	ScopedADRs(filePath string) ([]SearchResult, error)
+	IndexedPaths() ([]string, error)
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
@@ -102,11 +104,17 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
+var (
+	ErrIndexMissing          = errors.New("index missing")
+	ErrEmbeddingModelChanged = errors.New("embedding model changed")
+	ErrADRsChanged           = errors.New("ADRs changed")
+)
+
 func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("index file not found: %s", path)
+			return fmt.Errorf("%w: %s", ErrIndexMissing, path)
 		}
 
 		return err
@@ -116,22 +124,40 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		return err
 	}
 
-	if s.ModelName != modelName || s.Dim != dim || s.Hash != currentHash {
-		var reasons []string
-		if s.ModelName != modelName {
-			reasons = append(reasons, fmt.Sprintf("Model mismatch (Saved: %q, Config: %q)", s.ModelName, modelName))
-		}
-
-		if s.Dim != dim {
-			reasons = append(reasons, fmt.Sprintf("Dimension mismatch (Saved: %d, Config: %d)", s.Dim, dim))
-		}
-
-		if s.Hash != currentHash {
-			reasons = append(reasons, fmt.Sprintf("Hash mismatch\n    Saved:   %s\n    Current: %s", s.Hash, currentHash))
-		}
-
-		return fmt.Errorf("index metadata mismatch:\n  %s", strings.Join(reasons, "\n  "))
+	var reasons []error
+	if s.ModelName != modelName {
+		reasons = append(reasons, fmt.Errorf("%w: saved %q, config %q", ErrEmbeddingModelChanged, s.ModelName, modelName))
 	}
+
+	if s.Dim != dim {
+		reasons = append(reasons, fmt.Errorf("%w: saved dimension %d, config %d", ErrEmbeddingModelChanged, s.Dim, dim))
+	}
+
+	// The hash covers the model name, so after a model change it can't tell whether the ADRs changed too.
+	if s.Hash != currentHash && s.ModelName == modelName {
+		reasons = append(reasons, fmt.Errorf("%w: saved hash %s, current %s", ErrADRsChanged, s.Hash, currentHash))
+	}
+
+	return errors.Join(reasons...)
+}
+
+// Unlike Load, it accepts a stale index, since BuildIndex reuses only the embeddings of unchanged ADRs.
+func (s *LocalStore) LoadSaved(path string) error {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	var saved LocalStore
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		return err
+	}
+
+	s.ADRs, s.ModelName, s.Dim = saved.ADRs, saved.ModelName, saved.Dim
 
 	return nil
 }
@@ -151,7 +177,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 		return BuildIndexResult{}, err
 	}
 
-	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs)
+	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs, modelName, dim)
 
 	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
 	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out}
@@ -174,10 +200,12 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	return result, nil
 }
 
-func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR) []int {
+func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR, modelName string, dim int) []int {
 	existing := make(map[string]ADR, len(s.ADRs))
-	for _, stored := range s.ADRs {
-		existing[stored.RelPath] = stored
+	if s.embeddedWith(modelName, dim) {
+		for _, stored := range s.ADRs {
+			existing[stored.RelPath] = stored
+		}
 	}
 
 	var toEmbed []int
@@ -191,6 +219,11 @@ func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR) []int {
 	}
 
 	return toEmbed
+}
+
+// A dim of 0 means the config leaves it unset, so only the model name can be compared.
+func (s *LocalStore) embeddedWith(modelName string, dim int) bool {
+	return s.ModelName == modelName && (dim == 0 || s.Dim == dim)
 }
 
 func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName string, dim int) {

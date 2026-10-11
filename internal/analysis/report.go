@@ -46,7 +46,7 @@ func (e *Engine) BaselineReport(path string) output.BaselineReport {
 }
 
 func (e *Engine) gaps() output.Gaps {
-	gaps := output.Gaps{SkippedFiles: e.SkippedFiles, FailedChecks: e.FailedChecks, PartialFiles: e.PartialFiles}
+	gaps := output.Gaps{SkippedFiles: e.SkippedFiles, FailedChecks: e.FailedChecks, PartialFiles: e.PartialFiles, UnindexedADRs: e.UnindexedADRs}
 
 	for _, failure := range e.StageFailures {
 		gaps.FailedStages = append(gaps.FailedStages, output.FailedStage{Stage: failure.Stage, File: failure.File, Reason: failure.Error})

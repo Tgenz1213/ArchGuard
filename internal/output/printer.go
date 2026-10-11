@@ -16,6 +16,7 @@ const indentUnit = "  "
 type Printer struct {
 	sink        *sink
 	debug       bool
+	quiet       bool
 	indent      int
 	parent      *Printer
 	header      string
@@ -30,6 +31,7 @@ type sink struct {
 	buf       *bytes.Buffer
 	midLine   bool
 	color     bool
+	noDots    bool
 	hasResult bool
 	failed    *error
 }
@@ -43,6 +45,10 @@ func New(w io.Writer, debug bool, opts ...Option) *Printer {
 	}
 
 	return &Printer{sink: s, debug: debug}
+}
+
+func WithProgress(on bool) Option {
+	return func(s *sink) { s.noDots = !on }
 }
 
 func (p *Printer) Err() error {
@@ -68,7 +74,17 @@ func (p *Printer) DebugEnabled() bool {
 
 func (p *Printer) Result(format string, args ...any) { p.line(lineRole{result: true}, format, args...) }
 
-func (p *Printer) Info(format string, args ...any) { p.line(lineRole{}, format, args...) }
+func (p *Printer) Info(format string, args ...any) {
+	if p != nil && p.quiet && !p.debug {
+		return
+	}
+
+	p.line(lineRole{}, format, args...)
+}
+
+func (p *Printer) Quiet() *Printer {
+	return &Printer{sink: p.out(), debug: p.DebugEnabled(), quiet: true, indent: p.depth()}
+}
 
 func (p *Printer) Note(format string, args ...any) {
 	p.line(lineRole{label: "Note: "}, format, args...)
@@ -100,8 +116,9 @@ func (p *Printer) Group(header string) *Printer {
 
 func (p *Printer) group(header string, headerStyle style) *Printer {
 	g := &Printer{
-		sink:        &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed, color: p.out().color},
+		sink:        &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed, color: p.out().color, noDots: p.out().noDots},
 		debug:       p.DebugEnabled(),
+		quiet:       p != nil && p.quiet,
 		indent:      p.depth(),
 		parent:      p,
 		header:      header,
@@ -118,7 +135,7 @@ func (p *Printer) group(header string, headerStyle style) *Printer {
 
 // Indented prints one level deeper, straight through to p's destination.
 func (p *Printer) Indented() *Printer {
-	return &Printer{sink: p.out(), debug: p.DebugEnabled(), indent: p.depth() + 1}
+	return &Printer{sink: p.out(), debug: p.DebugEnabled(), quiet: p != nil && p.quiet, indent: p.depth() + 1}
 }
 
 func (p *Printer) Flush() {
@@ -160,7 +177,11 @@ type Progress struct{ p *Printer }
 
 func (p *Printer) Progress() *Progress { return &Progress{p: p} }
 
-func (pr *Progress) Tick() { pr.p.write(".", true, false) }
+func (pr *Progress) Tick() {
+	if !pr.p.out().noDots {
+		pr.p.write(".", true, false)
+	}
+}
 
 func (pr *Progress) Done() { pr.p.write("", false, false) }
 

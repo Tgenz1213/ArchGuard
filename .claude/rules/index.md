@@ -18,17 +18,18 @@ ADR ingestion and the vector store.
 
 - Scope, threshold and top-K filtering live once, in `rank.go`, and both backends call them, so they cannot diverge. Scope is filtered before the top-K cut, and `PgStore` fetches up to `MaxSearchCandidates` (1000) rows and filters in Go because SQL can't evaluate a `doublestar` glob (`docs/arch/0007-scope-filtered-before-topk-similarity.md`). An ADR's own `similarity_threshold` goes through `meetsThreshold` (`docs/arch/0011-per-adr-similarity-threshold-override.md`).
 - `SearchRejected`, `SearchTruncated` and `SearchWithDebugInfo` exist for `--debug` only (`docs/arch/0009-debug-visibility-for-rejected-adr-candidates.md`, `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
+- `IndexedPaths` lists the `RelPath` of every ADR in the index; `check` reports a fetched ADR missing from it as a gap.
 - `ScopedADRs` returns scope-matched candidates without an embedding. `PgStore` caches the project's rows after the first call and `BuildIndex` drops the cache, so an `archguard index` run by another process isn't seen until the next run.
 - Glob matching is `index.MatchGlob`, which `internal/analysis` also uses for `exclude_patterns`; there is one matcher.
 - Every diagnostic goes through the store's or provider's `out *output.Printer`, never `fmt.Print*` or `os.Stdout`, or it corrupts `check --format json` (`docs/arch/0015-index-diagnostic-writer.md`).
 
 ## Building the index
 
-Both stores embed through `embed.go`, so a change to how ADRs are embedded is made there once; `PgStore` plugs its upsert in as the `persist` hook. An ADR is re-embedded when no stored ADR has its `RelPath`, or the stored one's `Content`, `Title` or `Status` differs. One ADR failing to embed is skipped, not fatal; a cancelled context or every ADR failing is (`docs/arch/0008-buildindex-partial-success.md`).
+Both stores embed through `embed.go`, so a change to how ADRs are embedded is made there once; `PgStore` plugs its upsert in as the `persist` hook. An ADR is re-embedded when no stored ADR has its `RelPath`, or the stored one's `Content`, `Title` or `Status` differs. `runIndex` first fills a `LocalStore` from the saved index with `LoadSaved`, and `BuildIndex` reuses those embeddings only when the saved model name and dimension match the config; a missing or unreadable saved index means every ADR is embedded. One ADR failing to embed is skipped, not fatal; a cancelled context or every ADR failing is (`docs/arch/0008-buildindex-partial-success.md`).
 
 **Staleness detection differs by backend.**
 
-- `LocalStore`: `check` compares the saved model name, dimension and hash with the current ones, and rebuilds on any mismatch or a missing index file. `CalculateHash` covers the model name and each ADR's `RelPath`, body `Content`, `ID` and, when it has any, rules; it does not cover the rest of the frontmatter.
+- `LocalStore`: `check` compares the saved model name, dimension and hash with the current ones, and rebuilds on any mismatch or a missing index file. `Load` names the reason with `ErrIndexMissing`, `ErrEmbeddingModelChanged` or `ErrADRsChanged`, which `check` turns into words; since the hash covers the model name, a model change reports only that. `CalculateHash` covers the model name and each ADR's `RelPath`, body `Content`, `ID` and, when it has any, rules; it does not cover the rest of the frontmatter.
 - `PgStore`: `CalculateHash` is the constant `"remote"` and `Load` compares nothing, so `check` never rebuilds a Postgres index. `Load` and `BuildIndex` both call `ensureSchema`, because `archguard index` calls `BuildIndex` without `Load`. `BuildIndex` syncs `adr_id`, `scope`, `similarity_threshold` and `rules` without re-embedding.
 - So with `LocalStore`, a change that only alters what `Title`, `Status`, `scope` or `similarity_threshold` resolve to (a frontmatter edit, or `analysis.frontmatter_mappings`) needs an explicit `archguard index`; with `PgStore`, every ADR change does.
 

@@ -585,6 +585,15 @@ func (s *PgStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 }
 
 // Cached so a check run reads the corpus once, not once per file; BuildIndex drops it.
+func (s *PgStore) IndexedPaths() ([]string, error) {
+	adrs, err := s.projectADRs()
+	if err != nil {
+		return nil, err
+	}
+
+	return relPaths(adrs), nil
+}
+
 func (s *PgStore) projectADRs() ([]ADR, error) {
 	s.adrsMu.Lock()
 	defer s.adrsMu.Unlock()

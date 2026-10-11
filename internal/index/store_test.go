@@ -2,13 +2,16 @@ package index
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -349,5 +352,173 @@ func TestLocalStore_Load_MissingFileReturnsError(t *testing.T) {
 
 	if len(s.ADRs) != 0 {
 		t.Fatalf("expected ADRs to remain empty on a missing-file Load, got %d", len(s.ADRs))
+	}
+}
+
+func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
+	savedADRs := []ADR{
+		{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"},
+		{RelPath: "0002-b.md", Title: "B", Status: "Accepted", Content: "content b"},
+		{RelPath: "0003-c.md", Title: "C", Status: "Accepted", Content: "content c"},
+	}
+
+	editedB := slices.Clone(savedADRs)
+	editedB[1].Content = "content b, edited"
+
+	tests := []struct {
+		name         string
+		adrs         []ADR
+		model        string
+		dim          int
+		wantEmbedded []string
+	}{
+		{name: "nothing changed", adrs: savedADRs, model: "model-a", dim: 4},
+		{name: "one ADR changed", adrs: editedB, model: "model-a", dim: 4, wantEmbedded: []string{"B"}},
+		{name: "model changed", adrs: savedADRs, model: "model-b", dim: 4, wantEmbedded: []string{"A", "B", "C"}},
+		{name: "dimension changed", adrs: savedADRs, model: "model-a", dim: 8, wantEmbedded: []string{"A", "B", "C"}},
+		{name: "dimension unset", adrs: savedADRs, model: "model-a", dim: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			indexPath := filepath.Join(t.TempDir(), "index.json")
+
+			saved := NewLocalStore(1)
+			if _, err := saved.BuildIndex(t.Context(), "model-a", 4, &inference.MockProvider{EmbeddingDim: 4}, &mockADRProvider{adrs: slices.Clone(savedADRs)}); err != nil {
+				t.Fatalf("initial BuildIndex: %v", err)
+			}
+
+			if err := saved.Save(indexPath); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+
+			embedder := &recordingEmbedder{dim: tc.dim}
+
+			store := NewLocalStore(1)
+			if err := store.LoadSaved(indexPath); err != nil {
+				t.Fatalf("LoadSaved: %v", err)
+			}
+
+			if _, err := store.BuildIndex(t.Context(), tc.model, tc.dim, embedder, &mockADRProvider{adrs: slices.Clone(tc.adrs)}); err != nil {
+				t.Fatalf("BuildIndex: %v", err)
+			}
+
+			if got := embedder.embeddedTitles(); !slices.Equal(got, tc.wantEmbedded) {
+				t.Errorf("embedded %v, want %v", got, tc.wantEmbedded)
+			}
+
+			for _, adr := range store.ADRs {
+				if wantLen := cmp.Or(tc.dim, 4); len(adr.Embedding) != wantLen {
+					t.Errorf("ADR %s: embedding length %d, want %d", adr.RelPath, len(adr.Embedding), wantLen)
+				}
+			}
+		})
+	}
+}
+
+func TestLocalStore_LoadSaved_MissingFileLeavesStoreEmpty(t *testing.T) {
+	store := NewLocalStore(1)
+	if err := store.LoadSaved(filepath.Join(t.TempDir(), "missing.json")); err != nil {
+		t.Fatalf("LoadSaved on a missing file: %v", err)
+	}
+
+	if len(store.ADRs) != 0 {
+		t.Errorf("expected no ADRs, got %d", len(store.ADRs))
+	}
+}
+
+func TestLocalStore_LoadSaved_CorruptFileEmbedsEveryADR(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.json")
+	if err := os.WriteFile(indexPath, []byte(`{"adrs": [{"rel_path": 1}], "model_name": "model-a", "dim": 4}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewLocalStore(1)
+	if err := store.LoadSaved(indexPath); err == nil {
+		t.Fatal("expected an error for a corrupt index")
+	}
+
+	adrs := []ADR{{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"}}
+	embedder := &recordingEmbedder{dim: 4}
+
+	if _, err := store.BuildIndex(t.Context(), "model-a", 4, embedder, &mockADRProvider{adrs: adrs}); err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+
+	if got := embedder.embeddedTitles(); len(got) != 1 {
+		t.Errorf("embedded %v, want the one ADR", got)
+	}
+}
+
+type recordingEmbedder struct {
+	dim    int
+	mu     sync.Mutex
+	titles []string
+}
+
+func (e *recordingEmbedder) CreateEmbedding(_ context.Context, text string, _ inference.EmbeddingTaskType) (inference.Embedding, error) {
+	title, _, _ := strings.Cut(strings.TrimPrefix(text, "Title: "), "\n")
+
+	e.mu.Lock()
+	e.titles = append(e.titles, title)
+	e.mu.Unlock()
+
+	v := make([]float32, cmp.Or(e.dim, 4))
+	v[0] = 1
+
+	return inference.Embedding{Vector: v}, nil
+}
+
+func (e *recordingEmbedder) embeddedTitles() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return slices.Sorted(slices.Values(e.titles))
+}
+
+func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.json")
+
+	saved := &LocalStore{ADRs: []ADR{}, Hash: "hash-a", ModelName: "model-a", Dim: 4}
+	if err := saved.Save(indexPath); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		model   string
+		dim     int
+		hash    string
+		want    []error
+		notWant []error
+	}{
+		{name: "matches", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", notWant: []error{ErrIndexMissing, ErrEmbeddingModelChanged, ErrADRsChanged}},
+		{name: "missing", path: indexPath + ".gone", model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrIndexMissing}},
+		{name: "ADRs changed", path: indexPath, model: "model-a", dim: 4, hash: "hash-b", want: []error{ErrADRsChanged}, notWant: []error{ErrEmbeddingModelChanged}},
+		{name: "dimension changed", path: indexPath, model: "model-a", dim: 8, hash: "hash-a", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},
+		{name: "model changed hides the hash it also changed", path: indexPath, model: "model-b", dim: 4, hash: "hash-b", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := NewLocalStore(1).Load(tc.path, tc.model, tc.dim, tc.hash)
+
+			if len(tc.want) == 0 && err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			for _, want := range tc.want {
+				if !errors.Is(err, want) {
+					t.Errorf("err = %v, want it to be %v", err, want)
+				}
+			}
+
+			for _, notWant := range tc.notWant {
+				if errors.Is(err, notWant) {
+					t.Errorf("err = %v, want it not to be %v", err, notWant)
+				}
+			}
+		})
 	}
 }
