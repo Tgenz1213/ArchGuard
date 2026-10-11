@@ -5,6 +5,7 @@
 - **Default to no comment.** Good names and small functions say what the code does.
 - **Allow a comment only for a non-obvious why.** That means a hidden constraint, a workaround or a subtle invariant the code cannot convey.
 - **Keep a comment to two lines at most.** A longer one is a signal to shorten it or fix the code, not a reason to look for a justification. Write it plainly enough that a non-expert could follow the words even if the concept is technical.
+- **A package comment in `doc.go` may run longer.** It says what the package is for, what it does not own, its key terms and which packages it works with. It never lists files, default values, limits or the order of calls, since those change with the code.
 - **Never restate the code or narrate the change.** No "added for X", "fixes issue Y" or "handles the Z case", and nothing that reads like a tutorial.
 - **Skip section banners and decorative separators.**
 - **Do not require doc comments.** `revive`'s `exported` and `package-comments` are off on purpose, because they demand comments that only restate a name.
