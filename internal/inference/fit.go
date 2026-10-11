@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// ErrInputTooLong marks a provider rejecting text as longer than its embedding model accepts.
 var ErrInputTooLong = errors.New("input exceeds the embedding model's limit")
 
 const maxShortenings = 12
@@ -29,7 +28,6 @@ func EmbedToFit(ctx context.Context, embedder Embedder, text string, task Embedd
 	}
 }
 
-// Keeps about three quarters of text, ending at a line break when that still keeps over half.
 func shortenForEmbedding(text string) string {
 	cut := len(text) * 3 / 4
 	for cut > 0 && !utf8.RuneStart(text[cut]) {

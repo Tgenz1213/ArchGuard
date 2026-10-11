@@ -13,11 +13,10 @@ type FailedStage struct {
 
 // Gaps is everything a run could not check in full.
 type Gaps struct {
-	SkippedFiles []FileGap
-	FailedChecks []FailedCheck
-	FailedStages []FailedStage
-	PartialFiles []FileGap
-	// UnindexedADRs are ADRs missing from the index, so no file was checked against them.
+	SkippedFiles  []FileGap
+	FailedChecks  []FailedCheck
+	FailedStages  []FailedStage
+	PartialFiles  []FileGap
 	UnindexedADRs []ADRGap
 }
 

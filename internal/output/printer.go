@@ -47,7 +47,6 @@ func New(w io.Writer, debug bool, opts ...Option) *Printer {
 	return &Printer{sink: s, debug: debug}
 }
 
-// WithProgress(false) drops progress dots, for a log that isn't going to a terminal.
 func WithProgress(on bool) Option {
 	return func(s *sink) { s.noDots = !on }
 }
@@ -83,7 +82,6 @@ func (p *Printer) Info(format string, args ...any) {
 	p.line(lineRole{}, format, args...)
 }
 
-// Quiet prints Info lines only under --debug, leaving notes, warnings and errors as they are.
 func (p *Printer) Quiet() *Printer {
 	return &Printer{sink: p.out(), debug: p.DebugEnabled(), quiet: true, indent: p.depth()}
 }

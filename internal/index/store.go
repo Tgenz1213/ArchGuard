@@ -141,8 +141,7 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 	return errors.Join(reasons...)
 }
 
-// LoadSaved reads a saved index without validating it, so BuildIndex can reuse
-// its embeddings. A missing file leaves the store empty and is not an error.
+// Unlike Load, it accepts a stale index, since BuildIndex reuses only the embeddings of unchanged ADRs.
 func (s *LocalStore) LoadSaved(path string) error {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
