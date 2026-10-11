@@ -157,14 +157,16 @@ ArchGuard can natively pull your ADRs from Atlassian Confluence using the Conflu
 
 `vector_store.similarity_threshold` is the lowest cosine similarity an ADR can score against a changed file and still be judged. Scores depend on the embedding model, so a value that works for one model can drop almost every ADR with another. Set it for the model you use.
 
-Measured on this repository: 30 ADRs against the files changed in 60 commits, with 16 of those changes labeled by hand with the ADRs that apply ([#295](https://github.com/Tgenz1213/ArchGuard/issues/295)):
+Measured on this repository: 30 ADRs against the files changed in 60 commits, with 16 of those changes labeled by hand with the ADRs that apply ([#295](https://github.com/Tgenz1213/ArchGuard/issues/295), [#311](https://github.com/Tgenz1213/ArchGuard/issues/311)):
 
 | Embedding model | Best ADR score per Go file (10th to 90th percentile) | Start at |
 |---|---|---|
 | Ollama `nomic-embed-text` | 0.69 to 0.79 | `0.6` |
 | Gemini `gemini-embedding-2` | 0.68 to 0.81 | `0.55` |
+| OpenAI `text-embedding-3-small` | 0.44 to 0.69 | `0.3` |
+| Voyage `voyage-4` | 0.56 to 0.76 | `0.4` |
 
-At those values every Go file reaches the model and `analysis.max_relevant_adrs` does the selecting. At `0.75`, 46% (Gemini) to 59% (nomic) of the Go files had no ADR above the threshold, and only a quarter to a third of the ADRs that applied were judged. Raising `max_relevant_adrs` from 3 to 6 judged more of the ADRs that applied (nomic: 67% to 85%; Gemini: 81% to 93%), at up to twice the LLM calls. OpenAI and Voyage embeddings have not been measured; find a value as below.
+At those values nearly every Go file reaches the model and `analysis.max_relevant_adrs` does the selecting. At `0.75`, 46% (Gemini) to 99% (OpenAI) of the Go files had no ADR above the threshold, and at most 37% of the ADRs that applied were judged. Raising `max_relevant_adrs` from 3 to 6 judged more of the ADRs that applied (nomic: 67% to 85%; Gemini: 81% to 93%; OpenAI: 78% to 81%; Voyage: 78% to 93%), at up to twice the LLM calls. Other models, such as `text-embedding-3-large`, have not been measured; find a value as below.
 
 To find a value, run `archguard check --debug` on a few typical changes. Each file lists the ADRs it kept and those `Below threshold`, with their scores. Set the threshold just below the scores of the ADRs you expect to apply, and let `max_relevant_adrs` bound the cost.
 
