@@ -1,6 +1,9 @@
 package index
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func boolPtr(b bool) *bool {
 	return &b
@@ -149,6 +152,36 @@ func TestThresholdsEqual(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := thresholdsEqual(tt.a, tt.b); got != tt.want {
 				t.Errorf("thresholdsEqual(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyADRs_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
+	adr := ADR{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"}
+
+	tests := []struct {
+		name        string
+		savedFormat string
+		wantEmbed   []int
+	}{
+		{name: "current format", savedFormat: embeddingFormat},
+		{name: "older format", savedFormat: "0", wantEmbed: []int{0}},
+		{name: "row from before formats were saved", savedFormat: "", wantEmbed: []int{0}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existing := map[string]storedADR{adr.RelPath: {ADR: adr, embeddingFormat: tt.savedFormat}}
+
+			toEmbed, toSync := classifyADRs(existing, []ADR{adr})
+
+			if !slices.Equal(toEmbed, tt.wantEmbed) {
+				t.Errorf("toEmbed = %v, want %v", toEmbed, tt.wantEmbed)
+			}
+
+			if len(toSync) != 0 {
+				t.Errorf("toSync = %v, want none", toSync)
 			}
 		})
 	}

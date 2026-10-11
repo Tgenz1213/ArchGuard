@@ -147,6 +147,7 @@ func TestLocalStore_Search_MultiPatternScopeSurvivesSaveLoadRoundTrip(t *testing
 	store.ModelName = "test-model"
 	store.Dim = 2
 	store.Hash = "test-hash"
+	store.EmbeddingFormat = embeddingFormat
 	store.ADRs = []ADR{
 		{Title: "Multi Scope", Scope: ScopePatterns{"internal/api/**", "internal/handlers/**"}, Embedding: []float32{1, 1}},
 	}

@@ -59,7 +59,7 @@ func TestLocalStore_RulesRoundTripThroughSaveAndLoad(t *testing.T) {
 	rules := Rules{{Statement: "A", Violating: []string{"bad()"}, Compliant: []string{"good()"}}}
 
 	store := NewLocalStore(1)
-	store.ModelName, store.Dim, store.Hash = "model", 2, "h"
+	store.ModelName, store.Dim, store.Hash, store.EmbeddingFormat = "model", 2, "h", embeddingFormat
 	store.ADRs = []ADR{{ID: "0001", RelPath: "0001-a.md", Rules: rules}, {ID: "0002", RelPath: "0002-b.md"}}
 
 	if err := store.Save(path); err != nil {

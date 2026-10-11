@@ -12,6 +12,10 @@ import (
 
 const defaultEmbedConcurrency = 5
 
+// embeddingFormat names how an ADR's embedding input is built, here and in the inference providers.
+// Change it with any change to that input, so every saved embedding is rebuilt (docs/arch/0038-embedding-format-saved-with-the-index.md).
+const embeddingFormat = "1"
+
 type embedJob struct {
 	adrs        []ADR
 	embedder    inference.Embedder

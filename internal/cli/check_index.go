@@ -51,7 +51,7 @@ func (r *checkRun) loadIndex(ctx context.Context, store index.VectorStore) error
 func staleReason(err error) string {
 	var reasons []string
 
-	for _, known := range []error{index.ErrIndexMissing, index.ErrEmbeddingModelChanged, index.ErrADRsChanged} {
+	for _, known := range []error{index.ErrIndexMissing, index.ErrEmbeddingModelChanged, index.ErrEmbeddingFormatChanged, index.ErrADRsChanged} {
 		if errors.Is(err, known) {
 			reasons = append(reasons, known.Error())
 		}
