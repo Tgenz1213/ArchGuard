@@ -24,11 +24,25 @@ At 50 projects a query returns fewer than one relevant ADR on average, out of 3 
 
 The Postgres store sets pgvector's `hnsw.iterative_scan = 'relaxed_order'` on every pooled connection. The graph walk then continues until it has `topK` candidates that also pass the project filter, up to pgvector's own scan cap.
 
-The setting exists only from pgvector 0.8.0, so the store checks the installed extension version before setting it. The check is required: Postgres accepts `SET` of an unknown setting without error, so setting it and catching the error would silently keep the degraded recall on an older install. `ALTER ROLE ... SET` has the same problem. A version check is the only way to know in advance whether the setting takes effect.
+The setting exists only from pgvector 0.8.0, so the store checks the installed extension version before setting it. The check is required: Postgres accepts `SET` of an unknown setting without error. A version check is the only way to know in advance whether the setting takes effect.
 
 The `vector_store.iterative_scan` config key gates it. Unset or `true` means on when pgvector supports it; `false` turns it off on any version. When the config wants it but pgvector is too old, the store prints a one-time warning naming the detected version and pointing at this ADR. No warning fires when the user turned it off.
 
-`relaxed_order` is chosen over `strict_order`. `strict_order` keeps exact distance order but scans conservatively, close to no iterative scan under a post-hoc filter. The failure being fixed is filtered-out candidates, not exact ranking, so the ordering guarantee is not worth the weaker recall.
+`relaxed_order` is chosen over `strict_order`.
+
+## Rules
+
+- The Postgres store MUST set pgvector's `hnsw.iterative_scan = 'relaxed_order'` on every pooled connection when `vector_store.iterative_scan` is unset or `true` and pgvector supports it.
+- The Postgres store MUST check the installed pgvector extension version before setting `hnsw.iterative_scan`.
+- `vector_store.iterative_scan: false` MUST turn iterative scan off on any pgvector version.
+- When the config wants iterative scan but pgvector is too old, the store MUST print a one-time warning naming the detected version and pointing at this ADR, and MUST NOT warn when the user turned it off.
+
+## Alternatives considered
+
+- **Set it and catch the error.** Postgres accepts `SET` of an unknown setting without error, so this would silently keep the degraded recall on an older install.
+- **`ALTER ROLE ... SET`.** It has the same problem.
+- **`strict_order`.** It keeps exact distance order but scans conservatively, close to no iterative scan under a post-hoc filter. The failure being fixed is filtered-out candidates, not exact ranking, so the ordering guarantee is not worth the weaker recall.
+- **Restructure the table into per-project indexes or partitions.** True multi-tenant partitioning, if a larger scale ever needs it, is a separate change.
 
 ## Consequences
 
@@ -37,4 +51,4 @@ The `vector_store.iterative_scan` config key gates it. Unset or `true` means on 
 - `relaxed_order` does not guarantee the exact top-K by cosine distance. Near-ties in ranking among relevant ADRs are a smaller problem than the recall loss this fixes.
 - A pgvector older than 0.8.0 gets a warning, and the run proceeds with degraded recall. This is warn, not fail, consistent with the codebase's other warn-on-degraded-input policies such as CI Warn-Open truncation.
 - A user who finds the latency cost unacceptable can set `vector_store.iterative_scan: false`, trading recall back for lower, more predictable latency.
-- This mitigates the recall loss without restructuring the table into per-project indexes or partitions. True multi-tenant partitioning, if a larger scale ever needs it, is a separate change.
+- This mitigates the recall loss without restructuring the table.

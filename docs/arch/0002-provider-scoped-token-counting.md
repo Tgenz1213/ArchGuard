@@ -10,8 +10,6 @@ scope: "internal/**"
 
 Token counts decide where a file is truncated before it reaches the model. ArchGuard counted every model's tokens with an OpenAI tiktoken encoder, falling back to `cl100k_base` for any model tiktoken did not know. That is every non-OpenAI model, including the default Ollama model. A Llama token and a `cl100k_base` token do not span the same text, so truncation was wrong for every default install.
 
-Bundling an exact offline tokenizer for every model family Ollama can serve would mean shipping per-family vocabulary data that drifts out of date.
-
 ## Decision
 
 `inference.Chatter` has `CountTokens`. Each provider counts tokens with the mechanism that reflects its own backend's real tokenizer:
@@ -23,6 +21,16 @@ Bundling an exact offline tokenizer for every model family Ollama can serve woul
 Truncation estimates a cut point and verifies it with `CountTokens` until the text fits, since only tiktoken supports encoding and decoding slices locally.
 
 If `CountTokens` fails, the error reaches the caller. A heuristic count is never substituted.
+
+## Rules
+
+- Each provider MUST count tokens with the mechanism that reflects its own backend's real tokenizer.
+- Truncation MUST verify its estimated cut point with `CountTokens` until the text fits.
+- If `CountTokens` fails, the error MUST reach the caller, and a heuristic count MUST NOT be substituted.
+
+## Alternatives considered
+
+- **Bundle an exact offline tokenizer for every model family Ollama can serve.** It would mean shipping per-family vocabulary data that drifts out of date.
 
 ## Consequences
 

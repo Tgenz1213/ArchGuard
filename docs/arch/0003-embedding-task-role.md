@@ -16,6 +16,15 @@ Some embedding backends tune an embedding differently depending on whether the t
 
 Each provider maps the role onto its backend's own mechanism. Gemini maps it to `TaskType`. Ollama maps it to a text prefix for embedding models with a documented prefix convention, held in a table, so a second model's convention is a new entry rather than a new code branch. OpenAI has no equivalent and ignores it.
 
+## Rules
+
+- Callers of `CreateEmbedding` MUST pass the role that matches what they are doing, not one that depends on the configured provider.
+- Ollama's text prefixes for embedding models MUST be held in a table, so a second model's convention is a new entry rather than a new code branch.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - Every `inference.Embedder` implementation must accept `EmbeddingTaskType`, even one that ignores it.
