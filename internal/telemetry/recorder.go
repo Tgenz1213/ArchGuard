@@ -15,7 +15,7 @@ const (
 )
 
 // Recorder is told what a run did, where it happens. Implementations must be safe for concurrent use
-// and must never write to stdout, which carries the report (docs/arch/0036-run-recorder-seam.md).
+// and must never write to stdout, which carries the report (docs/arch/0035-run-recorder-seam.md).
 type Recorder interface {
 	// A failed request is still sent; its usage is the zero value.
 	RequestSent(role Role, usage inference.Usage, err error)
