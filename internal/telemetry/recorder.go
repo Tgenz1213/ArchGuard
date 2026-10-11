@@ -14,45 +14,44 @@ const (
 	Embedding  Role = "embedding"
 )
 
-// Recorder is told what a run did, where it happens. Implementations must be safe for concurrent use
-// and must never write to stdout, which carries the report (docs/arch/0035-run-recorder-seam.md).
 type Recorder interface {
-	// A failed request is still sent; its usage is the zero value.
-	RequestSent(role Role, usage inference.Usage, err error)
-	CacheChecked(role Role, hit bool)
-	RetriesSent(role Role, retries int)
-	FileChecked(file string, spent time.Duration)
+	Record(event Event)
 }
 
-type Nop struct{}
+type Event interface {
+	isEvent()
+}
 
-func (Nop) RequestSent(Role, inference.Usage, error) {}
-func (Nop) CacheChecked(Role, bool)                  {}
-func (Nop) RetriesSent(Role, int)                    {}
-func (Nop) FileChecked(string, time.Duration)        {}
+type RequestSent struct {
+	Role  Role
+	Usage inference.Usage
+	Err   error
+}
+
+type CacheChecked struct {
+	Role Role
+	Hit  bool
+}
+
+type RetriesSent struct {
+	Role    Role
+	Retries int
+}
+
+type FileChecked struct {
+	File  string
+	Spent time.Duration
+}
+
+func (RequestSent) isEvent()  {}
+func (CacheChecked) isEvent() {}
+func (RetriesSent) isEvent()  {}
+func (FileChecked) isEvent()  {}
 
 type Fanout []Recorder
 
-func (f Fanout) RequestSent(role Role, usage inference.Usage, err error) {
+func (f Fanout) Record(event Event) {
 	for _, recorder := range f {
-		recorder.RequestSent(role, usage, err)
-	}
-}
-
-func (f Fanout) CacheChecked(role Role, hit bool) {
-	for _, recorder := range f {
-		recorder.CacheChecked(role, hit)
-	}
-}
-
-func (f Fanout) RetriesSent(role Role, retries int) {
-	for _, recorder := range f {
-		recorder.RetriesSent(role, retries)
-	}
-}
-
-func (f Fanout) FileChecked(file string, spent time.Duration) {
-	for _, recorder := range f {
-		recorder.FileChecked(file, spent)
+		recorder.Record(event)
 	}
 }

@@ -14,8 +14,8 @@ import (
 
 func tallyOf(chatUsage, embedUsage inference.Usage) *telemetry.Tally {
 	tally := &telemetry.Tally{}
-	tally.RequestSent(telemetry.Judgment, chatUsage, nil)
-	tally.RequestSent(telemetry.Embedding, embedUsage, nil)
+	tally.Record(telemetry.RequestSent{Role: telemetry.Judgment, Usage: chatUsage})
+	tally.Record(telemetry.RequestSent{Role: telemetry.Embedding, Usage: embedUsage})
 
 	return tally
 }
@@ -88,13 +88,13 @@ func assertCost(t *testing.T, role string, got *float64, want float64) {
 
 func TestUsageReport_Counts(t *testing.T) {
 	tally := tallyOf(inference.Usage{Reported: true}, inference.Usage{Reported: true})
-	tally.RequestSent(telemetry.Suggestion, inference.Usage{Reported: true}, nil)
-	tally.CacheChecked(telemetry.Judgment, true)
-	tally.CacheChecked(telemetry.Judgment, false)
-	tally.RetriesSent(telemetry.Judgment, 3)
-	tally.CacheChecked(telemetry.Suggestion, false)
-	tally.FileChecked("fast.go", 10*time.Millisecond)
-	tally.FileChecked("slow.go", 900*time.Millisecond)
+	tally.Record(telemetry.RequestSent{Role: telemetry.Suggestion, Usage: inference.Usage{Reported: true}})
+	tally.Record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: true})
+	tally.Record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: false})
+	tally.Record(telemetry.RetriesSent{Role: telemetry.Judgment, Retries: 3})
+	tally.Record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: false})
+	tally.Record(telemetry.FileChecked{File: "fast.go", Spent: 10 * time.Millisecond})
+	tally.Record(telemetry.FileChecked{File: "slow.go", Spent: 900 * time.Millisecond})
 
 	usage := usageReport(&config.Config{}, true, tally)
 
@@ -129,7 +129,7 @@ func TestUsageReport_ListsNoFilesAsEmpty(t *testing.T) {
 func TestNewRecorder_SendsEventsToTheInjectedRecorderToo(t *testing.T) {
 	tally, injected := &telemetry.Tally{}, &telemetry.Tally{}
 
-	newRecorder(tally, injected).CacheChecked(telemetry.Judgment, true)
+	newRecorder(tally, injected).Record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: true})
 
 	if tally.Totals(telemetry.Judgment).CacheHits != 1 || injected.Totals(telemetry.Judgment).CacheHits != 1 {
 		t.Error("an event reached only one of the run's tally and the injected recorder")

@@ -56,8 +56,7 @@ type Engine struct {
 	Stages      []stage.Stage
 	DryRun      bool
 	Projection  Projection
-	// Nil records nothing. Under --dry-run a cache miss is a judgment that would have been sent.
-	Recorder telemetry.Recorder
+	Recorder    telemetry.Recorder
 }
 
 type Violation struct {
@@ -157,12 +156,10 @@ func (e *Engine) systemPrompt() string {
 	return inference.DefaultSystemPrompt
 }
 
-func (e *Engine) recorder() telemetry.Recorder {
+func (e *Engine) record(event telemetry.Event) {
 	if e.Recorder != nil {
-		return e.Recorder
+		e.Recorder.Record(event)
 	}
-
-	return telemetry.Nop{}
 }
 
 func (e *Engine) suggestionChat() inference.Chatter {

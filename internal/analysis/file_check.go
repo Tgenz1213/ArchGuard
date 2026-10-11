@@ -29,7 +29,7 @@ type fileCheck struct {
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 	start := time.Now()
-	defer func() { e.recorder().FileChecked(file, time.Since(start)) }()
+	defer func() { e.record(telemetry.FileChecked{File: file, Spent: time.Since(start)}) }()
 
 	fc := &fileCheck{engine: e, run: run, out: run.out.Group(file), file: file}
 	defer fc.out.Flush()
@@ -182,14 +182,14 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 	cacheKey := fc.analysisKey(hit)
 
 	hitRes, found := fc.cachedVerdict(cacheKey)
-	e.recorder().CacheChecked(telemetry.Judgment, found)
+	e.record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: found})
 
 	if found {
 		return hitRes, true, nil
 	}
 
 	result, retries, err := inference.AnalyzeDrift(ctx, e.Chat, input, e.systemPrompt())
-	e.recorder().RetriesSent(telemetry.Judgment, retries)
+	e.record(telemetry.RetriesSent{Role: telemetry.Judgment, Retries: retries})
 
 	if err != nil {
 		return nil, false, err
@@ -374,14 +374,14 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit stage.Candidate, input 
 	})
 
 	cached, found := fc.cachedSuggestion(key)
-	e.recorder().CacheChecked(telemetry.Suggestion, found)
+	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: found})
 
 	if found {
 		return cached
 	}
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
-	e.recorder().RetriesSent(telemetry.Suggestion, retries)
+	e.record(telemetry.RetriesSent{Role: telemetry.Suggestion, Retries: retries})
 
 	if err != nil {
 		fc.out.Warn("suggestion generation failed: %v", err)

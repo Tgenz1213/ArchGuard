@@ -40,9 +40,8 @@ const configFilename = "archguard.yaml"
 
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
-	Chat  func(*config.Config) inference.Provider
-	Embed func(*config.Config) inference.Embedder
-	// Also receives every event a check records; nil adds nothing.
+	Chat     func(*config.Config) inference.Provider
+	Embed    func(*config.Config) inference.Embedder
 	Recorder telemetry.Recorder
 }
 

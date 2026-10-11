@@ -6,7 +6,6 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-// One Chatter per role, since a single provider serves judgments and suggestions concurrently and cannot tell them apart.
 type Chatter struct {
 	inference.Chatter
 	role     Role
@@ -19,7 +18,7 @@ func NewChatter(chat inference.Chatter, role Role, recorder Recorder) *Chatter {
 
 func (c *Chatter) Chat(ctx context.Context, systemPrompt, userPrompt string) (inference.ChatReply, error) {
 	reply, err := c.Chatter.Chat(ctx, systemPrompt, userPrompt)
-	c.recorder.RequestSent(c.role, reply.Usage, err)
+	c.recorder.Record(RequestSent{Role: c.role, Usage: reply.Usage, Err: err})
 
 	return reply, err
 }
@@ -35,7 +34,7 @@ func NewEmbedder(embed inference.Embedder, recorder Recorder) *Embedder {
 
 func (e *Embedder) CreateEmbedding(ctx context.Context, text string, task inference.EmbeddingTaskType) (inference.Embedding, error) {
 	embedding, err := e.Embedder.CreateEmbedding(ctx, text, task)
-	e.recorder.RequestSent(Embedding, embedding.Usage, err)
+	e.recorder.Record(RequestSent{Role: Embedding, Usage: embedding.Usage, Err: err})
 
 	return embedding, err
 }

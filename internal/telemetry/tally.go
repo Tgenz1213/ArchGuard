@@ -10,7 +10,6 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-// Usage.Reported is false when any request in the total was unreported, since a partial sum would undercount.
 type Totals struct {
 	Calls       int
 	CacheHits   int
@@ -29,55 +28,49 @@ type roleTotals struct {
 	unreported bool
 }
 
-// Tally keeps a run's totals in memory; the JSON usage is built from it. The zero value is ready to use.
 type Tally struct {
 	mu    sync.Mutex
 	roles map[Role]*roleTotals
 	files []FileTime
 }
 
-func (t *Tally) RequestSent(role Role, usage inference.Usage, err error) {
+func (t *Tally) Record(event Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	totals := t.role(role)
+	switch event := event.(type) {
+	case RequestSent:
+		t.addRequest(event)
+	case CacheChecked:
+		t.addCacheLookup(event)
+	case RetriesSent:
+		t.role(event.Role).Retries += event.Retries
+	case FileChecked:
+		t.files = append(t.files, FileTime{File: event.File, Spent: event.Spent})
+	}
+}
+
+func (t *Tally) addRequest(event RequestSent) {
+	totals := t.role(event.Role)
 	totals.Calls++
 
-	if err != nil {
+	if event.Err != nil {
 		return
 	}
 
-	totals.Usage.InputTokens += usage.InputTokens
-	totals.Usage.OutputTokens += usage.OutputTokens
-	totals.unreported = totals.unreported || !usage.Reported
+	totals.Usage.InputTokens += event.Usage.InputTokens
+	totals.Usage.OutputTokens += event.Usage.OutputTokens
+	totals.unreported = totals.unreported || !event.Usage.Reported
 }
 
-func (t *Tally) CacheChecked(role Role, hit bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if hit {
-		t.role(role).CacheHits++
+func (t *Tally) addCacheLookup(event CacheChecked) {
+	if event.Hit {
+		t.role(event.Role).CacheHits++
 	} else {
-		t.role(role).CacheMisses++
+		t.role(event.Role).CacheMisses++
 	}
 }
 
-func (t *Tally) RetriesSent(role Role, retries int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.role(role).Retries += retries
-}
-
-func (t *Tally) FileChecked(file string, spent time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.files = append(t.files, FileTime{File: file, Spent: spent})
-}
-
-// Callers hold mu.
 func (t *Tally) role(role Role) *roleTotals {
 	if t.roles == nil {
 		t.roles = map[Role]*roleTotals{}
@@ -101,7 +94,6 @@ func (t *Tally) Totals(role Role) Totals {
 	return snapshot
 }
 
-// Files lists every checked file, slowest first.
 func (t *Tally) Files() []FileTime {
 	t.mu.Lock()
 	defer t.mu.Unlock()

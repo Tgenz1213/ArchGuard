@@ -7,7 +7,6 @@ import (
 	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
-// The run always records into a Tally for its report, and into the caller's recorder too when one was injected.
 func newRecorder(tally *telemetry.Tally, injected telemetry.Recorder) telemetry.Recorder {
 	if injected == nil {
 		return tally

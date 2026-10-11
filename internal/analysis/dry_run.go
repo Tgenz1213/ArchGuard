@@ -22,7 +22,7 @@ func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inf
 	e := fc.engine
 
 	_, found := fc.cachedVerdict(fc.analysisKey(hit))
-	e.recorder().CacheChecked(telemetry.Judgment, found)
+	e.record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: found})
 
 	if found {
 		fc.out.Debug("%s", checkOutcomeLine(hit, "dry run", true))
