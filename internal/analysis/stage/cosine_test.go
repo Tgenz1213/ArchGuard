@@ -184,3 +184,31 @@ func TestCosineStage_KeepsSameIDDifferentPathADRsApart(t *testing.T) {
 		t.Fatalf("got %d candidates, want only the near ADR: ADRs sharing an ID must keep their own scores", len(got))
 	}
 }
+
+func TestCosineStage_ShortensAFileTheModelRejectsAsTooLong(t *testing.T) {
+	store := cosineStore(cosineADR("near", 1, 0))
+	embedder := &inference.MockProvider{EmbedFunc: func(_ context.Context, text string, _ inference.EmbeddingTaskType) ([]float32, error) {
+		if len(text) > 500 {
+			return nil, inference.ErrInputTooLong
+		}
+
+		return []float32{1, 0}, nil
+	}}
+	s := stage.NewCosineStage(store, embedder, 0.5, 5)
+
+	var debugOut bytes.Buffer
+	file := fakeFile{path: "svc.go", text: strings.Repeat("a line of code\n", 100)}
+
+	got, err := s.Apply(t.Context(), file, output.New(&debugOut, true), candidatesFor(t, store))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if ids(got) != "near" {
+		t.Fatalf("got %s, want near", ids(got))
+	}
+
+	if !strings.Contains(debugOut.String(), "svc.go") {
+		t.Errorf("expected --debug output to name the shortened file, got %q", debugOut.String())
+	}
+}

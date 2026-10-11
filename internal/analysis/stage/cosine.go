@@ -24,7 +24,13 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 		return nil, &Error{Action: "generating embedding", Kind: KindPreconditionNotMet, Err: errors.New("no embedding provider configured")}
 	}
 
-	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(ctx), inference.EmbeddingTaskQuery)
+	query := file.QueryText(ctx)
+
+	embedding, embedded, err := inference.EmbedToFit(ctx, c.Embed, query, inference.EmbeddingTaskQuery)
+	if len(embedded) < len(query) {
+		debug.Debug("%s shortened from %d to %d characters to fit the embedding model", file.Path(), len(query), len(embedded))
+	}
+
 	if err != nil {
 		return nil, &Error{Action: "generating embedding", Err: err}
 	}

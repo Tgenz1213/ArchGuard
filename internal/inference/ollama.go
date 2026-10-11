@@ -3,6 +3,8 @@ package inference
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -117,7 +119,7 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 
 	resp, err := p.client.Embeddings(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, ollamaEmbeddingError(err)
 	}
 
 	embedding := make([]float32, len(resp.Embedding))
@@ -126,6 +128,16 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 	}
 
 	return embedding, nil
+}
+
+// The legacy embeddings endpoint answers every failure with 500, so only the message identifies an over-long input.
+func ollamaEmbeddingError(err error) error {
+	var status api.StatusError
+	if errors.As(err, &status) && strings.Contains(status.ErrorMessage, "exceeds") && strings.Contains(status.ErrorMessage, "context length") {
+		return fmt.Errorf("%w: %w", ErrInputTooLong, err)
+	}
+
+	return err
 }
 
 func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, error) {

@@ -100,7 +100,11 @@ func (j embedJob) embedOne(ctx context.Context, idx int) error {
 	adr := j.adrs[idx]
 	text := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", adr.Title, adr.Status, adr.Content)
 
-	emb, err := j.embedder.CreateEmbedding(ctx, text, inference.EmbeddingTaskDocument)
+	emb, embedded, err := inference.EmbedToFit(ctx, j.embedder, text, inference.EmbeddingTaskDocument)
+	if len(embedded) < len(text) {
+		j.out.Debug("ADR %s shortened from %d to %d characters to fit the embedding model", adr.RelPath, len(text), len(embedded))
+	}
+
 	if err != nil {
 		if j.embedLabel != "" {
 			return fmt.Errorf("%s: %w", j.embedLabel, err)
