@@ -11,14 +11,14 @@ scope:
 
 ## Context
 
-#72 and #261 added token, call, cache, retry and per-file timing figures to `check`'s JSON `usage`. They were counted by hand in three places: metering decorators in `inference`, counters on the engine's per-file results, and a timer in `Engine.checkFile`. Someone who later wants these numbers in another system would have to find and touch each of them. See #262.
+#72 and #261 added token, call, cache, retry and per-file timing figures to `check`'s JSON `usage`. They were counted by hand in three places: metering decorators around the providers, counters on the engine's per-file results, and a timer in the engine. Someone who later wants these numbers in another system would have to find and touch each of them. See #262.
 
 ## Decision
 
-- **`telemetry.Recorder` is the one place the engine and the provider boundary report what a run did.** It is an interface in `internal/telemetry` with one method, `Record(Event)`, and a run calls it where the event happens.
-- **Events are typed structs, named in the past tense for what happened.** `RequestSent` for every chat or embedding request, `CacheChecked` for every cache lookup, `RetriesSent` for the retries behind one call, and `FileChecked` for each file the engine checked. A `Role` (`Judgment`, `Suggestion`, `Embedding`) says which kind of call an event belongs to. A new figure is a new event type, and a recorder ignores the types it does not handle, so adding one changes no recorder or test double.
-- **It is injected the way `Chat` and `Embed` are.** `Engine.Recorder` is a field, nil meaning nothing is recorded, and `cli.ProviderFactories.Recorder` lets a caller of `Execute` add its own, nil by default. The provider boundary is recorded by `telemetry.Chatter` and `telemetry.Embedder`, decorators that `cli` wraps around the providers, one per role.
-- **The JSON `usage` is built from a `telemetry.Tally`,** a recorder that keeps the totals in memory. `cli` always records into a `Tally` and, when a caller injected a recorder, into that one too.
+- **`telemetry.Recorder` is the one place the engine and the provider boundary report what a run did.** It has a single method that takes an event, and a run calls it where the event happens.
+- **Events are typed structs, named in the past tense for what happened.** Each carries the kind of call it belongs to (judgment, suggestion or embedding). A new figure is a new event type, and a recorder ignores the types it does not handle, so adding one changes no recorder or test double.
+- **It is injected the way `Chat` and `Embed` are.** It is optional on the engine, and a caller of `cli.Execute` can add its own. The provider boundary is recorded by decorators around the providers, one per kind of call.
+- **The JSON `usage` is built from a recorder that keeps the totals in memory.** It records every run, alongside any recorder a caller injected.
 - **A recorder never writes to stdout.** Stdout carries the report (`docs/arch/0028-check-report-and-log.md`); a recorder that prints writes to stderr or its own destination.
 
 ## Rules
@@ -36,6 +36,6 @@ scope:
 
 ## Consequences
 
-- The meters move from `inference` to `telemetry`, which imports `inference` for `Usage` and the provider interfaces; `inference` does not import `telemetry`.
-- The per-stage `stages` totals stay in `stage.Telemetry`, which already gathers them in one object, and `Coverage` stays on the engine, since it is part of the verdict rather than a cost. Moving either is a separate change.
-- `--dry-run`'s projected tokens are not an event, since nothing was sent, and stay on `Engine.Projection`.
+- The meters live in `telemetry`, which imports `inference`; `inference` does not import `telemetry`.
+- The per-stage totals and the run's coverage stay where they are: the stage totals are already gathered in one object, and coverage is part of the verdict rather than a cost. Moving either is a separate change.
+- `--dry-run`'s projected tokens are not an event, since nothing was sent.

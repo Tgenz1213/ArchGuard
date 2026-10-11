@@ -10,15 +10,15 @@ scope:
 
 ## Context
 
-A file is skipped when it cannot be read, when its candidate ADRs cannot be loaded, or when a scoring stage with the default `on_error: skip` fails, and an ADR check fails when the LLM call fails. Each is listed in the report, but none changed the exit code. A run where every one of them failed, because the database, the embedding provider or the LLM was down, exited `0` like a clean run, so a pipeline gating on the exit code could stop checking anything and stay green. See #127.
+A file is skipped when it cannot be read, when its candidate ADRs cannot be loaded, or when a scoring stage with `on_error: skip` fails, and an ADR check fails when the LLM call fails. Each is listed in the report, but none changed the exit code. A run where every one of them failed, because the database, the embedding provider or the LLM was down, exited `0` like a clean run, so a pipeline gating on the exit code could stop checking anything and stay green. See #127.
 
 ## Decision
 
 - **A run exits `8` when errors left it with no ADR check.** That is: at least one file was skipped by an error or at least one ADR check failed, and no ADR check returned a verdict. It applies to every mode, `--ci` or not, and to every skip cause alike.
-- **Partial failures keep exiting `0`.** When any ADR check returned a verdict, skipped files and failed checks are listed in the report and the exit code is decided as before. That is what `on_error: skip` is for.
+- **Partial failures do not change the exit code.** When any ADR check returned a verdict, skipped files and failed checks are listed in the report. That is what `on_error: skip` is for.
 - **A file skipped as too large under `--ci` is not an error.** It is the Warn-Open policy (`docs/arch/0028-check-report-and-log.md`), so it alone never makes a run exit `8`.
-- **The report is still written.** `check` prints its report or JSON document, then exits `8` with an `Error:` line. `--update-baseline` exits `8` without writing the baseline, because a baseline from a run that checked nothing would drop every entry.
-- **Precedence.** A failed write of the report (`1`) and the stage failures under `on_error: fail` (`7`, then `6`) win over `8`. A run that exits `8` found no violation, so it never competes with `4`.
+- **The report is still written.** `--update-baseline` does not write the baseline, because a baseline from a run that checked nothing would drop every entry.
+- **Precedence.** A failed write of the report and a stage failure under `on_error: fail` win over `8`. A run that exits `8` found no violation, so it never competes with `4`.
 
 ## Rules
 
@@ -34,6 +34,6 @@ A file is skipped when it cannot be read, when its candidate ADRs cannot be load
 
 ## Consequences
 
-- An outage of the database, the embedding provider or the LLM now fails the run instead of passing it.
-- `check missing.js`, a path that does not exist, exits `8` instead of `0`.
+- An outage of the database, the embedding provider or the LLM fails the run instead of passing it.
+- A path that does not exist, as in `check missing.js`, exits `8`.
 - A run with one file skipped by an error and every other file without a relevant ADR exits `8`, since no ADR check ran.
