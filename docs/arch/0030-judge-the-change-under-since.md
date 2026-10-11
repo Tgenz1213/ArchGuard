@@ -24,8 +24,8 @@ scope:
 
 ## Rules
 
-- Code that sends the model a whole file for a `--since` check without `--whole-file`, instead of the file's diff hunks.
-- Code that reports a `--since` finding whose quoted code is only in unchanged context lines, unless `--whole-file` is set.
+- A `--since` check MUST send the model each file's diff hunks, not the whole file, unless `--whole-file` is set.
+- A `--since` finding whose quoted code is only in unchanged context lines MUST NOT be reported, unless `--whole-file` is set.
 
 ## Alternatives considered
 

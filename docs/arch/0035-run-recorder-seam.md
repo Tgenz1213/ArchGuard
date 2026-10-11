@@ -23,8 +23,8 @@ scope:
 
 ## Rules
 
-- Code outside `internal/telemetry` that totals provider requests, token usage, cache lookups, retries or per-file time itself instead of calling `telemetry.Recorder`.
-- A `telemetry.Recorder` implementation that writes to stdout.
+- Code outside `internal/telemetry` MUST NOT total provider requests, token usage, cache lookups, retries or per-file time itself instead of calling `telemetry.Recorder`.
+- A `telemetry.Recorder` implementation MUST NOT write to stdout.
 
 ## Alternatives considered
 

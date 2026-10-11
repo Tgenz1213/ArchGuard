@@ -21,7 +21,7 @@ ArchGuard needs only a few of Ollama's REST endpoints, each with a single JSON r
 
 ## Rules
 
-- Code that imports `github.com/ollama/ollama` or any of its packages.
+- Code MUST NOT import `github.com/ollama/ollama` or any of its packages.
 
 ## Alternatives considered
 

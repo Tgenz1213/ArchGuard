@@ -24,9 +24,15 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 
 ## Rules
 
-[Optional. One bullet per rule, each a short statement of what violating code looks like. Nested bullets are ignored.]
+[One bullet per rule, each a MUST or MUST NOT statement that restates the Decision. Every file in `scope` is checked against each rule. Nested bullets are ignored. Write "None." when no file could break the decision.]
 
 - [e.g. All code MUST be written in Go.]
+
+## Alternatives considered
+
+[The options rejected and why. Write "None recorded." when there were none.]
+
+- **[Alternative].** [Why it was rejected.]
 
 ## Consequences
 
