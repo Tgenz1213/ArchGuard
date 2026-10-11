@@ -8,6 +8,6 @@ paths:
 
 # Tests
 
-How tests are written, tagged and run is in `docs/standards/testing.md`. `.golangci.yml` lists the `integration` and `e2e` tags under `run.build-tags`, so tagged files are linted too.
+How tests are written, tagged and run is in [testing.md](../../docs/standards/testing.md).
 
-`cmd/archguard-e2e` is a second binary that passes one `inference.MockProvider` per role to `cli.Execute`'s `ProviderFactories`; `test/e2e` builds and runs it as a subprocess instead of calling real LLM APIs or Ollama.
+- **A new build tag is added to `run.build-tags` in `.golangci.yml`,** or the files behind it are never linted.

@@ -6,42 +6,8 @@ paths:
 
 # `internal/cli`
 
-One file per job: `cli.go` (`Execute`, startup), `commands.go` (the `kong` command line), `validate.go`, `providers.go`, `streams.go` (per-stream color and printers), `adr_provider.go` (shared by `check` and `index`), and one file per command (`init.go`, `index.go`, `check.go` with `check_index.go`).
-
-## Startup
-
-`Execute(ctx, version, factories)` parses the command line before touching git or config, so help and `--version` work outside a repository (`docs/arch/0025-kong-command-line.md`). It then `chdir`s to the git root (every path is repo-relative), loads `archguard.yaml` (or the `--config` file, made absolute before the `chdir`), validates it, builds the providers and dispatches. `factories` (`ProviderFactories{Chat, Embed, Recorder}`) is the test injection point and is zero in production.
-
-Provider pairing, the rules `validateProviderConfig` enforces, and why `ARCHGUARD_EMBEDDING_API_KEY` never falls back to `ARCHGUARD_API_KEY` are in `docs/arch/0004-decoupled-chat-and-embedding-providers.md`. One instance serves both roles when `llm.provider` and `vector_store.provider` resolve to the same name.
-
-## Output streams
-
-`checkRun` wraps the providers in one `telemetry` meter per role before anything runs, so an index rebuild is counted too. Every event goes to the run's `telemetry.Tally`, which both reports' `usage` is built from (`docs/arch/0035-run-recorder-seam.md`).
-
-`check` writes its result to stdout and everything else to stderr: the end-of-run report in text mode, or the one JSON document under `--format json` (`docs/arch/0028-check-report-and-log.md`, `docs/arch/0014-json-check-output.md`). `checkRun` holds two printers, `log` (stderr) and `report` (stdout, or a buffer saved to `--output`), and passes `log` to everything it calls that prints, including an index rebuild. `index` and `init` print on stdout.
-
-With `GITHUB_ACTIONS=true` and text output, `runCheck` prints one `::error` annotation per new violation and one `::warning` per unverified finding after the run, but not under `--update-baseline`.
-
-## Exit codes
-
-Exit codes are meaningful and tested; preserve them if you touch command dispatch.
-
-| Code | Meaning |
-|---|---|
-| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, runs whose only findings are unverified, and every `--dry-run` not stopped by an error (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`) |
-| `1` | General error, including a failed write of primary output, which wins over every code but `130` |
-| `2` | Usage |
-| `3` | Config |
-| `4` | Drift detected, returned with a nil error so `main` prints no `Error:` line |
-| `5` | Index error, including zero valid ADRs (`docs/arch/0010-index-corpus-health-reporting.md`) |
-| `6` | A stage with `on_error: fail` hit an unavailable dependency |
-| `7` | A stage with `on_error: fail` hit an unmet precondition; wins over `6`, and both win over `8` and `4` |
-| `8` | Errors left the run with no ADR check (`docs/arch/0032-a-run-that-checked-nothing-fails.md`) |
-| `130` | Interrupted by SIGINT or SIGTERM (`docs/arch/0024-run-context-cancellation.md`) |
-
-## Footguns
-
-- **`Execute` rewrites `check`'s positional paths relative to the repo root before it `chdir`s.** A new command with positional paths needs the same `normalizePaths` call, and a positional that isn't a path (like `--since`'s ref) must stay out of it. A new path-valued flag needs the same treatment as `--output` in `checkCmd.resolvePaths`.
-- **`.` anywhere in `check`'s paths means the whole repo.** `checkCmd.contentProvider` checks `slices.Contains(c.Paths, ".")`, so `check foo.go .` scans everything and prints a note naming the other paths.
-- **`--output` is validated at the top of `runCheck`** (`checkReportDestination`), because `atomicfile.Write` creates missing directories and a typo should not cost a full run.
-- **`runIndexCommand` is the only entry point for `archguard index`.** `check`'s rebuild on a stale index (`checkRun.rebuildIndex`) calls `buildIndex` with `log.Quiet()`, so it prints its own one-line summary instead of `printIndexSummary`; warnings still print as they happen.
+- **Exit codes are a public contract.** The GitHub Action and users' scripts branch on them. A change to a code or to which code wins also changes the exit code list in `README.md` and its tests.
+- **Paths given on the command line are resolved before the `chdir` to the repo root.** A new positional path or path-valued flag goes through `checkCmd.resolvePaths` (or its command's equivalent), and a positional that is not a path, such as `--since`'s ref, stays out of it.
+- **`.` anywhere in `check`'s paths means the whole repo,** so `check foo.go .` scans everything.
+- **Everything `check` runs that prints takes the run's `log` printer,** an index rebuild included. Only the report goes to the `report` printer, or `--format json` stops being one JSON document (`docs/arch/0028-check-report-and-log.md`).
+- **`checkRun` wraps the providers in their `telemetry` meters before anything runs,** so an index rebuild's calls are counted in the usage too (`docs/arch/0035-run-recorder-seam.md`).

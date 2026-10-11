@@ -34,9 +34,9 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | Index: ADR providers, vector stores, Postgres | `internal/index/`, `docker-compose.yml` | `.claude/rules/index.md` |
 | Analysis: the engine, scoring stages, context sizing, cache | `internal/analysis/`, `internal/cache/` | `.claude/rules/analysis.md` |
 | Inference: chat and embedding providers | `internal/inference/` | `.claude/rules/inference.md` |
-| Output: the `Printer`, reports, color | `internal/output/` | `.claude/rules/output.md` |
-| Baseline: `archguard-baseline.json` | `internal/baseline/` | `.claude/rules/baseline.md` |
-| Git plumbing | `internal/git/` | `.claude/rules/git.md` |
+| Output: the `Printer`, reports, color | `internal/output/` | none; see its `doc.go` |
+| Baseline: `archguard-baseline.json` | `internal/baseline/` | none; see its `doc.go` |
+| Git plumbing | `internal/git/` | none; see its `doc.go` |
 | CI workflows and the GitHub Action | `.github/`, `action.yml` | `.claude/rules/ci.md` |
 | ADR docs | `docs/arch/` | `.claude/rules/adr-docs.md` |
 | Tests | `*_test.go`, `test/`, `internal/testutil/`, `cmd/archguard-e2e/` | `.claude/rules/tests.md` |
