@@ -21,8 +21,8 @@ Each ADR is embedded whole, so narrative sections such as Context blur its simil
 
 ## Rules
 
-- The text sent to the LLM for judging MUST be the ADR's full content, never the embedded selection.
-- An ADR whose selected sections are empty MUST NOT be embedded.
+- The ADR text in the judging prompt (`inference.DriftInput.ADRContent`) MUST be the ADR's full `Content`. Only the embedding input may use the section selection.
+- An ADR whose selected sections are empty MUST NOT be sent to the embedding model.
 
 ## Alternatives considered
 
