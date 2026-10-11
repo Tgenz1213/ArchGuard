@@ -4,10 +4,9 @@ import "fmt"
 
 // Coverage is how much of a run reached the model. Skipped and partly checked files are in Gaps, not here.
 type Coverage struct {
-	FilesJudged     int `json:"files_judged"`
-	ADRChecks       int `json:"adr_checks"`
-	FilesWithoutADR int `json:"files_without_relevant_adr"`
-	// A subset of FilesWithoutADR: files with candidate ADRs that all scored below the threshold.
+	FilesJudged         int `json:"files_judged"`
+	ADRChecks           int `json:"adr_checks"`
+	FilesWithoutADR     int `json:"files_without_relevant_adr"`
 	FilesBelowThreshold int `json:"files_below_threshold"`
 }
 
