@@ -123,8 +123,8 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 		return "", fmt.Errorf("error reading the working directory: %w", err)
 	}
 
-	repoRoot = filepath.Clean(repoRoot)
-	cwd = filepath.Clean(cwd)
+	repoRoot = canonicalPath(repoRoot)
+	cwd = canonicalPath(cwd)
 
 	inv.check.resolvePaths(cwd, repoRoot)
 

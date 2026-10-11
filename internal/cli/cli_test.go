@@ -1127,3 +1127,24 @@ func TestPrintIndexSummary_NoMalformedRulesSectionWhenNone(t *testing.T) {
 		t.Errorf("expected no malformed-rules section, got:\n%s", buf.String())
 	}
 }
+
+func TestEnterRepoRoot_SymlinkedWorkingDirectory(t *testing.T) {
+	repoRoot := setupExecuteTestRepo(t)
+	link := filepath.Join(t.TempDir(), "link")
+
+	if err := os.Symlink(repoRoot, link); err != nil {
+		t.Fatalf("creating symlink: %v", err)
+	}
+
+	t.Chdir(link)
+
+	inv := &invocation{command: "check", check: checkCmd{Paths: []string{"a.go", filepath.Join(link, "b.go")}}}
+
+	if _, err := enterRepoRoot(t.Context(), inv); err != nil {
+		t.Fatalf("enterRepoRoot() error = %v", err)
+	}
+
+	if want := []string{"a.go", "b.go"}; !slices.Equal(inv.check.Paths, want) {
+		t.Errorf("Paths = %v, want %v", inv.check.Paths, want)
+	}
+}
