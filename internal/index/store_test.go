@@ -486,9 +486,9 @@ func TestLocalStore_BuildIndex_ShortensAnADRTheModelRejectsAsTooLong(t *testing.
 		return []float32{1, 0}, nil
 	}}
 
-	var debugOut bytes.Buffer
+	var out bytes.Buffer
 	store := NewLocalStore(1)
-	store.out = output.New(&debugOut, true)
+	store.out = output.New(&out, false)
 
 	result, err := store.BuildIndex(t.Context(), "model", 2, embedder, &mockADRProvider{adrs: adrs})
 	if err != nil {
@@ -499,7 +499,7 @@ func TestLocalStore_BuildIndex_ShortensAnADRTheModelRejectsAsTooLong(t *testing.
 		t.Fatalf("expected the long ADR indexed, got skipped %v and %d ADRs", result.Skipped, len(store.ADRs))
 	}
 
-	if !strings.Contains(debugOut.String(), "0001-long.md") {
-		t.Errorf("expected --debug output to name the shortened ADR, got %q", debugOut.String())
+	if !strings.Contains(out.String(), "0001-long.md") {
+		t.Errorf("expected a note naming the shortened ADR, got %q", out.String())
 	}
 }

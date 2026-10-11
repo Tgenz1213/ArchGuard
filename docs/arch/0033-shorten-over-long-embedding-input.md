@@ -14,7 +14,7 @@ The limit depends on the model and, for Ollama, on the server's context size, so
 
 ## Decision
 
-Every embedding call goes through `inference.EmbedToFit`. A provider that rejects an input as too long returns an error wrapping `inference.ErrInputTooLong`, identified by the status and message its API sends. `EmbedToFit` then cuts the text to about three quarters, ending at a line break where it can, and tries again, up to 12 times. The caller notes under `--debug` when the text it embedded is shorter than what it asked for.
+Every embedding call goes through `inference.EmbedToFit`. A provider that rejects an input as too long returns an error wrapping `inference.ErrInputTooLong`, identified by the status and message its API sends. `EmbedToFit` then cuts the text to about three quarters, ending at a line break where it can, and tries again, up to 12 times. The caller notes when the text it embedded is shorter than what it asked for: for a file under `--debug`, and for an ADR always, because `archguard index` has no `--debug` and a reused embedding is never recomputed during `check`.
 
 Rejected alternatives:
 
@@ -31,5 +31,5 @@ Rejected alternatives:
 
 - A file or ADR of any length is embedded, using as much of its start as the model accepts. The end of a long ADR does not influence which files it matches.
 - Detection relies on each API's error message. If a provider rewords it, that provider's over-long inputs are skipped again, with the provider's error, as before this decision.
-- Gemini and Voyage's non-contextualized models never report a cut, so `--debug` cannot note one for them.
+- Gemini and Voyage's non-contextualized models never report a cut, so ArchGuard cannot note one for them.
 - An over-long input costs up to 13 embedding calls instead of one, all but the last of them rejected.

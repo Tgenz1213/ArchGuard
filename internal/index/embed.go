@@ -102,7 +102,7 @@ func (j embedJob) embedOne(ctx context.Context, idx int) error {
 
 	emb, embedded, err := inference.EmbedToFit(ctx, j.embedder, text, inference.EmbeddingTaskDocument)
 	if len(embedded) < len(text) {
-		j.out.Debug("ADR %s shortened from %d to %d characters to fit the embedding model", adr.RelPath, len(text), len(embedded))
+		j.out.Note("ADR %s shortened from %d to %d characters to fit the embedding model", adr.RelPath, len(text), len(embedded))
 	}
 
 	if err != nil {
