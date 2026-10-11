@@ -195,6 +195,15 @@ func (c *checkCmd) resolvePaths(cwd, repoRoot string) {
 	}
 }
 
+// Resolves symlinks and Windows 8.3 short names, so two spellings of one directory compare equal.
+func canonicalPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+
+	return filepath.Clean(path)
+}
+
 // Relative to the repo root with forward slashes, matching git's paths and baseline entries.
 func normalizePaths(paths []string, cwd, repoRoot string) {
 	for i, path := range paths {
@@ -202,7 +211,7 @@ func normalizePaths(paths []string, cwd, repoRoot string) {
 			continue
 		}
 
-		target := path
+		target := filepath.Join(canonicalPath(filepath.Dir(path)), filepath.Base(path))
 		if !filepath.IsAbs(path) {
 			target = filepath.Join(cwd, path)
 		}

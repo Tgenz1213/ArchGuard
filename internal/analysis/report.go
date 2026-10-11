@@ -8,13 +8,22 @@ import (
 )
 
 func (e *Engine) Report() output.Report {
-	report := output.Report{Gaps: e.gaps(), Baselined: e.Baselined, Coverage: e.Coverage}
+	return output.Report{
+		Violations: findings(e.CollectedViolations),
+		Unverified: findings(e.UnverifiedFindings),
+		Gaps:       e.gaps(),
+		Baselined:  e.Baselined,
+		Coverage:   e.Coverage,
+	}
+}
 
-	for _, violation := range e.CollectedViolations {
-		report.Violations = append(report.Violations, output.Violation{
+func findings(violations []Violation) []output.Violation {
+	var found []output.Violation
+
+	for _, violation := range violations {
+		found = append(found, output.Violation{
 			File:       violation.File,
 			Line:       violation.Line,
-			Verified:   !violation.unverified,
 			ADRID:      violation.ADRID,
 			Title:      violation.ADRTitle,
 			Reasoning:  violation.Reasoning,
@@ -23,7 +32,7 @@ func (e *Engine) Report() output.Report {
 		})
 	}
 
-	return report
+	return found
 }
 
 func (e *Engine) BaselineReport(path string) output.BaselineReport {
@@ -46,12 +55,9 @@ func (e *Engine) gaps() output.Gaps {
 }
 
 func violationLine(violation Violation, baselined bool) string {
-	line := fmt.Sprintf("%s: violates ADR %s (%s)", violation.File, violation.ADRID, violation.ADRTitle)
-
+	line := fmt.Sprintf("%s: violates ADR %s (%s), line %d", violation.File, violation.ADRID, violation.ADRTitle, violation.Line)
 	if violation.unverified {
-		line += ", quoted code not found"
-	} else {
-		line += fmt.Sprintf(", line %d", violation.Line)
+		line = fmt.Sprintf("%s: unverified finding for ADR %s (%s), quoted code not found", violation.File, violation.ADRID, violation.ADRTitle)
 	}
 
 	if baselined {

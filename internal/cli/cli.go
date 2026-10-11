@@ -27,6 +27,7 @@ const (
 	ExitIndexError        ExitCode = 5
 	ExitStageUnavailable  ExitCode = 6
 	ExitStagePrecondition ExitCode = 7
+	ExitNothingChecked    ExitCode = 8
 	// 128 + SIGINT, the shell convention for a run stopped by a signal.
 	ExitInterrupted ExitCode = 130
 )
@@ -122,8 +123,8 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 		return "", fmt.Errorf("error reading the working directory: %w", err)
 	}
 
-	repoRoot = filepath.Clean(repoRoot)
-	cwd = filepath.Clean(cwd)
+	repoRoot = canonicalPath(repoRoot)
+	cwd = canonicalPath(cwd)
 
 	inv.check.resolvePaths(cwd, repoRoot)
 

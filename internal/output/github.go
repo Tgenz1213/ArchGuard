@@ -7,13 +7,14 @@ import (
 	"github.com/sethvargo/go-githubactions"
 )
 
-// Annotation is a GitHub Actions error annotation; a Line of 0 annotates the whole file.
+// Annotation is a GitHub Actions error or warning annotation; a Line of 0 annotates the whole file.
 type Annotation struct {
 	File     string
 	Line     int
 	ADRID    string
 	ADRTitle string
 	Message  string
+	Warning  bool
 }
 
 func InGitHubActions() bool {
@@ -22,8 +23,13 @@ func InGitHubActions() bool {
 
 // Built from githubactions.Command rather than Action.Errorf, which panics when the write fails.
 func (p *Printer) Annotation(a Annotation) {
+	name := "error"
+	if a.Warning {
+		name = "warning"
+	}
+
 	cmd := githubactions.Command{
-		Name:       "error",
+		Name:       name,
 		Message:    a.Message,
 		Properties: githubactions.CommandProperties{"file": a.File, "title": a.ADRID + ": " + a.ADRTitle},
 	}

@@ -9,7 +9,6 @@ import (
 type Violation struct {
 	File       string
 	Line       int
-	Verified   bool
 	ADRID      string
 	Title      string
 	Reasoning  string
@@ -19,6 +18,7 @@ type Violation struct {
 
 type Report struct {
 	Violations []Violation
+	Unverified []Violation
 	Baselined  int
 	Coverage   Coverage
 	Gaps
@@ -62,11 +62,12 @@ func violatingFiles(violations []Violation) []string {
 
 func (p *Printer) Report(report Report) {
 	report.Violations = sortedViolations(report.Violations)
+	report.Unverified = sortedViolations(report.Unverified)
 	report.Gaps = report.sortedGaps()
 	files := violatingFiles(report.Violations)
 	gaps := report.gapSummary()
 
-	if len(files) == 0 && len(gaps) == 0 {
+	if len(files) == 0 && len(report.Unverified) == 0 && len(gaps) == 0 {
 		p.Result("%s", report.Coverage.line())
 		p.Result("%s", report.Coverage.cleanResult(report.Baselined))
 
@@ -75,46 +76,63 @@ func (p *Printer) Report(report Report) {
 
 	if len(files) > 0 {
 		p.Result("Violations:")
-		p.reportViolations(report.Violations, files)
+		p.reportFindings(report.Violations, violationHeader, violationStyle)
+		p.Result("")
+	}
+
+	if len(report.Unverified) > 0 {
+		p.Result("Unverified findings (the quoted code was not found in what the model read, so they do not fail the run):")
+		p.reportFindings(report.Unverified, unverifiedHeader, warnStyle)
 		p.Result("")
 	}
 
 	p.reportGaps(report.Gaps)
 	p.Result("%s", report.Coverage.line())
+	p.Result("%s", report.summary(len(files), gaps))
+}
 
-	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined.", len(report.Violations), len(files), report.Baselined)
+func (report Report) summary(files int, gaps []string) string {
+	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined", len(report.Violations), files, report.Baselined)
+	if count := len(report.Unverified); count > 0 {
+		summary += fmt.Sprintf(", %d unverified", count)
+	}
+
+	summary += "."
 	if len(gaps) > 0 {
 		summary += " Not fully checked: " + strings.Join(gaps, ", ") + "."
 	}
 
-	p.Result("%s", summary)
+	return summary
 }
 
-func (p *Printer) reportViolations(violations []Violation, files []string) {
+func violationHeader(violation Violation) string {
+	return fmt.Sprintf("[VIOLATION] %s %s [Line %d]", violation.ADRID, violation.Title, violation.Line)
+}
+
+func unverifiedHeader(violation Violation) string {
+	return fmt.Sprintf("[UNVERIFIED] %s %s", violation.ADRID, violation.Title)
+}
+
+func (p *Printer) reportFindings(findings []Violation, header func(Violation) string, headerStyle style) {
 	byFile := map[string][]Violation{}
-	for _, violation := range violations {
-		byFile[violation.File] = append(byFile[violation.File], violation)
+	for _, finding := range findings {
+		byFile[finding.File] = append(byFile[finding.File], finding)
 	}
 
-	for _, file := range files {
+	for _, file := range violatingFiles(findings) {
 		fileGroup := p.Group(file)
 
-		for _, violation := range byFile[file] {
-			header := fmt.Sprintf("[VIOLATION] %s %s [Line %d]", violation.ADRID, violation.Title, violation.Line)
-			if !violation.Verified {
-				header = fmt.Sprintf("[VIOLATION] %s %s [UNVERIFIED: quoted code not found in analyzed content]", violation.ADRID, violation.Title)
-			}
-
-			details := fileGroup.group(header, violationStyle)
+		for _, finding := range byFile[file] {
+			details := fileGroup.group(header(finding), headerStyle)
 			details.write("", false, true)
-			details.Field("Reasoning", "%s", violation.Reasoning)
+			details.Field("Reasoning", "%s", finding.Reasoning)
 
-			if violation.Code != "" {
-				details.Field("Code", "%s", violation.Code)
+			if finding.Code != "" {
+				details.Field("Code", "%s", finding.Code)
 			}
 
-			if violation.Suggestion != "" {
-				details.Field("Suggestion (unverified)", "%s", violation.Suggestion)
+			if finding.Suggestion != "" {
+				details.Field("Suggestion (unverified)", "%s", finding.Suggestion)
 			}
 
 			details.Flush()

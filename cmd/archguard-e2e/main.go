@@ -87,6 +87,10 @@ func mockVerdict(prompt string) (quote string, violation bool) {
 		return diffVerdict(prompt)
 	}
 
+	if codeContextContainsTrigger(prompt, testutil.MockUnverifiedTrigger) {
+		return "code the model invented", true
+	}
+
 	if codeContextContainsTrigger(prompt, testutil.MockViolationTrigger) {
 		return extractTriggerLine(prompt, testutil.MockViolationTrigger), true
 	}

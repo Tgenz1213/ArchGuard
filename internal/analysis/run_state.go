@@ -15,6 +15,7 @@ type runState struct {
 	telemetry *stage.Telemetry
 
 	mu            sync.Mutex
+	failedFiles   int
 	violations    int
 	baselined     int
 	skipped       []output.FileGap
@@ -24,6 +25,7 @@ type runState struct {
 	unrecorded    []output.UnrecordedViolation
 	entries       []baseline.Entry
 	collected     []Violation
+	unverified    []Violation
 	stageFailures []StageFailure
 	coverage      output.Coverage
 }
@@ -40,6 +42,7 @@ type fileResult struct {
 	unrecorded     []output.UnrecordedViolation
 	entries        []baseline.Entry
 	records        []Violation
+	unverified     []Violation
 }
 
 func newRunState(out *output.Printer, stages []stage.Stage) *runState {
@@ -50,6 +53,14 @@ func (r *runState) addSkipped(file, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.skipped = append(r.skipped, output.FileGap{File: file, Reason: reason})
+}
+
+func (r *runState) addFailedFile(file, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failedFiles++
 	r.skipped = append(r.skipped, output.FileGap{File: file, Reason: reason})
 }
 
@@ -82,6 +93,7 @@ func (r *runState) merge(result *fileResult) {
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)
 	r.entries = append(r.entries, result.entries...)
 	r.collected = append(r.collected, result.records...)
+	r.unverified = append(r.unverified, result.unverified...)
 }
 
 func boolToInt(b bool) int {
@@ -90,4 +102,9 @@ func boolToInt(b bool) int {
 	}
 
 	return 0
+}
+
+// A file skipped as too large in CI mode is not an error, so it alone never makes a run count as unchecked.
+func (r *runState) checkedNothing() bool {
+	return (r.failedFiles > 0 || len(r.failedChecks) > 0) && r.coverage.ADRChecks == 0
 }

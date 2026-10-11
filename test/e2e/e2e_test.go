@@ -311,9 +311,9 @@ analysis:
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitDriftDetected))
 	})
 
-	t.Run("Passes after fixture removal", func(t *testing.T) {
-		if err := os.Remove(fixturePath); err != nil {
-			t.Fatalf("Failed to remove fixture: %v", err)
+	t.Run("Passes after the violation is fixed", func(t *testing.T) {
+		if err := os.WriteFile(fixturePath, []byte("function ok() { return 1; }\n"), 0644); err != nil {
+			t.Fatalf("Failed to fix fixture: %v", err)
 		}
 
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
@@ -483,8 +483,8 @@ analysis:
 	})
 
 	t.Run("clean run: valid JSON with zero violations, success exit code", func(t *testing.T) {
-		if err := os.Remove(fixturePath); err != nil {
-			t.Fatalf("Failed to remove fixture: %v", err)
+		if err := os.WriteFile(fixturePath, []byte("function ok() { return 1; }\n"), 0644); err != nil {
+			t.Fatalf("Failed to fix fixture: %v", err)
 		}
 
 		defer func() {
@@ -560,8 +560,8 @@ function sensitiveData() {
 
 		stdout, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "skipped.js")
 
-		if exitCode != int(cli.ExitSuccess) {
-			t.Fatalf("expected success exit code %d (skips don't drive drift), got %d. stdout: %s stderr: %s", cli.ExitSuccess, exitCode, stdout, stderr)
+		if exitCode != int(cli.ExitNothingChecked) {
+			t.Fatalf("expected exit code %d (the only ADR check failed), got %d. stdout: %s stderr: %s", cli.ExitNothingChecked, exitCode, stdout, stderr)
 		}
 
 		var report checkReport
@@ -929,7 +929,7 @@ function sensitiveData() {
 
 	runIndexCmd(t, tempDir, binaryPath, int(cli.ExitSuccess))
 
-	output := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))
+	output := runCheckCapture(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitNothingChecked))
 
 	if strings.Contains(output, "No new architectural violations found.") {
 		t.Errorf("check must not print the unqualified clean message when an ADR check was skipped due to an LLM error. Output: %s", output)

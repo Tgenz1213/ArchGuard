@@ -66,8 +66,8 @@ analysis:
 	})
 
 	t.Run("Check without a violation still succeeds end-to-end", func(t *testing.T) {
-		if err := os.Remove(fixturePath); err != nil {
-			t.Fatalf("Failed to remove fixture: %v", err)
+		if err := os.WriteFile(fixturePath, []byte("function ok() { return 1; }\n"), 0644); err != nil {
+			t.Fatalf("Failed to fix fixture: %v", err)
 		}
 
 		runCheck(t, tempDir, binaryPath, fixtureFilename, int(cli.ExitSuccess))

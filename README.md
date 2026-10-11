@@ -210,7 +210,7 @@ An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-r
 
 #### When a stage fails
 
-By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
 
 ```yaml
 analysis:
@@ -226,7 +226,7 @@ Under `fail`, a failed stage stops that file's remaining stages, other files sti
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
 | `precondition_not_met` | The stage could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7` without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -347,7 +347,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 ### Automation & Exit Codes
 
-- **0**: Success (no new violations found; baselined violations still exit 0).
+- **0**: Success (no new violations found; baselined violations and unverified findings still exit 0).
 - **1**: General error (e.g. not run inside a git repository, baseline file I/O failure), or the command's primary output (results, help, the JSON document) could not be written, e.g. a closed stdout. This takes precedence over every other code except an interrupt.
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
@@ -355,9 +355,10 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
 - **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
 - **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
+- **8**: Errors left the run with no ADR check: files were skipped or ADR checks failed (for example the database, the embedding provider or the LLM was unreachable) and no ADR check returned a verdict. The report still lists what failed. A run where at least one ADR check returned a verdict exits as usual, with the failures listed in the report. A file skipped as too large under `--ci` does not count. See [ADR 0032](docs/arch/0032-a-run-that-checked-nothing-fails.md).
 - **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
 
-Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file and the run exits `0` (see [Ranking Stages](#ranking-stages)).
+Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file, and the run exits `0` unless that left it with no ADR check (`8`) (see [Ranking Stages](#ranking-stages)). Codes `6` and `7` also take precedence over `8`.
 
 ### Reading a Check Run
 
@@ -367,7 +368,7 @@ In text mode a `check` run produces two outputs. **stdout carries the report**, 
 archguard check --all > report.txt
 ```
 
-The report lists every new violation grouped by file, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
+The report lists every new violation grouped by file, then any unverified findings, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
 
 ```
 Violations:
@@ -383,7 +384,17 @@ Checked 2 file(s) against 3 ADR check(s); 4 file(s) had no relevant ADR.
 1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
 ```
 
-Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. A run with nothing to report prints the coverage line and the result.
+Each violation shows the ADR ID and title, the line, the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line and the result.
+
+A finding is **unverified** when the code it quotes is not in what the model read: for a whole file, the file; for a large file analyzed through its diff, an added or unchanged line; under `--since`, an added or removed line. This happens when the model paraphrases, quotes the ADR instead of the code, or invents code. Unverified findings are listed under `Unverified findings` with their reasoning and quote, and counted in the summary, but they are not violations: a run whose only findings are unverified exits `0`. See [ADR 0031](docs/arch/0031-unverified-findings-and-the-exit-code.md).
+
+```
+Unverified findings (the quoted code was not found in what the model read, so they do not fail the run):
+src/auth.js
+  [UNVERIFIED] 0007 No Secrets in Logs
+    Reasoning: The handler logs the session token.
+    Code: logger.info(session.token)
+```
 
 Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
 
@@ -392,7 +403,7 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
 
-The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold when that is why. The exit code is the same either way.
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 
@@ -430,6 +441,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
     }
   ],
   "count": 1,
+  "unverified": [],
   "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4, "files_below_threshold": 3 },
   "stages": [
     { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
@@ -444,7 +456,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
 
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
-`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
+`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `unverified` lists the unverified findings with the same fields, a `line` of `0`, and no `suggestion`; they are not counted in `count`. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 
 ### Suppression
 
@@ -490,7 +502,7 @@ This action automatically sets up Go, installs ArchGuard, and runs `archguard ch
 
 The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file. Use it on `pull_request` events: under `pull_request_target` the default checkout is the base branch, so there is nothing to compare unless you check out the pull request's head yourself.
 
-Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, for example when a large file was analyzed through its diff, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
+Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. Each unverified finding is printed as a warning annotation on its file. When the line isn't known, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
 
 #### Other CI Providers
 
@@ -505,6 +517,7 @@ Large files may be truncated to fit the LLM context. In `--ci` mode, truncated f
 
 - **Semantic Search**: Uses cosine similarity to find relevant ADRs based on the code being analyzed.
 - **Index Optimizations**: Employs Delta Indexing to bypass redundant LLM API calls on unchanged files, concurrent provider routines to mask network latency, and conditional HNSW graph maintenance routines in Postgres.
+- **Diff Analysis**: A file over the token limit that has uncommitted changes is analyzed through its diff. A violation's line is still its line in the file: the quoted code must be in an added or unchanged line of the diff, preferring an added one, and a quote that is only in a removed line is reported as not found.
 - **Smart Truncation**: Files exceeding the token limit are rolled back to the nearest newline character to preserve code integrity during analysis.
 - **Caching**: Analysis results are persisted in `.archguard/cache` based on a hash of the model, ADR content, and file content to reduce API costs and execution time.
 - **Baseline Mode**: Run `archguard check --update-baseline` to snapshot every currently-detected violation into `archguard-baseline.json` at the repository root. Subsequent `archguard check` runs load it automatically (no extra flag needed) and treat a matching violation as already-known — excluded from the new-violation count and exit code, but still reported separately (e.g. "3 new violations, 12 baselined"). An entry is invalidated, and its violation re-surfaces as new, once the specific code it originally cited is no longer present in the file. Unlike `.archguard/index.json` and `.archguard/cache/`, `archguard-baseline.json` **is** committed to git, so a team's grandfathered violations travel with the repository. Suppression is per `(ADR, file)` pair, so a second, different violation of an already-baselined ADR in the same file stays hidden until the originally-cited code changes — periodically re-running `--update-baseline` is recommended to catch these.

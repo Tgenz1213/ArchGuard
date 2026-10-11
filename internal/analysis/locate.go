@@ -1,6 +1,9 @@
 package analysis
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 type placement int
 
@@ -9,6 +12,7 @@ const (
 	placedInAdded
 	placedInRemoved
 	placedInContext
+	placedInFile
 )
 
 // Whole-line matches come before substring matches, and a changed line before an unchanged one.
@@ -127,4 +131,65 @@ func sameText(text, want string, partial bool) bool {
 	}
 
 	return text == want
+}
+
+// Only added and unchanged lines are in the file. Whole-line matches come before substring matches, and an added line before an unchanged one.
+var newFileSearchOrder = []struct {
+	exact     bool
+	addedOnly bool
+}{
+	{true, true},
+	{true, false},
+	{false, true},
+	{false, false},
+}
+
+func locateInNewFile(lines []diffLine, quote string) (placement, int) {
+	want := quoteLines(quote)
+	if len(want) == 0 {
+		return placedNowhere, 0
+	}
+
+	newFile := slices.DeleteFunc(slices.Clone(lines), func(line diffLine) bool { return line.Kind == '-' })
+
+	for _, try := range newFileSearchOrder {
+		if line, ok := matchNewFileRun(newFile, want, try.exact, try.addedOnly); ok {
+			return placedInFile, line
+		}
+	}
+
+	return placedNowhere, 0
+}
+
+func matchNewFileRun(lines []diffLine, want []string, exact, addedOnly bool) (int, bool) {
+	for start, line := range lines {
+		if addedOnly && line.Kind != '+' {
+			continue
+		}
+
+		if newFileRunMatches(lines, start, want, exact) {
+			return line.Number, true
+		}
+	}
+
+	return 0, false
+}
+
+func newFileRunMatches(lines []diffLine, start int, want []string, exact bool) bool {
+	if start+len(want) > len(lines) {
+		return false
+	}
+
+	for i, w := range want {
+		at := start + i
+		if i > 0 && lines[at].Number != lines[at-1].Number+1 {
+			return false
+		}
+
+		if !lineMatches(lines[at], w, len(want) == 1 && !exact) {
+			return false
+		}
+	}
+
+	return true
 }

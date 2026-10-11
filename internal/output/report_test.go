@@ -20,9 +20,12 @@ func renderReport(r output.Report) string {
 func TestReportLayout(t *testing.T) {
 	got := renderReport(output.Report{
 		Violations: []output.Violation{
-			{File: "b.go", Line: 7, Verified: true, ADRID: "0002", Title: "No globals", Reasoning: "uses a global", Code: "var x int"},
-			{File: "a.go", Line: 3, Verified: true, ADRID: "0001", Title: "Use Go", Reasoning: "not Go", Code: "import py", Suggestion: "rewrite it"},
-			{File: "a.go", Verified: false, ADRID: "0003", Title: "Quote it", Reasoning: "vague"},
+			{File: "b.go", Line: 7, ADRID: "0002", Title: "No globals", Reasoning: "uses a global", Code: "var x int"},
+			{File: "a.go", Line: 3, ADRID: "0001", Title: "Use Go", Reasoning: "not Go", Code: "import py", Suggestion: "rewrite it"},
+		},
+		Unverified: []output.Violation{
+			{File: "c.go", ADRID: "0005", Title: "Cite it", Reasoning: "invented", Code: "not in the file"},
+			{File: "a.go", ADRID: "0003", Title: "Quote it", Reasoning: "vague"},
 		},
 		SkippedFiles: []output.FileGap{{File: "c.go", Reason: "reading file: boom"}},
 		FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
@@ -33,8 +36,6 @@ func TestReportLayout(t *testing.T) {
 
 	want := `Violations:
 a.go
-  [VIOLATION] 0003 Quote it [UNVERIFIED: quoted code not found in analyzed content]
-    Reasoning: vague
   [VIOLATION] 0001 Use Go [Line 3]
     Reasoning: not Go
     Code: import py
@@ -43,6 +44,15 @@ b.go
   [VIOLATION] 0002 No globals [Line 7]
     Reasoning: uses a global
     Code: var x int
+
+Unverified findings (the quoted code was not found in what the model read, so they do not fail the run):
+a.go
+  [UNVERIFIED] 0003 Quote it
+    Reasoning: vague
+c.go
+  [UNVERIFIED] 0005 Cite it
+    Reasoning: invented
+    Code: not in the file
 
 Skipped files:
   c.go: reading file: boom
@@ -54,7 +64,7 @@ Failed stages:
   d.go: stage rerank: unavailable
 
 Checked 2 file(s) against 5 ADR check(s); 1 file(s) had no relevant ADR.
-3 new violation(s) in 2 file(s), 2 baselined. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s).
+2 new violation(s) in 2 file(s), 2 baselined, 2 unverified. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s).
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -80,6 +90,25 @@ func TestReportWithNothingToReportStatesCoverageThenTheResult(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestReportWithOnlyUnverifiedFindingsIsNotReportedAsClean(t *testing.T) {
+	got := renderReport(output.Report{
+		Unverified: []output.Violation{{File: "a.go", ADRID: "1", Title: "t", Reasoning: "r"}},
+		Coverage:   output.Coverage{FilesJudged: 1, ADRChecks: 1},
+	})
+
+	want := `Unverified findings (the quoted code was not found in what the model read, so they do not fail the run):
+a.go
+  [UNVERIFIED] 1 t
+    Reasoning: r
+
+Checked 1 file(s) against 1 ADR check(s); 0 file(s) had no relevant ADR.
+0 new violation(s) in 0 file(s), 0 baselined, 1 unverified.
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
@@ -130,7 +159,7 @@ func TestReportSummaryCountsSkippedFilesAndFailedChecksSeparately(t *testing.T) 
 }
 
 func TestReportSummaryOmitsGapsWhenNothingWasMissed(t *testing.T) {
-	got := renderReport(output.Report{Violations: []output.Violation{{File: "a.go", Line: 1, Verified: true, ADRID: "1", Title: "t"}}})
+	got := renderReport(output.Report{Violations: []output.Violation{{File: "a.go", Line: 1, ADRID: "1", Title: "t"}}})
 
 	if strings.Contains(got, "Not fully checked") {
 		t.Errorf("summary mentioned gaps for a fully checked run:\n%s", got)
@@ -140,7 +169,7 @@ func TestReportSummaryOmitsGapsWhenNothingWasMissed(t *testing.T) {
 func TestReportWriteFailureIsPrimaryOutputFailure(t *testing.T) {
 	p := output.New(failingWriter{}, false)
 
-	p.Report(output.Report{Violations: []output.Violation{{File: "a.go", Verified: true, ADRID: "1", Title: "t"}}})
+	p.Report(output.Report{Violations: []output.Violation{{File: "a.go", ADRID: "1", Title: "t"}}})
 
 	if p.Err() == nil {
 		t.Error("a failed report write was not recorded")
@@ -149,9 +178,9 @@ func TestReportWriteFailureIsPrimaryOutputFailure(t *testing.T) {
 
 func TestReportOrderDoesNotDependOnInputOrder(t *testing.T) {
 	violations := []output.Violation{
-		{File: "a.go", Line: 9, Verified: true, ADRID: "2", Title: "t"},
-		{File: "a.go", Line: 2, Verified: true, ADRID: "1", Title: "t"},
-		{File: "b.go", Line: 1, Verified: true, ADRID: "1", Title: "t"},
+		{File: "a.go", Line: 9, ADRID: "2", Title: "t"},
+		{File: "a.go", Line: 2, ADRID: "1", Title: "t"},
+		{File: "b.go", Line: 1, ADRID: "1", Title: "t"},
 	}
 	skipped := []output.FileGap{{File: "z.go", Reason: "r"}, {File: "c.go", Reason: "r"}}
 	failed := []output.FailedCheck{{File: "c.go", ADRID: "9", Title: "t", Reason: "r"}, {File: "c.go", ADRID: "3", Title: "t", Reason: "r"}}
@@ -168,7 +197,7 @@ func TestReportOrderDoesNotDependOnInputOrder(t *testing.T) {
 }
 
 func TestReportOmitsEmptyCodeAndSuggestion(t *testing.T) {
-	got := renderReport(output.Report{Violations: []output.Violation{{File: "a.go", Line: 1, Verified: true, ADRID: "1", Title: "t", Reasoning: "r"}}})
+	got := renderReport(output.Report{Violations: []output.Violation{{File: "a.go", Line: 1, ADRID: "1", Title: "t", Reasoning: "r"}}})
 
 	if strings.Contains(got, "Code:") || strings.Contains(got, "Suggestion") {
 		t.Errorf("empty code or suggestion was printed:\n%s", got)
@@ -179,7 +208,7 @@ func TestReportColorNeverSpansLines(t *testing.T) {
 	var buf bytes.Buffer
 
 	output.New(&buf, false, output.WithColor(true)).Report(output.Report{
-		Violations: []output.Violation{{File: "a.go", Line: 1, Verified: true, ADRID: "1", Title: "t", Reasoning: "one\ntwo", Code: "x\ny"}},
+		Violations: []output.Violation{{File: "a.go", Line: 1, ADRID: "1", Title: "t", Reasoning: "one\ntwo", Code: "x\ny"}},
 	})
 
 	for _, line := range strings.Split(buf.String(), "\n") {

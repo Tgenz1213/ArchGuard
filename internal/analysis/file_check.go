@@ -62,7 +62,7 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 
 func (fc *fileCheck) skip(reason string) {
 	fc.out.Error("%s", reason)
-	fc.run.addSkipped(fc.file, reason)
+	fc.run.addFailedFile(fc.file, reason)
 }
 
 func (fc *fileCheck) load(ctx context.Context) bool {
@@ -209,6 +209,10 @@ func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input infer
 		return
 	}
 
+	located := *result
+	located.QuotedCode = record.QuotedCode
+	result = &located
+
 	switch {
 	case fc.engine.UpdateBaseline:
 		fc.recordBaselineEntry(hit, result, record)
@@ -221,36 +225,61 @@ func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input infer
 }
 
 func (fc *fileCheck) locate(hit stage.Candidate, result *inference.AnalysisResult) (Violation, bool) {
+	// Checked against the escaped content, which is what the LLM saw.
+	quote, where, line := fc.place(inference.EscapePromptDelimiter(fc.content), result.QuotedCode)
+
 	record := Violation{
 		File:       fc.file,
 		ADRID:      hit.ADR.ID,
 		ADRTitle:   hit.ADR.Title,
+		Line:       line,
 		Reasoning:  result.Reasoning,
-		QuotedCode: result.QuotedCode,
+		QuotedCode: quote,
+		unverified: where == placedNowhere,
 	}
 
-	// Checked against the escaped content, which is what the LLM saw.
-	escapedContent := inference.EscapePromptDelimiter(fc.content)
-
-	if !fc.engine.JudgeChange {
-		record.Line = fc.engine.findLineNumber(escapedContent, result.QuotedCode)
-		record.lineInDiff = fc.mode == "diff"
-		record.unverified = result.QuotedCode != "" && !strings.Contains(escapedContent, result.QuotedCode)
-
-		return record, true
-	}
-
-	where, line := locateQuote(parseDiff(escapedContent), result.QuotedCode)
 	if where == placedInContext {
 		fc.out.Debug("Dropping a finding in unchanged code: %s", violationLine(record, false))
 
 		return record, false
 	}
 
-	record.Line = line
-	record.unverified = where == placedNowhere
-
 	return record, true
+}
+
+// A quote is unwrapped from markdown only when the unwrapped text is found, so backticks that belong to the code survive.
+func (fc *fileCheck) place(content, quote string) (string, placement, int) {
+	where, line := fc.find(content, quote)
+	if where != placedNowhere {
+		return quote, where, line
+	}
+
+	unwrapped := unwrapMarkdown(quote)
+	if unwrapped == quote {
+		return quote, where, line
+	}
+
+	if where, line := fc.find(content, unwrapped); where != placedNowhere {
+		return unwrapped, where, line
+	}
+
+	return quote, placedNowhere, 0
+}
+
+func (fc *fileCheck) find(content, quote string) (placement, int) {
+	if fc.engine.JudgeChange {
+		return locateQuote(parseDiff(content), quote)
+	}
+
+	if fc.mode == "diff" {
+		return locateInNewFile(parseDiff(content), quote)
+	}
+
+	if quote == "" || !strings.Contains(content, quote) {
+		return placedNowhere, 0
+	}
+
+	return placedInFile, fc.engine.findLineNumber(content, quote)
 }
 
 func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.AnalysisResult, record Violation) {
@@ -281,7 +310,14 @@ func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.
 }
 
 func (fc *fileCheck) reportViolation(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult, record Violation) {
-	if fc.engine.SuggestFixes && !record.unverified {
+	if record.unverified {
+		fc.out.Info("%s", violationLine(record, false))
+		fc.findings.unverified = append(fc.findings.unverified, record)
+
+		return
+	}
+
+	if fc.engine.SuggestFixes {
 		record.Suggestion = fc.suggestFix(ctx, hit, input, result)
 	}
 

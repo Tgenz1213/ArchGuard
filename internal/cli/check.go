@@ -18,6 +18,8 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
+var errNothingChecked = errors.New("nothing was checked against an ADR because of errors; see the skipped files and failed ADR checks in the report")
+
 type checkRun struct {
 	setup        runSetup
 	opts         checkCmd
@@ -157,6 +159,10 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 		return stageCode, fmt.Errorf("%w; baseline not written", stageErr)
 	}
 
+	if engine.CheckedNothing {
+		return ExitNothingChecked, fmt.Errorf("%w; baseline not written", errNothingChecked)
+	}
+
 	if err := engine.CollectedBaseline.Save(baseline.Path); err != nil {
 		return ExitError, fmt.Errorf("failed to write baseline file %s: %w", baseline.Path, err)
 	}
@@ -174,7 +180,7 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 	stageCode, stageErr := stageFailureExit(engine.StageFailures)
 
 	if !r.opts.jsonOutput() && output.InGitHubActions() {
-		for _, v := range engine.CollectedViolations {
+		for _, v := range slices.Concat(engine.CollectedViolations, engine.UnverifiedFindings) {
 			r.log.Annotation(v.Annotation())
 		}
 	}
@@ -190,6 +196,10 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 
 	if stageErr != nil {
 		return stageCode, stageErr
+	}
+
+	if engine.CheckedNothing {
+		return ExitNothingChecked, errNothingChecked
 	}
 
 	if isDriftError(runErr) {
@@ -208,7 +218,7 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	analysisFailed := runErr != nil && !isDriftError(runErr)
 
 	if r.opts.jsonOutput() {
-		if err := writeCheckReport(r.jsonDest, engine.CollectedViolations, engine.CollectedStages, engine.StageFailures, engine.Coverage); err != nil {
+		if err := writeCheckReport(r.jsonDest, engine); err != nil {
 			return fmt.Errorf("failed to write json report: %w", err)
 		}
 
@@ -243,23 +253,34 @@ func (r *checkRun) saveReportFile() error {
 type checkReport struct {
 	Violations []analysis.Violation    `json:"violations"`
 	Count      int                     `json:"count"`
+	Unverified []analysis.Violation    `json:"unverified"`
 	Stages     []stage.Stats           `json:"stages"`
 	Coverage   output.Coverage         `json:"coverage"`
 	Failures   []analysis.StageFailure `json:"failures,omitempty"`
 }
 
-func writeCheckReport(w io.Writer, violations []analysis.Violation, stages []stage.Stats, failures []analysis.StageFailure, coverage output.Coverage) error {
-	if violations == nil {
-		violations = []analysis.Violation{}
-	}
-
-	if stages == nil {
-		stages = []stage.Stats{}
+func writeCheckReport(w io.Writer, engine *analysis.Engine) error {
+	report := checkReport{
+		Violations: nonNil(engine.CollectedViolations),
+		Count:      len(engine.CollectedViolations),
+		Unverified: nonNil(engine.UnverifiedFindings),
+		Stages:     nonNil(engine.CollectedStages),
+		Coverage:   engine.Coverage,
+		Failures:   engine.StageFailures,
 	}
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(checkReport{Violations: violations, Count: len(violations), Stages: stages, Coverage: coverage, Failures: failures})
+
+	return enc.Encode(report)
+}
+
+func nonNil[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+
+	return items
 }
 
 // A precondition failure outranks an unavailable dependency when a run has both.
