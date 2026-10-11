@@ -133,7 +133,17 @@ func sameText(text, want string, partial bool) bool {
 	return text == want
 }
 
-// For a whole-file judgment made through a diff: only added and unchanged lines are in the file, and a changed line wins a tie.
+// Only added and unchanged lines are in the file. Whole-line matches come before substring matches, and an added line before an unchanged one.
+var newFileSearchOrder = []struct {
+	exact     bool
+	addedOnly bool
+}{
+	{true, true},
+	{true, false},
+	{false, true},
+	{false, false},
+}
+
 func locateInNewFile(lines []diffLine, quote string) (placement, int) {
 	want := quoteLines(quote)
 	if len(want) == 0 {
@@ -142,17 +152,27 @@ func locateInNewFile(lines []diffLine, quote string) (placement, int) {
 
 	newFile := slices.DeleteFunc(slices.Clone(lines), func(line diffLine) bool { return line.Kind == '-' })
 
-	for _, exact := range []bool{true, false} {
-		for _, addedOnly := range []bool{true, false} {
-			for start, line := range newFile {
-				if (!addedOnly || line.Kind == '+') && newFileRunMatches(newFile, start, want, exact) {
-					return placedInFile, line.Number
-				}
-			}
+	for _, try := range newFileSearchOrder {
+		if line, ok := matchNewFileRun(newFile, want, try.exact, try.addedOnly); ok {
+			return placedInFile, line
 		}
 	}
 
 	return placedNowhere, 0
+}
+
+func matchNewFileRun(lines []diffLine, want []string, exact, addedOnly bool) (int, bool) {
+	for start, line := range lines {
+		if addedOnly && line.Kind != '+' {
+			continue
+		}
+
+		if newFileRunMatches(lines, start, want, exact) {
+			return line.Number, true
+		}
+	}
+
+	return 0, false
 }
 
 func newFileRunMatches(lines []diffLine, start int, want []string, exact bool) bool {
