@@ -1,6 +1,10 @@
 ---
 title: "Violation baseline file"
 status: "Accepted"
+scope:
+  - "internal/baseline/**"
+  - "internal/analysis/**"
+  - "internal/cli/**"
 ---
 
 # Violation baseline file
