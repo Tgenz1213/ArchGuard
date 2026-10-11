@@ -20,6 +20,17 @@ The override is resolved in the one threshold predicate that both the accepted-c
 
 `PgStore` stores the override in its own column, added when missing in the same way as the `adr_id` and `scope` columns (#82). A change to only an ADR's threshold is synced as metadata without re-embedding the ADR, like a change to only its scope.
 
+## Rules
+
+- When an ADR's `similarity_threshold` key is present, its value MUST apply to that ADR, even an explicit zero.
+- The override MUST be resolved in the one threshold predicate that both the accepted-candidate filter and the rejected-candidate filter share.
+- `--debug` output for a candidate below threshold MUST print the threshold that was applied, not the global value.
+- `PgStore` MUST sync a change to only an ADR's threshold as metadata without re-embedding the ADR.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - An ADR author can tune how readily their own ADR becomes a candidate, independent of every other ADR, without touching `archguard.yaml`.

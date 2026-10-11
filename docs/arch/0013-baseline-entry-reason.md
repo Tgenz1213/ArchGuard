@@ -20,6 +20,18 @@ Reading the previous baseline for its reasons is best-effort. If the file is cor
 
 `check`'s human-readable output shows a non-empty reason under a baselined violation, and under a violation during `--update-baseline`, so a reviewer sees why it is suppressed without opening the baseline file.
 
+## Rules
+
+- Suppression MUST NOT read a baseline entry's `reason`.
+- A baseline file without `reason` keys MUST load and suppress as before.
+- Without `--baseline-reason`, an entry re-collected for an ADR and file already in the previous baseline MUST keep that entry's reason.
+- A new entry with no `--baseline-reason` MUST get an empty reason.
+- If the previous baseline is corrupt or unreadable, `--update-baseline` MUST print a warning and carry no reasons forward rather than fail.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - A team can tell accepted debt from tool false positives in `archguard-baseline.json`, by hand-editing `reason` after a plain `--update-baseline` or by re-running with `--baseline-reason` to set one value across an update.

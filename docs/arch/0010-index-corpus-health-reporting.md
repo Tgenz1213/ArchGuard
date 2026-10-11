@@ -22,6 +22,18 @@ An ADR counts as valid only once it is indexed, not merely when its status is ac
 
 The run fails with the index error exit code when no valid ADR survives, whatever was discovered. Skipped, rejected and duplicate ADRs are reported but do not fail the run. A corpus with nothing discovered, such as a misconfigured `adr_path`, is exactly the case where a rebuild would otherwise empty a healthy Postgres index while reporting success. The emptiness check runs before the local index is saved, so a failed or empty rebuild leaves the index on disk untouched.
 
+## Rules
+
+- Each `index.Provider` MUST report how many ADRs it discovered, which failed to parse, how many it rejected for their status, and which accepted ADRs loaded without their rules.
+- Duplicate IDs and ADRs with no scope MUST be detected once, after the providers' results are merged.
+- `archguard index` MUST fail with the index error exit code when no valid ADR survives.
+- Skipped, rejected and duplicate ADRs MUST be reported and MUST NOT fail the run.
+- The emptiness check MUST run before the local index is saved.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - After every `archguard index`, a user sees what happened to every discovered ADR: valid, failed to parse, rejected for its status, failed to embed, or in a duplicate-ID collision.

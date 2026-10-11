@@ -14,7 +14,7 @@ Both vector store backends embedded new and modified ADRs concurrently, and the 
 
 `BuildIndex` treats one ADR's embedding failure, and in Postgres its write failure, as non-fatal. A failing embed never cancels its siblings. The failure is recorded in the build result's skipped list with the ADR's path and error, and the ADR is left out of this run instead of partially applied. The local store drops it from the corpus; Postgres never writes it, so any earlier row stays as it was.
 
-The local index hash covers every fetched ADR, not only the ones that embedded. The hash answers whether the saved index corresponds to the ADR files on disk, which a partial index still does. Which files embedded is the skipped list's job. Hashing only the embedded subset would make the saved hash disagree with the fresh one whenever an ADR keeps failing. Every `check` would then rebuild, skip the ADR again, fail to reload and exit with an index error: an endless rebuild loop. The accepted trade-off is that once a failing ADR stops changing, `check` stops rebuilding for it. A manual `archguard index` retries it, because a failed ADR is never saved and has no embedding to reuse. `check` lists such an ADR in its report as not in the index (`docs/arch/0028-check-report-and-log.md`).
+The local index hash covers every fetched ADR, not only the ones that embedded. The hash answers whether the saved index corresponds to the ADR files on disk, which a partial index still does. Which files embedded is the skipped list's job. The accepted trade-off is that once a failing ADR stops changing, `check` stops rebuilding for it. A manual `archguard index` retries it, because a failed ADR is never saved and has no embedding to reuse. `check` lists such an ADR in its report as not in the index (`docs/arch/0028-check-report-and-log.md`).
 
 `VectorStore.BuildIndex` returns a result alongside its error. The error is reserved for build-wide failures that make the run meaningless, such as fetching the corpus, reaching the database or hashing the corpus, never for one ADR's embedding failure. Two cases are deliberately build-wide rather than a pile of per-ADR skips:
 
@@ -22,6 +22,18 @@ The local index hash covers every fetched ADR, not only the ones that embedded. 
 - If every ADR that needed embedding failed, the build returns an error and leaves the stored index untouched. An empty corpus would otherwise load cleanly and pass every file, which is worse than the abort this ADR replaces.
 
 `archguard index` reports skipped ADRs and why as part of its corpus-health summary (`docs/arch/0010-index-corpus-health-reporting.md`), and still succeeds as long as the build completed and at least one ADR is valid.
+
+## Rules
+
+- A failing embed MUST NOT cancel its siblings.
+- A failed ADR MUST be left out of the run, not partially applied.
+- The local index hash MUST cover every fetched ADR, not only the ones that embedded.
+- `VectorStore.BuildIndex` MUST NOT return an error for one ADR's embedding failure.
+- If every ADR that needed embedding failed, the build MUST return an error and leave the stored index untouched.
+
+## Alternatives considered
+
+- **Hashing only the embedded subset.** It would make the saved hash disagree with the fresh one whenever an ADR keeps failing. Every `check` would then rebuild, skip the ADR again, fail to reload and exit with an index error: an endless rebuild loop.
 
 ## Consequences
 
