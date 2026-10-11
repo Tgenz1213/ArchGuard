@@ -44,6 +44,7 @@ func (p *LocalProvider) SetPrinter(out *output.Printer) {
 func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
 	var validADRs []ADR
 	var stats FetchStats
+	var idPatternMatched bool
 
 	err := filepath.Walk(p.dirPath, func(path string, stat os.FileInfo, err error) error {
 		if err != nil {
@@ -55,6 +56,10 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		}
 
 		stats.Discovered++
+
+		if p.idPattern != nil && p.idPattern.MatchString(stat.Name()) {
+			idPatternMatched = true
+		}
 
 		adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
 		if err != nil {
@@ -82,6 +87,10 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 
 	if err != nil {
 		return nil, FetchStats{}, err
+	}
+
+	if p.idPattern != nil && stats.Discovered > 0 && !idPatternMatched {
+		p.out.Warn("analysis.adr_id_pattern %q matches none of the %d ADR files in %s; every ID falls back to the filename up to its first hyphen", p.idPattern, stats.Discovered, p.dirPath)
 	}
 
 	return validADRs, stats, nil

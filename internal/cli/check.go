@@ -137,7 +137,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine := analysis.NewEngine(setup.cfg, store, setup.chat, setup.embed, contentProvider)
 	engine.Debug = opts.Debug
 	engine.CI = opts.CI
-	engine.JudgeChange = opts.Since != ""
+	engine.JudgeChange = opts.Since != "" && !opts.WholeFile
 
 	analysisCache, err := cache.NewCache(".")
 	if err != nil {

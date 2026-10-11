@@ -178,20 +178,6 @@ func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
 	}
 }
 
-func TestCompileADRIDPattern_ValidPatternCompiles(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Analysis.ADRIDPattern = `^adr-(\d+)-`
-
-	re, err := compileADRIDPattern(cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if re == nil {
-		t.Fatal("re = nil, want compiled pattern")
-	}
-}
-
 func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.ADRIDPattern = `[unterminated`
@@ -199,6 +185,40 @@ func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
 	_, err := compileADRIDPattern(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid regex, got nil")
+	}
+}
+
+func TestCompileADRIDPattern_CaptureGroups(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		wantErr bool
+	}{
+		{"no group uses the whole match", `^adr-\d+`, false},
+		{"one group is the ID", `^adr-(\d+)-`, false},
+		{"a non-capturing group does not count", `^(?:adr|ADR)-(\d+)-`, false},
+		{"two groups are ambiguous", `^(adr)-(\d+)-`, true},
+		{"named groups count too", `^(?P<kind>adr)-(?P<id>\d+)-`, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Analysis.ADRIDPattern = tt.pattern
+
+			re, err := compileADRIDPattern(cfg)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "analysis.adr_id_pattern") {
+					t.Fatalf("err = %v, want an error naming analysis.adr_id_pattern", err)
+				}
+
+				return
+			}
+
+			if err != nil || re == nil {
+				t.Fatalf("compileADRIDPattern() = %v, %v; want a compiled pattern", re, err)
+			}
+		})
 	}
 }
 
@@ -765,6 +785,13 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with all", args: []string{"check", "--since", "abc123", "--all"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with update-baseline", args: []string{"check", "--since", "abc123", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
+		{name: "since with whole-file", args: []string{"check", "--since", "abc123", "--whole-file"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if !c.WholeFile {
+				t.Error("WholeFile = false, want true")
+			}
+		}},
+		{name: "whole-file without since", args: []string{"check", "--whole-file"}, wantCode: ExitUsage, wantErr: true},
+		{name: "whole-file with all", args: []string{"check", "--all", "--whole-file"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with a path", args: []string{"check", "--since", "abc123", "main.go"}, wantCode: ExitUsage, wantErr: true},
 		{name: "index", args: []string{"index"}, wantCommand: "index"},
 		{name: "init", args: []string{"init"}, wantCommand: "init"},
@@ -773,6 +800,8 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "help", args: []string{"help"}, wantOut: "Usage: archguard <command>"},
 		{name: "check --help after flags", args: []string{"check", "--format", "json", "--help"}, wantOut: "Scan staged files only"},
 		{name: "index --help", args: []string{"index", "--help"}, wantOut: "Usage: archguard index"},
+		{name: "check --help lists --config", args: []string{"check", "--help"}, wantOut: "--config=PATH"},
+		{name: "index --help lists --config", args: []string{"index", "--help"}, wantOut: "--config=PATH"},
 		{name: "--version", args: []string{"--version"}, wantOut: "ArchGuard version"},
 		{name: "no command", args: nil, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
 		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
@@ -1127,5 +1156,26 @@ func TestPrintIndexSummary_NoMalformedRulesSectionWhenNone(t *testing.T) {
 
 	if strings.Contains(buf.String(), "Rules ignored") {
 		t.Errorf("expected no malformed-rules section, got:\n%s", buf.String())
+	}
+}
+
+func TestEnterRepoRoot_SymlinkedWorkingDirectory(t *testing.T) {
+	repoRoot := setupExecuteTestRepo(t)
+	link := filepath.Join(t.TempDir(), "link")
+
+	if err := os.Symlink(repoRoot, link); err != nil {
+		t.Fatalf("creating symlink: %v", err)
+	}
+
+	t.Chdir(link)
+
+	inv := &invocation{command: "check", check: checkCmd{Paths: []string{"a.go", filepath.Join(link, "b.go")}}}
+
+	if _, err := enterRepoRoot(t.Context(), inv); err != nil {
+		t.Fatalf("enterRepoRoot() error = %v", err)
+	}
+
+	if want := []string{"a.go", "b.go"}; !slices.Equal(inv.check.Paths, want) {
+		t.Errorf("Paths = %v, want %v", inv.check.Paths, want)
 	}
 }

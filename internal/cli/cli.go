@@ -85,7 +85,7 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 		warnings = colors.stderrPrinter(false)
 	}
 
-	setup, err := loadSetup(repoRoot, warnings, factories)
+	setup, err := loadSetup(repoRoot, inv.configPath(), warnings, factories)
 	if err != nil {
 		return ExitConfig, err
 	}
@@ -123,10 +123,11 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 		return "", fmt.Errorf("error reading the working directory: %w", err)
 	}
 
-	repoRoot = filepath.Clean(repoRoot)
-	cwd = filepath.Clean(cwd)
+	repoRoot = canonicalPath(repoRoot)
+	cwd = canonicalPath(cwd)
 
 	inv.check.resolvePaths(cwd, repoRoot)
+	inv.index.resolvePaths(cwd)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
@@ -137,8 +138,8 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 	return repoRoot, nil
 }
 
-func loadSetup(repoRoot string, warnings *output.Printer, factories ProviderFactories) (runSetup, error) {
-	cfg, err := config.LoadConfig(configFilename)
+func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories ProviderFactories) (runSetup, error) {
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		return runSetup{}, fmt.Errorf("error loading config: %w", err)
 	}

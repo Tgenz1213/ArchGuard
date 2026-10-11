@@ -1,21 +1,23 @@
 package inference
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-	"net/url"
 	"strings"
-
-	"github.com/ollama/ollama/api"
 )
+
+const maxOllamaErrorBodyBytes = 4096
 
 type OllamaProvider struct {
 	temperature
 	host       string
 	model      string
 	embedModel string
-	client     *api.Client
+	client     *http.Client
 }
 
 func NewOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
@@ -32,52 +34,47 @@ func NewOllamaProviderWithBaseURL(baseURL, model, embedModel string) *OllamaProv
 }
 
 func newOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
-	base, err := url.Parse(baseURL)
-	if err != nil {
-		// Requests will fail with a descriptive error instead of panicking on a nil base URL.
-		base = &url.URL{}
-	}
-
 	return &OllamaProvider{
 		host:       baseURL,
 		model:      model,
 		embedModel: embedModel,
-		client:     api.NewClient(base, http.DefaultClient),
+		client:     http.DefaultClient,
 	}
 }
 
 func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
-	stream := false
 	options := map[string]any{}
 
 	if value := p.Temperature(); value != nil {
 		options["temperature"] = *value
 	}
 
-	req := &api.ChatRequest{
-		Model:   p.model,
-		Stream:  &stream,
-		Format:  json.RawMessage(`"json"`),
-		Options: options,
-		Messages: []api.Message{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
+	req := map[string]any{
+		"model":   p.model,
+		"stream":  false,
+		"format":  "json",
+		"options": options,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
 		},
 	}
 
-	var reply ChatReply
-
-	err := p.client.Chat(ctx, req, func(resp api.ChatResponse) error {
-		reply.Text = resp.Message.Content
-		reply.Usage = Usage{InputTokens: resp.PromptEvalCount, OutputTokens: resp.EvalCount, Reported: resp.Done}
-
-		return nil
-	})
-	if err != nil {
+	var resp struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+		Done            bool `json:"done"`
+		PromptEvalCount int  `json:"prompt_eval_count"`
+		EvalCount       int  `json:"eval_count"`
+	}
+	if err := p.post(ctx, "/api/chat", req, &resp); err != nil {
 		return ChatReply{}, err
 	}
 
-	return reply, nil
+	usage := Usage{InputTokens: resp.PromptEvalCount, OutputTokens: resp.EvalCount, Reported: resp.Done}
+
+	return ChatReply{Text: resp.Message.Content, Usage: usage}, nil
 }
 
 // embeddingPrefixConventions maps a model name prefix to its
@@ -108,46 +105,100 @@ func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
 }
 
 func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
-	req := &api.EmbeddingRequest{
-		Model:  p.embedModel,
-		Prompt: embeddingTaskPrefix(p.embedModel, task) + text,
+	req := map[string]any{
+		"model":  p.embedModel,
+		"prompt": embeddingTaskPrefix(p.embedModel, task) + text,
 	}
 
-	resp, err := p.client.Embeddings(ctx, req)
-	if err != nil {
+	var resp struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := p.post(ctx, "/api/embeddings", req, &resp); err != nil {
 		return Embedding{}, err
 	}
 
-	embedding := make([]float32, len(resp.Embedding))
-	for i, value := range resp.Embedding {
-		embedding[i] = float32(value)
-	}
-
 	// Ollama's /api/embeddings endpoint reports no token count.
-	return Embedding{Vector: embedding}, nil
+	return Embedding{Vector: resp.Embedding}, nil
 }
 
 func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, error) {
-	stream := false
-	req := &api.GenerateRequest{
-		Model:  p.model,
-		Prompt: text,
-		Raw:    true,
-		Stream: &stream,
-		Options: map[string]any{
+	req := map[string]any{
+		"model":  p.model,
+		"prompt": text,
+		"raw":    true,
+		"stream": false,
+		"options": map[string]any{
 			"num_predict": 1,
 		},
 	}
 
-	var count int
-
-	err := p.client.Generate(ctx, req, func(resp api.GenerateResponse) error {
-		count = resp.PromptEvalCount
-		return nil
-	})
-	if err != nil {
+	var resp struct {
+		PromptEvalCount int `json:"prompt_eval_count"`
+	}
+	if err := p.post(ctx, "/api/generate", req, &resp); err != nil {
 		return 0, err
 	}
 
-	return count, nil
+	return resp.PromptEvalCount, nil
+}
+
+func (p *OllamaProvider) post(ctx context.Context, path string, reqBody, respBody any) error {
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ollama request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(p.host, "/")+path, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to build ollama request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama request failed: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // closing a read response body can't change the result
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ollamaStatusError(resp)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read ollama response: %w", err)
+	}
+
+	var failure struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &failure) == nil && failure.Error != "" {
+		return fmt.Errorf("ollama api error: %s", failure.Error)
+	}
+
+	if err := json.Unmarshal(body, respBody); err != nil {
+		return fmt.Errorf("failed to decode ollama response: %w", err)
+	}
+
+	return nil
+}
+
+// Ollama reports failures as {"error": "..."}, e.g. a model that was never pulled.
+func ollamaStatusError(resp *http.Response) error {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOllamaErrorBodyBytes))
+	if err != nil || len(body) == 0 {
+		return fmt.Errorf("ollama api error: %s", resp.Status)
+	}
+
+	var decoded struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &decoded) == nil && decoded.Error != "" {
+		return fmt.Errorf("ollama api error: %s: %s", resp.Status, decoded.Error)
+	}
+
+	return fmt.Errorf("ollama api error: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 }

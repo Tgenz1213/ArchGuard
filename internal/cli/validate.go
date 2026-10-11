@@ -20,6 +20,10 @@ func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {
 		return nil, fmt.Errorf("invalid analysis.adr_id_pattern %q: %w", cfg.Analysis.ADRIDPattern, err)
 	}
 
+	if groups := re.NumSubexp(); groups > 1 {
+		return nil, fmt.Errorf("analysis.adr_id_pattern %q has %d capture groups; use at most one, around the ID", cfg.Analysis.ADRIDPattern, groups)
+	}
+
 	return re, nil
 }
 
