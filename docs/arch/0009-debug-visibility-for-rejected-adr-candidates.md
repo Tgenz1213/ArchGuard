@@ -14,7 +14,14 @@ A vector store drops ADRs that score below the similarity threshold before the e
 
 `VectorStore` has a separate method, `SearchRejected`, that returns the scope-matched candidates scoring below the threshold. It has the same scope-filter-then-rank shape as `Search` (`docs/arch/0007-scope-filtered-before-topk-similarity.md`) and keeps the complement of the threshold filter at the same point in the pipeline. Under `--debug` the cosine stage logs each rejected candidate's title and score. The method runs only under `--debug`, so a normal run does no extra work and prints nothing new.
 
-Making `Search` always compute rejected candidates, and letting the engine decide whether to print them, was rejected. Every call on both backends would do more work, including the non-debug path that nearly all real runs take. A separate, debug-only method keeps that path untouched.
+## Rules
+
+- `SearchRejected` MUST have the same scope-filter-then-rank shape as `Search` and keep the complement of its threshold filter.
+- `SearchRejected` MUST run only under `--debug`.
+
+## Alternatives considered
+
+- **Making `Search` always compute rejected candidates, and letting the engine decide whether to print them.** Every call on both backends would do more work, including the non-debug path that nearly all real runs take. A separate, debug-only method keeps that path untouched.
 
 ## Consequences
 

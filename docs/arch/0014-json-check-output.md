@@ -20,7 +20,19 @@ scope: "internal/**"
 - Exit codes are unaffected: `--format` changes only what is printed, never what is returned.
 - `--update-baseline` ignores `--format` and prints a note saying so. Its output is the baseline report (`docs/arch/0028-check-report-and-log.md`), a maintenance summary rather than the violation report this flag targets, and baselining suppresses the very violations the flag would report.
 
-Human-readable output reaches stderr through an explicit writer, the `output.Printer`, passed to the code that prints. The rejected alternative was to silence stdout for the whole process, for example by swapping `os.Stdout` for the run. That is process-global, is not safe against the engine's concurrent workers, and would stop tests from asserting on stdout and stderr separately, which the e2e check that stdout is exactly one JSON document depends on.
+Human-readable output reaches stderr through an explicit writer, the `output.Printer`, passed to the code that prints.
+
+## Rules
+
+- With `--format json`, stdout MUST carry exactly one JSON document.
+- With `--format json`, everything else meant for a person MUST go to stderr instead of being suppressed.
+- Human-readable `check` output MUST reach its stream through the `output.Printer` passed to the code that prints.
+- `--format` MUST NOT change the exit code.
+- `--update-baseline` MUST ignore `--format` and print a note saying so.
+
+## Alternatives considered
+
+- **Silencing stdout for the whole process, for example by swapping `os.Stdout` for the run.** That is process-global, is not safe against the engine's concurrent workers, and would stop tests from asserting on stdout and stderr separately, which the e2e check that stdout is exactly one JSON document depends on.
 
 ## Consequences
 

@@ -20,6 +20,18 @@ When a pattern is set and matches none of the ADR files, the local provider prin
 
 The Confluence provider is unaffected: its IDs come from page IDs, not filenames.
 
+## Rules
+
+- `analysis.adr_id_pattern` MUST be compiled once at startup.
+- A pattern with more than one capture group, named groups included, MUST be a config error.
+- When the pattern matches a filename, the ID MUST be capture group 1 if the pattern has one, otherwise the whole match.
+- When the pattern is unset, or does not match a given filename, that file MUST fall back to the first-hyphen split.
+- When a pattern is set and matches none of the ADR files, the local provider MUST print a warning and carry on.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - A corpus with another naming convention gets distinct, stable ADR IDs without renaming files.
