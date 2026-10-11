@@ -157,6 +157,10 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		return runSetup{}, err
 	}
 
+	if err := validateCosts(cfg); err != nil {
+		return runSetup{}, err
+	}
+
 	adrIDPattern, err := compileADRIDPattern(cfg)
 	if err != nil {
 		return runSetup{}, err

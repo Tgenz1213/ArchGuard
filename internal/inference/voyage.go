@@ -44,7 +44,7 @@ func voyageInputType(task EmbeddingTaskType) string {
 }
 
 // voyage-context-* models only work with contextualized_embed(), sent as a single chunk.
-func (p *VoyageProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+func (p *VoyageProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	if strings.HasPrefix(p.embedModel, "voyage-context-") {
 		return p.contextualizedEmbed(ctx, text, task)
 	}
@@ -52,7 +52,7 @@ func (p *VoyageProvider) CreateEmbedding(ctx context.Context, text string, task 
 	return p.embed(ctx, text, task)
 }
 
-func (p *VoyageProvider) embed(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+func (p *VoyageProvider) embed(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	reqBody := map[string]any{
 		"input":      []string{text},
 		"model":      p.embedModel,
@@ -63,19 +63,20 @@ func (p *VoyageProvider) embed(ctx context.Context, text string, task EmbeddingT
 		Data []struct {
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
+		Usage voyageUsage `json:"usage"`
 	}
 	if err := p.doRequest(ctx, "/v1/embeddings", reqBody, &respBody); err != nil {
-		return nil, err
+		return Embedding{}, err
 	}
 
 	if len(respBody.Data) == 0 {
-		return nil, fmt.Errorf("voyage returned no embedding data")
+		return Embedding{}, fmt.Errorf("voyage returned no embedding data")
 	}
 
-	return respBody.Data[0].Embedding, nil
+	return Embedding{Vector: respBody.Data[0].Embedding, Usage: respBody.Usage.usage()}, nil
 }
 
-func (p *VoyageProvider) contextualizedEmbed(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+func (p *VoyageProvider) contextualizedEmbed(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	reqBody := map[string]any{
 		"inputs":     [][]string{{text}},
 		"model":      p.embedModel,
@@ -88,16 +89,29 @@ func (p *VoyageProvider) contextualizedEmbed(ctx context.Context, text string, t
 				Embedding []float32 `json:"embedding"`
 			} `json:"data"`
 		} `json:"data"`
+		Usage voyageUsage `json:"usage"`
 	}
 	if err := p.doRequest(ctx, "/v1/contextualizedembeddings", reqBody, &respBody); err != nil {
-		return nil, err
+		return Embedding{}, err
 	}
 
 	if len(respBody.Data) == 0 || len(respBody.Data[0].Data) == 0 {
-		return nil, fmt.Errorf("voyage returned no embedding data")
+		return Embedding{}, fmt.Errorf("voyage returned no embedding data")
 	}
 
-	return respBody.Data[0].Data[0].Embedding, nil
+	return Embedding{Vector: respBody.Data[0].Data[0].Embedding, Usage: respBody.Usage.usage()}, nil
+}
+
+type voyageUsage struct {
+	TotalTokens *int `json:"total_tokens"`
+}
+
+func (u voyageUsage) usage() Usage {
+	if u.TotalTokens == nil {
+		return Usage{}
+	}
+
+	return Usage{InputTokens: *u.TotalTokens, Reported: true}
 }
 
 func (p *VoyageProvider) doRequest(ctx context.Context, path string, reqBody, respBody any) error {

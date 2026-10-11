@@ -24,7 +24,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 		return nil, &Error{Action: "generating embedding", Kind: KindPreconditionNotMet, Err: errors.New("no embedding provider configured")}
 	}
 
-	embedding, err := c.Embed.CreateEmbedding(ctx, file.QueryText(ctx), inference.EmbeddingTaskQuery)
+	query, err := c.Embed.CreateEmbedding(ctx, file.QueryText(ctx), inference.EmbeddingTaskQuery)
 	if err != nil {
 		return nil, &Error{Action: "generating embedding", Err: err}
 	}
@@ -33,10 +33,10 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 	var found []index.SearchResult
 
 	if debug.DebugEnabled() {
-		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding, c.Threshold, math.MaxInt32, file.Path())
+		hits, rejected, _ := c.Store.SearchWithDebugInfo(query.Vector, c.Threshold, math.MaxInt32, file.Path())
 		found = slices.Concat(hits, rejected)
 	} else {
-		found = c.Store.Search(embedding, c.Threshold, math.MaxInt32, file.Path())
+		found = c.Store.Search(query.Vector, c.Threshold, math.MaxInt32, file.Path())
 	}
 
 	byKey := make(map[string]float64, len(found))

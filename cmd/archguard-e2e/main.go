@@ -28,6 +28,11 @@ func main() {
 	os.Exit(int(exitCode))
 }
 
+var (
+	mockChatUsage  = inference.Usage{InputTokens: testutil.MockChatInputTokens, OutputTokens: testutil.MockChatOutputTokens, Reported: true}
+	mockEmbedUsage = inference.Usage{InputTokens: testutil.MockEmbedTokens, Reported: true}
+)
+
 func chatProviderFactory(stop context.CancelFunc) func(*config.Config) inference.Provider {
 	return func(cfg *config.Config) inference.Provider {
 		// Single-provider configs reuse this instance as embedProvider too, so it must stay functional here.
@@ -35,6 +40,8 @@ func chatProviderFactory(stop context.CancelFunc) func(*config.Config) inference
 			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
 			ChatFunc:     mockChat(stop),
 			EmbedFunc:    mockEmbed(cfg, stop, testutil.MockChatProviderMarker),
+			ChatUsage:    mockChatUsage,
+			EmbedUsage:   mockEmbedUsage,
 		}
 	}
 }
@@ -44,6 +51,7 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 		return &inference.MockProvider{
 			EmbeddingDim: cfg.VectorStore.EmbeddingDim,
 			EmbedFunc:    mockEmbed(cfg, stop, testutil.MockEmbedProviderMarker),
+			EmbedUsage:   mockEmbedUsage,
 		}
 	}
 }

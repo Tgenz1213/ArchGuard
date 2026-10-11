@@ -17,12 +17,14 @@ type Config struct {
 }
 
 type LLMConfig struct {
-	Provider     string   `yaml:"provider"`
-	Model        string   `yaml:"model"`
-	BaseURL      string   `yaml:"base_url"`
-	MaxTokens    int      `yaml:"max_tokens"`
-	Temperature  *float64 `yaml:"temperature"`
-	SystemPrompt string   `yaml:"system_prompt"`
+	Provider              string   `yaml:"provider"`
+	Model                 string   `yaml:"model"`
+	BaseURL               string   `yaml:"base_url"`
+	MaxTokens             int      `yaml:"max_tokens"`
+	Temperature           *float64 `yaml:"temperature"`
+	SystemPrompt          string   `yaml:"system_prompt"`
+	CostPer1KInputTokens  *float64 `yaml:"cost_per_1k_input_tokens"`
+	CostPer1KOutputTokens *float64 `yaml:"cost_per_1k_output_tokens"`
 }
 
 type VectorStore struct {
@@ -36,6 +38,7 @@ type VectorStore struct {
 	ReindexThreshold     *float64 `yaml:"reindex_threshold"`    // nil (unset) = PgStore's 0.20 default; explicit 0.0 reindexes on any churn
 	ReindexConcurrently  *bool    `yaml:"reindex_concurrently"` // nil (unset) = CONCURRENTLY; only explicit false uses blocking REINDEX
 	IterativeScan        *bool    `yaml:"iterative_scan"`       // nil (unset) = enabled when pgvector supports it; only explicit false disables
+	CostPer1KTokens      *float64 `yaml:"cost_per_1k_tokens"`
 }
 
 type Confluence struct {

@@ -21,6 +21,8 @@ type Report struct {
 	Unverified []Violation
 	Baselined  int
 	Coverage   Coverage
+	Usage      *Usage
+	DryRun     *DryRun
 	Gaps
 }
 
@@ -61,6 +63,11 @@ func violatingFiles(violations []Violation) []string {
 }
 
 func (p *Printer) Report(report Report) {
+	if report.DryRun != nil {
+		p.dryRunReport(report)
+		return
+	}
+
 	report.Violations = sortedViolations(report.Violations)
 	report.Unverified = sortedViolations(report.Unverified)
 	report.Gaps = report.sortedGaps()
@@ -70,6 +77,7 @@ func (p *Printer) Report(report Report) {
 	if len(files) == 0 && len(report.Unverified) == 0 && len(gaps) == 0 {
 		p.Result("%s", report.Coverage.line())
 		p.Result("%s", report.Coverage.cleanResult(report.Baselined))
+		p.reportUsage(report.Usage)
 
 		return
 	}
@@ -89,6 +97,13 @@ func (p *Printer) Report(report Report) {
 	p.reportGaps(report.Gaps)
 	p.Result("%s", report.Coverage.line())
 	p.Result("%s", report.summary(len(files), gaps))
+	p.reportUsage(report.Usage)
+}
+
+func (p *Printer) reportUsage(usage *Usage) {
+	if usage != nil {
+		p.Result("%s", usage.line())
+	}
 }
 
 func (report Report) summary(files int, gaps []string) string {

@@ -115,10 +115,10 @@ func buildAPIError(status string, body []byte) error {
 	return fmt.Errorf("gemini api error (%s): %s", status, errRes.Error.Message)
 }
 
-func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string, error) {
+func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
 	client, transport, err := p.newClient(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to create gemini client: %w", err)
+		return ChatReply{}, fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
 	fullPrompt := fmt.Sprintf("%s\n\n%s", system, user)
@@ -134,20 +134,33 @@ func (p *GeminiProvider) Chat(ctx context.Context, system, user string) (string,
 
 	resp, err := client.Models.GenerateContent(ctx, p.model, contents, config)
 	if err != nil {
-		return "", p.apiError(err, transport)
+		return ChatReply{}, p.apiError(err, transport)
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
-		return "", fmt.Errorf("gemini returned no candidates or parts")
+		return ChatReply{}, fmt.Errorf("gemini returned no candidates or parts")
 	}
 
-	return resp.Candidates[0].Content.Parts[0].Text, nil
+	return ChatReply{Text: resp.Candidates[0].Content.Parts[0].Text, Usage: geminiUsage(resp.UsageMetadata)}, nil
 }
 
-func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+// Thinking tokens are billed as output, so they count with the candidates.
+func geminiUsage(metadata *genai.GenerateContentResponseUsageMetadata) Usage {
+	if metadata == nil {
+		return Usage{}
+	}
+
+	return Usage{
+		InputTokens:  int(metadata.PromptTokenCount),
+		OutputTokens: int(metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount),
+		Reported:     true,
+	}
+}
+
+func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	client, transport, err := p.newClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create gemini client: %w", err)
+		return Embedding{}, fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
 	contents := []*genai.Content{genai.NewContentFromText(text, genai.RoleUser)}
@@ -156,14 +169,15 @@ func (p *GeminiProvider) CreateEmbedding(ctx context.Context, text string, task 
 
 	resp, err := client.Models.EmbedContent(ctx, p.embedModel, contents, config)
 	if err != nil {
-		return nil, p.apiError(err, transport)
+		return Embedding{}, p.apiError(err, transport)
 	}
 
 	if len(resp.Embeddings) == 0 {
-		return nil, fmt.Errorf("gemini returned no embeddings")
+		return Embedding{}, fmt.Errorf("gemini returned no embeddings")
 	}
 
-	return resp.Embeddings[0].Values, nil
+	// The Gemini API reports no token count for embeddings.
+	return Embedding{Vector: resp.Embeddings[0].Values}, nil
 }
 
 func (p *GeminiProvider) CountTokens(ctx context.Context, text string) (int, error) {

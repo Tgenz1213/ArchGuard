@@ -27,6 +27,7 @@ type checkRun struct {
 	report       *output.Printer
 	jsonDest     io.Writer
 	reportBuffer bytes.Buffer
+	meters       usageMeters
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
@@ -56,6 +57,10 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 
 	run.noteIgnoredBaselineFlags()
 
+	if opts.DryRun && opts.SuggestFixes {
+		run.log.Note("--dry-run does not project the cost of --suggest-fixes suggestions.")
+	}
+
 	contentProvider := opts.contentProvider(run.log)
 
 	run.log.Debug("Mode Enabled")
@@ -80,7 +85,9 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
-	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug)}
+	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug), meters: newUsageMeters(setup)}
+	run.setup.chat = run.meters.judgment
+	run.setup.embed = run.meters.embedding
 
 	if opts.Output == "" {
 		run.report = colors.stdoutPrinter(false)
@@ -146,6 +153,8 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.JSONOutput = opts.jsonOutput()
 	engine.Out = r.log
 	engine.SuggestFixes = opts.SuggestFixes
+	engine.SuggestChat = r.meters.suggestion
+	engine.DryRun = opts.DryRun
 
 	return engine
 }
@@ -194,6 +203,10 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 		return ExitError, errors.Join(err, stageErr, analysisErr)
 	}
 
+	if r.opts.DryRun {
+		return dryRunExit(analysisErr)
+	}
+
 	if stageErr != nil {
 		return stageCode, stageErr
 	}
@@ -213,12 +226,21 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 	return ExitSuccess, nil
 }
 
+// A dry run judged nothing, so stage failures and an unchecked run don't fail it; an analysis error still does.
+func dryRunExit(analysisErr error) (ExitCode, error) {
+	if analysisErr != nil {
+		return ExitError, analysisErr
+	}
+
+	return ExitSuccess, nil
+}
+
 // A run whose analysis failed outright in text mode has no report to write.
 func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	analysisFailed := runErr != nil && !isDriftError(runErr)
 
 	if r.opts.jsonOutput() {
-		if err := writeCheckReport(r.jsonDest, engine); err != nil {
+		if err := writeCheckReport(r.jsonDest, engine, r.usage(engine)); err != nil {
 			return fmt.Errorf("failed to write json report: %w", err)
 		}
 
@@ -226,7 +248,9 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 			r.log.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
 		}
 	} else if !analysisFailed {
-		r.report.Report(engine.Report())
+		report := engine.Report()
+		report.Usage = r.usage(engine)
+		r.report.Report(report)
 	}
 
 	if r.opts.jsonOutput() || !analysisFailed {
@@ -234,6 +258,14 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	}
 
 	return nil
+}
+
+func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
+	if r.opts.DryRun {
+		return r.meters.dryRunReport(r.setup.cfg, engine.Projection.Usage)
+	}
+
+	return r.meters.report(r.setup.cfg, r.opts.SuggestFixes)
 }
 
 func (r *checkRun) saveReportFile() error {
@@ -257,9 +289,11 @@ type checkReport struct {
 	Stages     []stage.Stats           `json:"stages"`
 	Coverage   output.Coverage         `json:"coverage"`
 	Failures   []analysis.StageFailure `json:"failures,omitempty"`
+	Usage      *output.Usage           `json:"usage"`
+	DryRun     *output.DryRun          `json:"dry_run,omitempty"`
 }
 
-func writeCheckReport(w io.Writer, engine *analysis.Engine) error {
+func writeCheckReport(w io.Writer, engine *analysis.Engine, usage *output.Usage) error {
 	report := checkReport{
 		Violations: nonNil(engine.CollectedViolations),
 		Count:      len(engine.CollectedViolations),
@@ -267,6 +301,8 @@ func writeCheckReport(w io.Writer, engine *analysis.Engine) error {
 		Stages:     nonNil(engine.CollectedStages),
 		Coverage:   engine.Coverage,
 		Failures:   engine.StageFailures,
+		Usage:      usage,
+		DryRun:     engine.DryRunSummary(),
 	}
 
 	enc := json.NewEncoder(w)
