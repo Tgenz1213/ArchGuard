@@ -10,7 +10,7 @@ Chat and embedding are separate roles: `Chatter` (`Chat`, `CountTokens`) and `Em
 - `CountTokens` uses each backend's own tokenizer, and for Ollama and Gemini it is a network call, so truncating an oversized file costs several round trips (`docs/arch/0002-provider-scoped-token-counting.md`).
 - `CreateEmbedding` takes the call's role (document or query); each provider maps it onto its backend's convention, or ignores it (`docs/arch/0003-embedding-task-role.md`).
 - `OllamaProvider` calls Ollama's REST API with `net/http`; the `github.com/ollama/ollama` module stays out of `go.mod` because its advisories have no fixed version (`docs/arch/0033-ollama-over-plain-http.md`).
-- `SuggestRemediation` and `AnalyzeDrift` share retries and JSON parsing through `chatJSON[T]`, and both return how many retries they sent (`docs/arch/0016-llm-suggested-remediation.md`).
+- `SuggestRemediation` and `AnalyzeDrift` share retries and JSON parsing through `chatJSON[T]` (`docs/arch/0016-llm-suggested-remediation.md`).
 - Every chat provider embeds the `temperature` holder; `cli` sets it with `SetTemperature` and each `Chat` adds the vendor's field only when it is non-nil. There is no list of models that reject the parameter; the user leaves `llm.temperature` unset for those.
 - Prompt text is part of the analysis and suggestion cache keys, so editing a prompt invalidates earlier results. The `--since` diff instructions are in the user prompt `ChatPromptDiff`, not the system prompt (`docs/arch/0030-judge-the-change-under-since.md`).
 

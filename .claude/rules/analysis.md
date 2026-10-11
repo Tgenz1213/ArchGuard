@@ -25,7 +25,7 @@ All per-file log text goes through `Engine.Out`, one `Group` per file, so a file
 
 ## Cache
 
-Judgment results are cached in `.archguard/cache/`, keyed by model, ADR content, file content and both prompts, so a hit skips the LLM call. `fileCheck` counts each lookup as a hit or a miss and adds the retries `AnalyzeDrift` and `SuggestRemediation` report, separately for judgments and suggestions (`Engine.JudgmentCounts`, `Engine.SuggestionCounts`); `Engine.checkFile` times each file into `Engine.FileDurations`. They feed the JSON `usage` object (`docs/arch/0022-candidate-scoring-pipeline.md`). `--suggest-fixes` suggestions use their own key and directory (`docs/arch/0016-llm-suggested-remediation.md`, `docs/arch/0017-suggestion-cache-key-namespace.md`).
+Judgment results are cached in `.archguard/cache/`, keyed by model, ADR content, file content and both prompts, so a hit skips the LLM call. `--suggest-fixes` suggestions use their own key and directory (`docs/arch/0016-llm-suggested-remediation.md`, `docs/arch/0017-suggestion-cache-key-namespace.md`).
 
 ## Footguns
 
