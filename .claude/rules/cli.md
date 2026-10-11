@@ -28,7 +28,7 @@ Exit codes are meaningful and tested; preserve them if you touch command dispatc
 
 | Code | Meaning |
 |---|---|
-| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, and runs whose only findings are unverified |
+| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, runs whose only findings are unverified, and every `--dry-run` not stopped by an error (`docs/arch/0033-token-usage-is-what-the-provider-reported.md`) |
 | `1` | General error, including a failed write of primary output, which wins over every code but `130` |
 | `2` | Usage |
 | `3` | Config |

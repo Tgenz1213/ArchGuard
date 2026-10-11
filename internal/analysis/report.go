@@ -14,6 +14,7 @@ func (e *Engine) Report() output.Report {
 		Gaps:       e.gaps(),
 		Baselined:  e.Baselined,
 		Coverage:   e.Coverage,
+		DryRun:     e.dryRunSummary(),
 	}
 }
 

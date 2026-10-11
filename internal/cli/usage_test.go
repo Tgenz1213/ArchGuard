@@ -127,3 +127,30 @@ func TestValidateCosts(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageMeters_DryRunReportPricesInputOnly(t *testing.T) {
+	meters := meteredSetup(t, inference.Usage{}, inference.Usage{InputTokens: 10, Reported: true})
+	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(0.5), CostPer1KOutputTokens: new(2.0)}}
+
+	usage := meters.dryRunReport(cfg, inference.Usage{InputTokens: 4000, Reported: true})
+
+	if usage.Judgment.InputTokens == nil || *usage.Judgment.InputTokens != 4000 || usage.Judgment.OutputTokens != nil {
+		t.Errorf("judgment tokens = %v/%v, want 4000 input and no output", usage.Judgment.InputTokens, usage.Judgment.OutputTokens)
+	}
+
+	assertCost(t, "judgment", usage.Judgment.Cost, 2.0)
+
+	if usage.Suggestion != nil {
+		t.Errorf("suggestion usage = %+v, want nil under a dry run", usage.Suggestion)
+	}
+}
+
+func TestUsageMeters_DryRunReportWithAFailedCount(t *testing.T) {
+	meters := meteredSetup(t, inference.Usage{}, inference.Usage{})
+
+	usage := meters.dryRunReport(&config.Config{}, inference.Usage{InputTokens: 4000})
+
+	if usage.Judgment.InputTokens != nil {
+		t.Errorf("judgment input = %v, want unavailable when a count failed", *usage.Judgment.InputTokens)
+	}
+}

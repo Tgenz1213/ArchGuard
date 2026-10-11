@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// A nil count is one the provider did not report; a nil cost is one that has no price set or no count to price.
+// A nil count is one the provider did not report, or under --dry-run an output count that can't be projected.
+// A nil cost has no price set or no count to price; under --dry-run it prices the input alone.
 type ChatUsage struct {
 	InputTokens  *int     `json:"input_tokens"`
 	OutputTokens *int     `json:"output_tokens"`
@@ -36,11 +37,14 @@ func (u Usage) line() string {
 }
 
 func (c ChatUsage) describe() string {
-	if c.InputTokens == nil || c.OutputTokens == nil {
+	switch {
+	case c.InputTokens == nil:
 		return "unavailable"
+	case c.OutputTokens == nil:
+		return fmt.Sprintf("%d input, output not projected", *c.InputTokens) + costSuffix(c.Cost)
+	default:
+		return fmt.Sprintf("%d input, %d output", *c.InputTokens, *c.OutputTokens) + costSuffix(c.Cost)
 	}
-
-	return fmt.Sprintf("%d input, %d output", *c.InputTokens, *c.OutputTokens) + costSuffix(c.Cost)
 }
 
 func (e EmbeddingUsage) describe() string {

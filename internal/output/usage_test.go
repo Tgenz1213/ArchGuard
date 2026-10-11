@@ -32,6 +32,11 @@ func TestReportUsageLine(t *testing.T) {
 			want: "Tokens: judgment 1200 input, 80 output; embeddings unavailable.\n",
 		},
 		{
+			name:  "dry run projects input only",
+			usage: &output.Usage{Judgment: output.ChatUsage{InputTokens: &judged, Cost: new(0.0012)}, Embedding: output.EmbeddingUsage{Tokens: &embedded}},
+			want:  "Tokens: judgment 1200 input, output not projected (estimated cost 0.001200); embeddings 300.\n",
+		},
+		{
 			name:  "unreported chat",
 			usage: &output.Usage{Embedding: output.EmbeddingUsage{Tokens: &embedded}},
 			want:  "Tokens: judgment unavailable; embeddings 300.\n",
@@ -51,5 +56,25 @@ func TestReportUsageLine(t *testing.T) {
 func TestReportWithoutUsageHasNoTokenLine(t *testing.T) {
 	if got := renderReport(output.Report{Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1}}); strings.Contains(got, "Tokens:") {
 		t.Errorf("report = %q, want no token line", got)
+	}
+}
+
+func TestDryRunReportLayout(t *testing.T) {
+	judged, embedded := 1200, 300
+
+	got := renderReport(output.Report{
+		DryRun:       &output.DryRun{Calls: 4, Cached: 2},
+		FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0001", Title: "Use Go", Reason: "counting tokens: down"}},
+		Usage:        &output.Usage{Judgment: output.ChatUsage{InputTokens: &judged}, Embedding: output.EmbeddingUsage{Tokens: &embedded}},
+	})
+
+	want := `Failed ADR checks:
+  a.go: ADR 0001 Use Go: counting tokens: down
+
+Dry run: 4 ADR check(s) would call the model and 2 would be answered from the cache; nothing was judged.
+Tokens: judgment 1200 input, output not projected; embeddings 300.
+`
+	if got != want {
+		t.Errorf("report =\n%s\nwant\n%s", got, want)
 	}
 }

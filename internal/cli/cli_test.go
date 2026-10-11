@@ -758,6 +758,8 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "ci with staged", args: []string{"check", "--ci", "--staged"}, wantCommand: "check"},
 		{name: "ci with a path", args: []string{"check", "--ci", "main.go"}, wantCommand: "check"},
 		{name: "ci with update-baseline", args: []string{"check", "--ci", "--update-baseline"}, wantCommand: "check"},
+		{name: "dry run", args: []string{"check", "--dry-run", "--all"}, wantCommand: "check"},
+		{name: "dry run with update-baseline", args: []string{"check", "--dry-run", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with an empty ref", args: []string{"check", "--since", ""}, wantCode: ExitUsage, wantErr: true},
 		{name: "since= with an empty ref", args: []string{"check", "--since="}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},

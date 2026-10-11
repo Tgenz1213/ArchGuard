@@ -54,6 +54,7 @@ type checkCmd struct {
 	BaselineReason string   `placeholder:"TEXT" help:"Reason recorded on every entry --update-baseline writes (e.g. \"accepted-debt\"), overwriting reasons carried forward from the previous baseline. When omitted, a re-run keeps each matching (ADR ID, file) entry's existing reason."`
 	Format         string   `enum:"text,json" default:"text" help:"Output format: text or json."`
 	SuggestFixes   bool     `help:"Add a short, unverified LLM-suggested fix to each new violation (one extra LLM call per violation)."`
+	DryRun         bool     `help:"Run everything up to the judgment calls, embeddings included, then report the chat tokens and estimated cost the judgments would take instead of making them. Reports no violations and exits 0. Not combinable with --update-baseline."`
 	Output         string   `placeholder:"PATH" help:"Write the report (text or JSON, per --format) to PATH instead of stdout. The report is written without color."`
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
 
@@ -64,6 +65,10 @@ type checkCmd struct {
 func (c checkCmd) Validate() error {
 	if c.CI && !c.hasScope() {
 		return errors.New("--ci needs something to check: pass --since <ref>, --all, --staged or paths")
+	}
+
+	if c.DryRun && c.UpdateBaseline {
+		return errors.New("--dry-run cannot be combined with --update-baseline")
 	}
 
 	if c.Since == "" {

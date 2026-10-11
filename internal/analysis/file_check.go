@@ -144,6 +144,11 @@ func (fc *fileCheck) failStage(st stage.Stage, err error) {
 func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
 	input := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: fc.content, Filename: fc.file, Diff: fc.engine.JudgeChange}
 
+	if fc.engine.DryRun {
+		fc.project(ctx, hit, input)
+		return
+	}
+
 	result, cached, err := fc.analyze(ctx, hit, input)
 	if err != nil {
 		fc.out.Debug("%s", checkOutcomeLine(hit, "failed", false))
@@ -169,27 +174,13 @@ func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
 
 func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inference.DriftInput) (result *inference.AnalysisResult, cached bool, err error) {
 	e := fc.engine
+	cacheKey := fc.analysisKey(hit)
 
-	systemPrompt := e.Config.LLM.SystemPrompt
-	if systemPrompt == "" {
-		systemPrompt = inference.DefaultSystemPrompt
+	if hitRes, found := fc.cachedVerdict(cacheKey); found {
+		return hitRes, true, nil
 	}
 
-	cacheKey := cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
-		ModelName:          e.Config.LLM.Model,
-		ADRContent:         hit.ADR.Content,
-		FileContent:        fc.content,
-		SystemPrompt:       systemPrompt,
-		UserPromptTemplate: inference.PromptTemplate(e.JudgeChange),
-	})
-
-	if e.Cache != nil {
-		if hitRes, found, getErr := e.Cache.Get(cacheKey); getErr == nil && found {
-			return hitRes, true, nil
-		}
-	}
-
-	result, err = inference.AnalyzeDrift(ctx, e.Chat, input, systemPrompt)
+	result, err = inference.AnalyzeDrift(ctx, e.Chat, input, e.systemPrompt())
 	if err != nil {
 		return nil, false, err
 	}
@@ -201,6 +192,28 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 	}
 
 	return result, false, nil
+}
+
+func (fc *fileCheck) analysisKey(hit stage.Candidate) string {
+	e := fc.engine
+
+	return cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
+		ModelName:          e.Config.LLM.Model,
+		ADRContent:         hit.ADR.Content,
+		FileContent:        fc.content,
+		SystemPrompt:       e.systemPrompt(),
+		UserPromptTemplate: inference.PromptTemplate(e.JudgeChange),
+	})
+}
+
+func (fc *fileCheck) cachedVerdict(key string) (*inference.AnalysisResult, bool) {
+	if fc.engine.Cache == nil {
+		return nil, false
+	}
+
+	result, found, err := fc.engine.Cache.Get(key)
+
+	return result, err == nil && found
 }
 
 func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {

@@ -22,6 +22,7 @@ type Report struct {
 	Baselined  int
 	Coverage   Coverage
 	Usage      *Usage
+	DryRun     *DryRun
 	Gaps
 }
 
@@ -62,6 +63,11 @@ func violatingFiles(violations []Violation) []string {
 }
 
 func (p *Printer) Report(report Report) {
+	if report.DryRun != nil {
+		p.dryRunReport(report)
+		return
+	}
+
 	report.Violations = sortedViolations(report.Violations)
 	report.Unverified = sortedViolations(report.Unverified)
 	report.Gaps = report.sortedGaps()

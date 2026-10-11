@@ -35,6 +35,28 @@ func (m usageMeters) report(cfg *config.Config, suggestFixes bool) *output.Usage
 	return usage
 }
 
+// A dry run sends no judgment, so only its input is known and priced.
+func (m usageMeters) dryRunReport(cfg *config.Config, projected inference.Usage) *output.Usage {
+	return &output.Usage{
+		Judgment:  projectedChatUsage(projected, cfg.LLM.CostPer1KInputTokens),
+		Embedding: embeddingUsage(m.embedding.Usage(), cfg.VectorStore.CostPer1KTokens),
+	}
+}
+
+func projectedChatUsage(usage inference.Usage, costPer1KInput *float64) output.ChatUsage {
+	if !usage.Reported {
+		return output.ChatUsage{}
+	}
+
+	report := output.ChatUsage{InputTokens: &usage.InputTokens}
+	if costPer1KInput != nil {
+		cost := price(usage.InputTokens, *costPer1KInput)
+		report.Cost = &cost
+	}
+
+	return report
+}
+
 func chatUsage(usage inference.Usage, llm config.LLMConfig) output.ChatUsage {
 	if !usage.Reported {
 		return output.ChatUsage{}

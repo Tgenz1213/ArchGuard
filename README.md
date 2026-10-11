@@ -347,10 +347,11 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--output <path>`: Write the report (text or JSON, per `--format`) to `<path>` instead of stdout. The file has no color, stdout stays empty, and the log says where the report was written. A relative path is taken from the directory you ran the command in. The directory must already exist; a missing directory, a path that is itself a directory, or the baseline file (`archguard-baseline.json`) exits `1` before any analysis runs. Also works with `--update-baseline`.
   - `--color <auto|always|never>`: When to color output, default `auto`. `auto` colors only a stream that is a terminal, and turns color off when `NO_COLOR` is set to a non-empty value, `TERM=dumb`, or `CI` is set (so CI logs stay plain; pass `--color=always` to color them). `always` and `never` override all of that. `--format json`'s stdout is never colored.
   - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
+  - `--dry-run`: Preview what a check would cost. Everything up to the judgment calls runs, embeddings included, then each judgment is counted instead of sent (see [Token Usage and Cost](#token-usage-and-cost)). Reports no violations and exits `0` unless an error stops the run (a config, index, git or report-write error). Cannot be combined with `--update-baseline`.
 
 ### Automation & Exit Codes
 
-- **0**: Success (no new violations found; baselined violations and unverified findings still exit 0).
+- **0**: Success (no new violations found; baselined violations and unverified findings still exit 0). A `--dry-run` exits 0 unless an error stops it.
 - **1**: General error (e.g. not run inside a git repository, baseline file I/O failure), or the command's primary output (results, help, the JSON document) could not be written, e.g. a closed stdout. This takes precedence over every other code except an interrupt.
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
@@ -443,6 +444,15 @@ Calls that only count tokens to fit a large file into `llm.max_tokens` are not i
 
 To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0033](docs/arch/0033-token-usage-is-what-the-provider-reported.md).
 
+`--dry-run` previews a run's cost without paying for the judgments. It embeds and scores files as usual, so its embedding figure is real, then counts the prompt each judgment would send with the chat provider's tokenizer instead of sending it. A judgment a cached verdict would answer costs nothing and is counted apart. The output tokens depend on the answer, so they are not projected and the estimated cost covers the input alone. The report lists what would be called instead of findings:
+
+```
+Dry run: 12 ADR check(s) would call the model and 3 would be answered from the cache; nothing was judged.
+Tokens: judgment 48210 input, output not projected (estimated cost 0.144630); embeddings 1240 (estimated cost 0.000025).
+```
+
+With `--suggest-fixes` too, the cost of suggestions is not projected, since a dry run finds no violations to suggest a fix for, and the log says so in one line.
+
 ### Machine-Readable Output
 
 `archguard check --format json` prints a single JSON document to stdout (all progress/debug/error text moves to stderr) so it can be piped into another tool:
@@ -481,7 +491,7 @@ To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: 
 
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
-`usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
+`usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`, and never under `--dry-run`. Under `--dry-run`, `judgment.output_tokens` is `null`, `judgment.estimated_cost` prices the input alone, and the document also carries `"dry_run": { "judgment_calls": 12, "cached": 3 }`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `unverified` lists the unverified findings with the same fields, a `line` of `0`, and no `suggestion`; they are not counted in `count`. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 

@@ -24,12 +24,11 @@ type DriftInput struct {
 }
 
 func AnalyzeDrift(ctx context.Context, chat Chatter, in DriftInput, systemPrompt string) (*AnalysisResult, error) {
-	prompt := GetAnalyzeDriftPrompt(in.ADRContent, in.CodeContext, in.Filename)
-	if in.Diff {
-		prompt = GetAnalyzeDriftDiffPrompt(in.ADRContent, in.CodeContext, in.Filename)
-	}
+	return chatJSON[AnalysisResult](ctx, chat, systemPrompt, DriftPrompt(in), "analysis")
+}
 
-	return chatJSON[AnalysisResult](ctx, chat, systemPrompt, prompt, "analysis")
+func DriftPrompt(in DriftInput) string {
+	return renderDriftPrompt(PromptTemplate(in.Diff), in.ADRContent, in.CodeContext, in.Filename)
 }
 
 type suggestionResult struct {

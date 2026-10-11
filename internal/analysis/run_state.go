@@ -28,6 +28,8 @@ type runState struct {
 	unverified    []Violation
 	stageFailures []StageFailure
 	coverage      output.Coverage
+	projection    Projection
+	uncounted     bool
 }
 
 type fileResult struct {
@@ -43,6 +45,8 @@ type fileResult struct {
 	entries        []baseline.Entry
 	records        []Violation
 	unverified     []Violation
+	projection     Projection
+	uncounted      bool
 }
 
 func newRunState(out *output.Printer, stages []stage.Stage) *runState {
@@ -94,6 +98,17 @@ func (r *runState) merge(result *fileResult) {
 	r.entries = append(r.entries, result.entries...)
 	r.collected = append(r.collected, result.records...)
 	r.unverified = append(r.unverified, result.unverified...)
+	r.projection.Calls += result.projection.Calls
+	r.projection.Cached += result.projection.Cached
+	r.projection.Usage.InputTokens += result.projection.Usage.InputTokens
+	r.uncounted = r.uncounted || result.uncounted
+}
+
+func (r *runState) projected() Projection {
+	projection := r.projection
+	projection.Usage.Reported = !r.uncounted
+
+	return projection
 }
 
 func boolToInt(b bool) int {

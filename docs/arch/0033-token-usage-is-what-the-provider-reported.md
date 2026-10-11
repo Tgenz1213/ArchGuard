@@ -2,6 +2,7 @@
 title: Token usage is what the provider reported, and cost is priced from config
 status: Accepted
 scope:
+  - "internal/analysis/**"
   - "internal/inference/**"
   - "internal/cli/**"
   - "internal/output/**"
@@ -19,12 +20,14 @@ scope:
 - **A figure the provider did not report is unavailable, never zero.** `Usage.Reported` is false when the response carried no usage, which is the zero value, so a provider that forgets to set it shows unavailable rather than a wrong zero. A total is unavailable when any call in it was unreported, because a partial sum would undercount. Gemini's and Ollama's embedding endpoints report nothing, so their embedding figures are always unavailable.
 - **Usage is totalled at the provider boundary, one meter per kind of call.** `cli` wraps the chat provider in two `inference.MeteredChatter`s, one handed to `Engine.Chat` for judgments and one to `Engine.SuggestChat` for suggestions, and the embedder in one `inference.MeteredEmbedder` that serves both the index rebuild and the scoring stages. A cache hit makes no call, so it adds nothing. A retried call adds each attempt that returned, since each was billed. A call that failed adds nothing, since there is no usage to read. `CountTokens`, which only sizes a large file, is not a chat call and is not counted.
 - **Cost is priced from config, with no built-in prices.** `llm.cost_per_1k_input_tokens`, `llm.cost_per_1k_output_tokens` and `vector_store.cost_per_1k_tokens` are optional. When set, the report multiplies each available figure by its price; unset, it shows tokens only. The two chat prices are set together or not at all, and a negative price is a config error. The unit is whatever currency the prices are in.
+- **`--dry-run` counts the judgments instead of making them.** Everything up to the judgment calls runs for real, embeddings and any index rebuild included, and those embeddings are reported as usual. Each judgment that a cached verdict would not answer is counted with `CountTokens` over its system and user prompt, and nothing is sent or cached. The output tokens are not projected, because they depend on the answer, so the projected cost prices the input alone. Suggestions follow violations, which a dry run never finds, so their cost is not projected and the run says so in one line. A dry run reports no violations, lists what it could not count as failed ADR checks, and exits `0` unless an error stopped the run itself. It cannot be combined with `--update-baseline`.
 - **The report shows usage in both formats.** The text report ends with one `Tokens:` line. The `--format json` document carries a `usage` object with `judgment`, `embedding` and, under `--suggest-fixes`, `suggestion`, where an unavailable count or cost is `null`.
 
 ## Rules
 
 - A provider's `Chat` or `CreateEmbedding` that sets `Usage.Reported` to true without a token count from the backend's response.
 - A table of model prices built into the binary.
+- A `--dry-run` path that sends a judgment or suggestion chat call, or writes to the analysis cache.
 
 ## Alternatives considered
 
@@ -33,6 +36,7 @@ scope:
 - **Counters inside each provider.** One provider instance serves judgments and suggestions concurrently, so it cannot tell them apart; a wrapper per kind of call can.
 - **Passing a recorder through the context.** It hides a dependency that the rest of the engine passes explicitly. A recorder seam injected like `Chat` and `Embed` is #262.
 - **Showing an unreported figure as `0`.** It reads as free.
+- **Projecting dry-run output tokens from a fixed guess per call.** It would be a number nobody measured, shown next to ones that were.
 
 ## Consequences
 

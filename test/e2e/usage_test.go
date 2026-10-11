@@ -116,3 +116,62 @@ func TestE2E_CheckReportsTokenUsage(t *testing.T) {
 		assertChatTokens(t, "suggestion", report.Usage.Suggestion, 0)
 	})
 }
+
+type dryRunReport struct {
+	usageReport
+	Count  int `json:"count"`
+	DryRun *struct {
+		Calls  int `json:"judgment_calls"`
+		Cached int `json:"cached"`
+	} `json:"dry_run"`
+}
+
+func TestE2E_DryRun(t *testing.T) {
+	dir, binaryPath := setupUsageRepo(t)
+
+	t.Run("projects the judgment without making it", func(t *testing.T) {
+		stdout, stderr, exitCode := runCheckWithEnv(t, dir, binaryPath, nil, "--dry-run", "--suggest-fixes", "--format", "json", fixtureFilename)
+		if exitCode != int(cli.ExitSuccess) {
+			t.Fatalf("exit code = %d, want %d although the fixture violates. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+		}
+
+		var report dryRunReport
+		if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+			t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+		}
+
+		if report.Count != 0 || report.DryRun == nil || report.DryRun.Calls != 1 || report.DryRun.Cached != 0 {
+			t.Fatalf("count = %d, dry_run = %+v, want no violations and one projected call", report.Count, report.DryRun)
+		}
+
+		judgment := report.Usage.Judgment
+		if judgment.InputTokens == nil || *judgment.InputTokens == 0 || judgment.OutputTokens != nil || judgment.Cost == nil {
+			t.Errorf("judgment usage = %+v, want projected input tokens priced, and no output", judgment)
+		}
+
+		if report.Usage.Suggestion != nil {
+			t.Errorf("suggestion usage = %+v, want none under a dry run", report.Usage.Suggestion)
+		}
+
+		if tokens := report.Usage.Embedding.Tokens; tokens == nil || *tokens != testutil.MockEmbedTokens {
+			t.Errorf("embedding tokens = %v, want the real query embedding's %d", tokens, testutil.MockEmbedTokens)
+		}
+	})
+
+	t.Run("writes no cache entry", func(t *testing.T) {
+		entries, err := filepath.Glob(filepath.Join(dir, ".archguard", "cache", "*.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(entries) != 0 {
+			t.Errorf("a dry run wrote %d cache entries", len(entries))
+		}
+	})
+
+	t.Run("text output exits 0", func(t *testing.T) {
+		if _, stderr, exitCode := runCheckWithEnv(t, dir, binaryPath, nil, "--dry-run", fixtureFilename); exitCode != int(cli.ExitSuccess) {
+			t.Errorf("exit code = %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+		}
+	})
+}
