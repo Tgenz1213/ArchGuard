@@ -30,7 +30,19 @@ When the embedding provider differs from the chat provider, its key comes from `
 
 Claude and Voyage land with this decision. Voyage is Anthropic's recommended pairing for Claude, but any embedding-capable provider can fill the embedding role. Voyage has no official Go SDK, so its client is hand-rolled over `net/http`.
 
-Voyage's contextualized models are supported by sending exactly one chunk per call. That keeps the one-text-in, one-vector-out embedding contract, so the vector stores need not hold several vectors per document. Multi-chunk indexing, where a long ADR is split into chunks embedded with awareness of each other, is a larger feature useful to every provider, and is deliberately not part of this decision.
+Voyage's contextualized models are supported by sending exactly one chunk per call. That keeps the one-text-in, one-vector-out embedding contract, so the vector stores need not hold several vectors per document.
+
+## Rules
+
+- A provider MUST implement only the roles its vendor supports.
+- Code MUST take the role it uses (`inference.Chatter` or `inference.Embedder`), so a provider cannot be wired into a role it lacks.
+- Config validation MUST fail fast at config load, with a message naming the fix, when `llm.provider` is `"claude"` and `vector_store.provider` is not set explicitly, when `vector_store.provider` is `"claude"`, or when `llm.provider` is `"voyage"`.
+- When the embedding provider differs from the chat provider, its key MUST come from `ARCHGUARD_EMBEDDING_API_KEY` and MUST NOT fall back to `ARCHGUARD_API_KEY`.
+- Voyage's contextualized models MUST be sent exactly one chunk per call.
+
+## Alternatives considered
+
+- **Multi-chunk indexing, where a long ADR is split into chunks embedded with awareness of each other.** It is a larger feature useful to every provider, and is deliberately not part of this decision.
 
 ## Consequences
 

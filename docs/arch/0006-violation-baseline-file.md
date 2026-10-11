@@ -17,13 +17,28 @@ scope:
 
 `archguard check --update-baseline` scans the whole repository and writes every detected violation to `archguard-baseline.json` at the repo root. It replaces the file wholesale: a snapshot of the current state, not a merge with past states. A normal `check` loads the file without a flag and treats a matching violation as known. A known violation is excluded from the new-violation count and the exit code, but is still reported as baselined rather than dropped.
 
-Suppression is keyed on `(ADR ID, file path)`, not line number. The line number comes from a plain substring search for the quote, so it shifts under any edit above the match. As a key it would silently unsuppress or wrongly suppress entries on unrelated edits.
+Suppression is keyed on `(ADR ID, file path)`, not line number.
 
-An entry stores the violation's quoted code and is invalidated, re-surfacing as new drift, once the file stops containing that quote. Comparing the LLM's output run to run was rejected: LLM output is not deterministic across model versions or provider updates, even at temperature 0, so a baseline could drift with no code change. "Is the cited code still there" is mechanical, deterministic and tied to the one thing that matters: whether the violating code changed.
+An entry stores the violation's quoted code and is invalidated, re-surfacing as new drift, once the file stops containing that quote. "Is the cited code still there" is mechanical, deterministic and tied to the one thing that matters: whether the violating code changed.
 
-An entry with an empty quote is always suppressed rather than never suppressed. Never suppressing would make every such entry reappear on the next run, defeating the baseline. Always suppressing accepts that these entries cannot auto-invalidate; re-running `--update-baseline` after a fix clears them.
+An entry with an empty quote is always suppressed. Always suppressing accepts that these entries cannot auto-invalidate; re-running `--update-baseline` after a fix clears them.
 
 `archguard-baseline.json` is committed to git, unlike the local index and cache, which are gitignored. A baseline states the codebase's grandfathered state, so every CI runner and every clone must see the same set. Because the file quotes violating source, it could itself be flagged and baselined in a growing loop. Analysis always excludes it, whatever the user's `exclude_patterns` say.
+
+## Rules
+
+- `archguard check --update-baseline` MUST replace `archguard-baseline.json` wholesale, not merge it with past states.
+- A known violation MUST be excluded from the new-violation count and the exit code, but MUST still be reported as baselined rather than dropped.
+- Suppression MUST be keyed on `(ADR ID, file path)`, not line number.
+- A baseline entry MUST be invalidated, re-surfacing as new drift, once the file stops containing its quoted code.
+- A baseline entry with an empty quote MUST always be suppressed.
+- Analysis MUST always exclude `archguard-baseline.json`, whatever the user's `exclude_patterns` say.
+
+## Alternatives considered
+
+- **Key suppression on line number.** The line number comes from a plain substring search for the quote, so it shifts under any edit above the match. As a key it would silently unsuppress or wrongly suppress entries on unrelated edits.
+- **Compare the LLM's output run to run.** LLM output is not deterministic across model versions or provider updates, even at temperature 0, so a baseline could drift with no code change.
+- **Never suppress an entry with an empty quote.** Every such entry would reappear on the next run, defeating the baseline.
 
 ## Consequences
 
