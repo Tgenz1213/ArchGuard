@@ -28,6 +28,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 	}{
 		{"clean", output.Coverage{FilesJudged: 3, ADRChecks: 5, FilesWithoutADR: 1}},
 		{"nothing judged", output.Coverage{FilesWithoutADR: 12}},
+		{"nothing above the threshold", output.Coverage{FilesWithoutADR: 4, FilesBelowThreshold: 4}},
 		{"no files", output.Coverage{}},
 	}
 
@@ -43,6 +44,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 					FilesJudged     *int `json:"files_judged"`
 					ADRChecks       *int `json:"adr_checks"`
 					FilesWithoutADR *int `json:"files_without_relevant_adr"`
+					BelowThreshold  *int `json:"files_below_threshold"`
 				} `json:"coverage"`
 			}
 			if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
@@ -50,13 +52,13 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 			}
 
 			got := report.Coverage
-			if got.FilesJudged == nil || got.ADRChecks == nil || got.FilesWithoutADR == nil {
+			if got.FilesJudged == nil || got.ADRChecks == nil || got.FilesWithoutADR == nil || got.BelowThreshold == nil {
 				t.Fatalf("coverage fields missing from %s", buf.String())
 			}
 
 			want := tt.coverage
-			if *got.FilesJudged != want.FilesJudged || *got.ADRChecks != want.ADRChecks || *got.FilesWithoutADR != want.FilesWithoutADR {
-				t.Fatalf("coverage = %d/%d/%d, want %+v", *got.FilesJudged, *got.ADRChecks, *got.FilesWithoutADR, want)
+			if *got.FilesJudged != want.FilesJudged || *got.ADRChecks != want.ADRChecks || *got.FilesWithoutADR != want.FilesWithoutADR || *got.BelowThreshold != want.FilesBelowThreshold {
+				t.Fatalf("coverage = %d/%d/%d/%d, want %+v", *got.FilesJudged, *got.ADRChecks, *got.FilesWithoutADR, *got.BelowThreshold, want)
 			}
 		})
 	}
