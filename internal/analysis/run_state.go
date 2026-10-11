@@ -24,6 +24,7 @@ type runState struct {
 	unrecorded    []output.UnrecordedViolation
 	entries       []baseline.Entry
 	collected     []Violation
+	unverified    []Violation
 	stageFailures []StageFailure
 	coverage      output.Coverage
 }
@@ -40,6 +41,7 @@ type fileResult struct {
 	unrecorded     []output.UnrecordedViolation
 	entries        []baseline.Entry
 	records        []Violation
+	unverified     []Violation
 }
 
 func newRunState(out *output.Printer, stages []stage.Stage) *runState {
@@ -82,6 +84,7 @@ func (r *runState) merge(result *fileResult) {
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)
 	r.entries = append(r.entries, result.entries...)
 	r.collected = append(r.collected, result.records...)
+	r.unverified = append(r.unverified, result.unverified...)
 }
 
 func boolToInt(b bool) int {

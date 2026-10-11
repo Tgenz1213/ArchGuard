@@ -10,6 +10,9 @@ const (
 
 	MockChatFailureTrigger = "TRIGGER_CHAT_FAILURE"
 
+	// MockUnverifiedTrigger makes the mock chat provider report a violation quoting code that is not in the file.
+	MockUnverifiedTrigger = "TRIGGER_UNVERIFIED_QUOTE"
+
 	// MockInterruptTrigger makes the mock providers cancel the run's context, as SIGINT would.
 	MockInterruptTrigger = "TRIGGER_INTERRUPT"
 

@@ -275,7 +275,7 @@ func (fc *fileCheck) find(content, quote string) (placement, int) {
 		return locateInNewFile(parseDiff(content), quote)
 	}
 
-	if quote != "" && !strings.Contains(content, quote) {
+	if quote == "" || !strings.Contains(content, quote) {
 		return placedNowhere, 0
 	}
 
@@ -310,7 +310,14 @@ func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.
 }
 
 func (fc *fileCheck) reportViolation(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult, record Violation) {
-	if fc.engine.SuggestFixes && !record.unverified {
+	if record.unverified {
+		fc.out.Info("%s", violationLine(record, false))
+		fc.findings.unverified = append(fc.findings.unverified, record)
+
+		return
+	}
+
+	if fc.engine.SuggestFixes {
 		record.Suggestion = fc.suggestFix(ctx, hit, input, result)
 	}
 

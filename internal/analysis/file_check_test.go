@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,11 +78,19 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 	return run
 }
 
+func (run *changeRun) findings() []analysis.Violation {
+	return slices.Concat(run.engine.CollectedViolations, run.engine.UnverifiedFindings)
+}
+
+func (run *changeRun) verified() bool {
+	return len(run.engine.UnverifiedFindings) == 0
+}
+
 func TestChange_BinaryDiffIsSkippedSilently(t *testing.T) {
 	run := runChange(t, changeRunOptions{whole: "x", diff: "diff --git a/x b/x\nBinary files a/x and b/x differ\n", quote: "x", judgeChange: true})
 
-	if run.chatCalls != 0 || len(run.engine.SkippedFiles) != 0 || len(run.engine.CollectedViolations) != 0 {
-		t.Fatalf("chat calls = %d, skipped = %+v, violations = %+v; want nothing judged, nothing recorded", run.chatCalls, run.engine.SkippedFiles, run.engine.CollectedViolations)
+	if run.chatCalls != 0 || len(run.engine.SkippedFiles) != 0 || len(run.findings()) != 0 {
+		t.Fatalf("chat calls = %d, skipped = %+v, findings = %+v; want nothing judged, nothing recorded", run.chatCalls, run.engine.SkippedFiles, run.findings())
 	}
 }
 
@@ -103,7 +112,7 @@ func TestChange_Findings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			run := runChange(t, changeRunOptions{whole: "ignored", diff: changeSamplePreamble + changeSampleHunks, quote: tt.quote, judgeChange: true})
 
-			found := run.engine.CollectedViolations
+			found := run.findings()
 			if len(found) != tt.wantFindings {
 				t.Fatalf("findings = %+v, want %d", found, tt.wantFindings)
 			}
@@ -116,7 +125,7 @@ func TestChange_Findings(t *testing.T) {
 				t.Errorf("line = %d, want %d", found[0].Line, tt.wantLine)
 			}
 
-			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+			if got := run.verified(); got != tt.wantVerified {
 				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
 			}
 		})
@@ -145,7 +154,7 @@ func TestRun_UnwrapsMarkdownAroundQuote(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			run := runChange(t, changeRunOptions{whole: file, quote: tt.quote})
 
-			found := run.engine.CollectedViolations
+			found := run.findings()
 			if len(found) != 1 {
 				t.Fatalf("findings = %+v, want 1", found)
 			}
@@ -154,7 +163,7 @@ func TestRun_UnwrapsMarkdownAroundQuote(t *testing.T) {
 				t.Errorf("quote, line = %q, %d; want %q, %d", found[0].QuotedCode, found[0].Line, tt.wantQuote, tt.wantLine)
 			}
 
-			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+			if got := run.verified(); got != tt.wantVerified {
 				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
 			}
 		})
@@ -216,7 +225,7 @@ func TestRun_ReportsFileLinesForAFileAnalyzedThroughItsDiff(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			run := runChange(t, changeRunOptions{whole: whole, diff: diff, quote: tt.quote, maxTokens: 10})
 
-			found := run.engine.CollectedViolations
+			found := run.findings()
 			if len(found) != 1 {
 				t.Fatalf("findings = %+v, want 1", found)
 			}
@@ -225,7 +234,7 @@ func TestRun_ReportsFileLinesForAFileAnalyzedThroughItsDiff(t *testing.T) {
 				t.Errorf("line = %d, want %d", found[0].Line, tt.wantLine)
 			}
 
-			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+			if got := run.verified(); got != tt.wantVerified {
 				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
 			}
 		})

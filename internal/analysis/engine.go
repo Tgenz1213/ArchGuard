@@ -42,6 +42,7 @@ type Engine struct {
 	JSONOutput           bool
 	Out                  *output.Printer
 	CollectedViolations  []Violation
+	UnverifiedFindings   []Violation
 	CollectedStages      []stage.Stats
 	StageFailures        []StageFailure
 	Coverage             output.Coverage
@@ -62,7 +63,7 @@ type Violation struct {
 }
 
 func (v Violation) Annotation() output.Annotation {
-	return output.Annotation{File: v.File, Line: v.Line, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning}
+	return output.Annotation{File: v.File, Line: v.Line, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning, Warning: v.unverified}
 }
 
 type StageFailure struct {
@@ -190,6 +191,7 @@ func (e *Engine) publish(run *runState) {
 	e.Coverage = run.coverage
 	e.StageFailures = sortedStageFailures(run.stageFailures)
 	e.CollectedViolations = run.collected
+	e.UnverifiedFindings = run.unverified
 	e.collectStageStats(run)
 
 	if e.UpdateBaseline {

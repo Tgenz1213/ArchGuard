@@ -14,12 +14,14 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
-func TestRun_AnnotatesNewViolations(t *testing.T) {
+func TestRun_AnnotatesNewFindings(t *testing.T) {
 	const quote = "import python_library"
 
 	fileLevel := output.Annotation{File: "service.py", ADRID: "0001", ADRTitle: "Use Golang", Message: "Python is not allowed."}
 	onLine2 := fileLevel
 	onLine2.Line = 2
+	warning := fileLevel
+	warning.Warning = true
 
 	tests := []struct {
 		name       string
@@ -27,19 +29,21 @@ func TestRun_AnnotatesNewViolations(t *testing.T) {
 		maxTokens  int
 		quotedCode string
 		baselined  bool
+		wantDrift  bool
 		want       []output.Annotation
 	}{
 		{
 			name:       "quote found in the file",
 			content:    &diffCapableContentProvider{content: "package main\n" + quote + "\n"},
 			quotedCode: quote,
+			wantDrift:  true,
 			want:       []output.Annotation{onLine2},
 		},
 		{
 			name:       "quote not found",
 			content:    &diffCapableContentProvider{content: "package main\n" + quote + "\n"},
 			quotedCode: "never in the file",
-			want:       []output.Annotation{fileLevel},
+			want:       []output.Annotation{warning},
 		},
 		{
 			name: "LLM saw the diff",
@@ -49,6 +53,7 @@ func TestRun_AnnotatesNewViolations(t *testing.T) {
 			},
 			maxTokens:  1,
 			quotedCode: "+" + quote,
+			wantDrift:  true,
 			want:       []output.Annotation{onLine2},
 		},
 		{
@@ -81,10 +86,10 @@ func TestRun_AnnotatesNewViolations(t *testing.T) {
 				engine.Baseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: tt.quotedCode})
 			}
 
-			runEngine(t, engine, len(tt.want) > 0)
+			runEngine(t, engine, tt.wantDrift)
 
 			var got []output.Annotation
-			for _, v := range engine.CollectedViolations {
+			for _, v := range slices.Concat(engine.CollectedViolations, engine.UnverifiedFindings) {
 				got = append(got, v.Annotation())
 			}
 

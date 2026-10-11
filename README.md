@@ -347,7 +347,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 
 ### Automation & Exit Codes
 
-- **0**: Success (no new violations found; baselined violations still exit 0).
+- **0**: Success (no new violations found; baselined violations and unverified findings still exit 0).
 - **1**: General error (e.g. not run inside a git repository, baseline file I/O failure), or the command's primary output (results, help, the JSON document) could not be written, e.g. a closed stdout. This takes precedence over every other code except an interrupt.
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
@@ -367,7 +367,7 @@ In text mode a `check` run produces two outputs. **stdout carries the report**, 
 archguard check --all > report.txt
 ```
 
-The report lists every new violation grouped by file, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
+The report lists every new violation grouped by file, then any unverified findings, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
 
 ```
 Violations:
@@ -383,7 +383,17 @@ Checked 2 file(s) against 3 ADR check(s); 4 file(s) had no relevant ADR.
 1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
 ```
 
-Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line and the result.
+Each violation shows the ADR ID and title, the line, the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line and the result.
+
+A finding is **unverified** when the code it quotes is not in what the model read: for a whole file, the file; for a large file analyzed through its diff, an added or unchanged line; under `--since`, an added or removed line. This happens when the model paraphrases, quotes the ADR instead of the code, or invents code. Unverified findings are listed under `Unverified findings` with their reasoning and quote, and counted in the summary, but they are not violations: a run whose only findings are unverified exits `0`. See [ADR 0031](docs/arch/0031-unverified-findings-and-the-exit-code.md).
+
+```
+Unverified findings (the quoted code was not found in what the model read, so they do not fail the run):
+src/auth.js
+  [UNVERIFIED] 0007 No Secrets in Logs
+    Reasoning: The handler logs the session token.
+    Code: logger.info(session.token)
+```
 
 Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
 
@@ -430,6 +440,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
     }
   ],
   "count": 1,
+  "unverified": [],
   "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4, "files_below_threshold": 3 },
   "stages": [
     { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
@@ -444,7 +455,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
 
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
-`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
+`count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `unverified` lists the unverified findings with the same fields, a `line` of `0`, and no `suggestion`; they are not counted in `count`. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 
 ### Suppression
 
@@ -490,7 +501,7 @@ This action automatically sets up Go, installs ArchGuard, and runs `archguard ch
 
 The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file. Use it on `pull_request` events: under `pull_request_target` the default checkout is the base branch, so there is nothing to compare unless you check out the pull request's head yourself.
 
-Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. When the line isn't known, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
+Inside GitHub Actions, each new (not baselined) violation is also printed as an error annotation, so it shows on the pull request next to the file and line that caused it, titled with the ADR's ID and title. Each unverified finding is printed as a warning annotation on its file. When the line isn't known, the annotation is on the file. GitHub shows at most 10 error annotations per step and 50 per job, so the report on stdout remains the full list. Annotations are not printed under `--format json`.
 
 #### Other CI Providers
 
