@@ -15,7 +15,7 @@ How Go code is written in this repository. `docs/arch/` records why the design i
 ## Precedence
 
 1. These pages, which `docs/arch/0029-coding-standards.md` makes binding.
-2. `CLAUDE.md`.
+2. `CLAUDE.md` and the rules files in `.claude/rules/`.
 3. [Effective Go](https://go.dev/doc/effective_go)
 4. [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)
 5. [Google Go Style Guide](https://google.github.io/styleguide/go/) (decisions and best practices)
