@@ -260,3 +260,37 @@ func TestOllamaProvider_Chat_Temperature(t *testing.T) {
 		})
 	}
 }
+
+func TestOllamaProvider_ErrorNamesOllamasError(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"error field on a 200", http.StatusOK, `{"error":"unexpected server error"}`, "ollama api error: unexpected server error"},
+		{"json error field", http.StatusNotFound, `{"error":"model \"llama3.2\" not found, try pulling it first"}`, `ollama api error: 404 Not Found: model "llama3.2" not found, try pulling it first`},
+		{"plain body", http.StatusNotFound, "not found", "ollama api error: 404 Not Found: not found"},
+		{"empty body", http.StatusNotFound, "", "ollama api error: 404 Not Found"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+
+				if _, err := w.Write([]byte(tt.body)); err != nil {
+					t.Errorf("writing response: %v", err)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			p := NewOllamaProviderWithBaseURL(server.URL, "llama3.2", "nomic-embed-text")
+
+			_, err := p.Chat(t.Context(), "system", "user")
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("Chat() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
