@@ -29,7 +29,7 @@ The similarity threshold follows the same rule (#140). Threshold filtering runs 
 - `VectorStore.Search` MUST apply scope as a filter before ranking and cutting to `topK`.
 - Both backends MUST share one Go implementation of the filter-then-rank steps.
 - The Postgres store MUST NOT push scope matching into SQL.
-- The codebase MUST have exactly one glob matcher, the exported one in `internal/index`.
+- Code MUST match globs only with the exported glob matcher in `internal/index`.
 - The engine MUST NOT re-check scope on Search results.
 - Threshold filtering MUST run after scope filtering and before the `topK` cut, in Go, in both backends, and SQL MUST NOT carry a threshold predicate.
 
