@@ -26,12 +26,14 @@ A run shells out to git and calls an LLM provider for every file. A subprocess s
 - **A late signal is not special-cased.** A signal that lands after `check` has printed its report still turns a drift (4) or stage-failure (6/7) exit into 130. The window is microseconds and the report is complete.
 - **Lint enforces the subprocess half.** golangci-lint's `noctx` fails CI on an `exec.Command` or HTTP request without a context, tests included.
 
-Rejected: passing `context.TODO()` at each call site to satisfy the linter. It silences the lint without making anything cancellable.
-
 ## Rules
 
 - Every subprocess and HTTP request MUST be created with the caller's context (`exec.CommandContext`, `http.NewRequestWithContext`), never a fresh `context.Background()` or `context.TODO()` outside a `main` or test.
 - A run cancelled before its analysis finishes MUST NOT exit `0`, print a summary or JSON report, or write the baseline file.
+
+## Alternatives considered
+
+- **Passing `context.TODO()` at each call site to satisfy the linter.** It silences the lint without making anything cancellable.
 
 ## Consequences
 

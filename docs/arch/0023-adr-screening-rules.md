@@ -23,12 +23,20 @@ Malformed rules never fail the ADR. The parser returns the problem beside the AD
 
 Rules persist with the ADR in both vector stores. The local index hash covers an ADR's rules only when it has some, so a corpus without rules keeps its exact hash while a rules edit makes `archguard check` rebuild. In Postgres, a rules change with unchanged content, title and status is synced without re-embedding.
 
-Rejected alternatives:
+## Rules
 
-- A hand-rolled Markdown line parser: it re-implements fences, indentation and heading rules that a CommonMark parser already gets right.
-- `Violating:`/`Compliant:` labelled sub-bullets in the body: an invented convention no real ADR uses; examples stay in frontmatter.
-- A `RulesError` field on `ADR`: transient per-run diagnostics don't belong on persisted data; the problem is returned and handled where it occurs.
-- Hashing rules unconditionally: every existing local index would rebuild once on upgrade for no reason.
+- An ADR MUST NOT be skipped or fail to load because its rules are malformed; only its rules are dropped, and the problem is reported.
+- Malformed-rules problems MUST be returned to the caller and handled there, not stored on the `ADR` struct.
+- Body-section rules MUST be read with a Markdown parser, not hand-rolled line scanning.
+- Valid frontmatter rules MUST take precedence over body-section rules, and malformed frontmatter rules MUST NOT fall back to the body.
+- `LocalStore.CalculateHash` MUST NOT change the hash of an ADR that has no rules.
+
+## Alternatives considered
+
+- **A hand-rolled Markdown line parser.** It re-implements fences, indentation and heading rules that a CommonMark parser already gets right.
+- **`Violating:`/`Compliant:` labelled sub-bullets in the body.** An invented convention no real ADR uses; examples stay in frontmatter.
+- **A `RulesError` field on `ADR`.** Transient per-run diagnostics don't belong on persisted data; the problem is returned and handled where it occurs.
+- **Hashing rules unconditionally.** Every existing local index would rebuild once on upgrade for no reason.
 
 ## Consequences
 
@@ -38,11 +46,3 @@ Rejected alternatives:
 - The default heading `Rules` picks up existing `## Rules` sections on upgrade. A section that uses that heading for something else yields rules or a malformed-section warning on every `index`/`check`; `analysis.rules_heading` redirects it.
 - Adding `rules` to the canonical frontmatter fields makes an existing `frontmatter_mappings` entry that maps another field onto the key `rules` a startup config error. The collision error names the fix: remap `rules` itself.
 - Changing `analysis.rules_heading` or remapping `rules` is detected by the local index hash, because the resolved rules are hashed, but not by Postgres, which needs an explicit `archguard index`.
-
-## Rules
-
-- An ADR MUST NOT be skipped or fail to load because its rules are malformed; only its rules are dropped, and the problem is reported.
-- Malformed-rules problems MUST be returned to the caller and handled there, not stored on the `ADR` struct.
-- Body-section rules MUST be read with a Markdown parser, not hand-rolled line scanning.
-- Valid frontmatter rules MUST take precedence over body-section rules, and malformed frontmatter rules MUST NOT fall back to the body.
-- `LocalStore.CalculateHash` MUST NOT change the hash of an ADR that has no rules.

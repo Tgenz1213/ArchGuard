@@ -21,6 +21,17 @@ Violations, warnings and debug lines look the same in a terminal, so the line th
 - **Windows consoles.** When color is on, ArchGuard switches on the console's escape-sequence processing and puts the previous mode back on exit, since the setting otherwise outlives the process and changes the user's shell. If switching it on fails, `auto` falls back to plain; `always` keeps color.
 - Styling and detection use `github.com/muesli/termenv` rather than hand-written escape codes or terminal checks.
 
+## Rules
+
+- Callers of `output.Printer` MUST NOT pick colors.
+- Every colored line MUST open and reset its own color, so no escape sequence spans a newline.
+- A report written with `--output` MUST NOT be colored.
+- Styling and terminal detection MUST use `github.com/muesli/termenv`, not hand-written escape codes or terminal checks.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - CI logs stay plain by default, including under the GitHub Action, since runners set `CI`. A workflow that wants color passes `--color=always`.
