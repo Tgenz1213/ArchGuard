@@ -23,8 +23,13 @@ type colorOption struct {
 	Color output.ColorMode `enum:"auto,always,never" default:"auto" help:"Color output: auto (on a terminal, unless NO_COLOR or CI is set or TERM=dumb), always, or never."`
 }
 
+type configOption struct {
+	Config string `placeholder:"PATH" help:"Read the config from PATH instead of archguard.yaml at the repository root. A relative PATH is taken from the directory the command was started in."`
+}
+
 type indexCmd struct {
-	colorOption `embed:""`
+	configOption `embed:""`
+	colorOption  `embed:""`
 }
 
 type baseRef string
@@ -57,7 +62,8 @@ type checkCmd struct {
 	Output         string   `placeholder:"PATH" help:"Write the report (text or JSON, per --format) to PATH instead of stdout. The report is written without color."`
 	Paths          []string `arg:"" optional:"" name:"path" help:"Files to check; \".\" scans the whole repository. Defaults to uncommitted changes."`
 
-	colorOption `embed:""`
+	configOption `embed:""`
+	colorOption  `embed:""`
 }
 
 // kong calls Validate after parsing; a conflict is a usage error (exit 2).
@@ -113,6 +119,23 @@ type invocation struct {
 	command string
 	check   checkCmd
 	index   indexCmd
+}
+
+func (inv *invocation) configPath() string {
+	var config configOption
+
+	switch inv.command {
+	case "check":
+		config = inv.check.configOption
+	case "index":
+		config = inv.index.configOption
+	}
+
+	if config.Config == "" {
+		return configFilename
+	}
+
+	return config.Config
 }
 
 func (inv *invocation) color() output.ColorMode {
@@ -189,10 +212,20 @@ func (r *writeRecorder) Write(payload []byte) (int, error) {
 // Run before the chdir to the repo root, which would otherwise change what a relative path means.
 func (c *checkCmd) resolvePaths(cwd, repoRoot string) {
 	normalizePaths(c.Paths, cwd, repoRoot)
+	c.Output = fromStartingDir(c.Output, cwd)
+	c.Config = fromStartingDir(c.Config, cwd)
+}
 
-	if c.Output != "" && !filepath.IsAbs(c.Output) {
-		c.Output = filepath.Join(cwd, c.Output)
+func (c *indexCmd) resolvePaths(cwd string) {
+	c.Config = fromStartingDir(c.Config, cwd)
+}
+
+func fromStartingDir(path, cwd string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
 	}
+
+	return filepath.Join(cwd, path)
 }
 
 // Resolves symlinks and Windows 8.3 short names, so two spellings of one directory compare equal.

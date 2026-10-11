@@ -86,7 +86,7 @@ ArchGuard is designed with a "Local First" mentality.
 
 ## 🛠️ Configuration
 
-ArchGuard is configured via `archguard.yaml` in the root of your repository.
+ArchGuard is configured via `archguard.yaml` in the root of your repository, or the file `check` and `index` are given with `--config`.
 
 ```yaml
 version: "1"
@@ -329,6 +329,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - `archguard init`: Interactive setup for local development. Creates config, ADR directory, and scaffolding.
 - `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.** 
   - `--color <auto|always|never>`: Same as `check`'s `--color`.
+  - `--config <path>`: Same as `check`'s `--config`.
   - *Note:* ArchGuard uses **Delta Indexing**, meaning it intelligently skips API calls for ADRs that haven't changed. Feel free to run it frequently!
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
@@ -342,6 +343,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
   - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its baseline report as text.
   - `--output <path>`: Write the report (text or JSON, per `--format`) to `<path>` instead of stdout. The file has no color, stdout stays empty, and the log says where the report was written. A relative path is taken from the directory you ran the command in. The directory must already exist; a missing directory, a path that is itself a directory, or the baseline file (`archguard-baseline.json`) exits `1` before any analysis runs. Also works with `--update-baseline`.
+  - `--config <path>`: Read the config from `<path>` instead of `archguard.yaml` at the repository root, for example a CI-only config. A relative path is taken from the directory you ran the command in. A missing or unreadable file exits `3` and names the path.
   - `--color <auto|always|never>`: When to color output, default `auto`. `auto` colors only a stream that is a terminal, and turns color off when `NO_COLOR` is set to a non-empty value, `TERM=dumb`, or `CI` is set (so CI logs stay plain; pass `--color=always` to color them). `always` and `never` override all of that. `--format json`'s stdout is never colored.
   - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
 

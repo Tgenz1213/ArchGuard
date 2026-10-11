@@ -771,6 +771,8 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "help", args: []string{"help"}, wantOut: "Usage: archguard <command>"},
 		{name: "check --help after flags", args: []string{"check", "--format", "json", "--help"}, wantOut: "Scan staged files only"},
 		{name: "index --help", args: []string{"index", "--help"}, wantOut: "Usage: archguard index"},
+		{name: "check --help lists --config", args: []string{"check", "--help"}, wantOut: "--config=PATH"},
+		{name: "index --help lists --config", args: []string{"index", "--help"}, wantOut: "--config=PATH"},
 		{name: "--version", args: []string{"--version"}, wantOut: "ArchGuard version"},
 		{name: "no command", args: nil, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
 		{name: "unknown command", args: []string{"typo"}, wantCode: ExitUsage, wantErr: true, wantErrOut: "Usage: archguard <command>"},
