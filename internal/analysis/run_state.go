@@ -29,16 +29,17 @@ type runState struct {
 }
 
 type fileResult struct {
-	violations   int
-	baselined    int
-	checks       int
-	judged       bool
-	withoutADR   bool
-	failedChecks []output.FailedCheck
-	recorded     []output.RecordedEntry
-	unrecorded   []output.UnrecordedViolation
-	entries      []baseline.Entry
-	records      []Violation
+	violations     int
+	baselined      int
+	checks         int
+	judged         bool
+	withoutADR     bool
+	belowThreshold bool
+	failedChecks   []output.FailedCheck
+	recorded       []output.RecordedEntry
+	unrecorded     []output.UnrecordedViolation
+	entries        []baseline.Entry
+	records        []Violation
 }
 
 func newRunState(out *output.Printer, stages []stage.Stage) *runState {
@@ -75,6 +76,7 @@ func (r *runState) merge(result *fileResult) {
 	r.coverage.ADRChecks += result.checks
 	r.coverage.FilesJudged += boolToInt(result.judged)
 	r.coverage.FilesWithoutADR += boolToInt(result.withoutADR)
+	r.coverage.FilesBelowThreshold += boolToInt(result.belowThreshold)
 	r.failedChecks = append(r.failedChecks, result.failedChecks...)
 	r.recorded = append(r.recorded, result.recorded...)
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)

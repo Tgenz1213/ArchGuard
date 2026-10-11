@@ -105,7 +105,7 @@ vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
   embedding_dim: 768
-  similarity_threshold: 0.75 # Global default; an ADR's own frontmatter similarity_threshold overrides this per-ADR
+  similarity_threshold: 0.6 # Depends on the embedding model: 0.6 suits nomic-embed-text (see Choosing similarity_threshold below). An ADR's frontmatter can override it
   connection_string: "" # e.g. postgres://user:pass@localhost:5432/archguard
   embedding_concurrency: 5
 
@@ -122,7 +122,7 @@ analysis:
   pipeline: # Optional: how candidate ADRs are ranked before the LLM judges them; this rank stage matches the default
     rank:
       scorer: "cosine"
-      threshold: 0.75 # Minimum score; defaults to vector_store.similarity_threshold
+      threshold: 0.6 # Minimum score; defaults to vector_store.similarity_threshold
       top_k: 3 # Maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
       on_error: "skip" # "skip" (default) skips the file when the stage fails; "fail" fails the check
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
@@ -153,6 +153,26 @@ ArchGuard can natively pull your ADRs from Atlassian Confluence using the Conflu
 2. Provide your Confluence `domain` (e.g. `yourcompany.atlassian.net`), the `space_id` where the ADRs live, your `username`, and an API `token`.
 3. ArchGuard will crawl the specified space and evaluate your codebase against all pages matching your `accepted_statuses`.
 
+### Choosing `similarity_threshold`
+
+`vector_store.similarity_threshold` is the lowest cosine similarity an ADR can score against a changed file and still be judged. Scores depend on the embedding model, so a value that works for one model can drop almost every ADR with another. Set it for the model you use.
+
+Measured on this repository: 30 ADRs against the files changed in 60 commits, with 16 of those changes labeled by hand with the ADRs that apply ([#295](https://github.com/Tgenz1213/ArchGuard/issues/295)):
+
+| Embedding model | Best ADR score per Go file (10th to 90th percentile) | Start at |
+|---|---|---|
+| Ollama `nomic-embed-text` | 0.69 to 0.79 | `0.6` |
+| Gemini `gemini-embedding-2` | 0.68 to 0.81 | `0.55` |
+
+At those values every Go file reaches the model and `analysis.max_relevant_adrs` does the selecting. At `0.75`, 46% (Gemini) to 59% (nomic) of the Go files had no ADR above the threshold, and only a quarter to a third of the ADRs that applied were judged. Raising `max_relevant_adrs` from 3 to 6 judged more of the ADRs that applied (nomic: 67% to 85%; Gemini: 81% to 93%), at up to twice the LLM calls. OpenAI and Voyage embeddings have not been measured; find a value as below.
+
+To find a value, run `archguard check --debug` on a few typical changes. Each file lists the ADRs it kept and those `Below threshold`, with their scores. Set the threshold just below the scores of the ADRs you expect to apply, and let `max_relevant_adrs` bound the cost.
+
+- **Too high:** the report's coverage line counts files whose candidates all scored below the threshold, or the run says no file was checked against an ADR.
+- **Too low:** nearly every file is judged against `max_relevant_adrs` ADRs, including ADRs unrelated to the change, so a run makes more LLM calls for little gain.
+
+An ADR can set its own `similarity_threshold` in frontmatter (see [ADR Format](#adr-format)).
+
 ### Ranking Stages
 
 For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Two stages are available, `rank` then `rerank`, both optional, always run in that order and followed by LLM judgment. Each takes:
@@ -173,10 +193,10 @@ analysis:
   pipeline:
     rank:
       scorer: cosine
-      threshold: 0.75
+      threshold: 0.6
       top_k: 5
     rerank:
-      threshold: 0.8
+      threshold: 0.65
       top_k: 2
 ```
 
@@ -370,7 +390,7 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
 
-The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.` The exit code is the same either way.
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold when that is why. The exit code is the same either way.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 
@@ -408,7 +428,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
     }
   ],
   "count": 1,
-  "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4 },
+  "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4, "files_below_threshold": 3 },
   "stages": [
     { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
     { "name": "rerank", "received": 4, "kept": 2, "duration_ms": 640 }
@@ -416,7 +436,7 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
 }
 ```
 
-`coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against.
+`coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against, and `files_below_threshold` how many of those had candidate ADRs that all scored below the threshold.
 
 `stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and the ones it dropped with the reason.
 
