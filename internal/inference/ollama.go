@@ -128,6 +128,7 @@ func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, err
 		"raw":    true,
 		"stream": false,
 		"options": map[string]any{
+			// num_predict 0 does not suppress generation; 1 is the fewest tokens that does.
 			"num_predict": 1,
 		},
 	}

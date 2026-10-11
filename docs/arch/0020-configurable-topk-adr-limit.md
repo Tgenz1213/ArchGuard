@@ -8,16 +8,14 @@ scope: "internal/**"
 
 ## Context
 
-The number of ADRs considered per file cannot be a fixed 3. A file can legitimately be relevant to more than 3 ADRs that all pass both `scope` and `similarity_threshold` -- a shared utility file, a config loader, or any file several architectural rules structurally apply to. A fixed limit silently drops every other qualifying ADR before the LLM sees it and can't be raised short of editing Go source and rebuilding. See #189.
+The number of ADRs considered per file was a fixed 3. A file can legitimately be relevant to more ADRs that all pass scope and similarity threshold: a shared utility, a config loader, or any file several architectural rules apply to. A fixed limit silently drops every other qualifying ADR before the model sees it, and raising it meant editing Go source and rebuilding. See #189.
 
 ## Decision
 
-A new `analysis.max_relevant_adrs` config field (`config.Analysis.MaxRelevantADRs`, plain `int`) replaces the `topKADRs` constant, following the same fallback pattern as `analysis.max_concurrency`: `<= 0` (including unset, the zero value) defaults to 3. Unlike `vector_store.reindex_threshold` etc., it stays a plain `int` (see the zero-value rule in `docs/standards/paradigm.md`).
-
-`config.Analysis.RelevantADRLimit()` resolves the value. `Engine.Run` passes it to `stage.NewCosineStage` when no `analysis.pipeline` is configured, and `analysis.BuildStages` uses it as `rank`'s default `top_k`; either way it becomes the cosine stage's `MaxKeep` (see `docs/arch/0022-candidate-scoring-pipeline.md`).
+The limit is the `analysis.max_relevant_adrs` setting. Like `analysis.max_concurrency`, an unset or non-positive value falls back to the default, so it stays a plain `int` (see the zero-value rule in `docs/standards/paradigm.md`). It becomes the cosine stage's keep limit, and the default `top_k` of a configured `rank` stage (`docs/arch/0022-candidate-scoring-pipeline.md`).
 
 ## Consequences
 
-- A project whose ADR corpus regularly produces more than 3 relevant, in-threshold ADRs per file can raise `analysis.max_relevant_adrs` in `archguard.yaml` without a custom build.
-- `PgStore.Search`'s `MaxSearchCandidates` (1000) internal fetch cap is unaffected and still comfortably exceeds any reasonable configured topK -- a project would need to both configure an extreme topK and have a corpus that large before the two constants interact.
-- Raising this limit doesn't eliminate the need for the `--debug` topK-truncation diagnostic (`docs/arch/0009-debug-visibility-for-rejected-adr-candidates.md`'s amendment for #190) -- it only moves where the cutoff falls, so a corpus can still exceed a raised limit.
+- A project whose files regularly match more relevant ADRs than the default can raise the limit in `archguard.yaml` without a custom build.
+- The Postgres store's internal candidate cap stays far above any reasonable limit, so the two interact only with an extreme limit and a corpus of that size.
+- Raising the limit does not remove the need for `--debug` to show the ADRs the limit cut. It only moves the cutoff, and a corpus can still exceed a raised limit.

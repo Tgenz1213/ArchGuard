@@ -10,6 +10,8 @@ scope: "[Optional: glob pattern, e.g., **/*.go -- or a YAML list of globs, match
 #     compliant: ["call the repository interface"]
 ---
 
+<!-- Write an ADR only for a decision, and keep it short. Never edit it once accepted: a changed decision gets a new ADR that supersedes this one. See docs/standards/guidance.md. -->
+
 # [ADR Title]
 
 ## Context
