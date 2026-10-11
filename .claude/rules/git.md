@@ -6,3 +6,5 @@ paths:
 # `internal/git`
 
 Every function shells out to `git` with the caller's context and takes `ctx` first; a call cut short by cancellation returns the context's error, not git's exit status. See `docs/arch/0024-run-context-cancellation.md`.
+
+`GetChangedSince` runs `git diff --name-status` against the ref, then `GetDiffSince` runs `git diff -U3` once per path, and `analysis` passes each diff to `JudgeChange`, which builds the prompt with `ChatPromptDiff`.
