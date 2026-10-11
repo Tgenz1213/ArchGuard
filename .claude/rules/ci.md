@@ -18,7 +18,7 @@ Every job reads the Go version through `.github/actions/setup-go`, which install
 
 `pr.yml` cancels a PR's earlier run when a new push arrives. `main.yml` has no concurrency group on purpose: a group would let a later push cancel a pending main run. Each job sets `timeout-minutes`; set it on any new job.
 
-`archguard.yml` dogfoods the repo's own Action (`uses: ./`) on the files a push or PR changed, for pushes to main and PRs by the repo owner only, since it spends the `GEMINI_API_KEY` secret. It copies `.github/archguard-ci.yaml` over `archguard.yaml` on the runner because there is no `--config` flag yet (#269).
+`archguard.yml` dogfoods the repo's own Action (`uses: ./`) on the files a push or PR changed, for pushes to main and PRs by the repo owner only, since it spends the `GEMINI_API_KEY` secret. It copies `.github/archguard-ci.yaml` over `archguard.yaml` on the runner because the Action has no `config` input yet (#327).
 
 ## `action.yml`
 
