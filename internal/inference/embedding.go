@@ -4,7 +4,7 @@ import "context"
 
 type Embedder interface {
 	// Providers without an asymmetric-retrieval mechanism may ignore task.
-	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error)
+	CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error)
 }
 
 // A document is ADR content being indexed; a query is a diff or code being searched.

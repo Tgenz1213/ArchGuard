@@ -106,8 +106,8 @@ func TestGeminiProvider_Chat(t *testing.T) {
 	}
 
 	expected := "{\"violation\": false}"
-	if res != expected {
-		t.Errorf("Expected %s, got %s", expected, res)
+	if res.Text != expected {
+		t.Errorf("Expected %s, got %s", expected, res.Text)
 	}
 }
 
@@ -223,13 +223,13 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 
 	expected := []float32{0.1, 0.2, 0.3}
-	if len(res) != len(expected) {
-		t.Fatalf("Expected length %d, got %d", len(expected), len(res))
+	if len(res.Vector) != len(expected) {
+		t.Fatalf("Expected length %d, got %d", len(expected), len(res.Vector))
 	}
 
-	for i := range res {
-		if res[i] != expected[i] {
-			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res[i])
+	for i := range res.Vector {
+		if res.Vector[i] != expected[i] {
+			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res.Vector[i])
 		}
 	}
 }

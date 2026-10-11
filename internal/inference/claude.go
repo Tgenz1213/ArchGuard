@@ -33,7 +33,7 @@ func NewClaudeProviderWithBaseURL(apiKey, model, baseURL string, httpClient *htt
 	return &ClaudeProvider{client: client, model: model}
 }
 
-func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string, error) {
+func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(p.model),
 		MaxTokens: claudeMaxResponseTokens,
@@ -51,16 +51,24 @@ func (p *ClaudeProvider) Chat(ctx context.Context, system, user string) (string,
 
 	message, err := p.client.Messages.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("claude chat request failed: %w", err)
+		return ChatReply{}, fmt.Errorf("claude chat request failed: %w", err)
 	}
 
 	for _, block := range message.Content {
 		if textBlock, ok := block.AsAny().(anthropic.TextBlock); ok {
-			return textBlock.Text, nil
+			return ChatReply{Text: textBlock.Text, Usage: claudeUsage(message.Usage)}, nil
 		}
 	}
 
-	return "", fmt.Errorf("claude returned no text content")
+	return ChatReply{}, fmt.Errorf("claude returned no text content")
+}
+
+func claudeUsage(usage anthropic.Usage) Usage {
+	return Usage{
+		InputTokens:  int(usage.InputTokens),
+		OutputTokens: int(usage.OutputTokens),
+		Reported:     usage.JSON.InputTokens.Valid() && usage.JSON.OutputTokens.Valid(),
+	}
 }
 
 func (p *ClaudeProvider) CountTokens(ctx context.Context, text string) (int, error) {

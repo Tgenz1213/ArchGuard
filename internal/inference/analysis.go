@@ -62,11 +62,13 @@ func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt
 	var final T
 
 	operation := func() error {
-		raw, err := chat.Chat(ctx, systemPrompt, userPrompt)
+		reply, err := chat.Chat(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			lastErr = err
 			return err
 		}
+
+		raw := reply.Text
 
 		cleaned := CleanJSON(raw)
 

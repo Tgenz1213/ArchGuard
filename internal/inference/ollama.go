@@ -46,7 +46,7 @@ func newOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
 	}
 }
 
-func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string, error) {
+func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
 	stream := false
 	options := map[string]any{}
 
@@ -65,17 +65,19 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 		},
 	}
 
-	var content string
+	var reply ChatReply
 
 	err := p.client.Chat(ctx, req, func(resp api.ChatResponse) error {
-		content = resp.Message.Content
+		reply.Text = resp.Message.Content
+		reply.Usage = Usage{InputTokens: resp.PromptEvalCount, OutputTokens: resp.EvalCount, Reported: resp.Done}
+
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return ChatReply{}, err
 	}
 
-	return content, nil
+	return reply, nil
 }
 
 // embeddingPrefixConventions maps a model name prefix to its
@@ -105,7 +107,7 @@ func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
 	return ""
 }
 
-func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	req := &api.EmbeddingRequest{
 		Model:  p.embedModel,
 		Prompt: embeddingTaskPrefix(p.embedModel, task) + text,
@@ -113,7 +115,7 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 
 	resp, err := p.client.Embeddings(ctx, req)
 	if err != nil {
-		return nil, err
+		return Embedding{}, err
 	}
 
 	embedding := make([]float32, len(resp.Embedding))
@@ -121,7 +123,8 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 		embedding[i] = float32(value)
 	}
 
-	return embedding, nil
+	// Ollama's /api/embeddings endpoint reports no token count.
+	return Embedding{Vector: embedding}, nil
 }
 
 func (p *OllamaProvider) CountTokens(ctx context.Context, text string) (int, error) {

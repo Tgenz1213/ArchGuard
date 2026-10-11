@@ -45,8 +45,8 @@ func TestClaudeProvider_Chat(t *testing.T) {
 		t.Fatalf("Chat failed: %v", err)
 	}
 
-	if res != `{"violation": false}` {
-		t.Errorf("unexpected response: %q", res)
+	if res.Text != `{"violation": false}` {
+		t.Errorf("unexpected response: %q", res.Text)
 	}
 }
 
