@@ -8,29 +8,22 @@ scope: "internal/**"
 
 ## Context
 
-`Engine.Run` (`internal/analysis/engine.go`) formatted every violation directly into human-readable text and printed it straight to stdout. Nothing downstream (a Code Scanning integration, a dashboard, another script) could consume results without scraping that text, even though the structured data (ADR ID/title, file, line, reasoning, quoted code) already existed in memory per violation. See #70.
+`archguard check` printed every violation as human-readable text on stdout. Nothing downstream, such as a Code Scanning integration, a dashboard or another script, could consume the results without scraping that text, although the structured data for each violation was already in memory. See #70.
 
 ## Decision
 
-`archguard check` has `--format <text|json>` (default `text`). With `--format json`:
+`archguard check` has `--format <text|json>`, with `text` as the default. With `--format json`:
 
-- stdout carries exactly one JSON document: `{"violations": [...], "count": N}`, where each violation has `file`, `adr_id`, `adr_title`, `line`, `reasoning`, `quoted_code`, and (per `docs/arch/0016-llm-suggested-remediation.md`) an optional `suggestion`, and `count` matches `DriftDetectedError.Count` (the same number that drives the `ExitDriftDetected` exit code).
-- Everything else that would normally print to stdout (the startup banner, `--debug` logging, per-file progress, index-rebuild notices, and a one-line warning when files were skipped, ADR checks failed or ADRs are missing from the index, which the document has no field for) goes to stderr instead of being suppressed outright, so `--format json --debug` still gives visibility into what happened without breaking a pipe consuming stdout.
-- The document also carries an `unverified` array with the same fields as `violations`, listing findings whose quoted code was not found; they are not counted in `count` (`docs/arch/0031-unverified-findings-and-the-exit-code.md`).
-- The document also carries a `stages` array with one `{name, received, kept, duration_ms}` entry per pipeline stage, in order (see `docs/arch/0022-candidate-scoring-pipeline.md`).
-- The document also carries a `usage` object with the run's token figures and estimated cost, where an unavailable figure is `null` (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`). Under `--dry-run` it also carries a `dry_run` object with the judgment calls the run would make and those a cached verdict would answer.
-- When a stage with `on_error: fail` fails (see `docs/arch/0022-candidate-scoring-pipeline.md`), the document also carries a `failures` array of `{stage, file, kind, error}`; it is omitted when empty.
-- Exit codes are unaffected: `--format` only changes what's printed, never what's returned.
-- `--update-baseline` ignores `--format` entirely (a printed note explains this) -- its output is the baseline report (`docs/arch/0028-check-report-and-log.md`), a maintenance summary about the baseline file, not the violation report `--format json` targets, and baselining suppresses the very violations this flag would otherwise report.
+- stdout carries exactly one JSON document, listing the violations and their count. The count is the same number that drives the drift exit code.
+- Everything else meant for a person goes to stderr instead of being suppressed: the startup banner, `--debug` logging, progress, index-rebuild notices, and warnings the document has no field for. `--format json --debug` therefore still shows what happened without breaking a pipe that reads stdout.
+- Other ADRs add their data to the same document: a remediation suggestion per violation (`docs/arch/0016-llm-suggested-remediation.md`), unverified findings that are not counted (`docs/arch/0031-unverified-findings-and-the-exit-code.md`), per-stage totals and stage failures (`docs/arch/0022-candidate-scoring-pipeline.md`), and token usage (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`).
+- Exit codes are unaffected: `--format` changes only what is printed, never what is returned.
+- `--update-baseline` ignores `--format` and prints a note saying so. Its output is the baseline report (`docs/arch/0028-check-report-and-log.md`), a maintenance summary rather than the violation report this flag targets, and baselining suppresses the very violations the flag would report.
 
-Implementation-wise, `Engine` prints its per-file log through its `Out *output.Printer` (a nil `Out` writes to stderr), and appends each new (non-baselined) violation to `CollectedViolations []Violation`, an exported struct mirroring the JSON shape; a `JSONOutput bool` makes it also collect the per-stage totals for the `stages` array. `cli.runCheck` builds `Out` over stderr in every format (`docs/arch/0028-check-report-and-log.md`), then marshals `CollectedViolations` to stdout after `Engine.Run` returns, whether or not it returned `DriftDetectedError`.
-
-The startup banner is printed by `cli.Execute` right after the command line is parsed, to stderr for `check`, and skipped when `checkCmd.jsonOutput()` reports `--format json` without `--update-baseline` (see `docs/arch/0025-kong-command-line.md`).
-
-An alternative considered: suppress stdout output at the `io.Writer` level for the whole process (e.g. swap `os.Stdout` briefly) rather than threading a `Writer`/`human` parameter through. Rejected because it's process-global and not concurrency-safe against `Engine.Run`'s worker pool, and because tests (`internal/cli`, e2e) need to assert on both streams independently -- an explicit writer parameter is what makes `TestE2E_CheckFormatJSON`'s "stdout is exactly one JSON document" assertion possible at all.
+Human-readable output reaches stderr through an explicit writer, the `output.Printer`, passed to the code that prints. The rejected alternative was to silence stdout for the whole process, for example by swapping `os.Stdout` for the run. That is process-global, is not safe against the engine's concurrent workers, and would stop tests from asserting on stdout and stderr separately, which the e2e check that stdout is exactly one JSON document depends on.
 
 ## Consequences
 
-- Any future addition to `Engine`'s or `runCheck`'s human-readable output must go through the `Printer` / the `human` writer, not a bare `fmt.Print*`, or it will leak onto stdout in `--format json` mode and break the "safe to pipe" guarantee.
-- `cmd/archguard-e2e`'s mock provider factories printed a "which provider was invoked" marker via `fmt.Println` (test instrumentation, not production behavior) -- this leaked onto stdout even for the real CLI's stdout-purity contract as exercised through that test binary, and was moved to `os.Stderr`. Existing assertions using `CombinedOutput()` were unaffected since they read both streams merged.
-- `internal/index`'s progress and warnings (an index rebuild, ADR fetching) follow the same rule through their own `Printer`; see `docs/arch/0015-index-diagnostic-writer.md`.
+- Any new human-readable output from `check` must go through the `Printer`, not a bare `fmt.Print*`, or it leaks onto stdout under `--format json` and breaks the safe-to-pipe guarantee.
+- Test instrumentation in the e2e binary, such as a marker naming which mock provider ran, also writes to stderr, since that binary is held to the same stdout contract.
+- `internal/index`'s progress and warnings follow the same rule through their own `Printer`; see `docs/arch/0015-index-diagnostic-writer.md`.
