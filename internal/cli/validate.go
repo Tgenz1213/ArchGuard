@@ -7,7 +7,14 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
+	"github.com/tgenz1213/archguard/internal/output"
 )
+
+func warnIgnoredExcludeHeaders(warnings *output.Printer, analysis config.Analysis) {
+	if len(analysis.IncludedHeaders) > 0 && len(analysis.ExcludeHeaders) > 0 {
+		warnings.Warn("analysis.exclude_headers is ignored because analysis.included_headers is set")
+	}
+}
 
 // Compiled at startup so a bad regex fails as ExitConfig, not per file.
 func compileADRIDPattern(cfg *config.Config) (*regexp.Regexp, error) {

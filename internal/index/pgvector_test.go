@@ -161,20 +161,22 @@ func TestClassifyADRs_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
 	adr := ADR{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "content a"}
 
 	tests := []struct {
-		name        string
-		savedFormat string
-		wantEmbed   []int
+		name          string
+		savedFormat   string
+		currentFormat string
+		wantEmbed     []int
 	}{
-		{name: "current format", savedFormat: embeddingFormat},
-		{name: "older format", savedFormat: "0", wantEmbed: []int{0}},
-		{name: "row from before formats were saved", savedFormat: "", wantEmbed: []int{0}},
+		{name: "current format", savedFormat: embeddingFormat, currentFormat: embeddingFormat},
+		{name: "older format", savedFormat: "0", currentFormat: embeddingFormat, wantEmbed: []int{0}},
+		{name: "row from before formats were saved", savedFormat: "", currentFormat: embeddingFormat, wantEmbed: []int{0}},
+		{name: "section selection changed", savedFormat: embeddingFormat, currentFormat: NewSectionSelection([]string{"Rules"}, nil).format(), wantEmbed: []int{0}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			existing := map[string]storedADR{adr.RelPath: {ADR: adr, embeddingFormat: tt.savedFormat}}
 
-			toEmbed, toSync := classifyADRs(existing, []ADR{adr})
+			toEmbed, toSync := classifyADRs(existing, []ADR{adr}, tt.currentFormat)
 
 			if !slices.Equal(toEmbed, tt.wantEmbed) {
 				t.Errorf("toEmbed = %v, want %v", toEmbed, tt.wantEmbed)

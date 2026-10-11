@@ -173,6 +173,8 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		return runSetup{}, err
 	}
 
+	warnIgnoredExcludeHeaders(warnings, cfg.Analysis)
+
 	chat, embed, err := selectProviders(warnings, cfg, factories)
 	if err != nil {
 		return runSetup{}, err

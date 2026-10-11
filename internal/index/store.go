@@ -56,6 +56,7 @@ type LocalStore struct {
 	Dim             int    `json:"dim"`
 	EmbeddingFormat string `json:"embedding_format"`
 	concurrency     int
+	sections        SectionSelection
 	out             *output.Printer
 }
 
@@ -67,17 +68,28 @@ func NewLocalStore(concurrency int) *LocalStore {
 }
 
 func NewVectorStore(cfg *config.Config, out *output.Printer) (VectorStore, error) {
+	sections := NewSectionSelection(cfg.Analysis.IncludedHeaders, cfg.Analysis.ExcludeHeaders)
+
 	if cfg.VectorStore.ConnectionString != "" {
-		return NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
+		store, err := NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
 			Enabled:       cfg.VectorStore.ReindexEnabled,
 			Threshold:     cfg.VectorStore.ReindexThreshold,
 			Concurrently:  cfg.VectorStore.ReindexConcurrently,
 			IterativeScan: cfg.VectorStore.IterativeScan,
 		}, out)
+		if err != nil {
+			return nil, err
+		}
+
+		store.sections = sections
+
+		return store, nil
 	}
 
 	store := NewLocalStore(cfg.VectorStore.EmbeddingConcurrency)
 	store.out = out
+	store.sections = sections
+
 	return store, nil
 }
 
@@ -135,8 +147,8 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		reasons = append(reasons, fmt.Errorf("%w: saved dimension %d, config %d", ErrEmbeddingModelChanged, s.Dim, dim))
 	}
 
-	if s.EmbeddingFormat != embeddingFormat {
-		reasons = append(reasons, fmt.Errorf("%w: saved %q, current %q", ErrEmbeddingFormatChanged, s.EmbeddingFormat, embeddingFormat))
+	if format := s.sections.format(); s.EmbeddingFormat != format {
+		reasons = append(reasons, fmt.Errorf("%w: saved %q, current %q", ErrEmbeddingFormatChanged, s.EmbeddingFormat, format))
 	}
 
 	// The hash covers the model name, so after a model change it can't tell whether the ADRs changed too.
@@ -178,15 +190,16 @@ func (s *LocalStore) Save(path string) error {
 }
 
 func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, embedder inference.Embedder, adrProvider Provider) (BuildIndexResult, error) {
-	validADRs, stats, err := adrProvider.GetADRs(ctx)
+	fetchedADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
 
+	validADRs, unembeddable := dropUnembeddable(fetchedADRs, s.sections, s.out)
 	adrsToEmbed := s.reuseUnchangedEmbeddings(validADRs, modelName, dim)
 
-	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
-	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out}
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Skipped: unembeddable, Attempted: true}
+	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, sections: s.sections, out: s.out}
 
 	outcome, err := job.embedInto(ctx, adrsToEmbed, &result)
 	if err != nil {
@@ -196,7 +209,7 @@ func (s *LocalStore) BuildIndex(ctx context.Context, modelName string, dim int, 
 	s.replaceADRs(validADRs, outcome.failed, modelName, dim)
 
 	// Hash the full fetched set, not the embedded subset: a skipped ADR is still on disk.
-	hash, err := s.CalculateHash(validADRs, modelName)
+	hash, err := s.CalculateHash(fetchedADRs, modelName)
 	if err != nil {
 		return result, fmt.Errorf("failed to calculate hash: %w", err)
 	}
@@ -229,7 +242,7 @@ func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR, modelName string, dim 
 
 // A dim of 0 means the config leaves it unset, so only the model name can be compared.
 func (s *LocalStore) embeddedWith(modelName string, dim int) bool {
-	return s.EmbeddingFormat == embeddingFormat && s.ModelName == modelName && (dim == 0 || s.Dim == dim)
+	return s.EmbeddingFormat == s.sections.format() && s.ModelName == modelName && (dim == 0 || s.Dim == dim)
 }
 
 func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName string, dim int) {
@@ -243,7 +256,7 @@ func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName stri
 
 	s.ADRs = kept
 	s.ModelName = modelName
-	s.EmbeddingFormat = embeddingFormat
+	s.EmbeddingFormat = s.sections.format()
 
 	if dim > 0 {
 		s.Dim = dim

@@ -61,6 +61,8 @@ type Analysis struct {
 	// Canonical field name -> the YAML key the corpus uses; see docs/arch/0021.
 	FrontmatterMappings map[string]string `yaml:"frontmatter_mappings"`
 	RulesHeading        string            `yaml:"rules_heading"`
+	IncludedHeaders     []string          `yaml:"included_headers"`
+	ExcludeHeaders      []string          `yaml:"exclude_headers"`
 	Pipeline            *Pipeline         `yaml:"pipeline"`
 }
 

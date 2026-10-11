@@ -35,6 +35,7 @@ type PgStore struct {
 	projectName      string
 	concurrency      int
 	hnsw             HNSWOptions
+	sections         SectionSelection
 	out              *output.Printer
 	adrsMu           sync.Mutex
 	adrs             []ADR
@@ -338,20 +339,22 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 		return BuildIndexResult{}, fmt.Errorf("failed to ensure schema: %w", err)
 	}
 
-	validADRs, stats, err := adrProvider.GetADRs(ctx)
+	fetchedADRs, stats, err := adrProvider.GetADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
+
+	validADRs, unembeddable := dropUnembeddable(fetchedADRs, s.sections, s.out)
 
 	existing, err := s.loadExistingADRs(ctx)
 	if err != nil {
 		return BuildIndexResult{}, err
 	}
 
-	adrsToEmbed, adrsToSync := classifyADRs(existing, validADRs)
+	adrsToEmbed, adrsToSync := classifyADRs(existing, validADRs, s.sections.format())
 
-	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Attempted: true}
-	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, out: s.out, embedLabel: "embed", persist: s.upsertADR}
+	result := BuildIndexResult{Summary: summarizeCorpus(validADRs, stats), Skipped: unembeddable, Attempted: true}
+	job := embedJob{adrs: validADRs, embedder: embedder, concurrency: s.concurrency, sections: s.sections, out: s.out, embedLabel: "embed", persist: s.upsertADR}
 
 	outcome, err := job.embedInto(ctx, adrsToEmbed, &result)
 	if err != nil {
@@ -417,12 +420,12 @@ func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]storedADR, e
 	return existing, nil
 }
 
-func classifyADRs(existing map[string]storedADR, adrs []ADR) (toEmbed, toSync []int) {
+func classifyADRs(existing map[string]storedADR, adrs []ADR, format string) (toEmbed, toSync []int) {
 	for i, adr := range adrs {
 		stored, ok := existing[adr.RelPath]
 
 		switch {
-		case !ok || stored.embeddingFormat != embeddingFormat || !adrUnchanged(stored.ADR, adr):
+		case !ok || stored.embeddingFormat != format || !adrUnchanged(stored.ADR, adr):
 			toEmbed = append(toEmbed, i)
 		case stored.ID != adr.ID || !slices.Equal(stored.Scope, adr.Scope) || !thresholdsEqual(stored.SimilarityThreshold, adr.SimilarityThreshold) ||
 			!rulesEqual(stored.Rules, adr.Rules):
@@ -447,7 +450,7 @@ func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
 			similarity_threshold = EXCLUDED.similarity_threshold,
 			rules = EXCLUDED.rules,
 			embedding_format = EXCLUDED.embedding_format
-	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules, embeddingFormat)
+	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules, s.sections.format())
 	if err != nil {
 		return fmt.Errorf("upsert: %w", err)
 	}

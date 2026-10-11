@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -20,6 +21,7 @@ type embedJob struct {
 	adrs        []ADR
 	embedder    inference.Embedder
 	concurrency int
+	sections    SectionSelection
 	out         *output.Printer
 	embedLabel  string
 	persist     func(ctx context.Context, adr ADR) error
@@ -38,7 +40,7 @@ func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildInd
 	j.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(j.adrs), len(toEmbed))
 
 	outcome, err := j.run(ctx, toEmbed)
-	result.Skipped = outcome.skipped
+	result.Skipped = append(result.Skipped, outcome.skipped...)
 
 	if err != nil {
 		return outcome, err
@@ -53,6 +55,29 @@ func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildInd
 	}
 
 	return outcome, outcome.check(ctx, len(j.adrs), action)
+}
+
+// Dropped before embedding rather than failed, so Postgres also deletes the row an earlier selection left.
+func dropUnembeddable(adrs []ADR, sections SectionSelection, out *output.Printer) ([]ADR, []SkippedADR) {
+	if !sections.selects() {
+		return adrs, nil
+	}
+
+	embeddable := make([]ADR, 0, len(adrs))
+
+	var skipped []SkippedADR
+
+	for _, adr := range adrs {
+		if strings.TrimSpace(sections.apply(adr.Content)) != "" {
+			embeddable = append(embeddable, adr)
+			continue
+		}
+
+		skipped = append(skipped, SkippedADR{RelPath: adr.RelPath, Err: errNoEmbeddableText})
+		out.Warn("skipping ADR %s: %v", adr.RelPath, errNoEmbeddableText)
+	}
+
+	return embeddable, skipped
 }
 
 // A failed ADR never returns an error to the errgroup: that would cancel the embeds still in flight.
@@ -102,7 +127,7 @@ func (j embedJob) run(ctx context.Context, indices []int) (embedOutcome, error) 
 
 func (j embedJob) embedOne(ctx context.Context, idx int) error {
 	adr := j.adrs[idx]
-	text := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", adr.Title, adr.Status, adr.Content)
+	text := fmt.Sprintf("Title: %s\nStatus: %s\nContent: %s", adr.Title, adr.Status, j.sections.apply(adr.Content))
 
 	emb, err := j.embedder.CreateEmbedding(ctx, text, inference.EmbeddingTaskDocument)
 	if err != nil {
