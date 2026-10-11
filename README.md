@@ -21,7 +21,7 @@ internal/db/conn.js
 
 ### 1. Prerequisites
 
-- **Go 1.26+**: [Download Go](https://go.dev/dl/)
+- **Go**: the version [`go.mod`](go.mod) declares. [Download Go](https://go.dev/dl/)
 - **Ollama**: [Download Ollama](https://ollama.com/)
 
 ### 2. Setup Models
@@ -86,7 +86,7 @@ ArchGuard is designed with a "Local First" mentality.
 
 ## 🛠️ Configuration
 
-ArchGuard is configured via `archguard.yaml` in the root of your repository.
+ArchGuard is configured via `archguard.yaml` in the root of your repository, or the file `check` and `index` are given with `--config`.
 
 ```yaml
 version: "1"
@@ -234,7 +234,7 @@ ArchGuard parses ADRs from Markdown files. Strict **YAML frontmatter** is requir
 
 **Location:** Store your ADRs in the folder specified by `analysis.adr_path` (default `./docs/arch`).
 
-**ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex (for example `adr_id_pattern: '^adr-(\d+)-'`): capture group 1 is used if the pattern defines one, otherwise the whole match is used. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. Leave it unset for the default behavior.
+**ADR IDs:** By default, an ADR's ID is derived from its filename by splitting on the first hyphen (`0001-use-postgres.md` → `0001`). If your naming convention doesn't fit that pattern (e.g. `adr-1-use-postgres.md` and `adr-2-use-kafka.md`, which would otherwise both collapse to `adr`), set `analysis.adr_id_pattern` to a regex (for example `adr_id_pattern: '^adr-(\d+)-'`): capture group 1 is used if the pattern defines one, otherwise the whole match is used. A pattern with more than one capture group is a config error (exit `3`), because it is unclear which group is the ID; use `(?:...)` for groups that are not the ID. A file whose name doesn't match the pattern falls back to the default first-hyphen split, so mixed-convention corpora are handled gracefully. If the pattern matches none of the ADR files, `index` and `check` print a warning (on stderr for `check`), since every ID then comes from the fallback. Leave it unset for the default behavior.
 
 **Frontmatter Field Mappings:** If your existing ADR corpus uses different frontmatter key names (e.g. MADR-style or your own house convention), set `analysis.frontmatter_mappings` to remap any of the five canonical fields (`title`, `status`, `scope`, `similarity_threshold`, `rules`) to the YAML key your files actually use:
 
@@ -329,6 +329,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - `archguard init`: Interactive setup for local development. Creates config, ADR directory, and scaffolding.
 - `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.** 
   - `--color <auto|always|never>`: Same as `check`'s `--color`.
+  - `--config <path>`: Same as `check`'s `--config`.
   - *Note:* ArchGuard uses **Delta Indexing**: only new or edited ADRs are embedded, and the rest keep their saved embeddings unless `vector_store.model` or `vector_store.embedding_dim` changed. Feel free to run it frequently!
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
@@ -336,12 +337,14 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--staged`: Scan only staged (index) changes.
   - `--all`: Scan all tracked files.
   - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, judging only the lines the change added or removed; a finding that quotes only code the change left alone is dropped (see [ADR 0030](docs/arch/0030-judge-the-change-under-since.md)). For a pull request, use its base commit; if `<ref>` has moved on since the branch started, use `$(git merge-base <ref> HEAD)`. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
+  - `--whole-file`: With `--since`, judge each changed file in full instead of only the lines the change touched, so touching a file means leaving it compliant: a violation on a line the change did not touch is reported too. Needs `--since`.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode. It needs a scope (`--since`, `--all`, `--staged` or paths): a CI checkout has no uncommitted changes, so a bare `--ci` would check nothing and is rejected.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
   - `--format <text|json>`: Output format, default `text`. With `--format json`, stdout carries a single JSON document and nothing else (no banner, no progress/debug text — that goes to stderr instead), so it's safe to pipe into another tool. Exit codes are unchanged. Has no effect with `--update-baseline`, which always prints its baseline report as text.
   - `--output <path>`: Write the report (text or JSON, per `--format`) to `<path>` instead of stdout. The file has no color, stdout stays empty, and the log says where the report was written. A relative path is taken from the directory you ran the command in. The directory must already exist; a missing directory, a path that is itself a directory, or the baseline file (`archguard-baseline.json`) exits `1` before any analysis runs. Also works with `--update-baseline`.
+  - `--config <path>`: Read the config from `<path>` instead of `archguard.yaml` at the repository root, for example a CI-only config. A relative path is taken from the directory you ran the command in. A missing or unreadable file exits `3` and names the path.
   - `--color <auto|always|never>`: When to color output, default `auto`. `auto` colors only a stream that is a terminal, and turns color off when `NO_COLOR` is set to a non-empty value, `TERM=dumb`, or `CI` is set (so CI logs stay plain; pass `--color=always` to color them). `always` and `never` override all of that. `--format json`'s stdout is never colored.
   - `--suggest-fixes`: For each newly-reported violation, make a second LLM call for a short, unverified remediation pointer (never a guaranteed fix). Off by default — this roughly doubles LLM calls for files with violations.
 
@@ -499,6 +502,7 @@ This action automatically sets up Go, installs ArchGuard, and runs `archguard ch
 | `scope` | `changed` | `changed` checks the files the event changed; `all` checks every tracked file. |
 | `base` | the pull request base, or the commit before a push | The commit to compare against when `scope` is `changed`. |
 | `debug` | `false` | `true` passes `--debug`, which logs each file and ADR the check judged. |
+| `config` | `archguard.yaml` | A config file to read instead, relative to the repository root, for example a CI-only config. Passed as `--config`. |
 
 The action fetches the base commit itself, so `actions/checkout` needs no `fetch-depth` change. When an event has no base (for example `workflow_dispatch` or the first push of a branch), the action checks every tracked file. Use it on `pull_request` events: under `pull_request_target` the default checkout is the base branch, so there is nothing to compare unless you check out the pull request's head yourself.
 

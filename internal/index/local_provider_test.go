@@ -176,3 +176,41 @@ func TestLocalProvider_SetPrinter_RoutesParseWarningsThere(t *testing.T) {
 		t.Errorf("expected the parse-failure warning on the configured writer, got %q", buf.String())
 	}
 }
+
+func TestLocalProvider_GetADRs_WarnsWhenIDPatternMatchesNoFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		pattern  *regexp.Regexp
+		wantWarn bool
+	}{
+		{"a pattern that matches no filename", regexp.MustCompile(`^adr-(\d+)-`), true},
+		{"a pattern that matches one filename", regexp.MustCompile(`^(0001)-`), false},
+		{"no pattern", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeADRFile(t, dir, "0001-first.md", "---\ntitle: A\nstatus: Accepted\n---\ncontent")
+			writeADRFile(t, dir, "0002-second.md", "---\ntitle: B\nstatus: Accepted\n---\ncontent")
+
+			var buf bytes.Buffer
+			provider := NewLocalProvider(dir, []string{"Accepted"})
+			provider.SetIDPattern(tt.pattern)
+			provider.SetPrinter(output.New(&buf, false))
+
+			adrs, _, err := provider.GetADRs(t.Context())
+			if err != nil {
+				t.Fatalf("GetADRs failed: %v", err)
+			}
+
+			if len(adrs) != 2 {
+				t.Errorf("got %d ADRs, want 2: the warning must not drop any", len(adrs))
+			}
+
+			if warned := strings.Contains(buf.String(), "adr_id_pattern"); warned != tt.wantWarn {
+				t.Errorf("warned = %v, want %v; output %q", warned, tt.wantWarn, buf.String())
+			}
+		})
+	}
+}

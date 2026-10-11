@@ -4,7 +4,7 @@ First off, thank you for taking the time to contribute! ArchGuard is built on th
 
 ## Getting Started
 
-To begin contributing, you will need Go 1.26 or later and a local instance of Ollama to run the default models. Once your environment is ready, fork the repository and clone it to your local machine.
+To begin contributing, you will need the Go version `go.mod` declares and a local instance of Ollama to run the default models. Once your environment is ready, fork the repository and clone it to your local machine.
 
 Run `go mod download` to pull the necessary dependencies, including the tokenizer and YAML parser. You can build the project locally using `go build -o archguard ./cmd/archguard`. Before submitting any changes, ensure that the binary compiles and that you have tested your logic against a local ADR directory.
 
@@ -40,6 +40,8 @@ How code is written here is set out in [`docs/standards/`](docs/standards/README
 We maintain a robust testing suite that includes unit tests for internal logic and E2E tests for the CLI. Which tests run under which command is in `docs/standards/testing.md`. Our E2E tests utilize a mock provider to verify logic without incurring API costs or requiring a running Ollama instance.
 
 When you are ready to submit your changes, please use **Conventional Commits** for your messages. For example, use `feat: add support for local vector caching` or `fix: handle malformed JSON from LLM`. Pull requests will be reviewed for idiomatic Go patterns and architectural alignment.
+
+Pull requests are squash-merged, so the pull request title becomes the commit on `main`, and CI fails a title that is not a Conventional Commit. The form is `type(scope)!: summary`, where `(scope)` and `!` are optional and `!` marks a breaking change. The allowed types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style` and `test`.
 
 ### CI and Exit Codes
 

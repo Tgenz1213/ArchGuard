@@ -22,3 +22,7 @@ jobs:
     uses: ./.github/workflows/archguard.yml
     secrets:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+  vulnerabilities:
+    name: Vulnerabilities
+    uses: ./.github/workflows/vulncheck.yml

@@ -19,6 +19,10 @@ inputs:
     description: 'true passes --debug to the check, which logs each file and ADR it judged.'
     required: false
     default: 'false'
+  config:
+    description: 'Config file to read instead of archguard.yaml, relative to the repository root.'
+    required: false
+    default: ''
 runs:
   using: "composite"
   steps:
@@ -52,6 +56,7 @@ runs:
         SCOPE: ${{ inputs.scope }}
         DEBUG: ${{ inputs.debug }}
         BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.before }}
+        CONFIG: ${{ inputs.config }}
       run: |
         case "$SCOPE" in
           changed|all) ;;
@@ -67,9 +72,17 @@ runs:
           -*) echo "base must be a commit, got '$BASE'" >&2; exit 2 ;;
         esac
 
+        case "$CONFIG" in
+          -*) echo "config must be a file path, got '$CONFIG'" >&2; exit 2 ;;
+        esac
+
         args=(--ci)
         if [ "$DEBUG" = "true" ]; then
           args+=(--debug)
+        fi
+
+        if [ -n "$CONFIG" ]; then
+          args+=(--config "$CONFIG")
         fi
 
         if [ "$SCOPE" = "changed" ] && [ -n "${BASE//0/}" ]; then
