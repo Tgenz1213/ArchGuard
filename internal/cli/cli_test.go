@@ -763,6 +763,13 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with all", args: []string{"check", "--since", "abc123", "--all"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with update-baseline", args: []string{"check", "--since", "abc123", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
+		{name: "since with whole-file", args: []string{"check", "--since", "abc123", "--whole-file"}, wantCommand: "check", check: func(t *testing.T, c checkCmd) {
+			if !c.WholeFile {
+				t.Error("WholeFile = false, want true")
+			}
+		}},
+		{name: "whole-file without since", args: []string{"check", "--whole-file"}, wantCode: ExitUsage, wantErr: true},
+		{name: "whole-file with all", args: []string{"check", "--all", "--whole-file"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with a path", args: []string{"check", "--since", "abc123", "main.go"}, wantCode: ExitUsage, wantErr: true},
 		{name: "index", args: []string{"index"}, wantCommand: "index"},
 		{name: "init", args: []string{"init"}, wantCommand: "init"},

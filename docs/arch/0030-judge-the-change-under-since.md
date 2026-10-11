@@ -15,7 +15,8 @@ scope:
 
 ## Decision
 
-- **`--since` makes the model read the file's diff.** `cli` sets `Engine.JudgeChange` from `--since`; no other scan sets it, and `--all`, paths, `--staged` and the default scan judge what they always have. `fetchContext` returns the hunks of `git diff <ref> HEAD -- <path>`, without the `diff --git`, `---` and `+++` header, and counts tokens on that. A file with no hunks (binary, mode-only) has nothing to judge and is skipped without being recorded as a gap. A diff over `llm.max_tokens` is truncated and `--ci` skips it, as with any oversize file.
+- **`--since` makes the model read the file's diff.** `cli` sets `Engine.JudgeChange` from `--since` unless `--whole-file` is also given; no other scan sets it, and `--all`, paths, `--staged` and the default scan judge what they always have. `fetchContext` returns the hunks of `git diff <ref> HEAD -- <path>`, without the `diff --git`, `---` and `+++` header, and counts tokens on that. A file with no hunks (binary, mode-only) has nothing to judge and is skipped without being recorded as a gap. A diff over `llm.max_tokens` is truncated and `--ci` skips it, as with any oversize file.
+- **`--whole-file` opts back into judging each changed file in full.** For a team that wants every file a pull request touches to be left compliant. `--since` still picks the files; each one is judged as `--all` would judge it, so a violation on a line the change did not touch is reported and a removed line is not seen. `--whole-file` without `--since` is a usage error.
 - **The diff instructions are in the user prompt.** `inference.ChatPromptDiff` says the context is a unified diff and asks the model to judge the code the change leaves behind: an added line that contradicts the ADR, or a removed line the ADR requires. Removing code that itself broke the ADR is not a violation. `llm.system_prompt` replaces the system prompt wholesale, so the instructions are not there. `PromptTemplate` is part of the analysis cache key.
 - **The quote is checked against the diff.** The diff is parsed into added, removed and unchanged lines. A finding counts when its `quoted_code` is in an added or removed line, and is dropped when it is only in unchanged context. A finding whose quote is nowhere in the diff is unverified (`docs/arch/0031-unverified-findings-and-the-exit-code.md`). The finding's line is the new-file line of an added line, or the new-file line a removed line sat in front of.
 - **`archguard-ignore: <ADR ID>` is read from the whole file,** because the header is usually outside the diff.
@@ -23,8 +24,8 @@ scope:
 
 ## Rules
 
-- Code that sends the model a whole file for a `--since` check, instead of the file's diff hunks.
-- Code that reports a `--since` finding whose quoted code is only in unchanged context lines.
+- Code that sends the model a whole file for a `--since` check without `--whole-file`, instead of the file's diff hunks.
+- Code that reports a `--since` finding whose quoted code is only in unchanged context lines, unless `--whole-file` is set.
 
 ## Alternatives considered
 
@@ -32,6 +33,8 @@ scope:
 - **Tell the model about the diff and trust it.** Old code within the 100 context lines of an edit can still fail the pull request, because nothing checks the quote.
 - **Judge whole files and filter afterwards.** The model keeps full context, but nothing gets cheaper and a removal has no quote left to match.
 - **A config key on every scan.** One more setting to document, and `--since` users would have to set it.
+- **Whole files by default, with a `--diff-only` opt-in.** Every CI user would have to remember the flag to get the cheaper, change-scoped check.
+- **A `--judge change|file` option instead of `--whole-file`.** More extensible, but nothing but `--since` needs a second judging mode yet.
 
 ## Consequences
 

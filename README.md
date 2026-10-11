@@ -336,6 +336,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--staged`: Scan only staged (index) changes.
   - `--all`: Scan all tracked files.
   - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, judging only the lines the change added or removed; a finding that quotes only code the change left alone is dropped (see [ADR 0030](docs/arch/0030-judge-the-change-under-since.md)). For a pull request, use its base commit; if `<ref>` has moved on since the branch started, use `$(git merge-base <ref> HEAD)`. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
+  - `--whole-file`: With `--since`, judge each changed file in full instead of only the lines the change touched, so touching a file means leaving it compliant: a violation on a line the change did not touch is reported too. Needs `--since`.
   - `--debug`: Enable verbose logging.
   - `--ci`: Enable CI-safe mode. It needs a scope (`--since`, `--all`, `--staged` or paths): a CI checkout has no uncommitted changes, so a bare `--ci` would check nothing and is rejected.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
