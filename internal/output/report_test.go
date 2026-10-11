@@ -70,6 +70,8 @@ func TestReportWithNothingToReportStatesCoverageThenTheResult(t *testing.T) {
 		{"clean", output.Report{Coverage: output.Coverage{FilesJudged: 4, ADRChecks: 6, FilesWithoutADR: 2}}, "Checked 4 file(s) against 6 ADR check(s); 2 file(s) had no relevant ADR.\nNo new architectural violations found.\n"},
 		{"only baselined", output.Report{Baselined: 3, Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1}}, "Checked 1 file(s) against 1 ADR check(s); 0 file(s) had no relevant ADR.\nNo new architectural violations found (3 baselined).\n"},
 		{"nothing judged", output.Report{Coverage: output.Coverage{FilesWithoutADR: 12}}, "Checked 0 file(s) against 0 ADR check(s); 12 file(s) had no relevant ADR.\nNo new architectural violations found, but no file was checked against an ADR.\n"},
+		{"some below the threshold", output.Report{Coverage: output.Coverage{FilesJudged: 2, ADRChecks: 3, FilesWithoutADR: 5, FilesBelowThreshold: 4}}, "Checked 2 file(s) against 3 ADR check(s); 5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.\nNo new architectural violations found.\n"},
+		{"nothing judged because of the threshold", output.Report{Coverage: output.Coverage{FilesWithoutADR: 3, FilesBelowThreshold: 2}}, "Checked 0 file(s) against 0 ADR check(s); 3 file(s) had no relevant ADR, 2 of them because every candidate scored below the threshold.\nNo new architectural violations found, but no file was checked against an ADR: every candidate scored below the threshold. The right threshold depends on the embedding model; run with --debug to see the scores.\n"},
 	}
 
 	for _, tt := range tests {

@@ -146,15 +146,16 @@ func TestEngine_CountsJudgedFilesAndADRChecks(t *testing.T) {
 	}
 }
 
-func TestEngine_CountsFilesWithNoCandidateAboveTheThreshold(t *testing.T) {
-	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 0.1}, nil), Min: stage.FixedMin(0.5)}}
+func TestEngine_CountsEveryFileWhenEveryCandidateIsBelowTheThreshold(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
+	h.engine.Content.(*MockContentProvider).Files = map[string]string{"a.go": "package a", "b.go": "package b"}
+	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 0.4, "0002": 0.3}, nil), Min: stage.FixedMin(0.5), MaxKeep: 3}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := output.Coverage{FilesWithoutADR: 1}
+	want := output.Coverage{FilesWithoutADR: 2, FilesBelowThreshold: 2}
 	if got := h.engine.Report().Coverage; got != want {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
@@ -212,7 +213,7 @@ func TestEngine_CountsFilesAcrossARun(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := output.Coverage{FilesJudged: 2, ADRChecks: 2, FilesWithoutADR: 1}
+	want := output.Coverage{FilesJudged: 2, ADRChecks: 2, FilesWithoutADR: 1, FilesBelowThreshold: 1}
 	if got := h.engine.Report().Coverage; got != want {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}

@@ -176,7 +176,7 @@ vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
   embedding_dim: 768
-  similarity_threshold: 0.75 # Global default; an ADR's own frontmatter similarity_threshold overrides this per-ADR
+  similarity_threshold: 0.6 # Depends on the embedding model: 0.6 suits nomic-embed-text (see README). An ADR's frontmatter can override it
   connection_string: ""
   embedding_concurrency: 5
 

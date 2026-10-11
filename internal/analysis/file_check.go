@@ -38,6 +38,8 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 		return
 	}
 
+	scored := len(hits) > 0
+
 	hits, ok = fc.score(ctx, hits)
 	if !ok {
 		return
@@ -52,6 +54,8 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 	}
 
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
+	// Top-K alone never empties a stage, so scored candidates that all dropped fell below a threshold.
+	fc.findings.belowThreshold = fc.findings.withoutADR && scored
 	fc.findings.judged = !fc.partial && fc.findings.checks > 0
 	run.merge(&fc.findings)
 }
