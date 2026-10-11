@@ -46,10 +46,6 @@ func newOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
 	}
 }
 
-/**
- * REGION: Interface Implementation
- */
-
 func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string, error) {
 	stream := false
 	options := map[string]any{}
