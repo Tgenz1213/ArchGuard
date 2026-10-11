@@ -50,12 +50,13 @@ type VectorStore interface {
 }
 
 type LocalStore struct {
-	ADRs        []ADR  `json:"adrs"`
-	Hash        string `json:"hash"`
-	ModelName   string `json:"model_name"`
-	Dim         int    `json:"dim"`
-	concurrency int
-	out         *output.Printer
+	ADRs            []ADR  `json:"adrs"`
+	Hash            string `json:"hash"`
+	ModelName       string `json:"model_name"`
+	Dim             int    `json:"dim"`
+	EmbeddingFormat string `json:"embedding_format"`
+	concurrency     int
+	out             *output.Printer
 }
 
 func NewLocalStore(concurrency int) *LocalStore {
@@ -105,9 +106,10 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 }
 
 var (
-	ErrIndexMissing          = errors.New("index missing")
-	ErrEmbeddingModelChanged = errors.New("embedding model changed")
-	ErrADRsChanged           = errors.New("ADRs changed")
+	ErrIndexMissing           = errors.New("index missing")
+	ErrEmbeddingModelChanged  = errors.New("embedding model changed")
+	ErrEmbeddingFormatChanged = errors.New("embedding format changed")
+	ErrADRsChanged            = errors.New("ADRs changed")
 )
 
 func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
@@ -131,6 +133,10 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 
 	if s.Dim != dim {
 		reasons = append(reasons, fmt.Errorf("%w: saved dimension %d, config %d", ErrEmbeddingModelChanged, s.Dim, dim))
+	}
+
+	if s.EmbeddingFormat != embeddingFormat {
+		reasons = append(reasons, fmt.Errorf("%w: saved %q, current %q", ErrEmbeddingFormatChanged, s.EmbeddingFormat, embeddingFormat))
 	}
 
 	// The hash covers the model name, so after a model change it can't tell whether the ADRs changed too.
@@ -157,7 +163,7 @@ func (s *LocalStore) LoadSaved(path string) error {
 		return err
 	}
 
-	s.ADRs, s.ModelName, s.Dim = saved.ADRs, saved.ModelName, saved.Dim
+	s.ADRs, s.ModelName, s.Dim, s.EmbeddingFormat = saved.ADRs, saved.ModelName, saved.Dim, saved.EmbeddingFormat
 
 	return nil
 }
@@ -223,7 +229,7 @@ func (s *LocalStore) reuseUnchangedEmbeddings(adrs []ADR, modelName string, dim 
 
 // A dim of 0 means the config leaves it unset, so only the model name can be compared.
 func (s *LocalStore) embeddedWith(modelName string, dim int) bool {
-	return s.ModelName == modelName && (dim == 0 || s.Dim == dim)
+	return s.EmbeddingFormat == embeddingFormat && s.ModelName == modelName && (dim == 0 || s.Dim == dim)
 }
 
 func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName string, dim int) {
@@ -237,6 +243,7 @@ func (s *LocalStore) replaceADRs(adrs []ADR, failed map[int]bool, modelName stri
 
 	s.ADRs = kept
 	s.ModelName = modelName
+	s.EmbeddingFormat = embeddingFormat
 
 	if dim > 0 {
 		s.Dim = dim

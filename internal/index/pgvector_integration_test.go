@@ -559,9 +559,9 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
 	_, err = store.Pool().Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}))
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, embedding_format)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}), index.EmbeddingFormat)
 	require.NoError(t, err)
 
 	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
@@ -1465,4 +1465,38 @@ func TestPgStore_Integration_ScopedADRsReportsBackendFailure(t *testing.T) {
 
 	assert.Error(t, err, "a backend failure must not look like an empty candidate list")
 	assert.Nil(t, results)
+}
+
+func TestPgStore_Integration_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := t.Context()
+	connStr := setupPgContainer(ctx, t)
+
+	store, err := index.NewPgStore(connStr, "embedding_format_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	defer store.Close()
+
+	tmpDir := t.TempDir()
+	writeADRFiles(t, tmpDir, 2)
+
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	require.NoError(t, err)
+
+	_, err = store.Pool().Exec(ctx, "UPDATE archguard_adrs SET embedding_format = 'old' WHERE project_name = $1", "embedding_format_project")
+	require.NoError(t, err)
+
+	stderr := captureStderr(t, func() {
+		_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs")
+
+	var stale int
+	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS DISTINCT FROM $2", "embedding_format_project", index.EmbeddingFormat).Scan(&stale))
+	assert.Zero(t, stale)
 }

@@ -252,7 +252,7 @@ func (s *PgStore) createSchema(ctx context.Context, dim int) error {
 func (s *PgStore) existingMetadataColumns(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT column_name FROM information_schema.columns
-		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold', 'rules')
+		WHERE table_name = 'archguard_adrs' AND table_schema = current_schema() AND column_name IN ('adr_id', 'scope', 'similarity_threshold', 'rules', 'embedding_format')
 	`)
 	if err != nil {
 		return nil, err
@@ -285,6 +285,7 @@ var metadataColumns = []struct{ name, ddl string }{
 	{"scope", "ADD COLUMN IF NOT EXISTS scope TEXT"},
 	{"similarity_threshold", "ADD COLUMN IF NOT EXISTS similarity_threshold DOUBLE PRECISION"},
 	{"rules", "ADD COLUMN IF NOT EXISTS rules TEXT"},
+	{"embedding_format", "ADD COLUMN IF NOT EXISTS embedding_format TEXT"},
 }
 
 func (s *PgStore) addMissingColumns(ctx context.Context, present map[string]bool) error {
@@ -371,33 +372,41 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 	return result, nil
 }
 
-func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]ADR, error) {
-	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold, rules FROM archguard_adrs WHERE project_name = $1", s.projectName)
+type storedADR struct {
+	ADR
+	embeddingFormat string
+}
+
+func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]storedADR, error) {
+	rows, err := s.pool.Query(ctx, "SELECT rel_path, title, status, content, COALESCE(adr_id, ''), COALESCE(scope, ''), similarity_threshold, rules, COALESCE(embedding_format, '') FROM archguard_adrs WHERE project_name = $1", s.projectName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query existing ADRs: %w", err)
 	}
 	defer rows.Close()
 
-	existing := make(map[string]ADR)
+	existing := make(map[string]storedADR)
 
 	for rows.Next() {
-		var relPath, title, status, content, adrID, scope string
+		var relPath, title, status, content, adrID, scope, format string
 
 		var similarityThreshold *float64
 
 		var rules Rules
-		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold, &rules); err != nil {
+		if err := rows.Scan(&relPath, &title, &status, &content, &adrID, &scope, &similarityThreshold, &rules, &format); err != nil {
 			return nil, fmt.Errorf("failed to scan existing ADR row: %w", err)
 		}
 
-		existing[relPath] = ADR{
-			ID:                  adrID,
-			Title:               title,
-			Status:              status,
-			Content:             content,
-			Scope:               ParseScopePatterns(scope),
-			SimilarityThreshold: similarityThreshold,
-			Rules:               rules,
+		existing[relPath] = storedADR{
+			ADR: ADR{
+				ID:                  adrID,
+				Title:               title,
+				Status:              status,
+				Content:             content,
+				Scope:               ParseScopePatterns(scope),
+				SimilarityThreshold: similarityThreshold,
+				Rules:               rules,
+			},
+			embeddingFormat: format,
 		}
 	}
 
@@ -408,12 +417,12 @@ func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]ADR, error) 
 	return existing, nil
 }
 
-func classifyADRs(existing map[string]ADR, adrs []ADR) (toEmbed, toSync []int) {
+func classifyADRs(existing map[string]storedADR, adrs []ADR) (toEmbed, toSync []int) {
 	for i, adr := range adrs {
 		stored, ok := existing[adr.RelPath]
 
 		switch {
-		case !ok || !adrUnchanged(stored, adr):
+		case !ok || stored.embeddingFormat != embeddingFormat || !adrUnchanged(stored.ADR, adr):
 			toEmbed = append(toEmbed, i)
 		case stored.ID != adr.ID || !slices.Equal(stored.Scope, adr.Scope) || !thresholdsEqual(stored.SimilarityThreshold, adr.SimilarityThreshold) ||
 			!rulesEqual(stored.Rules, adr.Rules):
@@ -426,8 +435,8 @@ func classifyADRs(existing map[string]ADR, adrs []ADR) (toEmbed, toSync []int) {
 
 func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules, embedding_format)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (project_name, rel_path) DO UPDATE SET
 			title = EXCLUDED.title,
 			status = EXCLUDED.status,
@@ -436,8 +445,9 @@ func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
 			adr_id = EXCLUDED.adr_id,
 			scope = EXCLUDED.scope,
 			similarity_threshold = EXCLUDED.similarity_threshold,
-			rules = EXCLUDED.rules
-	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules)
+			rules = EXCLUDED.rules,
+			embedding_format = EXCLUDED.embedding_format
+	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules, embeddingFormat)
 	if err != nil {
 		return fmt.Errorf("upsert: %w", err)
 	}
@@ -480,7 +490,7 @@ func (s *PgStore) syncMetadata(ctx context.Context, adrs []ADR, toSync []int) er
 	return nil
 }
 
-func (s *PgStore) deleteRemoved(ctx context.Context, existing map[string]ADR, valid []ADR) ([]string, error) {
+func (s *PgStore) deleteRemoved(ctx context.Context, existing map[string]storedADR, valid []ADR) ([]string, error) {
 	current := make(map[string]bool, len(valid))
 	for _, adr := range valid {
 		current[adr.RelPath] = true

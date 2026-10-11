@@ -370,6 +370,7 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 		adrs         []ADR
 		model        string
 		dim          int
+		savedFormat  string
 		wantEmbedded []string
 	}{
 		{name: "nothing changed", adrs: savedADRs, model: "model-a", dim: 4},
@@ -377,6 +378,7 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 		{name: "model changed", adrs: savedADRs, model: "model-b", dim: 4, wantEmbedded: []string{"A", "B", "C"}},
 		{name: "dimension changed", adrs: savedADRs, model: "model-a", dim: 8, wantEmbedded: []string{"A", "B", "C"}},
 		{name: "dimension unset", adrs: savedADRs, model: "model-a", dim: 0},
+		{name: "embedding format changed", adrs: savedADRs, model: "model-a", dim: 4, savedFormat: "0", wantEmbedded: []string{"A", "B", "C"}},
 	}
 
 	for _, tc := range tests {
@@ -387,6 +389,8 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 			if _, err := saved.BuildIndex(t.Context(), "model-a", 4, &inference.MockProvider{EmbeddingDim: 4}, &mockADRProvider{adrs: slices.Clone(savedADRs)}); err != nil {
 				t.Fatalf("initial BuildIndex: %v", err)
 			}
+
+			saved.EmbeddingFormat = cmp.Or(tc.savedFormat, saved.EmbeddingFormat)
 
 			if err := saved.Save(indexPath); err != nil {
 				t.Fatalf("Save: %v", err)
@@ -479,8 +483,15 @@ func (e *recordingEmbedder) embeddedTitles() []string {
 func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "index.json")
 
-	saved := &LocalStore{ADRs: []ADR{}, Hash: "hash-a", ModelName: "model-a", Dim: 4}
+	saved := &LocalStore{ADRs: []ADR{}, Hash: "hash-a", ModelName: "model-a", Dim: 4, EmbeddingFormat: embeddingFormat}
 	if err := saved.Save(indexPath); err != nil {
+		t.Fatal(err)
+	}
+
+	oldFormatPath := filepath.Join(t.TempDir(), "old-format.json")
+
+	oldFormat := &LocalStore{ADRs: []ADR{}, Hash: "hash-a", ModelName: "model-a", Dim: 4, EmbeddingFormat: "0"}
+	if err := oldFormat.Save(oldFormatPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -493,7 +504,8 @@ func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 		want    []error
 		notWant []error
 	}{
-		{name: "matches", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", notWant: []error{ErrIndexMissing, ErrEmbeddingModelChanged, ErrADRsChanged}},
+		{name: "matches", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", notWant: []error{ErrIndexMissing, ErrEmbeddingModelChanged, ErrEmbeddingFormatChanged, ErrADRsChanged}},
+		{name: "embedding format changed", path: oldFormatPath, model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrEmbeddingFormatChanged}, notWant: []error{ErrEmbeddingModelChanged, ErrADRsChanged}},
 		{name: "missing", path: indexPath + ".gone", model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrIndexMissing}},
 		{name: "ADRs changed", path: indexPath, model: "model-a", dim: 4, hash: "hash-b", want: []error{ErrADRsChanged}, notWant: []error{ErrEmbeddingModelChanged}},
 		{name: "dimension changed", path: indexPath, model: "model-a", dim: 8, hash: "hash-a", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},

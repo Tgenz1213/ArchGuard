@@ -333,7 +333,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - `archguard index`: Parses ADRs and generates vector embeddings. **Run this whenever you add or edit an ADR.** 
   - `--color <auto|always|never>`: Same as `check`'s `--color`.
   - `--config <path>`: Same as `check`'s `--config`.
-  - *Note:* ArchGuard uses **Delta Indexing**: only new or edited ADRs are embedded, and the rest keep their saved embeddings unless `vector_store.model` or `vector_store.embedding_dim` changed. Feel free to run it frequently!
+  - *Note:* ArchGuard uses **Delta Indexing**: only new or edited ADRs are embedded, and the rest keep their saved embeddings unless `vector_store.model` or `vector_store.embedding_dim` changed, or a new ArchGuard version changed how embeddings are built. In that last case the next `archguard index` embeds every ADR again; with a local index, `archguard check` does it too. Feel free to run it frequently!
 - `archguard check`: Scans your codebase for violations.
   - `(no arguments)`: Scans uncommitted changes (worktree).
   - `<path>`: Scans a specific file or directory.
