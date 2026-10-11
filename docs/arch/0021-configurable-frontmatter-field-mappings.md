@@ -23,6 +23,16 @@ An unset or empty mapping leaves parsing exactly as it is without the feature. A
 
 The mapping is applied in the shared ADR parser, so it works the same for every ADR source, local files and Confluence alike.
 
+## Rules
+
+- `analysis.frontmatter_mappings` MUST be validated once at startup, and an unknown canonical field name or a collision MUST fail fast with the config exit code.
+- A field left unmapped MUST read its canonical key, and a field whose key is absent MUST stay at its zero value.
+- The mapping MUST be applied in the shared ADR parser, so it works the same for every ADR source.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - A corpus with non-canonical field names adopts ArchGuard by mapping only the fields that differ, without renaming ADR files or replacing the whole frontmatter schema.

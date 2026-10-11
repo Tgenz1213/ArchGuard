@@ -19,6 +19,17 @@ Persistence stays schema-free for both vector stores:
 - The local JSON index writes a single pattern as a bare string, the same bytes as the old format, and several patterns as an array. Existing `.archguard/index.json` files load without migration.
 - Postgres keeps the existing `scope` TEXT column, with no `ALTER`. A single pattern is stored as raw text, as before; several are stored as a JSON array string in the same column.
 
+## Rules
+
+- `scope` MUST accept either a single glob string or a YAML list of globs.
+- A file MUST be in scope when any pattern matches it, and an empty scope MUST be unrestricted.
+- The local JSON index MUST write a single pattern as a bare string and several patterns as an array.
+- Postgres MUST keep the existing `scope` TEXT column with no `ALTER`, storing a single pattern as raw text and several as a JSON array string.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - An ADR author can write `scope: ["a/**", "b/**"]`, or the block-list form, to apply one ADR to unrelated paths without over-broadening a glob or duplicating the ADR.

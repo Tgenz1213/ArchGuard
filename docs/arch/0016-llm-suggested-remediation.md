@@ -8,9 +8,7 @@ scope: "internal/**"
 
 ## Context
 
-Issue #73 asked for a short remediation pointer with each violation, since knowing what broke and why does not tell the reader what to do. One option was to add "and suggest a fix" to the violation-judgment prompt: one call, so cheaper. The other was a second call, made only after a violation is confirmed.
-
-The judgment prompt is deliberately narrow and false by default, to avoid false positives. Asking it for a fix as well risks biasing the model toward finding a violation, just to have something to suggest.
+Issue #73 asked for a short remediation pointer with each violation, since knowing what broke and why does not tell the reader what to do.
 
 A suggestion is unverifiable: ArchGuard cannot confirm that following it resolves the violation. It also costs an extra LLM call per violation. So it never runs unless a user or CI job opts in.
 
@@ -20,6 +18,17 @@ A suggestion is unverifiable: ArchGuard cannot confirm that following it resolve
 - It is off by default and turned on by `check --suggest-fixes`.
 - A computed suggestion is cached, so a later run of the same file and ADR reuses it without another call. `docs/arch/0017-suggestion-cache-key-namespace.md` amends how: suggestions live in their own cache namespace and are never merged into the judgment result.
 - Output labels the suggestion as unverified, and it is documented as an LLM-generated pointer, never a guaranteed fix.
+
+## Rules
+
+- The suggestion MUST be a separate call with its own prompt.
+- The suggestion call MUST run only after the judgment call confirms a violation, and only for a newly reported one: not under `--update-baseline`, and not for a baselined or suppressed violation.
+- Suggestions MUST be off by default and turned on by `check --suggest-fixes`.
+- Output MUST label the suggestion as unverified.
+
+## Alternatives considered
+
+- **Add "and suggest a fix" to the violation-judgment prompt.** One call, so cheaper. But the judgment prompt is deliberately narrow and false by default, to avoid false positives. Asking it for a fix as well risks biasing the model toward finding a violation, just to have something to suggest.
 
 ## Consequences
 
