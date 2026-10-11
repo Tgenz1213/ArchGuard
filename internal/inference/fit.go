@@ -13,7 +13,7 @@ var ErrInputTooLong = errors.New("input exceeds the embedding model's limit")
 const maxShortenings = 12
 
 // EmbedToFit returns the embedded text too, so a caller can tell whether it was shortened.
-func EmbedToFit(ctx context.Context, embedder Embedder, text string, task EmbeddingTaskType) ([]float32, string, error) {
+func EmbedToFit(ctx context.Context, embedder Embedder, text string, task EmbeddingTaskType) (Embedding, string, error) {
 	for attempt := 0; ; attempt++ {
 		embedding, err := embedder.CreateEmbedding(ctx, text, task)
 		if !errors.Is(err, ErrInputTooLong) || attempt == maxShortenings {
@@ -22,7 +22,7 @@ func EmbedToFit(ctx context.Context, embedder Embedder, text string, task Embedd
 
 		shorter := shortenForEmbedding(text)
 		if shorter == "" {
-			return nil, text, err
+			return Embedding{}, text, err
 		}
 
 		text = shorter

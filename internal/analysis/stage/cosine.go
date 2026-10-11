@@ -39,10 +39,10 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 	var found []index.SearchResult
 
 	if debug.DebugEnabled() {
-		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding, c.Threshold, math.MaxInt32, file.Path())
+		hits, rejected, _ := c.Store.SearchWithDebugInfo(embedding.Vector, c.Threshold, math.MaxInt32, file.Path())
 		found = slices.Concat(hits, rejected)
 	} else {
-		found = c.Store.Search(embedding, c.Threshold, math.MaxInt32, file.Path())
+		found = c.Store.Search(embedding.Vector, c.Threshold, math.MaxInt32, file.Path())
 	}
 
 	byKey := make(map[string]float64, len(found))

@@ -95,7 +95,7 @@ func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 
 func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeCheckReport(&buf, &analysis.Engine{}); err != nil {
+	if err := writeCheckReport(&buf, &analysis.Engine{}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,7 +108,7 @@ func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 	var buf bytes.Buffer
 
 	failures := []analysis.StageFailure{{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable, Error: "down"}}
-	if err := writeCheckReport(&buf, &analysis.Engine{StageFailures: failures}); err != nil {
+	if err := writeCheckReport(&buf, &analysis.Engine{StageFailures: failures}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -778,6 +778,8 @@ func TestParseCommandLine(t *testing.T) {
 		{name: "ci with staged", args: []string{"check", "--ci", "--staged"}, wantCommand: "check"},
 		{name: "ci with a path", args: []string{"check", "--ci", "main.go"}, wantCommand: "check"},
 		{name: "ci with update-baseline", args: []string{"check", "--ci", "--update-baseline"}, wantCommand: "check"},
+		{name: "dry run", args: []string{"check", "--dry-run", "--all"}, wantCommand: "check"},
+		{name: "dry run with update-baseline", args: []string{"check", "--dry-run", "--update-baseline"}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with an empty ref", args: []string{"check", "--since", ""}, wantCode: ExitUsage, wantErr: true},
 		{name: "since= with an empty ref", args: []string{"check", "--since="}, wantCode: ExitUsage, wantErr: true},
 		{name: "since with staged", args: []string{"check", "--since", "abc123", "--staged"}, wantCode: ExitUsage, wantErr: true},

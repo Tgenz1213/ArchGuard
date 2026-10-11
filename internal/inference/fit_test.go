@@ -82,8 +82,8 @@ func TestEmbedToFit_ShortensUntilEachProviderAccepts(t *testing.T) {
 				t.Fatalf("EmbedToFit: %v", err)
 			}
 
-			if len(embedding) != 2 {
-				t.Errorf("embedding length %d, want 2", len(embedding))
+			if len(embedding.Vector) != 2 {
+				t.Errorf("embedding length %d, want 2", len(embedding.Vector))
 			}
 
 			if len(embedded) > mockedInputLimit || !strings.HasPrefix(original, embedded) {

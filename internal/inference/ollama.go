@@ -42,11 +42,7 @@ func newOllamaProvider(baseURL, model, embedModel string) *OllamaProvider {
 	}
 }
 
-/**
- * REGION: Interface Implementation
- */
-
-func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string, error) {
+func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
 	options := map[string]any{}
 
 	if value := p.Temperature(); value != nil {
@@ -68,12 +64,17 @@ func (p *OllamaProvider) Chat(ctx context.Context, system, user string) (string,
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		Done            bool `json:"done"`
+		PromptEvalCount int  `json:"prompt_eval_count"`
+		EvalCount       int  `json:"eval_count"`
 	}
 	if err := p.post(ctx, "/api/chat", req, &resp); err != nil {
-		return "", err
+		return ChatReply{}, err
 	}
 
-	return resp.Message.Content, nil
+	usage := Usage{InputTokens: resp.PromptEvalCount, OutputTokens: resp.EvalCount, Reported: resp.Done}
+
+	return ChatReply{Text: resp.Message.Content, Usage: usage}, nil
 }
 
 // embeddingPrefixConventions maps a model name prefix to its
@@ -103,7 +104,7 @@ func embeddingTaskPrefix(embedModel string, task EmbeddingTaskType) string {
 	return ""
 }
 
-func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) ([]float32, error) {
+func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task EmbeddingTaskType) (Embedding, error) {
 	req := map[string]any{
 		"model":  p.embedModel,
 		"prompt": embeddingTaskPrefix(p.embedModel, task) + text,
@@ -113,10 +114,11 @@ func (p *OllamaProvider) CreateEmbedding(ctx context.Context, text string, task 
 		Embedding []float32 `json:"embedding"`
 	}
 	if err := p.post(ctx, "/api/embeddings", req, &resp); err != nil {
-		return nil, ollamaEmbeddingError(err)
+		return Embedding{}, ollamaEmbeddingError(err)
 	}
 
-	return resp.Embedding, nil
+	// Ollama's /api/embeddings endpoint reports no token count.
+	return Embedding{Vector: resp.Embedding}, nil
 }
 
 // The legacy embeddings endpoint answers every failure with 500, so only the message identifies an over-long input.

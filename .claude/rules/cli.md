@@ -16,6 +16,8 @@ Provider pairing, the rules `validateProviderConfig` enforces, and why `ARCHGUAR
 
 ## Output streams
 
+`checkRun` wraps the providers in `usageMeters` before anything runs: one meter for judgments (`setup.chat`), one for suggestions (`Engine.SuggestChat`) and one for embeddings (`setup.embed`, so an index rebuild is counted). The text report and the JSON document get their `usage` from it (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`).
+
 `check` writes its result to stdout and everything else to stderr: the end-of-run report in text mode, or the one JSON document under `--format json` (`docs/arch/0028-check-report-and-log.md`, `docs/arch/0014-json-check-output.md`). `checkRun` holds two printers, `log` (stderr) and `report` (stdout, or a buffer saved to `--output`), and passes `log` to everything it calls that prints, including an index rebuild. `index` and `init` print on stdout.
 
 With `GITHUB_ACTIONS=true` and text output, `runCheck` prints one `::error` annotation per new violation and one `::warning` per unverified finding after the run, but not under `--update-baseline`.
@@ -26,7 +28,7 @@ Exit codes are meaningful and tested; preserve them if you touch command dispatc
 
 | Code | Meaning |
 |---|---|
-| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, and runs whose only findings are unverified |
+| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, runs whose only findings are unverified, and every `--dry-run` not stopped by an error (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`) |
 | `1` | General error, including a failed write of primary output, which wins over every code but `130` |
 | `2` | Usage |
 | `3` | Config |

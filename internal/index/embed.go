@@ -114,7 +114,7 @@ func (j embedJob) embedOne(ctx context.Context, idx int) error {
 		return err
 	}
 
-	j.adrs[idx].Embedding = emb
+	j.adrs[idx].Embedding = emb.Vector
 
 	if j.persist == nil {
 		return nil

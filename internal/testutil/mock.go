@@ -22,4 +22,9 @@ const (
 
 	// MockEmbedDocumentMarker prints once per ADR embedding, so tests can count them apart from query embeddings.
 	MockEmbedDocumentMarker = "Mock embedded an ADR (E2E)"
+
+	// What archguard-e2e's mocks report for every call, so usage figures can be asserted.
+	MockChatInputTokens  = 100
+	MockChatOutputTokens = 10
+	MockEmbedTokens      = 5
 )

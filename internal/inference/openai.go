@@ -39,7 +39,7 @@ func NewOpenAIProviderWithBaseURL(apiKey, model, embedModel, baseURL string, htt
 	}
 }
 
-func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string, error) {
+func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (ChatReply, error) {
 	params := openai.ChatCompletionNewParams{
 		Model: p.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -57,17 +57,23 @@ func (p *OpenAIProvider) Chat(ctx context.Context, system, user string) (string,
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", fmt.Errorf("openai chat completion failed: %w", err)
+		return ChatReply{}, fmt.Errorf("openai chat completion failed: %w", err)
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices returned")
+		return ChatReply{}, fmt.Errorf("no choices returned")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	usage := Usage{
+		InputTokens:  int(resp.Usage.PromptTokens),
+		OutputTokens: int(resp.Usage.CompletionTokens),
+		Reported:     resp.Usage.JSON.PromptTokens.Valid() && resp.Usage.JSON.CompletionTokens.Valid(),
+	}
+
+	return ChatReply{Text: resp.Choices[0].Message.Content, Usage: usage}, nil
 }
 
-func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) ([]float32, error) {
+func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ EmbeddingTaskType) (Embedding, error) {
 	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
 		Model: p.embedModel,
@@ -75,14 +81,14 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 	if err != nil {
 		var apiErr *openai.Error
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && strings.Contains(apiErr.Message, "maximum context length") {
-			return nil, fmt.Errorf("openai embedding request failed: %w: %w", ErrInputTooLong, err)
+			return Embedding{}, fmt.Errorf("openai embedding request failed: %w: %w", ErrInputTooLong, err)
 		}
 
-		return nil, fmt.Errorf("openai embedding request failed: %w", err)
+		return Embedding{}, fmt.Errorf("openai embedding request failed: %w", err)
 	}
 
 	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("no embedding data returned")
+		return Embedding{}, fmt.Errorf("no embedding data returned")
 	}
 
 	src := resp.Data[0].Embedding
@@ -91,7 +97,9 @@ func (p *OpenAIProvider) CreateEmbedding(ctx context.Context, text string, _ Emb
 		embedding[i] = float32(value)
 	}
 
-	return embedding, nil
+	usage := Usage{InputTokens: int(resp.Usage.PromptTokens), Reported: resp.Usage.JSON.PromptTokens.Valid()}
+
+	return Embedding{Vector: embedding, Usage: usage}, nil
 }
 
 func (p *OpenAIProvider) CountTokens(ctx context.Context, text string) (int, error) {

@@ -456,7 +456,7 @@ type recordingEmbedder struct {
 	titles []string
 }
 
-func (e *recordingEmbedder) CreateEmbedding(_ context.Context, text string, _ inference.EmbeddingTaskType) ([]float32, error) {
+func (e *recordingEmbedder) CreateEmbedding(_ context.Context, text string, _ inference.EmbeddingTaskType) (inference.Embedding, error) {
 	title, _, _ := strings.Cut(strings.TrimPrefix(text, "Title: "), "\n")
 
 	e.mu.Lock()
@@ -466,7 +466,7 @@ func (e *recordingEmbedder) CreateEmbedding(_ context.Context, text string, _ in
 	v := make([]float32, cmp.Or(e.dim, 4))
 	v[0] = 1
 
-	return v, nil
+	return inference.Embedding{Vector: v}, nil
 }
 
 func (e *recordingEmbedder) embeddedTitles() []string {

@@ -45,13 +45,13 @@ func TestVoyageProvider_CreateEmbedding_StandardModel(t *testing.T) {
 	}
 
 	expected := []float32{0.1, 0.2, 0.3}
-	if len(res) != len(expected) {
-		t.Fatalf("expected length %d, got %d", len(expected), len(res))
+	if len(res.Vector) != len(expected) {
+		t.Fatalf("expected length %d, got %d", len(expected), len(res.Vector))
 	}
 
-	for i := range res {
-		if res[i] != expected[i] {
-			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
+	for i := range res.Vector {
+		if res.Vector[i] != expected[i] {
+			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res.Vector[i])
 		}
 	}
 }
@@ -99,13 +99,13 @@ func TestVoyageProvider_CreateEmbedding_ContextualizedModel(t *testing.T) {
 	}
 
 	expected := []float32{0.4, 0.5}
-	if len(res) != len(expected) {
-		t.Fatalf("expected length %d, got %d", len(expected), len(res))
+	if len(res.Vector) != len(expected) {
+		t.Fatalf("expected length %d, got %d", len(expected), len(res.Vector))
 	}
 
-	for i := range res {
-		if res[i] != expected[i] {
-			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res[i])
+	for i := range res.Vector {
+		if res.Vector[i] != expected[i] {
+			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res.Vector[i])
 		}
 	}
 }

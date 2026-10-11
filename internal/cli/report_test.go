@@ -13,7 +13,13 @@ import (
 
 func TestWriteCheckReport_EmptyListsEncodeAsArraysNotNull(t *testing.T) {
 	var buf bytes.Buffer
-	if err := writeCheckReport(&buf, &analysis.Engine{}); err != nil {
+	tokens := 0
+	usage := &output.Usage{
+		Judgment:  output.ChatUsage{InputTokens: &tokens, OutputTokens: &tokens, Cost: new(0.0)},
+		Embedding: output.EmbeddingUsage{Tokens: &tokens, Cost: new(0.0)},
+	}
+
+	if err := writeCheckReport(&buf, &analysis.Engine{}, usage); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -36,7 +42,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			if err := writeCheckReport(&buf, &analysis.Engine{Coverage: tt.coverage}); err != nil {
+			if err := writeCheckReport(&buf, &analysis.Engine{Coverage: tt.coverage}, nil); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -69,7 +75,7 @@ func TestWriteCheckReport_StagesKeepTheirJSONFields(t *testing.T) {
 	var buf bytes.Buffer
 
 	stages := []stage.Stats{{Name: "rank", Received: 6, Kept: 4, DurationMS: 812}, {Name: "rerank"}}
-	if err := writeCheckReport(&buf, &analysis.Engine{CollectedStages: stages}); err != nil {
+	if err := writeCheckReport(&buf, &analysis.Engine{CollectedStages: stages}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

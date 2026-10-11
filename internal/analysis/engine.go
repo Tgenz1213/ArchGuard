@@ -50,7 +50,11 @@ type Engine struct {
 	CheckedNothing       bool
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
-	Stages       []stage.Stage
+	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
+	SuggestChat inference.Chatter
+	Stages      []stage.Stage
+	DryRun      bool
+	Projection  Projection
 }
 
 type Violation struct {
@@ -142,6 +146,22 @@ func (e *Engine) scoringStages() []stage.Stage {
 	return []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 }
 
+func (e *Engine) systemPrompt() string {
+	if e.Config.LLM.SystemPrompt != "" {
+		return e.Config.LLM.SystemPrompt
+	}
+
+	return inference.DefaultSystemPrompt
+}
+
+func (e *Engine) suggestionChat() inference.Chatter {
+	if e.SuggestChat != nil {
+		return e.SuggestChat
+	}
+
+	return e.Chat
+}
+
 func (e *Engine) maxConcurrency() int {
 	if e.Config.Analysis.MaxConcurrency <= 0 {
 		return 5
@@ -195,6 +215,7 @@ func (e *Engine) publish(run *runState) {
 	e.StageFailures = sortedStageFailures(run.stageFailures)
 	e.CollectedViolations = run.collected
 	e.UnverifiedFindings = run.unverified
+	e.Projection = run.projected()
 	e.collectStageStats(run)
 
 	if e.UpdateBaseline {
