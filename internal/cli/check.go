@@ -15,7 +15,9 @@ import (
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/index"
+	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 var errNothingChecked = errors.New("nothing was checked against an ADR because of errors; see the skipped files and failed ADR checks in the report")
@@ -28,7 +30,9 @@ type checkRun struct {
 	jsonDest     io.Writer
 	reportBuffer bytes.Buffer
 	unindexed    []output.ADRGap
-	meters       usageMeters
+	tally        *telemetry.Tally
+	recorder     telemetry.Recorder
+	suggestChat  inference.Chatter
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
@@ -86,9 +90,11 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
-	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug), meters: newUsageMeters(setup)}
-	run.setup.chat = run.meters.judgment
-	run.setup.embed = run.meters.embedding
+	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug), tally: &telemetry.Tally{}}
+	run.recorder = newRecorder(run.tally, setup.recorder)
+	run.suggestChat = telemetry.NewChatter(setup.chat, telemetry.Suggestion, run.recorder)
+	run.setup.chat = telemetry.NewChatter(setup.chat, telemetry.Judgment, run.recorder)
+	run.setup.embed = telemetry.NewEmbedder(setup.embed, run.recorder)
 
 	if opts.Output == "" {
 		run.report = colors.stdoutPrinter(false)
@@ -155,7 +161,8 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.Out = r.log
 	engine.SuggestFixes = opts.SuggestFixes
 	engine.UnindexedADRs = r.unindexed
-	engine.SuggestChat = r.meters.suggestion
+	engine.SuggestChat = r.suggestChat
+	engine.Recorder = r.recorder
 	engine.DryRun = opts.DryRun
 
 	return engine
@@ -273,10 +280,10 @@ func (r *checkRun) warnJSONGaps(engine *analysis.Engine) {
 
 func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
 	if r.opts.DryRun {
-		return r.meters.dryRunReport(r.setup.cfg, engine)
+		return dryRunUsage(r.setup.cfg, r.tally, engine.Projection.Usage)
 	}
 
-	return r.meters.report(r.setup.cfg, r.opts.SuggestFixes, engine)
+	return usageReport(r.setup.cfg, r.opts.SuggestFixes, r.tally)
 }
 
 func (r *checkRun) saveReportFile() error {

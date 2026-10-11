@@ -2,9 +2,7 @@ package inference
 
 import (
 	"context"
-	"errors"
 	"net/http/httptest"
-	"sync"
 	"testing"
 )
 
@@ -172,97 +170,4 @@ func TestCreateEmbedding_ReportsProviderUsage(t *testing.T) {
 			call:     ollamaEmbed,
 		},
 	})
-}
-
-func TestMeteredChatter_TotalsConcurrentCalls(t *testing.T) {
-	meter := NewMeteredChatter(&MockProvider{ChatUsage: Usage{InputTokens: 10, OutputTokens: 2, Reported: true}})
-
-	var wg sync.WaitGroup
-	for range 20 {
-		wg.Go(func() {
-			if _, err := meter.Chat(t.Context(), "system", "user"); err != nil {
-				t.Errorf("Chat failed: %v", err)
-			}
-		})
-	}
-
-	wg.Wait()
-
-	want := Usage{InputTokens: 200, OutputTokens: 40, Reported: true}
-	if got := meter.Usage(); got != want {
-		t.Errorf("Usage() = %+v, want %+v", got, want)
-	}
-
-	if got := meter.Calls(); got != 20 {
-		t.Errorf("Calls() = %d, want 20", got)
-	}
-}
-
-func TestMeteredChatter_UsageTotals(t *testing.T) {
-	reported := Usage{InputTokens: 10, OutputTokens: 2, Reported: true}
-
-	tests := []struct {
-		name  string
-		calls []Usage
-		want  Usage
-	}{
-		{"no calls is a reported zero", nil, Usage{Reported: true}},
-		{"every call reported", []Usage{reported, reported}, Usage{InputTokens: 20, OutputTokens: 4, Reported: true}},
-		{"one unreported call makes the total unreported", []Usage{reported, {}}, Usage{InputTokens: 10, OutputTokens: 2}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mock := &MockProvider{}
-			meter := NewMeteredChatter(mock)
-
-			for _, usage := range tt.calls {
-				mock.ChatUsage = usage
-
-				if _, err := meter.Chat(t.Context(), "system", "user"); err != nil {
-					t.Fatalf("Chat failed: %v", err)
-				}
-			}
-
-			if got := meter.Usage(); got != tt.want {
-				t.Errorf("Usage() = %+v, want %+v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMeteredChatter_FailedCallCountsAsACallWithNoTokens(t *testing.T) {
-	mock := &MockProvider{
-		ChatFunc: func(context.Context, string, string) (string, error) { return "", errors.New("down") },
-	}
-	meter := NewMeteredChatter(mock)
-
-	if _, err := meter.Chat(t.Context(), "system", "user"); err == nil {
-		t.Fatal("expected the provider's error")
-	}
-
-	if got, want := meter.Usage(), (Usage{Reported: true}); got != want {
-		t.Errorf("Usage() = %+v, want %+v", got, want)
-	}
-
-	if got := meter.Calls(); got != 1 {
-		t.Errorf("Calls() = %d, want 1", got)
-	}
-}
-
-func TestMeteredEmbedder_TotalsCalls(t *testing.T) {
-	meter := NewMeteredEmbedder(&MockProvider{EmbeddingDim: 2, EmbedUsage: Usage{InputTokens: 4, Reported: true}})
-
-	for range 3 {
-		if _, err := meter.CreateEmbedding(t.Context(), "text", EmbeddingTaskQuery); err != nil {
-			t.Fatalf("CreateEmbedding failed: %v", err)
-		}
-	}
-
-	if got, want := meter.Usage(), (Usage{InputTokens: 12, Reported: true}); got != want {
-		t.Errorf("Usage() = %+v, want %+v", got, want)
-	}
-
-	if got := meter.Calls(); got != 3 {
-		t.Errorf("Calls() = %d, want 3", got)
-	}
 }

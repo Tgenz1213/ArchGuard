@@ -11,6 +11,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 type fileCheck struct {
@@ -28,7 +29,7 @@ type fileCheck struct {
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 	start := time.Now()
-	defer func() { run.addDuration(file, time.Since(start)) }()
+	defer func() { e.record(telemetry.FileChecked{File: file, Spent: time.Since(start)}) }()
 
 	fc := &fileCheck{engine: e, run: run, out: run.out.Group(file), file: file}
 	defer fc.out.Flush()
@@ -180,14 +181,15 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 	e := fc.engine
 	cacheKey := fc.analysisKey(hit)
 
-	if hitRes, found := fc.cachedVerdict(cacheKey); found {
-		fc.findings.judgment.CacheHits++
+	hitRes, found := fc.cachedVerdict(cacheKey)
+	e.record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: found})
+
+	if found {
 		return hitRes, true, nil
 	}
 
 	result, retries, err := inference.AnalyzeDrift(ctx, e.Chat, input, e.systemPrompt())
-	fc.findings.judgment.CacheMisses++
-	fc.findings.judgment.Retries += retries
+	e.record(telemetry.RetriesSent{Role: telemetry.Judgment, Retries: retries})
 
 	if err != nil {
 		return nil, false, err
@@ -222,6 +224,16 @@ func (fc *fileCheck) cachedVerdict(key string) (*inference.AnalysisResult, bool)
 	result, found, err := fc.engine.Cache.Get(key)
 
 	return result, err == nil && found
+}
+
+func (fc *fileCheck) cachedSuggestion(key string) (string, bool) {
+	if fc.engine.Cache == nil {
+		return "", false
+	}
+
+	suggestion, found, err := fc.engine.Cache.GetSuggestion(key)
+
+	return suggestion, err == nil && found && suggestion != ""
 }
 
 func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {
@@ -361,16 +373,15 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit stage.Candidate, input 
 		SuggestionPromptTemplate: inference.SuggestionPrompt,
 	})
 
-	if e.Cache != nil {
-		if cached, found, err := e.Cache.GetSuggestion(key); err == nil && found && cached != "" {
-			fc.findings.suggestion.CacheHits++
-			return cached
-		}
+	cached, found := fc.cachedSuggestion(key)
+	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: found})
+
+	if found {
+		return cached
 	}
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
-	fc.findings.suggestion.CacheMisses++
-	fc.findings.suggestion.Retries += retries
+	e.record(telemetry.RetriesSent{Role: telemetry.Suggestion, Retries: retries})
 
 	if err != nil {
 		fc.out.Warn("suggestion generation failed: %v", err)

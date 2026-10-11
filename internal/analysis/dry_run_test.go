@@ -12,6 +12,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 const promptTokens = 250
@@ -62,6 +63,8 @@ func TestDryRun_CountsThePromptsInsteadOfSendingThem(t *testing.T) {
 		CountTokensFunc: countPrompts(nil),
 	}
 	engine := dryRunEngine(t, provider, nil)
+	tally := &telemetry.Tally{}
+	engine.Recorder = tally
 
 	runEngine(t, engine, false)
 
@@ -70,8 +73,8 @@ func TestDryRun_CountsThePromptsInsteadOfSendingThem(t *testing.T) {
 		t.Errorf("Projection = %+v, want %+v", engine.Projection, want)
 	}
 
-	if got, want := engine.JudgmentCounts, (output.ChatCounts{CacheMisses: 2}); got != want {
-		t.Errorf("JudgmentCounts = %+v, want %+v", got, want)
+	if got := tally.Totals(telemetry.Judgment); got.CacheMisses != 2 {
+		t.Errorf("judgment = %+v, want two misses", got)
 	}
 
 	if len(engine.CollectedViolations) != 0 {
@@ -92,6 +95,8 @@ func TestDryRun_CachedVerdictCostsNothing(t *testing.T) {
 	provider := violatingProvider()
 	provider.CountTokensFunc = countPrompts(nil)
 	engine := dryRunEngine(t, provider, analysisCache)
+	tally := &telemetry.Tally{}
+	engine.Recorder = tally
 
 	runEngine(t, engine, false)
 
@@ -100,8 +105,8 @@ func TestDryRun_CachedVerdictCostsNothing(t *testing.T) {
 		t.Errorf("Projection = %+v, want %+v", engine.Projection, want)
 	}
 
-	if got, want := engine.JudgmentCounts, (output.ChatCounts{CacheHits: 2}); got != want {
-		t.Errorf("JudgmentCounts = %+v, want %+v", got, want)
+	if got := tally.Totals(telemetry.Judgment); got.CacheHits != 2 {
+		t.Errorf("judgment = %+v, want two hits", got)
 	}
 }
 

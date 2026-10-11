@@ -41,7 +41,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | ADR docs | `docs/arch/` | `.claude/rules/adr-docs.md` |
 | Tests | `*_test.go`, `test/`, `internal/testutil/`, `cmd/archguard-e2e/` | `.claude/rules/tests.md` |
 
-`internal/atomicfile` has no rules file: its `Write` is the one write-tmp-then-rename helper, used by the baseline, the local index and `check --output`.
+`internal/atomicfile` has no rules file: its `Write` is the one write-tmp-then-rename helper, used by the baseline, the local index and `check --output`. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
 
 ## Conventions
 

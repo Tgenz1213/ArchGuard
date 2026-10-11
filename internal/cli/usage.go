@@ -1,42 +1,32 @@
 package cli
 
 import (
-	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
-// Judgment and suggestion calls share one chat provider through separate meters, so each is totalled on its own.
-type usageMeters struct {
-	judgment   *inference.MeteredChatter
-	suggestion *inference.MeteredChatter
-	embedding  *inference.MeteredEmbedder
-}
-
-func newUsageMeters(setup runSetup) usageMeters {
-	return usageMeters{
-		judgment:   inference.NewMeteredChatter(setup.chat),
-		suggestion: inference.NewMeteredChatter(setup.chat),
-		embedding:  inference.NewMeteredEmbedder(setup.embed),
+func newRecorder(tally *telemetry.Tally, injected telemetry.Recorder) telemetry.Recorder {
+	if injected == nil {
+		return tally
 	}
+
+	return telemetry.Fanout{tally, injected}
 }
 
-func (m usageMeters) report(cfg *config.Config, suggestFixes bool, engine *analysis.Engine) *output.Usage {
-	judgment := chatUsage(m.judgment.Usage(), cfg.LLM)
-	judgment.Calls = m.judgment.Calls()
-	judgment.ChatCounts = engine.JudgmentCounts
+func usageReport(cfg *config.Config, suggestFixes bool, tally *telemetry.Tally) *output.Usage {
+	judgment := tally.Totals(telemetry.Judgment)
 
 	usage := &output.Usage{
-		Judgment:  judgment,
-		Embedding: m.embeddingUsage(cfg),
-		Files:     nonNil(engine.FileDurations),
+		Judgment:  withCounts(chatUsage(judgment.Usage, cfg.LLM), judgment),
+		Embedding: embeddingReport(cfg, tally),
+		Files:     fileDurations(tally),
 	}
 
 	if suggestFixes {
-		suggestion := chatUsage(m.suggestion.Usage(), cfg.LLM)
-		suggestion.Calls = m.suggestion.Calls()
-		suggestion.ChatCounts = engine.SuggestionCounts
+		totals := tally.Totals(telemetry.Suggestion)
+		suggestion := withCounts(chatUsage(totals.Usage, cfg.LLM), totals)
 		usage.Suggestion = &suggestion
 	}
 
@@ -44,22 +34,43 @@ func (m usageMeters) report(cfg *config.Config, suggestFixes bool, engine *analy
 }
 
 // A dry run sends no judgment, so only its input is known and priced.
-func (m usageMeters) dryRunReport(cfg *config.Config, engine *analysis.Engine) *output.Usage {
-	judgment := projectedChatUsage(engine.Projection.Usage, cfg.LLM.CostPer1KInputTokens)
-	judgment.ChatCounts = engine.JudgmentCounts
+func dryRunUsage(cfg *config.Config, tally *telemetry.Tally, projected inference.Usage) *output.Usage {
+	judgment := projectedChatUsage(projected, cfg.LLM.CostPer1KInputTokens)
+	judgment.ChatCounts = cacheCounts(tally.Totals(telemetry.Judgment))
 
 	return &output.Usage{
 		Judgment:  judgment,
-		Embedding: m.embeddingUsage(cfg),
-		Files:     nonNil(engine.FileDurations),
+		Embedding: embeddingReport(cfg, tally),
+		Files:     fileDurations(tally),
 	}
 }
 
-func (m usageMeters) embeddingUsage(cfg *config.Config) output.EmbeddingUsage {
-	usage := embeddingUsage(m.embedding.Usage(), cfg.VectorStore.CostPer1KTokens)
-	usage.Calls = m.embedding.Calls()
+func withCounts(usage output.ChatUsage, totals telemetry.Totals) output.ChatUsage {
+	usage.Calls = totals.Calls
+	usage.ChatCounts = cacheCounts(totals)
 
 	return usage
+}
+
+func cacheCounts(totals telemetry.Totals) output.ChatCounts {
+	return output.ChatCounts{CacheHits: totals.CacheHits, CacheMisses: totals.CacheMisses, Retries: totals.Retries}
+}
+
+func embeddingReport(cfg *config.Config, tally *telemetry.Tally) output.EmbeddingUsage {
+	totals := tally.Totals(telemetry.Embedding)
+	usage := embeddingUsage(totals.Usage, cfg.VectorStore.CostPer1KTokens)
+	usage.Calls = totals.Calls
+
+	return usage
+}
+
+func fileDurations(tally *telemetry.Tally) []output.FileDuration {
+	durations := []output.FileDuration{}
+	for _, file := range tally.Files() {
+		durations = append(durations, output.FileDuration{File: file.File, DurationMS: file.Spent.Milliseconds()})
+	}
+
+	return durations
 }
 
 func projectedChatUsage(usage inference.Usage, costPer1KInput *float64) output.ChatUsage {

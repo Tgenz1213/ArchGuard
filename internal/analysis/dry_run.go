@@ -7,6 +7,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 // Projection is what a dry run's judgment calls would send; Usage is unreported when a count failed.
@@ -18,16 +19,17 @@ type Projection struct {
 
 // project counts the prompt instead of sending it; a cached verdict would cost nothing.
 func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inference.DriftInput) {
-	if _, found := fc.cachedVerdict(fc.analysisKey(hit)); found {
+	e := fc.engine
+
+	_, found := fc.cachedVerdict(fc.analysisKey(hit))
+	e.record(telemetry.CacheChecked{Role: telemetry.Judgment, Hit: found})
+
+	if found {
 		fc.out.Debug("%s", checkOutcomeLine(hit, "dry run", true))
 		fc.findings.projection.Cached++
-		fc.findings.judgment.CacheHits++
 
 		return
 	}
-
-	e := fc.engine
-	fc.findings.judgment.CacheMisses++
 
 	tokens, err := e.Chat.CountTokens(ctx, e.systemPrompt()+"\n\n"+inference.DriftPrompt(input))
 	if err != nil {

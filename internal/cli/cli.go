@@ -14,6 +14,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 type ExitCode int
@@ -39,8 +40,9 @@ const configFilename = "archguard.yaml"
 
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
-	Chat  func(*config.Config) inference.Provider
-	Embed func(*config.Config) inference.Embedder
+	Chat     func(*config.Config) inference.Provider
+	Embed    func(*config.Config) inference.Embedder
+	Recorder telemetry.Recorder
 }
 
 func Execute(ctx context.Context, version string, factories ProviderFactories) (ExitCode, error) {
@@ -183,6 +185,7 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
+		recorder:            factories.Recorder,
 	}, nil
 }
 
@@ -190,6 +193,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
+	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp
 	frontmatterMappings map[string]string
