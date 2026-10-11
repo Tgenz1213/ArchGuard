@@ -17,8 +17,8 @@ When a file is too large to send whole, `check` sends the model the file's diff 
 
 ## Rules
 
-- Code that truncates a file too large to send whole when the file has a diff and the run is not `--update-baseline`.
-- Code that sends the diff instead of the whole file under `--update-baseline`.
+- A file too large to send whole MUST be judged by its diff when it has one, and MUST be truncated only when it has none, except under `--update-baseline`.
+- An `--update-baseline` run MUST NOT send a file's diff in place of the file.
 
 ## Alternatives considered
 
