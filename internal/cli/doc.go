@@ -18,5 +18,8 @@ Terms:
     check or an ADR missing from the index. Gaps are reported next to the
     violations, so a clean check can be told apart from one that covered less
     than it was asked to.
+  - Provider factories: what a caller of Execute passes to replace the real
+    providers or add a recorder, as the end-to-end tests do. Production
+    passes none.
 */
 package cli
