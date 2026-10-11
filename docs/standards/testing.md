@@ -10,5 +10,6 @@
 - **Hold tests to the same rules as code.** Test helpers follow every page here, except where a page exempts test files.
 - **Treat Docker-backed tests as real tests.** Postgres and pgvector integration tests use `testcontainers-go` and run with `go test -tags integration ./internal/index`. Start Docker and run them rather than reading "skipped" as a pass. A plain `go test ./...` does not run them, so run them yourself when you touch `internal/index`.
 - **Run the race detector for anything concurrent.** CI runs `-race` on the unit, integration and e2e jobs.
+- **Expect every platform to run the tests.** CI runs the unit and e2e tests on Ubuntu, Windows and macOS. The Docker-backed integration tests run on Ubuntu only.
 - **Skip a retry backoff with a permanent error.** To skip `AnalyzeDrift`'s real retry backoff (about 14s), have the mock `ChatFunc` return `backoff.Permanent(err)`. An already-cancelled context does not do it: it ends `Engine.Run` with `context.Canceled` before any file is analyzed.
 - **Add no tests in a refactor.** Existing tests that cover the moved behavior must pass unedited, and a test edited during a refactor is a sign the behavior changed.

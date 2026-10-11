@@ -1,0 +1,14 @@
+name: Weekly
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vulnerabilities:
+    name: Vulnerabilities
+    uses: ./.github/workflows/vulncheck.yml
