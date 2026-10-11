@@ -383,7 +383,7 @@ Checked 2 file(s) against 3 ADR check(s); 4 file(s) had no relevant ADR.
 1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
 ```
 
-Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. A run with nothing to report prints the coverage line and the result.
+Each violation shows the ADR ID and title, the line (or that the quoted code was not found in the analyzed content), the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line and the result.
 
 Anything the run could not check in full is listed with its reason, and counted by kind in the summary:
 

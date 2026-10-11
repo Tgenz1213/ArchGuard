@@ -9,6 +9,7 @@ const (
 	placedInAdded
 	placedInRemoved
 	placedInContext
+	placedInFile
 )
 
 // Whole-line matches come before substring matches, and a changed line before an unchanged one.

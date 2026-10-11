@@ -22,11 +22,12 @@ const changeSampleHunks = "@@ -1,5 +1,6 @@\n package a\n-var old = 1\n+var added
 const changeSamplePreamble = "diff --git a/service.py b/service.py\nindex 111..222 100644\n--- a/service.py\n+++ b/service.py\n"
 
 type changeRunOptions struct {
-	whole       string
-	diff        string
-	quote       string
-	judgeChange bool
-	cache       *cache.Cache
+	whole          string
+	diff           string
+	quote          string
+	judgeChange    bool
+	updateBaseline bool
+	cache          *cache.Cache
 }
 
 type changeRun struct {
@@ -63,6 +64,7 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 	engine := analysis.NewEngine(cfg, store, provider, provider, &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
 	engine.Cache = opts.cache
 	engine.JudgeChange = opts.judgeChange
+	engine.UpdateBaseline = opts.updateBaseline
 	run.engine = engine
 
 	var drift *analysis.DriftDetectedError
@@ -116,6 +118,79 @@ func TestChange_Findings(t *testing.T) {
 				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
 			}
 		})
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundQuote(t *testing.T) {
+	const file = "package a\nimport \"os\"\nvar q = `select 1`\n"
+
+	tests := []struct {
+		name         string
+		quote        string
+		wantQuote    string
+		wantLine     int
+		wantVerified bool
+	}{
+		{"a fenced block with a language tag", "```go\nimport \"os\"\n```", `import "os"`, 2, true},
+		{"a fenced block without a language tag", "```\nimport \"os\"\n```", `import "os"`, 2, true},
+		{"a single-line fenced block", "```import \"os\"```", `import "os"`, 2, true},
+		{"inline backticks", "`import \"os\"`", `import "os"`, 2, true},
+		{"backticks that belong to the code", "`select 1`", "`select 1`", 3, true},
+		{"an unwrapped quote", `import "os"`, `import "os"`, 2, true},
+		{"a wrapped quote that is not in the file keeps its markdown", "```go\nimport \"fmt\"\n```", "```go\nimport \"fmt\"\n```", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := runChange(t, changeRunOptions{whole: file, quote: tt.quote})
+
+			found := run.engine.CollectedViolations
+			if len(found) != 1 {
+				t.Fatalf("findings = %+v, want 1", found)
+			}
+
+			if found[0].QuotedCode != tt.wantQuote || found[0].Line != tt.wantLine {
+				t.Errorf("quote, line = %q, %d; want %q, %d", found[0].QuotedCode, found[0].Line, tt.wantQuote, tt.wantLine)
+			}
+
+			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
+			}
+		})
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundQuoteUnderSince(t *testing.T) {
+	run := runChange(t, changeRunOptions{whole: "ignored", diff: changeSamplePreamble + changeSampleHunks, quote: "```go\nvar added = 1\n```", judgeChange: true})
+
+	found := run.engine.CollectedViolations
+	if len(found) != 1 || found[0].QuotedCode != "var added = 1" || found[0].Line != 2 {
+		t.Fatalf("findings = %+v, want one at line 2 quoting the unwrapped line", found)
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundCachedQuote(t *testing.T) {
+	shared, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewCache: %v", err)
+	}
+
+	const file = "package a\nimport \"os\"\n"
+
+	runChange(t, changeRunOptions{whole: file, quote: "```go\nimport \"os\"\n```", cache: shared})
+	second := runChange(t, changeRunOptions{whole: file, quote: "unused: the cached result answers", cache: shared})
+
+	found := second.engine.CollectedViolations
+	if second.chatCalls != 0 || len(found) != 1 || found[0].QuotedCode != `import "os"` {
+		t.Fatalf("chat calls = %d, findings = %+v; want the cached fenced quote unwrapped", second.chatCalls, found)
+	}
+}
+
+func TestRun_UpdateBaselineRecordsUnwrappedQuote(t *testing.T) {
+	run := runChange(t, changeRunOptions{whole: "package a\nimport \"os\"\n", quote: "`import \"os\"`", updateBaseline: true})
+
+	entries := run.engine.CollectedBaseline.Entries
+	if len(entries) != 1 || entries[0].QuotedCode != `import "os"` {
+		t.Fatalf("baseline entries = %+v, want one recording the unwrapped quote", entries)
 	}
 }
 
