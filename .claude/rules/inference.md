@@ -5,7 +5,7 @@ paths:
 
 # `internal/inference`
 
-Chat and embedding are separate roles: `Chatter` (`Chat`, `CountTokens`) and `Embedder` (`CreateEmbedding`). `Chat` returns a `ChatReply` and `CreateEmbedding` an `Embedding`, each carrying the `Usage` the backend reported; `MeteredChatter` and `MeteredEmbedder` total it (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`). A provider implements only the roles its vendor offers (`ClaudeProvider` chats, `VoyageProvider` embeds), and `Provider` is both. Code takes the role it uses; `Provider` appears only where one instance fills both roles. See `docs/arch/0004-decoupled-chat-and-embedding-providers.md`.
+Chat and embedding are separate roles: `Chatter` (`Chat`, `CountTokens`) and `Embedder` (`CreateEmbedding`). `Chat` returns a `ChatReply` and `CreateEmbedding` an `Embedding`, each carrying the `Usage` the backend reported (`docs/arch/0034-token-usage-is-what-the-provider-reported.md`). A provider implements only the roles its vendor offers (`ClaudeProvider` chats, `VoyageProvider` embeds), and `Provider` is both. Code takes the role it uses; `Provider` appears only where one instance fills both roles. See `docs/arch/0004-decoupled-chat-and-embedding-providers.md`.
 
 - `CountTokens` uses each backend's own tokenizer, and for Ollama and Gemini it is a network call, so truncating an oversized file costs several round trips (`docs/arch/0002-provider-scoped-token-counting.md`).
 - `CreateEmbedding` takes the call's role (document or query); each provider maps it onto its backend's convention, or ignores it (`docs/arch/0003-embedding-task-role.md`).

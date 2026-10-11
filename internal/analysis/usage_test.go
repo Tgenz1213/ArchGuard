@@ -14,12 +14,12 @@ import (
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 type meteredRun struct {
-	engine     *analysis.Engine
-	judgment   *inference.MeteredChatter
-	suggestion *inference.MeteredChatter
+	engine *analysis.Engine
+	tally  *telemetry.Tally
 }
 
 func runMetered(t *testing.T, analysisCache *cache.Cache) meteredRun {
@@ -41,18 +41,18 @@ func runMetered(t *testing.T, analysisCache *cache.Cache) meteredRun {
 	cfg := &config.Config{Analysis: config.Analysis{ExcludePatterns: []string{}}}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	run := meteredRun{judgment: inference.NewMeteredChatter(provider), suggestion: inference.NewMeteredChatter(provider)}
+	tally := &telemetry.Tally{}
 
-	engine := analysis.NewEngine(cfg, store, run.judgment, provider, content)
+	engine := analysis.NewEngine(cfg, store, telemetry.NewChatter(provider, telemetry.Judgment, tally), provider, content)
 	engine.Cache = analysisCache
 	engine.SuggestFixes = true
-	engine.SuggestChat = run.suggestion
+	engine.SuggestChat = telemetry.NewChatter(provider, telemetry.Suggestion, tally)
+	engine.Recorder = tally
 	engine.Out = output.Discard()
 
 	runEngine(t, engine, true)
-	run.engine = engine
 
-	return run
+	return meteredRun{engine: engine, tally: tally}
 }
 
 func unitVector() []float32 {
@@ -65,45 +65,13 @@ func unitVector() []float32 {
 func TestRun_CountsJudgmentAndSuggestionUsageApart(t *testing.T) {
 	run := runMetered(t, nil)
 
-	want := inference.Usage{InputTokens: 100, OutputTokens: 10, Reported: true}
-	if got := run.judgment.Usage(); got != want {
-		t.Errorf("judgment usage = %+v, want %+v", got, want)
+	want := telemetry.Totals{Calls: 1, CacheMisses: 1, Usage: inference.Usage{InputTokens: 100, OutputTokens: 10, Reported: true}}
+	if got := run.tally.Totals(telemetry.Judgment); got != want {
+		t.Errorf("judgment = %+v, want %+v", got, want)
 	}
 
-	if got := run.suggestion.Usage(); got != want {
-		t.Errorf("suggestion usage = %+v, want %+v", got, want)
-	}
-}
-
-func TestRun_CacheHitsAddNoUsage(t *testing.T) {
-	analysisCache, err := cache.NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
-	}
-
-	runMetered(t, analysisCache)
-	second := runMetered(t, analysisCache)
-
-	want := inference.Usage{Reported: true}
-	if got := second.judgment.Usage(); got != want {
-		t.Errorf("judgment usage on a cache hit = %+v, want %+v", got, want)
-	}
-
-	if got := second.suggestion.Usage(); got != want {
-		t.Errorf("suggestion usage on a cache hit = %+v, want %+v", got, want)
-	}
-}
-
-func TestRun_CountsCacheMissesAndCalls(t *testing.T) {
-	run := runMetered(t, nil)
-
-	miss := output.ChatCounts{CacheMisses: 1}
-	if got := run.engine.JudgmentCounts; got != miss || run.judgment.Calls() != 1 {
-		t.Errorf("judgment = %+v and %d call(s), want %+v and 1", got, run.judgment.Calls(), miss)
-	}
-
-	if got := run.engine.SuggestionCounts; got != miss || run.suggestion.Calls() != 1 {
-		t.Errorf("suggestion = %+v and %d call(s), want %+v and 1", got, run.suggestion.Calls(), miss)
+	if got := run.tally.Totals(telemetry.Suggestion); got != want {
+		t.Errorf("suggestion = %+v, want %+v", got, want)
 	}
 }
 
@@ -116,34 +84,35 @@ func TestRun_CacheHitCountsOnlyAsAHit(t *testing.T) {
 	runMetered(t, analysisCache)
 	second := runMetered(t, analysisCache)
 
-	hit := output.ChatCounts{CacheHits: 1}
-	if got := second.engine.JudgmentCounts; got != hit || second.judgment.Calls() != 0 {
-		t.Errorf("judgment = %+v and %d call(s), want %+v and none", got, second.judgment.Calls(), hit)
+	want := telemetry.Totals{CacheHits: 1, Usage: inference.Usage{Reported: true}}
+	if got := second.tally.Totals(telemetry.Judgment); got != want {
+		t.Errorf("judgment on a cache hit = %+v, want %+v", got, want)
 	}
 
-	if got := second.engine.SuggestionCounts; got != hit || second.suggestion.Calls() != 0 {
-		t.Errorf("suggestion = %+v and %d call(s), want %+v and none", got, second.suggestion.Calls(), hit)
+	if got := second.tally.Totals(telemetry.Suggestion); got != want {
+		t.Errorf("suggestion on a cache hit = %+v, want %+v", got, want)
 	}
 }
 
 func TestRun_FailedJudgmentCountsOneMissAndItsCall(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
-	meter := inference.NewMeteredChatter(&inference.MockProvider{ChatFunc: func(context.Context, string, string) (string, error) {
+	tally := &telemetry.Tally{}
+	h.engine.Chat = telemetry.NewChatter(&inference.MockProvider{ChatFunc: func(context.Context, string, string) (string, error) {
 		return "", backoff.Permanent(errors.New("bad request"))
-	}})
-	h.engine.Chat = meter
+	}}, telemetry.Judgment, tally)
+	h.engine.Recorder = tally
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := output.ChatCounts{CacheMisses: 1}
-	if got := h.engine.JudgmentCounts; got != want || meter.Calls() != 1 {
-		t.Errorf("judgment = %+v and %d call(s), want %+v and 1", got, meter.Calls(), want)
+	want := telemetry.Totals{Calls: 1, CacheMisses: 1, Usage: inference.Usage{Reported: true}}
+	if got := tally.Totals(telemetry.Judgment); got != want {
+		t.Errorf("judgment = %+v, want %+v", got, want)
 	}
 }
 
-func TestRun_ReportsEachFileSlowestFirst(t *testing.T) {
+func TestRun_RecordsEachFileItChecked(t *testing.T) {
 	provider := &inference.MockProvider{
 		ChatFunc: func(_ context.Context, _, user string) (string, error) {
 			if strings.Contains(user, "slow.go") {
@@ -158,18 +127,32 @@ func TestRun_ReportsEachFileSlowestFirst(t *testing.T) {
 	store.ADRs = []index.ADR{{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.", Embedding: unitVector()}}
 	cfg := &config.Config{Analysis: config.Analysis{ExcludePatterns: []string{}}}
 	content := &MockContentProvider{Files: map[string]string{"fast.go": "package fast\n", "slow.go": "package slow\n"}}
+	tally := &telemetry.Tally{}
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine.Recorder = tally
 	engine.Out = output.Discard()
 
 	runEngine(t, engine, false)
 
-	durations := engine.FileDurations
-	if len(durations) != 2 || durations[0].File != "slow.go" || durations[1].File != "fast.go" {
-		t.Fatalf("FileDurations = %+v, want slow.go then fast.go", durations)
+	files := tally.Files()
+	if len(files) != 2 || files[0].File != "slow.go" || files[1].File != "fast.go" {
+		t.Fatalf("Files() = %+v, want slow.go then fast.go", files)
 	}
 
-	if durations[0].DurationMS < 50 {
-		t.Errorf("slow.go took %dms, want at least 50", durations[0].DurationMS)
+	if files[0].Spent < 50*time.Millisecond {
+		t.Errorf("slow.go took %v, want at least 50ms", files[0].Spent)
+	}
+}
+
+func TestRun_WithoutARecorderStillRuns(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
+
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if h.engine.Coverage.ADRChecks != 1 {
+		t.Errorf("coverage = %+v, want one ADR check", h.engine.Coverage)
 	}
 }

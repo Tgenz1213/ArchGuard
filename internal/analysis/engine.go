@@ -16,6 +16,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -54,10 +55,8 @@ type Engine struct {
 	Stages      []stage.Stage
 	DryRun      bool
 	Projection  Projection
-	// Counted in every mode; under --dry-run a miss is a judgment that would have been sent.
-	JudgmentCounts   output.ChatCounts
-	SuggestionCounts output.ChatCounts
-	FileDurations    []output.FileDuration
+	// Nil records nothing. Under --dry-run a cache miss is a judgment that would have been sent.
+	Recorder telemetry.Recorder
 }
 
 type Violation struct {
@@ -157,6 +156,14 @@ func (e *Engine) systemPrompt() string {
 	return inference.DefaultSystemPrompt
 }
 
+func (e *Engine) recorder() telemetry.Recorder {
+	if e.Recorder != nil {
+		return e.Recorder
+	}
+
+	return telemetry.Nop{}
+}
+
 func (e *Engine) suggestionChat() inference.Chatter {
 	if e.SuggestChat != nil {
 		return e.SuggestChat
@@ -219,9 +226,6 @@ func (e *Engine) publish(run *runState) {
 	e.CollectedViolations = run.collected
 	e.UnverifiedFindings = run.unverified
 	e.Projection = run.projected()
-	e.JudgmentCounts = run.judgment
-	e.SuggestionCounts = run.suggestion
-	e.FileDurations = run.slowestFirst()
 	e.collectStageStats(run)
 
 	if e.UpdateBaseline {

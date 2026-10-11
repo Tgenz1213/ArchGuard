@@ -2,32 +2,25 @@ package cli
 
 import (
 	"math"
+	"slices"
 	"testing"
+	"time"
 
-	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
-func meteredSetup(t *testing.T, chatUsage, embedUsage inference.Usage) usageMeters {
-	t.Helper()
+func tallyOf(chatUsage, embedUsage inference.Usage) *telemetry.Tally {
+	tally := &telemetry.Tally{}
+	tally.RequestSent(telemetry.Judgment, chatUsage, nil)
+	tally.RequestSent(telemetry.Embedding, embedUsage, nil)
 
-	provider := &inference.MockProvider{EmbeddingDim: 2, ChatUsage: chatUsage, EmbedUsage: embedUsage}
-	meters := newUsageMeters(runSetup{chat: provider, embed: provider})
-
-	if _, err := meters.judgment.Chat(t.Context(), "system", "user"); err != nil {
-		t.Fatalf("Chat failed: %v", err)
-	}
-
-	if _, err := meters.embedding.CreateEmbedding(t.Context(), "text", inference.EmbeddingTaskQuery); err != nil {
-		t.Fatalf("CreateEmbedding failed: %v", err)
-	}
-
-	return meters
+	return tally
 }
 
-func TestUsageMeters_Report(t *testing.T) {
+func TestUsageReport_Report(t *testing.T) {
 	reported := inference.Usage{InputTokens: 2000, OutputTokens: 500, Reported: true}
 	priced := &config.Config{
 		LLM:         config.LLMConfig{CostPer1KInputTokens: new(0.003), CostPer1KOutputTokens: new(0.015)},
@@ -48,7 +41,7 @@ func TestUsageMeters_Report(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage := meteredSetup(t, tt.chat, tt.chat).report(tt.cfg, false, &analysis.Engine{})
+			usage := usageReport(tt.cfg, false, tallyOf(tt.chat, tt.chat))
 
 			assertChatUsage(t, usage.Judgment, tt.wantTokens, tt.chat)
 			assertCost(t, "judgment", usage.Judgment.Cost, tt.wantChatCost)
@@ -93,104 +86,52 @@ func assertCost(t *testing.T, role string, got *float64, want float64) {
 	}
 }
 
-func TestUsageMeters_ReportCountsSuggestionsOnlyWhenOn(t *testing.T) {
-	meters := meteredSetup(t, inference.Usage{Reported: true}, inference.Usage{Reported: true})
+func TestUsageReport_Counts(t *testing.T) {
+	tally := tallyOf(inference.Usage{Reported: true}, inference.Usage{Reported: true})
+	tally.RequestSent(telemetry.Suggestion, inference.Usage{Reported: true}, nil)
+	tally.CacheChecked(telemetry.Judgment, true)
+	tally.CacheChecked(telemetry.Judgment, false)
+	tally.RetriesSent(telemetry.Judgment, 3)
+	tally.CacheChecked(telemetry.Suggestion, false)
+	tally.FileChecked("fast.go", 10*time.Millisecond)
+	tally.FileChecked("slow.go", 900*time.Millisecond)
 
-	if usage := meters.report(&config.Config{}, false, &analysis.Engine{}); usage.Suggestion != nil {
-		t.Errorf("suggestion usage = %+v without --suggest-fixes, want nil", usage.Suggestion)
+	usage := usageReport(&config.Config{}, true, tally)
+
+	wantJudgment := output.ChatCounts{CacheHits: 1, CacheMisses: 1, Retries: 3}
+	if usage.Judgment.Calls != 1 || usage.Judgment.ChatCounts != wantJudgment {
+		t.Errorf("judgment = %d call(s), %+v, want 1 and %+v", usage.Judgment.Calls, usage.Judgment.ChatCounts, wantJudgment)
 	}
 
-	if usage := meters.report(&config.Config{}, true, &analysis.Engine{}); usage.Suggestion == nil {
-		t.Error("suggestion usage is nil with --suggest-fixes")
-	}
-}
-
-func TestValidateCosts(t *testing.T) {
-	tests := []struct {
-		name    string
-		llm     config.LLMConfig
-		vector  config.VectorStore
-		wantErr bool
-	}{
-		{name: "none set"},
-		{name: "both chat prices and an embedding price", llm: config.LLMConfig{CostPer1KInputTokens: new(0.003), CostPer1KOutputTokens: new(0.015)}, vector: config.VectorStore{CostPer1KTokens: new(0.0)}},
-		{name: "only the input price", llm: config.LLMConfig{CostPer1KInputTokens: new(0.003)}, wantErr: true},
-		{name: "only the output price", llm: config.LLMConfig{CostPer1KOutputTokens: new(0.015)}, wantErr: true},
-		{name: "negative chat price", llm: config.LLMConfig{CostPer1KInputTokens: new(-1.0), CostPer1KOutputTokens: new(0.015)}, wantErr: true},
-		{name: "negative embedding price", vector: config.VectorStore{CostPer1KTokens: new(-0.1)}, wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateCosts(&config.Config{LLM: tt.llm, VectorStore: tt.vector})
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateCosts() = %v, want error %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestUsageMeters_DryRunReportPricesInputOnly(t *testing.T) {
-	meters := meteredSetup(t, inference.Usage{}, inference.Usage{InputTokens: 10, Reported: true})
-	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(0.5), CostPer1KOutputTokens: new(2.0)}}
-
-	usage := meters.dryRunReport(cfg, &analysis.Engine{Projection: analysis.Projection{Usage: inference.Usage{InputTokens: 4000, Reported: true}}})
-
-	if usage.Judgment.InputTokens == nil || *usage.Judgment.InputTokens != 4000 || usage.Judgment.OutputTokens != nil {
-		t.Errorf("judgment tokens = %v/%v, want 4000 input and no output", usage.Judgment.InputTokens, usage.Judgment.OutputTokens)
-	}
-
-	assertCost(t, "judgment", usage.Judgment.Cost, 2.0)
-
-	if usage.Suggestion != nil {
-		t.Errorf("suggestion usage = %+v, want nil under a dry run", usage.Suggestion)
-	}
-}
-
-func TestUsageMeters_DryRunReportWithAFailedCount(t *testing.T) {
-	meters := meteredSetup(t, inference.Usage{}, inference.Usage{})
-
-	usage := meters.dryRunReport(&config.Config{}, &analysis.Engine{Projection: analysis.Projection{Usage: inference.Usage{InputTokens: 4000}}})
-
-	if usage.Judgment.InputTokens != nil {
-		t.Errorf("judgment input = %v, want unavailable when a count failed", *usage.Judgment.InputTokens)
-	}
-}
-
-func TestUsageMeters_ReportCounts(t *testing.T) {
-	meters := meteredSetup(t, inference.Usage{Reported: true}, inference.Usage{Reported: true})
-	if _, err := meters.suggestion.Chat(t.Context(), "system", "user"); err != nil {
-		t.Fatalf("Chat failed: %v", err)
-	}
-
-	engine := &analysis.Engine{
-		JudgmentCounts:   output.ChatCounts{CacheHits: 2, CacheMisses: 1, Retries: 3},
-		SuggestionCounts: output.ChatCounts{CacheHits: 1, CacheMisses: 1},
-		FileDurations:    []output.FileDuration{{File: "slow.go", DurationMS: 900}},
-	}
-
-	usage := meters.report(&config.Config{}, true, engine)
-
-	if usage.Judgment.Calls != 1 || usage.Judgment.ChatCounts != engine.JudgmentCounts {
-		t.Errorf("judgment = %d call(s), %+v, want 1 and %+v", usage.Judgment.Calls, usage.Judgment.ChatCounts, engine.JudgmentCounts)
-	}
-
-	if usage.Suggestion.Calls != 1 || usage.Suggestion.ChatCounts != engine.SuggestionCounts {
-		t.Errorf("suggestion = %d call(s), %+v, want 1 and %+v", usage.Suggestion.Calls, usage.Suggestion.ChatCounts, engine.SuggestionCounts)
+	wantSuggestion := output.ChatCounts{CacheMisses: 1}
+	if usage.Suggestion.Calls != 1 || usage.Suggestion.ChatCounts != wantSuggestion {
+		t.Errorf("suggestion = %d call(s), %+v, want 1 and %+v", usage.Suggestion.Calls, usage.Suggestion.ChatCounts, wantSuggestion)
 	}
 
 	if usage.Embedding.Calls != 1 {
 		t.Errorf("embedding calls = %d, want 1", usage.Embedding.Calls)
 	}
 
-	if len(usage.Files) != 1 || usage.Files[0] != engine.FileDurations[0] {
-		t.Errorf("files = %+v, want %+v", usage.Files, engine.FileDurations)
+	wantFiles := []output.FileDuration{{File: "slow.go", DurationMS: 900}, {File: "fast.go", DurationMS: 10}}
+	if !slices.Equal(usage.Files, wantFiles) {
+		t.Errorf("files = %+v, want %+v", usage.Files, wantFiles)
 	}
 }
 
-func TestUsageMeters_ReportListsNoFilesAsEmpty(t *testing.T) {
-	usage := meteredSetup(t, inference.Usage{}, inference.Usage{}).report(&config.Config{}, false, &analysis.Engine{})
+func TestUsageReport_ListsNoFilesAsEmpty(t *testing.T) {
+	usage := usageReport(&config.Config{}, false, &telemetry.Tally{})
 
 	if usage.Files == nil {
 		t.Error("files is nil, want an empty list so the JSON has [] and not null")
+	}
+}
+
+func TestNewRecorder_SendsEventsToTheInjectedRecorderToo(t *testing.T) {
+	tally, injected := &telemetry.Tally{}, &telemetry.Tally{}
+
+	newRecorder(tally, injected).CacheChecked(telemetry.Judgment, true)
+
+	if tally.Totals(telemetry.Judgment).CacheHits != 1 || injected.Totals(telemetry.Judgment).CacheHits != 1 {
+		t.Error("an event reached only one of the run's tally and the injected recorder")
 	}
 }
