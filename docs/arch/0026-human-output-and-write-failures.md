@@ -22,6 +22,18 @@ ArchGuard prints two kinds of text: its primary output (help, the `index` summar
 - **Which output is primary depends on the mode.** In text mode `check`'s report is primary and on stdout, and its log, including the line for each violation, is on stderr. Under `--format json` the log is on stderr and only the JSON document is primary. With `--output` the report goes to a file, and a failed save exits `1`.
 - **A few lines bypass the `Printer`.** `init`'s prompts and status lines, the startup banner, `--version` and `main`'s final `Error:` line use `fmt` directly; kong prints help and usage (`docs/arch/0025-kong-command-line.md`).
 
+## Rules
+
+- Human-readable output MUST go through `internal/output.Printer`, except `init`'s prompts and status lines, the startup banner, `--version`, `main`'s final `Error:` line, and kong's help and usage.
+- A `Printer` MUST be passed down from `internal/cli`, not held in a package global.
+- A nil `*Printer` MUST write to stderr, never stdout.
+- A failed write of primary output MUST exit `1`, unless the run was interrupted.
+- A failed write of a diagnostic MUST be ignored.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - New output uses the `Printer` of the component that prints it: `Result` for primary lines, the diagnostic methods for the rest.

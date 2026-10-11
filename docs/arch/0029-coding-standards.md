@@ -22,6 +22,10 @@ Functions of over 200 lines passed lint, because the linters in `.golangci.yml` 
 
 - Go code MUST follow the conventions in `docs/standards/`.
 
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - Reviewers and the drift check point at a written standard instead of taste.

@@ -23,7 +23,15 @@ scope:
 - **`--output <path>` writes the report to a file** without color and with nothing on stdout. The destination is checked before the analysis starts, because missing directories are created and a typo should not cost a full run. The baseline file is refused as a destination, since the report would replace it and the next `check` could not load it. The report is saved atomically at the end, and a failed save exits `1`, which wins over the drift and stage-failure codes.
 - **`--update-baseline` ends with a baseline report** under the same split, honoring `--output`. The baseline and its report are written together: an analysis failure, or a stage failure under `on_error: fail`, exits without either.
 
-Alternatives considered:
+## Rules
+
+- In text mode, `check` MUST write only its end-of-run report to stdout and everything else to stderr.
+- The report's layout MUST be defined only in `output.Printer`, and tests outside it MUST assert on the findings, not the layout.
+- A drift exit MUST NOT print an `Error:` line.
+- `check --output` MUST check its destination before the analysis starts and MUST refuse the baseline file as a destination.
+- The `--output` report MUST be saved atomically.
+
+## Alternatives considered
 
 - **A counts-only summary after the log.** It leaves the findings in the scrollback and gives a saved run nothing to read.
 - **The report on stderr with the log.** It cannot be saved or piped apart from the log.

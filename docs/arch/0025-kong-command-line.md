@@ -14,12 +14,22 @@ A CLI hand-built on the standard `flag` package keeps its help and usage as lite
 
 ## Decision
 
-- **The command line is declared once, as structs, and parsed with `github.com/alecthomas/kong`**, which generates help from the same declarations. kong was chosen over cobra for its struct-tag declarations, generated help in this layout, and a standard-library-only core.
+- **The command line is declared once, as structs, and parsed with `github.com/alecthomas/kong`**, which generates help from the same declarations.
 - **Parsing runs first**, before git discovery or config loading, so `--help`, `help`, `<command> --help` and `--version` work outside a repository.
 - **Exit codes stay ArchGuard's.** Help and `--version` exit `0`. A parse error prints the relevant usage to stderr as a best-effort diagnostic and exits `2` (usage). A failed write of requested help or the version exits `1`, per the primary-output rule.
 - **Anything needed before a command runs reads the parsed values**, such as the banner decision and path normalization, never raw `os.Args`. No flag needs registering anywhere else.
 - **`--version` is a global flag** printing `cli.Version`, which each binary sets from its build-time variables, so any binary built on `cli.Execute` handles it.
 - `help` as a first argument is treated as `--help`.
+
+## Rules
+
+- Commands and flags MUST be declared as struct fields parsed with `github.com/alecthomas/kong`.
+- A command-line parse error MUST exit `2`.
+- Code that needs a parsed flag or argument before a command runs MUST read kong's parsed values, never raw `os.Args`.
+
+## Alternatives considered
+
+- **cobra.** kong was chosen over it for its struct-tag declarations, generated help in this layout, and a standard-library-only core.
 
 ## Consequences
 

@@ -28,6 +28,17 @@ The pipeline's input is fixed:
 
 Only the cosine scorer embeds, so a pipeline without it makes no embedding calls. Under `--debug`, rejected ADRs keep their real scores (see `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
 
+## Rules
+
+- Pipeline collaborators such as scorers and stages MUST be objects with methods, not bare functions.
+- A scorer MUST only score its candidates; it MUST NOT drop or reorder them.
+- A stage MUST NOT decide whether a file violates an ADR.
+- An ADR suppressed by an `archguard-ignore: <ADR_ID>` comment MUST be removed before any stage runs.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - Adding a scorer means implementing the scorer interface. Stage ordering, thresholds, caps and reporting stay the same.
