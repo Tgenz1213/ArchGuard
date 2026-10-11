@@ -12,33 +12,31 @@ Which ADRs the LLM judges for a file should not depend on one scoring method. A 
 
 ## Decision
 
-Candidates flow through an ordered list of `stage.Stage`s (`internal/analysis/stage`) before LLM judgment. Every collaborator is an object with methods, not a bare function.
+Candidates pass through an ordered list of stages before LLM judgment. Every collaborator is an object with methods, not a bare function.
 
-- `stage.Scorer` receives a `File`, a `Debug`, and all of a file's `Candidate`s in one call, and returns one score per candidate, in order, on the scale its stage's `Threshold` uses (0-1 for screening models; raw cosine similarity, -1 to 1, for `CosineRanker`). It only scores; it never drops or reorders.
-- `stage.Stage` wraps a `Scorer` with a `Threshold` (the minimum score, optionally per ADR) and `MaxKeep`. The stage drops candidates below the threshold, orders survivors by descending score, and cuts to `MaxKeep`. The next stage receives only the survivors.
-- `stage.File` exposes the path and the text to embed (`QueryText`, built lazily, diff-preferred and capped). `stage.Debug` is a real writer under `--debug` and a no-op otherwise, so scorers never nil-check.
-- `stage.Error` carries the action that failed (`generating embedding`, `scoring candidates`) and a `Kind`: `KindUnavailable` (a dependency did not respond, the zero value) or `KindPreconditionNotMet` (the stage cannot run at all, such as cosine with no embedding provider). The engine reports `Error <action> for <file>` without knowing which scorer ran.
-- `Engine.Stages` holds the pipeline. When unset it is one `stage.NewCosineStage`: `CosineRanker` scoring, an `ADRThreshold` (an ADR's own `similarity_threshold` over `vector_store.similarity_threshold`), and `analysis.max_relevant_adrs` as `MaxKeep`.
-- `analysis.pipeline` configures the stages. `config.Pipeline` holds optional `rank` and `rerank` `StageConfig`s (`scorer`, `threshold`, `top_k`, `on_error`), validated when the config loads. `analysis.BuildStages` turns it into `Engine.Stages`, and returns nil when there is no block so the default above stays in force. An absent `rank` is the default cosine stage; an unset `rank` `threshold` or `top_k` falls back to `vector_store.similarity_threshold` and `analysis.max_relevant_adrs`; `rerank` uses 0 and 3 with a printed warning. A stage `threshold` is the default for ADRs without their own `similarity_threshold`, which wins in every cosine stage.
+- A scorer receives all of a file's candidates in one call and returns one score per candidate, in order, on the scale its stage's threshold uses. It only scores; it never drops or reorders.
+- A stage wraps a scorer with a threshold, optionally per ADR, and a cap. It drops candidates below the threshold, orders the rest by descending score, and cuts to the cap. The next stage receives only the survivors.
+- A stage error names the action that failed and its kind: a dependency that did not respond, or a precondition that is not met, such as cosine scoring with no embedding provider. The engine reports the error without knowing which scorer ran.
+- With no `analysis.pipeline` block, the pipeline is one cosine stage, using `vector_store.similarity_threshold` and `analysis.max_relevant_adrs`. `analysis.pipeline` configures optional `rank` and `rerank` stages instead, validated when the config loads. An absent `rank` is the default cosine stage. An unset `rank` setting falls back to those same settings; an unset `rerank` setting uses a fixed default and prints a warning. An ADR's own `similarity_threshold` wins over the stage threshold in every cosine stage.
 - The LLM is the only source of reported violations. Stages choose which ADRs are judged, never whether a file violates one.
 
-The pipeline's input is built in a fixed order by `candidateSource`:
+The pipeline's input is fixed:
 
-1. `VectorStore.ScopedADRs(file)` returns every ADR whose `scope` matches the file, without needing an embedding. Only scope-matched ADRs are ever candidates, whichever scorer runs first.
-2. `archguard-ignore: <ADR_ID>` in the file's first 2000 bytes removes an ADR from that list, so a suppressed ADR never reaches a scorer, never occupies a top-K slot, and is never judged.
+1. Only ADRs whose `scope` matches the file are candidates, whichever scorer runs first, and finding them needs no embedding.
+2. An `archguard-ignore: <ADR_ID>` comment removes an ADR before any stage runs, so a suppressed ADR never reaches a scorer, never takes a top-K slot, and is never judged.
 3. Each stage runs in order over the survivors.
 
-Embedding is done by `CosineRanker` alone, through `inference.Embedder`, so a pipeline without it makes no embedding calls. `CosineRanker` asks the store for every qualifying ADR (topK unbounded) and scores a candidate the store omitted for missing its own threshold below any stage minimum; the stage applies the top-K cut. Under `--debug` it uses `SearchWithDebugInfo` so rejected ADRs keep their real scores (see `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
+Only the cosine scorer embeds, so a pipeline without it makes no embedding calls. Under `--debug`, rejected ADRs keep their real scores (see `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`).
 
 ## Consequences
 
-- Adding a scorer means implementing `stage.Scorer`; stage ordering, thresholds, caps, and reporting are unchanged.
-- Scorer names are validated in `internal/config`, which cannot import `stage`, so a new scorer is also added to that list.
-- Every cosine stage scores the same candidates, so a cosine `rerank` after a cosine `rank` only tightens `threshold` or `top_k` and embeds the file a second time.
-- An embedding failure is reported under the file's header as `Error: generating embedding: <err>`; any other scorer failure as `Error: scoring candidates: <err>`. Both count the file as skipped, unless the stage sets `on_error: fail`; a run whose skips left it with no ADR check exits `8` (`docs/arch/0032-a-run-that-checked-nothing-fails.md`).
-- `on_error` is per stage, `skip` (the default) or `fail`. Under `fail` the engine records a `StageFailure` (stage name, file, kind, error) in `Engine.StageFailures` instead of counting a skipped file, stops that file's remaining stages, and lets other files run. `cli.runCheck` exits `6` when every failure is `KindUnavailable` and `7` when any is `KindPreconditionNotMet`; both take precedence over the drift exit code `4`, because an incomplete check is not a clean verdict, and `--update-baseline` exits with them without writing the baseline. `check --format json` lists the failures under `failures`, omitted when there are none, so a run without `fail` failures produces the same document as before.
-- Every `VectorStore` implementation provides `ScopedADRs`, and it returns an error rather than an empty list when the backend fails; the engine reports `Error: loading candidate ADRs: <err>` under the file's header and counts the file as skipped, so an unreachable database can't make a check pass.
-- Equal scores keep candidate order (the store's order), so a tie at the top-K boundary is resolved deterministically.
-- A stage handed no candidates returns without calling its scorer, so a file with no candidates costs no embedding call and its stages report zeros.
-- `--debug` prints `Skipping ADR ... (Suppressed)` for every suppressed scope-matched ADR first. Then each stage prints a `Stage <name>: N candidate(s) received, M kept` summary, a `Kept` line per surviving ADR with its score, a `Below threshold` line for every dropped ADR, and a `Cut by top-K limit` line for every ADR cut by `MaxKeep`, whichever scorer produced the scores.
-- Each `stage.Stage` has a `Name` (`rank` or `rerank`; the default stage is `rank`). `stage.Telemetry` runs the stages and, per stage over the run, sums the candidates received, the candidates kept and the time spent in `Apply`, safely across concurrent files. Under `--format json` the engine exposes its totals as `Engine.CollectedStages`, reported as the `stages` array. Every stage in the pipeline is listed, with zeros when it received nothing, and the time is summed per file so concurrent files can make it exceed wall-clock time.
+- Adding a scorer means implementing the scorer interface. Stage ordering, thresholds, caps and reporting stay the same.
+- Scorer names are validated in `internal/config`, which cannot import the stage package, so a new scorer is also added to that list.
+- Every cosine stage scores the same candidates, so a cosine `rerank` after a cosine `rank` only tightens `threshold` or `top_k`, and embeds the file a second time.
+- A stage failure is reported under the file and counts the file as skipped, unless the stage sets `on_error: fail`. A run whose skips leave it with no ADR check fails (`docs/arch/0032-a-run-that-checked-nothing-fails.md`).
+- `on_error` is set per stage. Under `fail`, the failure is recorded, that file's remaining stages stop, and other files still run. `check` then exits with a code for the failure's kind, which takes precedence over the drift exit code, because an incomplete check is not a clean verdict. `--update-baseline` exits the same way without writing the baseline. JSON output lists the failures, and omits the list when there are none.
+- Every vector store finds scope-matched candidates and returns an error, not an empty list, when its backend fails. The file is reported and counted as skipped, so an unreachable database cannot make a check pass.
+- Equal scores keep the store's order, so a tie at the top-K boundary is resolved deterministically.
+- A stage with no candidates does not call its scorer, so a file with no candidates costs no embedding call.
+- `--debug` shows the suppressed ADRs, then for each stage what it received and kept, and why each dropped ADR was dropped (below threshold or cut by top-K), whichever scorer produced the scores.
+- Each stage has a name. Per stage over the run, the candidates received, the candidates kept and the time spent are totalled, safely across concurrent files, and `--format json` reports them. Every stage is listed, with zeros when it received nothing. The time is summed per file, so with concurrent files it can exceed wall-clock time.

@@ -8,23 +8,22 @@ scope: "internal/**"
 
 ## Context
 
-Issue #73 asked for a short remediation pointer alongside each violation report, since knowing *what* and *why* doesn't tell the reader *what to do*. Two designs were considered: fold "and suggest a fix" into the existing violation-judgment prompt (one call, cheaper), or ask for it via a second call made only after a violation is already confirmed.
+Issue #73 asked for a short remediation pointer with each violation, since knowing what broke and why does not tell the reader what to do. One option was to add "and suggest a fix" to the violation-judgment prompt: one call, so cheaper. The other was a second call, made only after a violation is confirmed.
 
-`DefaultSystemPrompt` (`internal/inference/prompts.go`) is deliberately narrow and "FALSE BY DEFAULT" -- it exists specifically to avoid false positives. Adding "and suggest a fix" to that same prompt risks subtly biasing the model toward finding violations, just to have something to suggest.
+The judgment prompt is deliberately narrow and false by default, to avoid false positives. Asking it for a fix as well risks biasing the model toward finding a violation, just to have something to suggest.
 
-Because a suggestion is inherently unverifiable -- ArchGuard has no way to confirm that following it actually resolves the violation -- and because it costs a full extra LLM call per violation, the feature should never run unless a user or CI job explicitly opts in.
+A suggestion is unverifiable: ArchGuard cannot confirm that following it resolves the violation. It also costs an extra LLM call per violation. So it never runs unless a user or CI job opts in.
 
 ## Decision
 
-- `SuggestRemediation` (`internal/inference/analysis.go`) is a separate function with its own prompt (`SuggestionSystemPrompt`/`SuggestionPrompt`), called only from `internal/analysis.Engine.Run` after `AnalyzeDrift` has already returned `Violation: true`, and only for a *newly reported* violation (not `--update-baseline`, not an already-baselined/suppressed one).
-- The feature is off by default and gated by the `check --suggest-fixes` flag (`Engine.SuggestFixes`), so no extra LLM cost is incurred unless requested.
-- `Violation.Suggestion` is `omitempty` and populated only when a violation is confirmed and `--suggest-fixes` is set. **Amended by `docs/arch/0017-suggestion-cache-key-namespace.md`:** `AnalysisResult` no longer carries a `Suggestion` field at all -- suggestions live only in their own cache namespace, never merged into the judgment result.
-- Once computed, the suggestion is cached so a later run of the same file/ADR pair reuses it without another LLM call. **Amended by `docs/arch/0017-suggestion-cache-key-namespace.md`:** this is no longer merged into the judgment `AnalysisResult` cache entry -- it lives under its own key, computed from the suggestion prompt content, so a suggestion-prompt change invalidates only suggestion entries.
-- Output is explicitly labeled unverified in both the CLI text (`Suggestion (unverified): ...`) and is documented as an LLM-generated pointer, never a guaranteed fix.
+- The suggestion is a separate call with its own prompt. It runs only after the judgment call confirms a violation, and only for a newly reported one: not under `--update-baseline`, and not for a baselined or suppressed violation.
+- It is off by default and turned on by `check --suggest-fixes`.
+- A computed suggestion is cached, so a later run of the same file and ADR reuses it without another call. `docs/arch/0017-suggestion-cache-key-namespace.md` amends how: suggestions live in their own cache namespace and are never merged into the judgment result.
+- Output labels the suggestion as unverified, and it is documented as an LLM-generated pointer, never a guaranteed fix.
 
 ## Consequences
 
-- Positive: no behavior or cost change for anyone not passing `--suggest-fixes`; the violation-judgment prompt's accuracy is untouched since its prompt text never changed.
-- Positive: suggestion cost is paid at most once per cache key (model, ADR content, file content, reasoning, quoted code, suggestion prompt -- see `docs/arch/0017-suggestion-cache-key-namespace.md`), even across `--suggest-fixes` on/off toggling.
-- Negative: a user who wants suggestions for violations already cached *without* one from a prior non-`--suggest-fixes` run pays exactly one extra call the first time they add the flag -- expected and cheap, not a bug.
-- Negative: this is a second round trip per violation when the flag is on, roughly doubling check latency for a file with many violations; acceptable since it's opt-in.
+- Positive: nothing changes in behaviour or cost without `--suggest-fixes`, and the judgment prompt's accuracy is untouched because its text is unchanged.
+- Positive: a suggestion is paid for at most once per cache key (see `docs/arch/0017-suggestion-cache-key-namespace.md`), even when `--suggest-fixes` is toggled on and off.
+- Negative: a violation cached by an earlier run without `--suggest-fixes` costs one extra call the first time the flag is added. This is expected and cheap.
+- Negative: with the flag on, each violation takes a second round trip, which roughly doubles check latency for a file with many violations. This is acceptable because it is opt-in.
