@@ -14,6 +14,16 @@ The number of ADRs considered per file was a fixed 3. A file can legitimately be
 
 The limit is the `analysis.max_relevant_adrs` setting. Like `analysis.max_concurrency`, an unset or non-positive value falls back to the default, so it stays a plain `int` (see the zero-value rule in `docs/standards/paradigm.md`). It becomes the cosine stage's keep limit, and the default `top_k` of a configured `rank` stage (`docs/arch/0022-candidate-scoring-pipeline.md`).
 
+## Rules
+
+- The limit on ADRs considered per file MUST be the `analysis.max_relevant_adrs` setting.
+- An unset or non-positive `analysis.max_relevant_adrs` MUST fall back to the default, so it MUST stay a plain `int`.
+- `analysis.max_relevant_adrs` MUST be the cosine stage's keep limit and the default `top_k` of a configured `rank` stage.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - A project whose files regularly match more relevant ADRs than the default can raise the limit in `archguard.yaml` without a custom build.

@@ -16,6 +16,15 @@ Under `--debug`, each file's hits, below-threshold candidates (`docs/arch/0009-d
 
 `SearchRejected` and `SearchTruncated` stay on the interface as standalone methods. Their single-purpose shape is easier to reason about and test in isolation. Only the debug path, which needs its hits to match what it prints, uses the combined method.
 
+## Rules
+
+- `SearchWithDebugInfo` MUST issue one query, apply the scope filter once, and derive the hits, the rejected candidates and the truncated candidates from that one candidate set.
+- The cosine stage MUST use `SearchWithDebugInfo` whenever `--debug` is set and plain `Search` otherwise.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - `--debug` output is consistent by construction: an ADR reported as a hit, rejected or truncated always reflects the same query. The divergence is removed rather than accepted as a known limitation.

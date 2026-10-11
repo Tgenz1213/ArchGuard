@@ -18,6 +18,16 @@ Every diagnostic in `internal/index` goes through an `*output.Printer` supplied 
 - A nil `*output.Printer` is valid and writes to stderr. A store or provider nobody wired up can therefore never print into a JSON report on stdout, and tests that construct stores with no printer need no change.
 - `archguard index` prints its diagnostics on stdout. `check`'s rebuild prints through a quiet copy of `check`'s log printer, which shows info lines only under `--debug` and sums the rebuild up in one line. `check` buffers its providers' warnings and flushes them, unless a rebuild is about to repeat the same warnings.
 
+## Rules
+
+- Every diagnostic in `internal/index` MUST go through an `*output.Printer` supplied by the caller.
+- Each vector store and ADR provider MUST hold its own printer, taking it as a constructor parameter if it prints while being constructed and through a setter otherwise.
+- A nil `*output.Printer` MUST be valid and write to stderr.
+
+## Alternatives considered
+
+None recorded.
+
 ## Consequences
 
 - A new diagnostic in `internal/index` must use the store's or provider's `Printer`, never a bare `fmt.Print*` or `os.Stdout`.
