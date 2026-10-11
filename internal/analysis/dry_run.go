@@ -41,7 +41,7 @@ func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inf
 	fc.findings.projection.Usage.InputTokens += tokens
 }
 
-func (e *Engine) dryRunSummary() *output.DryRun {
+func (e *Engine) DryRunSummary() *output.DryRun {
 	if !e.DryRun {
 		return nil
 	}

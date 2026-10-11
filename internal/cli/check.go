@@ -302,7 +302,7 @@ func writeCheckReport(w io.Writer, engine *analysis.Engine, usage *output.Usage)
 		Coverage:   engine.Coverage,
 		Failures:   engine.StageFailures,
 		Usage:      usage,
-		DryRun:     engine.Report().DryRun,
+		DryRun:     engine.DryRunSummary(),
 	}
 
 	enc := json.NewEncoder(w)
