@@ -10,7 +10,7 @@ One file per job: `cli.go` (`Execute`, startup), `commands.go` (the `kong` comma
 
 ## Startup
 
-`Execute(ctx, version, factories)` parses the command line before touching git or config, so help and `--version` work outside a repository (`docs/arch/0025-kong-command-line.md`). It then `chdir`s to the git root (every path is repo-relative), loads `archguard.yaml`, validates it, builds the providers and dispatches. `factories` (`ProviderFactories{Chat, Embed}`) is the test injection point and is zero in production.
+`Execute(ctx, version, factories)` parses the command line before touching git or config, so help and `--version` work outside a repository (`docs/arch/0025-kong-command-line.md`). It then `chdir`s to the git root (every path is repo-relative), loads `archguard.yaml` (or the `--config` file, made absolute before the `chdir`), validates it, builds the providers and dispatches. `factories` (`ProviderFactories{Chat, Embed}`) is the test injection point and is zero in production.
 
 Provider pairing, the rules `validateProviderConfig` enforces, and why `ARCHGUARD_EMBEDDING_API_KEY` never falls back to `ARCHGUARD_API_KEY` are in `docs/arch/0004-decoupled-chat-and-embedding-providers.md`. One instance serves both roles when `llm.provider` and `vector_store.provider` resolve to the same name.
 
