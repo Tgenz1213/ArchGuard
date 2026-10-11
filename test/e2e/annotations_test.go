@@ -59,6 +59,9 @@ analysis:
 	}
 
 	t.Run("one annotation per new violation, report and exit code unchanged", func(t *testing.T) {
+		// Warms the analysis cache, so both compared runs report the same token usage.
+		runCheckWithEnv(t, tempDir, binaryPath, []string{"GITHUB_ACTIONS=false"}, fixtureFilename)
+
 		plainOut, plainErr, plainCode := runCheckWithEnv(t, tempDir, binaryPath, []string{"GITHUB_ACTIONS=false"}, fixtureFilename)
 		ghOut, ghErr, ghCode := runCheckWithEnv(t, tempDir, binaryPath, inActions, fixtureFilename)
 

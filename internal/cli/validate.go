@@ -107,3 +107,26 @@ func validateProviderConfig(cfg *config.Config) error {
 
 	return nil
 }
+
+// Both chat prices or neither: a cost from one side alone would understate the run.
+func validateCosts(cfg *config.Config) error {
+	prices := []struct {
+		key   string
+		value *float64
+	}{
+		{"llm.cost_per_1k_input_tokens", cfg.LLM.CostPer1KInputTokens},
+		{"llm.cost_per_1k_output_tokens", cfg.LLM.CostPer1KOutputTokens},
+		{"vector_store.cost_per_1k_tokens", cfg.VectorStore.CostPer1KTokens},
+	}
+	for _, price := range prices {
+		if price.value != nil && *price.value < 0 {
+			return fmt.Errorf("%s cannot be negative, got %v", price.key, *price.value)
+		}
+	}
+
+	if (cfg.LLM.CostPer1KInputTokens == nil) != (cfg.LLM.CostPer1KOutputTokens == nil) {
+		return fmt.Errorf("set both llm.cost_per_1k_input_tokens and llm.cost_per_1k_output_tokens, or neither")
+	}
+
+	return nil
+}

@@ -346,7 +346,7 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit stage.Candidate, input 
 		}
 	}
 
-	suggestion, err := inference.SuggestRemediation(ctx, e.Chat, input, *result)
+	suggestion, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
 	if err != nil {
 		fc.out.Warn("suggestion generation failed: %v", err)
 		return ""

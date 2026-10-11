@@ -27,6 +27,7 @@ type checkRun struct {
 	report       *output.Printer
 	jsonDest     io.Writer
 	reportBuffer bytes.Buffer
+	meters       usageMeters
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
@@ -80,7 +81,9 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
-	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug)}
+	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug), meters: newUsageMeters(setup)}
+	run.setup.chat = run.meters.judgment
+	run.setup.embed = run.meters.embedding
 
 	if opts.Output == "" {
 		run.report = colors.stdoutPrinter(false)
@@ -146,6 +149,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.JSONOutput = opts.jsonOutput()
 	engine.Out = r.log
 	engine.SuggestFixes = opts.SuggestFixes
+	engine.SuggestChat = r.meters.suggestion
 
 	return engine
 }
@@ -218,7 +222,7 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	analysisFailed := runErr != nil && !isDriftError(runErr)
 
 	if r.opts.jsonOutput() {
-		if err := writeCheckReport(r.jsonDest, engine); err != nil {
+		if err := writeCheckReport(r.jsonDest, engine, r.usage()); err != nil {
 			return fmt.Errorf("failed to write json report: %w", err)
 		}
 
@@ -226,7 +230,9 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 			r.log.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
 		}
 	} else if !analysisFailed {
-		r.report.Report(engine.Report())
+		report := engine.Report()
+		report.Usage = r.usage()
+		r.report.Report(report)
 	}
 
 	if r.opts.jsonOutput() || !analysisFailed {
@@ -234,6 +240,10 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	}
 
 	return nil
+}
+
+func (r *checkRun) usage() *output.Usage {
+	return r.meters.report(r.setup.cfg, r.opts.SuggestFixes)
 }
 
 func (r *checkRun) saveReportFile() error {
@@ -257,9 +267,10 @@ type checkReport struct {
 	Stages     []stage.Stats           `json:"stages"`
 	Coverage   output.Coverage         `json:"coverage"`
 	Failures   []analysis.StageFailure `json:"failures,omitempty"`
+	Usage      *output.Usage           `json:"usage"`
 }
 
-func writeCheckReport(w io.Writer, engine *analysis.Engine) error {
+func writeCheckReport(w io.Writer, engine *analysis.Engine, usage *output.Usage) error {
 	report := checkReport{
 		Violations: nonNil(engine.CollectedViolations),
 		Count:      len(engine.CollectedViolations),
@@ -267,6 +278,7 @@ func writeCheckReport(w io.Writer, engine *analysis.Engine) error {
 		Stages:     nonNil(engine.CollectedStages),
 		Coverage:   engine.Coverage,
 		Failures:   engine.StageFailures,
+		Usage:      usage,
 	}
 
 	enc := json.NewEncoder(w)

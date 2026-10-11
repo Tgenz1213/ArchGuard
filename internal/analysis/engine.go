@@ -49,7 +49,9 @@ type Engine struct {
 	CheckedNothing       bool
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
-	Stages       []stage.Stage
+	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
+	SuggestChat inference.Chatter
+	Stages      []stage.Stage
 }
 
 type Violation struct {
@@ -139,6 +141,14 @@ func (e *Engine) scoringStages() []stage.Stage {
 	}
 
 	return []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+}
+
+func (e *Engine) suggestionChat() inference.Chatter {
+	if e.SuggestChat != nil {
+		return e.SuggestChat
+	}
+
+	return e.Chat
 }
 
 func (e *Engine) maxConcurrency() int {

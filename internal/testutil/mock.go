@@ -19,4 +19,9 @@ const (
 	// MockChatProviderMarker and MockEmbedProviderMarker are shared with archguard-e2e's mocks so assertions can't drift from what they print.
 	MockChatProviderMarker  = "Using Mock Chat LLM Provider (E2E)"
 	MockEmbedProviderMarker = "Using Mock Embed LLM Provider (E2E)"
+
+	// What archguard-e2e's mocks report for every call, so usage figures can be asserted.
+	MockChatInputTokens  = 100
+	MockChatOutputTokens = 10
+	MockEmbedTokens      = 5
 )

@@ -100,6 +100,8 @@ llm:
   # system_prompt: "..." # optional; fully replaces ArchGuard's default judgment
   #   instructions (literal-contradiction, no-inference rules). When set, it is
   #   the only source of judgment behavior sent to the LLM.
+  # cost_per_1k_input_tokens: 0.003 # Optional, with cost_per_1k_output_tokens; see Token Usage and Cost
+  # cost_per_1k_output_tokens: 0.015
 
 vector_store:
   provider: "ollama"
@@ -108,6 +110,7 @@ vector_store:
   similarity_threshold: 0.6 # Depends on the embedding model: 0.6 suits nomic-embed-text (see Choosing similarity_threshold below). An ADR's frontmatter can override it
   connection_string: "" # e.g. postgres://user:pass@localhost:5432/archguard
   embedding_concurrency: 5
+  # cost_per_1k_tokens: 0.00002 # Optional; see Token Usage and Cost
 
 analysis:
   adr_path: "./docs/arch"
@@ -368,7 +371,7 @@ In text mode a `check` run produces two outputs. **stdout carries the report**, 
 archguard check --all > report.txt
 ```
 
-The report lists every new violation grouped by file, then any unverified findings, then everything the run could not check in full, then a line saying how much was checked, then one summary line. This is a run with one violation and one ADR check that failed:
+The report lists every new violation grouped by file, then any unverified findings, then everything the run could not check in full, then a line saying how much was checked, then one summary line, then the tokens the run consumed (see [Token Usage and Cost](#token-usage-and-cost)). This is a run with one violation and one ADR check that failed:
 
 ```
 Violations:
@@ -382,9 +385,10 @@ Failed ADR checks:
 
 Checked 2 file(s) against 3 ADR check(s); 4 file(s) had no relevant ADR.
 1 new violation(s) in 1 file(s), 0 baselined. Not fully checked: 1 ADR check(s) failed.
+Tokens: judgment 9840 input, 310 output; embeddings 620.
 ```
 
-Each violation shows the ADR ID and title, the line, the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line and the result.
+Each violation shows the ADR ID and title, the line, the reasoning, the quoted code, and the suggestion under `--suggest-fixes`. When the model wraps its quote in markdown (a fenced code block or inline backticks), the quote is matched, shown and baselined without the markdown, unless the backticks are part of the code itself. A run with nothing to report prints the coverage line, the result and the token line.
 
 A finding is **unverified** when the code it quotes is not in what the model read: for a whole file, the file; for a large file analyzed through its diff, an added or unchanged line; under `--since`, an added or removed line. This happens when the model paraphrases, quotes the ADR instead of the code, or invents code. Unverified findings are listed under `Unverified findings` with their reasoning and quote, and counted in the summary, but they are not violations: a run whose only findings are unverified exits `0`. See [ADR 0031](docs/arch/0031-unverified-findings-and-the-exit-code.md).
 
@@ -423,6 +427,22 @@ Recorded:
 Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
 ```
 
+### Token Usage and Cost
+
+The report ends with the tokens the run consumed, as each provider reported them:
+
+```
+Tokens: judgment 48210 input, 1630 output (estimated cost 0.169080); embeddings 1240 (estimated cost 0.000025).
+```
+
+- **judgment** is the chat calls that judged a file against an ADR, retries included. A cached verdict makes no call and adds nothing.
+- **suggestions** appears with `--suggest-fixes` and counts the remediation calls separately. A cached suggestion adds nothing.
+- **embeddings** counts the embedding calls: one per file scored, plus any index rebuild the run triggered. `vector_store.provider` can differ from `llm.provider`, so it is reported on its own.
+
+Calls that only count tokens to fit a large file into `llm.max_tokens` are not included. A figure is `unavailable`, never `0`, when the provider did not report it: Gemini's and Ollama's embedding endpoints never do, and an OpenAI-compatible server may leave it out. One unreported call makes its whole figure unavailable.
+
+To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0033](docs/arch/0033-token-usage-is-what-the-provider-reported.md).
+
 ### Machine-Readable Output
 
 `archguard check --format json` prints a single JSON document to stdout (all progress/debug/error text moves to stderr) so it can be piped into another tool:
@@ -446,7 +466,12 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
   "stages": [
     { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
     { "name": "rerank", "received": 4, "kept": 2, "duration_ms": 640 }
-  ]
+  ],
+  "usage": {
+    "judgment": { "input_tokens": 48210, "output_tokens": 1630, "estimated_cost": 0.16908 },
+    "suggestion": { "input_tokens": 3120, "output_tokens": 210, "estimated_cost": 0.01251 },
+    "embedding": { "tokens": null, "estimated_cost": null }
+  }
 }
 ```
 
@@ -455,6 +480,8 @@ Baseline written to archguard-baseline.json: 1 recorded, 0 not recorded.
 `stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and the ones it dropped with the reason.
 
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
+
+`usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
 
 `count` matches the number of new (non-baselined) violations that drives the `4` (drift detected) exit code above. `unverified` lists the unverified findings with the same fields, a `line` of `0`, and no `suggestion`; they are not counted in `count`. `suggestion` is present only when `--suggest-fixes` was passed; it's an LLM-generated pointer, not a verified or guaranteed fix, and it is omitted from the JSON entirely (not an empty string) when `--suggest-fixes` is off or the LLM produced nothing.
 

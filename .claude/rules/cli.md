@@ -16,6 +16,8 @@ Provider pairing, the rules `validateProviderConfig` enforces, and why `ARCHGUAR
 
 ## Output streams
 
+`checkRun` wraps the providers in `usageMeters` before anything runs: one meter for judgments (`setup.chat`), one for suggestions (`Engine.SuggestChat`) and one for embeddings (`setup.embed`, so an index rebuild is counted). The text report and the JSON document get their `usage` from it (`docs/arch/0033-token-usage-is-what-the-provider-reported.md`).
+
 `check` writes its result to stdout and everything else to stderr: the end-of-run report in text mode, or the one JSON document under `--format json` (`docs/arch/0028-check-report-and-log.md`, `docs/arch/0014-json-check-output.md`). `checkRun` holds two printers, `log` (stderr) and `report` (stdout, or a buffer saved to `--output`), and passes `log` to everything it calls that prints, including an index rebuild. `index` and `init` print on stdout.
 
 With `GITHUB_ACTIONS=true` and text output, `runCheck` prints one `::error` annotation per new violation and one `::warning` per unverified finding after the run, but not under `--update-baseline`.
