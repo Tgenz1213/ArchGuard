@@ -17,4 +17,4 @@ Chat and embedding are separate roles: `Chatter` (`Chat`, `CountTokens`) and `Em
 ## Footguns
 
 - **`OllamaProvider` adds the nomic task prefix only when the last `/`-separated segment of `vector_store.model` starts with `nomic-embed`.** Any other name silently gets no prefix, with no warning.
-- **Changing what text or settings go into an embedding call makes existing indexes stale, and nothing detects it.** Neither store's hash covers how embeddings are computed (`docs/arch/0003-embedding-task-role.md`), so such a change needs a release note telling users to re-run `archguard index`.
+- **Changing what text or settings go into an embedding call makes existing indexes stale, and nothing detects it.** Neither store's hash covers how embeddings are computed (`docs/arch/0003-embedding-task-role.md`), and a rebuild reuses the saved embedding of every unchanged ADR, so such a change needs a release note telling users to delete `.archguard/index.json` (or the project's Postgres rows) before re-running `archguard index`.

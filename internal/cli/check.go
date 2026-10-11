@@ -29,6 +29,7 @@ type checkRun struct {
 	report       *output.Printer
 	jsonDest     io.Writer
 	reportBuffer bytes.Buffer
+	unindexed    []output.ADRGap
 	tally        *telemetry.Tally
 	recorder     telemetry.Recorder
 	suggestChat  inference.Chatter
@@ -159,6 +160,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.JSONOutput = opts.jsonOutput()
 	engine.Out = r.log
 	engine.SuggestFixes = opts.SuggestFixes
+	engine.UnindexedADRs = r.unindexed
 	engine.SuggestChat = r.suggestChat
 	engine.Recorder = r.recorder
 	engine.DryRun = opts.DryRun
@@ -251,9 +253,7 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 			return fmt.Errorf("failed to write json report: %w", err)
 		}
 
-		if len(engine.SkippedFiles) > 0 || len(engine.FailedChecks) > 0 {
-			r.log.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
-		}
+		r.warnJSONGaps(engine)
 	} else if !analysisFailed {
 		report := engine.Report()
 		report.Usage = r.usage(engine)
@@ -265,6 +265,17 @@ func (r *checkRun) writeReport(engine *analysis.Engine, runErr error) error {
 	}
 
 	return nil
+}
+
+// The JSON document has no field for these gaps, so the log names them.
+func (r *checkRun) warnJSONGaps(engine *analysis.Engine) {
+	if len(engine.SkippedFiles) > 0 || len(engine.FailedChecks) > 0 {
+		r.log.Warn("%d file(s) skipped and %d ADR check(s) failed; compliance was not fully verified.", len(engine.SkippedFiles), len(engine.FailedChecks))
+	}
+
+	if count := len(engine.UnindexedADRs); count > 0 {
+		r.log.Warn("%d ADR(s) are not in the index, so no file was checked against them.", count)
+	}
 }
 
 func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {

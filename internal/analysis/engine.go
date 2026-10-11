@@ -40,6 +40,7 @@ type Engine struct {
 	RecordedEntries      []output.RecordedEntry
 	UnrecordedViolations []output.UnrecordedViolation
 	PartialFiles         []output.FileGap
+	UnindexedADRs        []output.ADRGap
 	JSONOutput           bool
 	Out                  *output.Printer
 	CollectedViolations  []Violation
