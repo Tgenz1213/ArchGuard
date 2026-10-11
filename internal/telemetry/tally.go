@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/tgenz1213/archguard/internal/inference"
 )
@@ -18,11 +17,6 @@ type Totals struct {
 	Usage       inference.Usage
 }
 
-type FileTime struct {
-	File  string
-	Spent time.Duration
-}
-
 type roleTotals struct {
 	Totals
 	unreported bool
@@ -31,7 +25,7 @@ type roleTotals struct {
 type Tally struct {
 	mu    sync.Mutex
 	roles map[Role]*roleTotals
-	files []FileTime
+	files []FileChecked
 }
 
 func (t *Tally) Record(event Event) {
@@ -46,7 +40,7 @@ func (t *Tally) Record(event Event) {
 	case RetriesSent:
 		t.role(event.Role).Retries += event.Retries
 	case FileChecked:
-		t.files = append(t.files, FileTime{File: event.File, Spent: event.Spent})
+		t.files = append(t.files, event)
 	}
 }
 
@@ -94,12 +88,12 @@ func (t *Tally) Totals(role Role) Totals {
 	return snapshot
 }
 
-func (t *Tally) Files() []FileTime {
+func (t *Tally) Files() []FileChecked {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	files := slices.Clone(t.files)
-	slices.SortStableFunc(files, func(a, b FileTime) int {
+	slices.SortStableFunc(files, func(a, b FileChecked) int {
 		if a.Spent != b.Spent {
 			return cmp.Compare(b.Spent, a.Spent)
 		}

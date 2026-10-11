@@ -176,7 +176,7 @@ func TestTally_FilesSlowestFirst(t *testing.T) {
 	tally.Record(telemetry.FileChecked{File: "slow.go", Spent: time.Second})
 	tally.Record(telemetry.FileChecked{File: "a.go", Spent: time.Millisecond})
 
-	want := []telemetry.FileTime{{File: "slow.go", Spent: time.Second}, {File: "a.go", Spent: time.Millisecond}, {File: "b.go", Spent: time.Millisecond}}
+	want := []telemetry.FileChecked{{File: "slow.go", Spent: time.Second}, {File: "a.go", Spent: time.Millisecond}, {File: "b.go", Spent: time.Millisecond}}
 	if got := tally.Files(); !slices.Equal(got, want) {
 		t.Errorf("Files() = %+v, want %+v", got, want)
 	}
