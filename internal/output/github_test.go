@@ -24,6 +24,11 @@ func TestAnnotation(t *testing.T) {
 			want: "::error file=src/app.go,title=0001%3A Use Go::m\n",
 		},
 		{
+			name: "a warning",
+			a:    output.Annotation{File: "src/app.go", ADRID: "0001", ADRTitle: "Use Go", Message: "m", Warning: true},
+			want: "::warning file=src/app.go,title=0001%3A Use Go::m\n",
+		},
+		{
 			name: "message escapes percent and line breaks but keeps colons and commas",
 			a:    output.Annotation{File: "a.go", ADRID: "1", ADRTitle: "t", Message: "100% wrong,\r\nsee: ::error::x\n"},
 			want: "::error file=a.go,title=1%3A t::100%25 wrong,%0D%0Asee: ::error::x%0A\n",

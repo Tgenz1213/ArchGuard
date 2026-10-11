@@ -150,8 +150,8 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 		wantExit     cli.ExitCode
 		wantFailures int
 	}{
-		{"no pipeline skips the file", "", cli.ExitSuccess, 0},
-		{"on_error skip skips the file", "  pipeline:\n    rank:\n      on_error: skip\n", cli.ExitSuccess, 0},
+		{"no pipeline skips the file, leaving nothing checked", "", cli.ExitNothingChecked, 0},
+		{"on_error skip skips the file, leaving nothing checked", "  pipeline:\n    rank:\n      on_error: skip\n", cli.ExitNothingChecked, 0},
 		{"on_error fail fails the check", "  pipeline:\n    rank:\n      on_error: fail\n", cli.ExitStageUnavailable, 1},
 	}
 

@@ -16,11 +16,12 @@ The engine: `engine.go` (`Engine.Run`, context sizing), `run_state.go` (what a r
 - The scoring pipeline, its failure kinds and `on_error` are in `docs/arch/0022-candidate-scoring-pipeline.md`; its `--debug` lines in `docs/arch/0009-debug-visibility-for-rejected-adr-candidates.md` and `docs/arch/0019-single-query-consistency-for-debug-diagnostics.md`.
 - Context sizing counts tokens with the chat provider, prefers a diff to truncation, and truncates at a line boundary (`docs/arch/0002-provider-scoped-token-counting.md`). Under `--ci` a file that would be truncated is skipped with a warning instead (the CI Warn-Open policy) (`docs/arch/0028-check-report-and-log.md`).
 - Under `--since` (`Engine.JudgeChange`) the model reads the file's diff and findings are checked against it (`docs/arch/0030-judge-the-change-under-since.md`).
+- A finding counts only when its quote is found in what the model read; any other is unverified, reported apart and never fails the run (`docs/arch/0031-unverified-findings-and-the-exit-code.md`).
 - A cancelled context ends the run before any report or baseline (`docs/arch/0024-run-context-cancellation.md`).
 
 ## Findings and reports
 
-All per-file log text goes through `Engine.Out`, one `Group` per file, so a file with nothing to report prints nothing and scorers' debug lines land under the file. `Engine` records what the reports are built from (violations, skipped and partly checked files, failed checks, stage failures, coverage), and `Engine.Report()` and `Engine.BaselineReport()` hand them to `output`. `Engine.checkFile` is where each file is counted in `Coverage`. See `docs/arch/0028-check-report-and-log.md` and `docs/arch/0014-json-check-output.md`.
+All per-file log text goes through `Engine.Out`, one `Group` per file, so a file with nothing to report prints nothing and scorers' debug lines land under the file. `Engine` records what the reports are built from (violations, unverified findings, skipped and partly checked files, failed checks, stage failures, coverage), and `Engine.Report()` and `Engine.BaselineReport()` hand them to `output`. `Engine.checkFile` is where each file is counted in `Coverage`. See `docs/arch/0028-check-report-and-log.md` and `docs/arch/0014-json-check-output.md`.
 
 ## Cache
 

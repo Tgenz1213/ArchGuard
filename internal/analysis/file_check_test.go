@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,11 +23,13 @@ const changeSampleHunks = "@@ -1,5 +1,6 @@\n package a\n-var old = 1\n+var added
 const changeSamplePreamble = "diff --git a/service.py b/service.py\nindex 111..222 100644\n--- a/service.py\n+++ b/service.py\n"
 
 type changeRunOptions struct {
-	whole       string
-	diff        string
-	quote       string
-	judgeChange bool
-	cache       *cache.Cache
+	whole          string
+	diff           string
+	quote          string
+	judgeChange    bool
+	updateBaseline bool
+	maxTokens      int
+	cache          *cache.Cache
 }
 
 type changeRun struct {
@@ -58,11 +61,13 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+		LLM:         config.LLMConfig{MaxTokens: opts.maxTokens},
 	}
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
 	engine.Cache = opts.cache
 	engine.JudgeChange = opts.judgeChange
+	engine.UpdateBaseline = opts.updateBaseline
 	run.engine = engine
 
 	var drift *analysis.DriftDetectedError
@@ -73,11 +78,19 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 	return run
 }
 
+func (run *changeRun) findings() []analysis.Violation {
+	return slices.Concat(run.engine.CollectedViolations, run.engine.UnverifiedFindings)
+}
+
+func (run *changeRun) verified() bool {
+	return len(run.engine.UnverifiedFindings) == 0
+}
+
 func TestChange_BinaryDiffIsSkippedSilently(t *testing.T) {
 	run := runChange(t, changeRunOptions{whole: "x", diff: "diff --git a/x b/x\nBinary files a/x and b/x differ\n", quote: "x", judgeChange: true})
 
-	if run.chatCalls != 0 || len(run.engine.SkippedFiles) != 0 || len(run.engine.CollectedViolations) != 0 {
-		t.Fatalf("chat calls = %d, skipped = %+v, violations = %+v; want nothing judged, nothing recorded", run.chatCalls, run.engine.SkippedFiles, run.engine.CollectedViolations)
+	if run.chatCalls != 0 || len(run.engine.SkippedFiles) != 0 || len(run.findings()) != 0 {
+		t.Fatalf("chat calls = %d, skipped = %+v, findings = %+v; want nothing judged, nothing recorded", run.chatCalls, run.engine.SkippedFiles, run.findings())
 	}
 }
 
@@ -99,7 +112,7 @@ func TestChange_Findings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			run := runChange(t, changeRunOptions{whole: "ignored", diff: changeSamplePreamble + changeSampleHunks, quote: tt.quote, judgeChange: true})
 
-			found := run.engine.CollectedViolations
+			found := run.findings()
 			if len(found) != tt.wantFindings {
 				t.Fatalf("findings = %+v, want %d", found, tt.wantFindings)
 			}
@@ -112,7 +125,116 @@ func TestChange_Findings(t *testing.T) {
 				t.Errorf("line = %d, want %d", found[0].Line, tt.wantLine)
 			}
 
-			if got := run.engine.Report().Violations[0].Verified; got != tt.wantVerified {
+			if got := run.verified(); got != tt.wantVerified {
+				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
+			}
+		})
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundQuote(t *testing.T) {
+	const file = "package a\nimport \"os\"\nvar q = `select 1`\n"
+
+	tests := []struct {
+		name         string
+		quote        string
+		wantQuote    string
+		wantLine     int
+		wantVerified bool
+	}{
+		{"a fenced block with a language tag", "```go\nimport \"os\"\n```", `import "os"`, 2, true},
+		{"a fenced block without a language tag", "```\nimport \"os\"\n```", `import "os"`, 2, true},
+		{"a single-line fenced block", "```import \"os\"```", `import "os"`, 2, true},
+		{"inline backticks", "`import \"os\"`", `import "os"`, 2, true},
+		{"backticks that belong to the code", "`select 1`", "`select 1`", 3, true},
+		{"an unwrapped quote", `import "os"`, `import "os"`, 2, true},
+		{"a wrapped quote that is not in the file keeps its markdown", "```go\nimport \"fmt\"\n```", "```go\nimport \"fmt\"\n```", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := runChange(t, changeRunOptions{whole: file, quote: tt.quote})
+
+			found := run.findings()
+			if len(found) != 1 {
+				t.Fatalf("findings = %+v, want 1", found)
+			}
+
+			if found[0].QuotedCode != tt.wantQuote || found[0].Line != tt.wantLine {
+				t.Errorf("quote, line = %q, %d; want %q, %d", found[0].QuotedCode, found[0].Line, tt.wantQuote, tt.wantLine)
+			}
+
+			if got := run.verified(); got != tt.wantVerified {
+				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
+			}
+		})
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundQuoteUnderSince(t *testing.T) {
+	run := runChange(t, changeRunOptions{whole: "ignored", diff: changeSamplePreamble + changeSampleHunks, quote: "```go\nvar added = 1\n```", judgeChange: true})
+
+	found := run.engine.CollectedViolations
+	if len(found) != 1 || found[0].QuotedCode != "var added = 1" || found[0].Line != 2 {
+		t.Fatalf("findings = %+v, want one at line 2 quoting the unwrapped line", found)
+	}
+}
+
+func TestRun_UnwrapsMarkdownAroundCachedQuote(t *testing.T) {
+	shared, err := cache.NewCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewCache: %v", err)
+	}
+
+	const file = "package a\nimport \"os\"\n"
+
+	runChange(t, changeRunOptions{whole: file, quote: "```go\nimport \"os\"\n```", cache: shared})
+	second := runChange(t, changeRunOptions{whole: file, quote: "unused: the cached result answers", cache: shared})
+
+	found := second.engine.CollectedViolations
+	if second.chatCalls != 0 || len(found) != 1 || found[0].QuotedCode != `import "os"` {
+		t.Fatalf("chat calls = %d, findings = %+v; want the cached fenced quote unwrapped", second.chatCalls, found)
+	}
+}
+
+func TestRun_UpdateBaselineRecordsUnwrappedQuote(t *testing.T) {
+	run := runChange(t, changeRunOptions{whole: "package a\nimport \"os\"\n", quote: "`import \"os\"`", updateBaseline: true})
+
+	entries := run.engine.CollectedBaseline.Entries
+	if len(entries) != 1 || entries[0].QuotedCode != `import "os"` {
+		t.Fatalf("baseline entries = %+v, want one recording the unwrapped quote", entries)
+	}
+}
+
+func TestRun_ReportsFileLinesForAFileAnalyzedThroughItsDiff(t *testing.T) {
+	whole := strings.Repeat("// filler\n", 197) + "func a() {}\nfunc b() {}\nvar leak = password\n"
+	diff := changeSamplePreamble + "@@ -198,3 +198,3 @@\n func a() {}\n-func old() {}\n+func b() {}\n+var leak = password\n"
+
+	tests := []struct {
+		name         string
+		quote        string
+		wantLine     int
+		wantVerified bool
+	}{
+		{"an added line", "var leak = password", 200, true},
+		{"an unchanged line", "func a() {}", 198, true},
+		{"lines across an unchanged and an added line", "func a() {}\nfunc b() {}", 198, true},
+		{"a removed line is not in the file", "func old() {}", 0, false},
+		{"a quote found nowhere", "something the model invented", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := runChange(t, changeRunOptions{whole: whole, diff: diff, quote: tt.quote, maxTokens: 10})
+
+			found := run.findings()
+			if len(found) != 1 {
+				t.Fatalf("findings = %+v, want 1", found)
+			}
+
+			if found[0].Line != tt.wantLine {
+				t.Errorf("line = %d, want %d", found[0].Line, tt.wantLine)
+			}
+
+			if got := run.verified(); got != tt.wantVerified {
 				t.Errorf("verified = %v, want %v", got, tt.wantVerified)
 			}
 		})
@@ -249,5 +371,59 @@ func TestEngine_DoesNotCountAPartlyCheckedFileWithNoCandidateAsWithoutADR(t *tes
 	report := h.engine.Report()
 	if len(report.PartialFiles) != 1 || report.Coverage != (output.Coverage{}) {
 		t.Fatalf("partial = %+v, coverage = %+v; want the file partly checked and nothing counted", report.PartialFiles, report.Coverage)
+	}
+}
+
+func TestEngine_CheckedNothing(t *testing.T) {
+	failFor := func(files ...string) stage.Scorer {
+		return scorerFunc(func(_ context.Context, file stage.File, _ stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+			if slices.Contains(files, file.Path()) {
+				return nil, errors.New("down")
+			}
+
+			return slices.Repeat([]float64{1}, len(candidates)), nil
+		})
+	}
+	failingChat := &inference.MockProvider{ChatFunc: func(context.Context, string, string) (string, error) {
+		return "", backoff.Permanent(errors.New("down"))
+	}}
+
+	tests := []struct {
+		name        string
+		setup       func(h *scorerHarness)
+		wantSkipped int
+		want        bool
+	}{
+		{"every file's scoring failed", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("a.go", "b.go")}} }, 2, true},
+		{"one file judged beside a failed one", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}} }, 1, false},
+		{"every ADR check failed", func(h *scorerHarness) { h.engine.Chat = failingChat }, 0, true},
+		{"a file with no relevant ADR beside a failed one", func(h *scorerHarness) {
+			h.engine.Store.(*index.LocalStore).ADRs[0].Scope = []string{"b.go"}
+			h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}}
+		}, 1, true},
+		{"files too large in CI mode are not errors", func(h *scorerHarness) {
+			h.engine.Content = &fallbackOnlyContentProvider{files: map[string]string{"a.go": "package a", "b.go": "package b"}}
+			h.engine.CI = true
+			h.engine.Config.LLM.MaxTokens = 1
+		}, 2, false},
+		{"no relevant ADR and no error", func(h *scorerHarness) {
+			h.engine.Store.(*index.LocalStore).ADRs[0].Scope = []string{"docs/**"}
+		}, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
+			h.engine.Content.(*MockContentProvider).Files = map[string]string{"a.go": "package a", "b.go": "package b"}
+			h.engine.Out = output.Discard()
+			tt.setup(h)
+
+			if err := h.engine.Run(t.Context()); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(h.engine.SkippedFiles) != tt.wantSkipped || h.engine.CheckedNothing != tt.want {
+				t.Fatalf("skipped = %+v, CheckedNothing = %v; want %d skipped and %v (failed checks %+v, coverage %+v)", h.engine.SkippedFiles, h.engine.CheckedNothing, tt.wantSkipped, tt.want, h.engine.FailedChecks, h.engine.Coverage)
+			}
+		})
 	}
 }

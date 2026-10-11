@@ -75,7 +75,7 @@ func TestDriftDetection(t *testing.T) {
 
 	content := &MockContentProvider{
 		Files: map[string]string{
-			"service.py": "// content ignored by mock",
+			"service.py": "import python_library\n",
 		},
 	}
 
@@ -489,7 +489,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 			return `{
             "violation": true,
             "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
+            "quoted_code": "import other_library"
         }`, nil
 		},
 	}
@@ -511,7 +511,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 	}
 	content := &MockContentProvider{
 		Files: map[string]string{
-			"service.py": "// content ignored by mock, no longer contains the baselined snippet",
+			"service.py": "import other_library\n",
 		},
 	}
 
@@ -854,17 +854,17 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 		runErr = engine.Run(t.Context())
 	})
 
-	if !errors.Is(runErr, analysis.ErrDriftDetected) {
-		t.Fatalf("expected a drift-detected error, got: %v", runErr)
+	if runErr != nil {
+		t.Fatalf("an unverified finding alone must not fail the run, got: %v", runErr)
 	}
 
 	if strings.Contains(output, "Line 0") {
 		t.Errorf("expected no fabricated Line 0, got: %q", output)
 	}
 
-	violations := engine.Report().Violations
-	if len(violations) != 1 || violations[0].Verified || violations[0].Code != "this snippet was never in the file" {
-		t.Errorf("expected one unverified violation quoting the snippet, got %+v", violations)
+	report := engine.Report()
+	if len(report.Violations) != 0 || len(report.Unverified) != 1 || report.Unverified[0].Code != "this snippet was never in the file" {
+		t.Errorf("expected one unverified finding quoting the snippet and no violation, got %+v", report)
 	}
 }
 
@@ -919,7 +919,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	}
 
 	violations := engine.Report().Violations
-	if len(violations) != 1 || !violations[0].Verified || violations[0].Line != 1 {
+	if len(violations) != 1 || violations[0].Line != 1 {
 		t.Errorf("expected one verified violation at line 1, got %+v", violations)
 	}
 }
@@ -1482,7 +1482,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 func TestRun_ScopeRestrictedADROnlyEvaluatedForMatchingFile(t *testing.T) {
 	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{"violation": true, "reasoning": "always violates in this test", "quoted_code": "bad"}`, nil
+			return `{"violation": true, "reasoning": "always violates in this test", "quoted_code": "package main"}`, nil
 		},
 	}
 
@@ -2496,7 +2496,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	engine.SuggestFixes = true
 
 	output := captureStderr(t, func() {
-		runEngine(t, engine, true)
+		runEngine(t, engine, false)
 	})
 
 	if chatCalls != 1 {

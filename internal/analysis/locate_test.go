@@ -48,3 +48,35 @@ func TestLocateQuote(t *testing.T) {
 		})
 	}
 }
+
+func TestLocateInNewFile(t *testing.T) {
+	lines := parseDiff(sampleHunks)
+	duplicate := parseDiff("@@ -1,2 +1,3 @@\n }\n+}\n")
+	apart := parseDiff("@@ -1,1 +1,1 @@\n a\n@@ -9,1 +9,1 @@\n b\n")
+
+	tests := []struct {
+		name  string
+		lines []diffLine
+		quote string
+		want  placement
+		line  int
+	}{
+		{"an added line", lines, "var added = 1", placedInFile, 2},
+		{"an unchanged line keeps its line", lines, "func keep() {}", placedInFile, 5},
+		{"part of a line", lines, "alsoAdded", placedInFile, 3},
+		{"a stray leading plus", lines, "+var added = 1", placedInFile, 2},
+		{"a run across an unchanged line, a removed line and an added line", lines, "package a\nvar added = 1", placedInFile, 1},
+		{"a removed line is not in the file", lines, "var old = 1", placedNowhere, 0},
+		{"an added line beats an identical unchanged line", duplicate, "}", placedInFile, 2},
+		{"lines from different hunks do not form a run", apart, "a\nb", placedNowhere, 0},
+		{"an empty quote", lines, "", placedNowhere, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, line := locateInNewFile(tt.lines, tt.quote)
+			if got != tt.want || line != tt.line {
+				t.Fatalf("locateInNewFile(%q) = %v, %d; want %v, %d", tt.quote, got, line, tt.want, tt.line)
+			}
+		})
+	}
+}

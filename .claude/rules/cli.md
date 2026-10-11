@@ -18,7 +18,7 @@ Provider pairing, the rules `validateProviderConfig` enforces, and why `ARCHGUAR
 
 `check` writes its result to stdout and everything else to stderr: the end-of-run report in text mode, or the one JSON document under `--format json` (`docs/arch/0028-check-report-and-log.md`, `docs/arch/0014-json-check-output.md`). `checkRun` holds two printers, `log` (stderr) and `report` (stdout, or a buffer saved to `--output`), and passes `log` to everything it calls that prints, including an index rebuild. `index` and `init` print on stdout.
 
-With `GITHUB_ACTIONS=true` and text output, `runCheck` prints one `::error` annotation per new violation after the run, but not under `--update-baseline`.
+With `GITHUB_ACTIONS=true` and text output, `runCheck` prints one `::error` annotation per new violation and one `::warning` per unverified finding after the run, but not under `--update-baseline`.
 
 ## Exit codes
 
@@ -26,14 +26,15 @@ Exit codes are meaningful and tested; preserve them if you touch command dispatc
 
 | Code | Meaning |
 |---|---|
-| `0` | Success, including files skipped under the default `on_error: skip` |
+| `0` | Success, including files skipped under the default `on_error: skip` while another ADR check ran, and runs whose only findings are unverified |
 | `1` | General error, including a failed write of primary output, which wins over every code but `130` |
 | `2` | Usage |
 | `3` | Config |
 | `4` | Drift detected, returned with a nil error so `main` prints no `Error:` line |
 | `5` | Index error, including zero valid ADRs (`docs/arch/0010-index-corpus-health-reporting.md`) |
 | `6` | A stage with `on_error: fail` hit an unavailable dependency |
-| `7` | A stage with `on_error: fail` hit an unmet precondition; wins over `6`, and both win over `4` |
+| `7` | A stage with `on_error: fail` hit an unmet precondition; wins over `6`, and both win over `8` and `4` |
+| `8` | Errors left the run with no ADR check (`docs/arch/0032-a-run-that-checked-nothing-fails.md`) |
 | `130` | Interrupted by SIGINT or SIGTERM (`docs/arch/0024-run-context-cancellation.md`) |
 
 ## Footguns

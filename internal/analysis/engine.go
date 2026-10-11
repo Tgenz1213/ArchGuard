@@ -42,9 +42,11 @@ type Engine struct {
 	JSONOutput           bool
 	Out                  *output.Printer
 	CollectedViolations  []Violation
+	UnverifiedFindings   []Violation
 	CollectedStages      []stage.Stats
 	StageFailures        []StageFailure
 	Coverage             output.Coverage
+	CheckedNothing       bool
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
 	Stages       []stage.Stage
@@ -58,18 +60,11 @@ type Violation struct {
 	Reasoning  string `json:"reasoning"`
 	QuotedCode string `json:"quoted_code"`
 	Suggestion string `json:"suggestion,omitempty"`
-	// Line counts lines of the diff the LLM saw, not of the file.
-	lineInDiff bool
 	unverified bool
 }
 
 func (v Violation) Annotation() output.Annotation {
-	a := output.Annotation{File: v.File, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning}
-	if !v.lineInDiff {
-		a.Line = v.Line
-	}
-
-	return a
+	return output.Annotation{File: v.File, Line: v.Line, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning, Warning: v.unverified}
 }
 
 type StageFailure struct {
@@ -195,8 +190,10 @@ func (e *Engine) publish(run *runState) {
 	e.UnrecordedViolations = run.unrecorded
 	e.PartialFiles = run.partial
 	e.Coverage = run.coverage
+	e.CheckedNothing = run.checkedNothing()
 	e.StageFailures = sortedStageFailures(run.stageFailures)
 	e.CollectedViolations = run.collected
+	e.UnverifiedFindings = run.unverified
 	e.collectStageStats(run)
 
 	if e.UpdateBaseline {
