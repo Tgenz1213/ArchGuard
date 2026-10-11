@@ -1,0 +1,30 @@
+name: PR Title
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventional-commit:
+    name: Conventional Commit Title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+          if [[ ! "$TITLE" =~ ^($types)(\([^()[:space:]]+\))?!?:\ [^[:space:]] ]]; then
+            echo "::error title=PR title is not a Conventional Commit::Got '$TITLE'. Expected 'type(scope)!: summary', where (scope) and ! are optional, e.g. 'fix(cli)!: reject an empty --since'. Allowed types: ${types//|/, }."
+            exit 1
+          fi

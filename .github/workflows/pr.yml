@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     name: Checks
@@ -23,3 +27,7 @@ jobs:
     uses: ./.github/workflows/archguard.yml
     secrets:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+  vulnerabilities:
+    name: Vulnerabilities
+    uses: ./.github/workflows/vulncheck.yml
