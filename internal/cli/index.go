@@ -24,11 +24,24 @@ func runIndexCommand(ctx context.Context, setup runSetup, colors streamColors) (
 }
 
 func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCode, error) {
+	result, err := buildIndex(ctx, setup, out)
+	if result.Attempted {
+		printIndexSummary(result, out)
+	}
+
+	if err != nil {
+		return ExitIndexError, err
+	}
+
+	return ExitSuccess, nil
+}
+
+func buildIndex(ctx context.Context, setup runSetup, out *output.Printer) (index.BuildIndexResult, error) {
 	cfg := setup.cfg
 
 	store, err := index.NewVectorStore(cfg, out)
 	if err != nil {
-		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
+		return index.BuildIndexResult{}, fmt.Errorf("failed to initialize vector store: %w", err)
 	}
 
 	if local, ok := store.(*index.LocalStore); ok {
@@ -38,24 +51,20 @@ func runIndex(ctx context.Context, setup runSetup, out *output.Printer) (ExitCod
 	}
 
 	result, err := store.BuildIndex(ctx, cfg.VectorStore.Model, cfg.VectorStore.EmbeddingDim, setup.embed, newADRProvider(setup, out))
-	if result.Attempted {
-		printIndexSummary(result, out)
-	}
-
 	if err != nil {
-		return ExitIndexError, fmt.Errorf("failed to build index: %w", err)
+		return result, fmt.Errorf("failed to build index: %w", err)
 	}
 
 	// Checked before Save so a failed rebuild leaves the prior index intact.
 	if result.IsEmpty() {
-		return ExitIndexError, fmt.Errorf("no valid ADRs found among %d discovered; index not updated", result.Discovered)
+		return result, fmt.Errorf("no valid ADRs found among %d discovered; index not updated", result.Discovered)
 	}
 
 	if err := store.Save(setup.indexFile); err != nil {
-		return ExitIndexError, fmt.Errorf("failed to save index: %w", err)
+		return result, fmt.Errorf("failed to save index: %w", err)
 	}
 
-	return ExitSuccess, nil
+	return result, nil
 }
 
 func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {

@@ -5,6 +5,11 @@ type FileGap struct {
 	Reason string
 }
 
+type ADRGap struct {
+	ADR    string
+	Reason string
+}
+
 type FailedCheck struct {
 	File   string
 	ADRID  string

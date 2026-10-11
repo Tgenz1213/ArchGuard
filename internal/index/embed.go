@@ -42,6 +42,7 @@ func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildInd
 
 	// Valid means successfully indexed, not merely status-accepted.
 	result.Valid = len(j.adrs) - len(outcome.failed)
+	result.Embedded = len(toEmbed) - len(outcome.failed)
 
 	action := "embed"
 	if j.persist != nil {

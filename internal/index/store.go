@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -23,7 +23,8 @@ type SkippedADR struct {
 // Skipped can be non-empty even when BuildIndex also returns an error.
 type BuildIndexResult struct {
 	Summary
-	Skipped []SkippedADR
+	Embedded int
+	Skipped  []SkippedADR
 	// Attempted is false only when BuildIndex failed before fetching ADRs,
 	// distinguishing that from a fetch that genuinely found nothing.
 	Attempted bool
@@ -32,6 +33,7 @@ type BuildIndexResult struct {
 type VectorStore interface {
 	// ScopedADRs needs no embedding, so pipelines without a cosine stage never embed.
 	ScopedADRs(filePath string) ([]SearchResult, error)
+	IndexedPaths() ([]string, error)
 	CalculateHash(adrs []ADR, modelName string) (string, error)
 	Load(path, modelName string, dim int, currentHash string) error
 	Save(path string) error
@@ -102,11 +104,17 @@ func (s *LocalStore) CalculateHash(adrs []ADR, modelName string) (string, error)
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
+var (
+	ErrIndexMissing          = errors.New("index missing")
+	ErrEmbeddingModelChanged = errors.New("embedding model changed")
+	ErrADRsChanged           = errors.New("ADRs changed")
+)
+
 func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("index file not found: %s", path)
+			return fmt.Errorf("%w: %s", ErrIndexMissing, path)
 		}
 
 		return err
@@ -116,24 +124,21 @@ func (s *LocalStore) Load(path, modelName string, dim int, currentHash string) e
 		return err
 	}
 
-	if s.ModelName != modelName || s.Dim != dim || s.Hash != currentHash {
-		var reasons []string
-		if s.ModelName != modelName {
-			reasons = append(reasons, fmt.Sprintf("Model mismatch (Saved: %q, Config: %q)", s.ModelName, modelName))
-		}
-
-		if s.Dim != dim {
-			reasons = append(reasons, fmt.Sprintf("Dimension mismatch (Saved: %d, Config: %d)", s.Dim, dim))
-		}
-
-		if s.Hash != currentHash {
-			reasons = append(reasons, fmt.Sprintf("Hash mismatch\n    Saved:   %s\n    Current: %s", s.Hash, currentHash))
-		}
-
-		return fmt.Errorf("index metadata mismatch:\n  %s", strings.Join(reasons, "\n  "))
+	var reasons []error
+	if s.ModelName != modelName {
+		reasons = append(reasons, fmt.Errorf("%w: saved %q, config %q", ErrEmbeddingModelChanged, s.ModelName, modelName))
 	}
 
-	return nil
+	if s.Dim != dim {
+		reasons = append(reasons, fmt.Errorf("%w: saved dimension %d, config %d", ErrEmbeddingModelChanged, s.Dim, dim))
+	}
+
+	// The hash covers the model name, so after a model change it can't tell whether the ADRs changed too.
+	if s.Hash != currentHash && s.ModelName == modelName {
+		reasons = append(reasons, fmt.Errorf("%w: saved hash %s, current %s", ErrADRsChanged, s.Hash, currentHash))
+	}
+
+	return errors.Join(reasons...)
 }
 
 // LoadSaved reads a saved index without validating it, so BuildIndex can reuse

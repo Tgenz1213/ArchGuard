@@ -21,11 +21,17 @@ func decideColors(mode output.ColorMode) (colors streamColors, restore func()) {
 }
 
 func (c streamColors) stdoutPrinter(debug bool) *output.Printer {
-	return output.New(os.Stdout, debug, output.WithColor(c.stdout))
+	return output.New(os.Stdout, debug, output.WithColor(c.stdout), output.WithProgress(isTerminal(os.Stdout)))
 }
 
 func (c streamColors) stderrPrinter(debug bool) *output.Printer {
-	return output.New(os.Stderr, debug, output.WithColor(c.stderr))
+	return output.New(os.Stderr, debug, output.WithColor(c.stderr), output.WithProgress(isTerminal(os.Stderr)))
+}
+
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func outputWriteError(err error) error {

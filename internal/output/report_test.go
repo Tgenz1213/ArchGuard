@@ -27,11 +27,12 @@ func TestReportLayout(t *testing.T) {
 			{File: "c.go", ADRID: "0005", Title: "Cite it", Reasoning: "invented", Code: "not in the file"},
 			{File: "a.go", ADRID: "0003", Title: "Quote it", Reasoning: "vague"},
 		},
-		SkippedFiles: []output.FileGap{{File: "c.go", Reason: "reading file: boom"}},
-		FailedChecks: []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
-		FailedStages: []output.FailedStage{{Stage: "rerank", File: "d.go", Reason: "unavailable"}},
-		Baselined:    2,
-		Coverage:     output.Coverage{FilesJudged: 2, ADRChecks: 5, FilesWithoutADR: 1},
+		SkippedFiles:  []output.FileGap{{File: "c.go", Reason: "reading file: boom"}},
+		FailedChecks:  []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
+		FailedStages:  []output.FailedStage{{Stage: "rerank", File: "d.go", Reason: "unavailable"}},
+		UnindexedADRs: []output.ADRGap{{ADR: "0007-long.md", Reason: "failed to embed: boom"}},
+		Baselined:     2,
+		Coverage:      output.Coverage{FilesJudged: 2, ADRChecks: 5, FilesWithoutADR: 1},
 	})
 
 	want := `Violations:
@@ -63,8 +64,11 @@ Failed ADR checks:
 Failed stages:
   d.go: stage rerank: unavailable
 
+ADRs not in the index (no file was checked against them):
+  0007-long.md: failed to embed: boom
+
 Checked 2 file(s) against 5 ADR check(s); 1 file(s) had no relevant ADR.
-2 new violation(s) in 2 file(s), 2 baselined, 2 unverified. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s).
+2 new violation(s) in 2 file(s), 2 baselined, 2 unverified. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s), 1 ADR(s) not indexed.
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

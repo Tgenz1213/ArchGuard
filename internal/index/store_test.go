@@ -503,3 +503,50 @@ func TestLocalStore_BuildIndex_ShortensAnADRTheModelRejectsAsTooLong(t *testing.
 		t.Errorf("expected a note naming the shortened ADR, got %q", out.String())
 	}
 }
+
+func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.json")
+
+	saved := &LocalStore{ADRs: []ADR{}, Hash: "hash-a", ModelName: "model-a", Dim: 4}
+	if err := saved.Save(indexPath); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		model   string
+		dim     int
+		hash    string
+		want    []error
+		notWant []error
+	}{
+		{name: "matches", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", notWant: []error{ErrIndexMissing, ErrEmbeddingModelChanged, ErrADRsChanged}},
+		{name: "missing", path: indexPath + ".gone", model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrIndexMissing}},
+		{name: "ADRs changed", path: indexPath, model: "model-a", dim: 4, hash: "hash-b", want: []error{ErrADRsChanged}, notWant: []error{ErrEmbeddingModelChanged}},
+		{name: "dimension changed", path: indexPath, model: "model-a", dim: 8, hash: "hash-a", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},
+		{name: "model changed hides the hash it also changed", path: indexPath, model: "model-b", dim: 4, hash: "hash-b", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := NewLocalStore(1).Load(tc.path, tc.model, tc.dim, tc.hash)
+
+			if len(tc.want) == 0 && err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			for _, want := range tc.want {
+				if !errors.Is(err, want) {
+					t.Errorf("err = %v, want it to be %v", err, want)
+				}
+			}
+
+			for _, notWant := range tc.notWant {
+				if errors.Is(err, notWant) {
+					t.Errorf("err = %v, want it not to be %v", err, notWant)
+				}
+			}
+		})
+	}
+}

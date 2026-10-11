@@ -855,6 +855,10 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	assert.True(t, gotPaths["adr_0.md"], "adr_0.md must still be embedded and searchable")
 	assert.True(t, gotPaths["adr_2.md"], "adr_2.md must still be embedded and searchable")
 	assert.False(t, gotPaths["adr_1.md"], "adr_1.md must not appear -- its embed failed, so it was never inserted")
+
+	indexed, err := store.IndexedPaths()
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"adr_0.md", "adr_2.md"}, indexed, "IndexedPaths must list exactly the ADRs that made it into the index")
 }
 
 // A failed re-embed must leave the ADR's already-indexed row as it was --

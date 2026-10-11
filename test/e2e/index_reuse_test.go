@@ -118,3 +118,115 @@ func TestE2E_IndexRebuildEmbedsOnlyWhatChanged(t *testing.T) {
 		})
 	}
 }
+
+// Steps run in order against one repository, each starting from the index the previous one saved.
+func TestE2E_CheckRebuildLogsOneLineWithItsReason(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, reuseTestConfig("model-a", 768))
+
+	if err := os.MkdirAll(filepath.Join(tempDir, "docs", "arch"), 0755); err != nil {
+		t.Fatalf("Failed to create ADR directory: %v", err)
+	}
+
+	writeReuseTestADR(t, tempDir, "0001-first", "Original decision.")
+
+	if err := os.WriteFile(filepath.Join(tempDir, "clean.js"), []byte("function greet() {}\n"), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	steps := []struct {
+		name       string
+		change     func(t *testing.T)
+		debug      bool
+		wantReason string
+	}{
+		{name: "missing index", change: func(*testing.T) {}, wantReason: "(index missing)"},
+		{
+			name:       "edited ADR",
+			change:     func(t *testing.T) { writeReuseTestADR(t, tempDir, "0001-first", "Edited decision.") },
+			wantReason: "(ADRs changed)",
+		},
+		{
+			name:       "different model",
+			change:     func(t *testing.T) { writeE2EConfig(t, tempDir, reuseTestConfig("model-b", 768)) },
+			wantReason: "(embedding model changed)",
+		},
+		{
+			name:       "debug shows the hashes",
+			change:     func(t *testing.T) { writeReuseTestADR(t, tempDir, "0001-first", "Edited again.") },
+			debug:      true,
+			wantReason: "(ADRs changed)",
+		},
+	}
+
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			step.change(t)
+
+			args := []string{"clean.js"}
+			if step.debug {
+				args = append(args, "--debug")
+			}
+
+			_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, args...)
+			if exitCode != int(cli.ExitSuccess) {
+				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+			}
+
+			if !strings.Contains(stderr, "Rebuilt the ADR index "+step.wantReason) {
+				t.Errorf("expected a rebuild notice giving %s. stderr: %s", step.wantReason, stderr)
+			}
+
+			if strings.Contains(stderr, "saved hash") != step.debug {
+				t.Errorf("hashes shown = %v, want %v. stderr: %s", !step.debug, step.debug, stderr)
+			}
+
+			if !step.debug && strings.Contains(stderr, "Generating embeddings") {
+				t.Errorf("expected only the one rebuild line without --debug. stderr: %s", stderr)
+			}
+
+			if strings.Contains(stderr, "\n.") {
+				t.Errorf("progress dots printed to a log that is not a terminal. stderr: %s", stderr)
+			}
+		})
+	}
+}
+
+func TestE2E_CheckReportsAnADRThatFailedToEmbed(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	writeE2EConfig(t, tempDir, reuseTestConfig("model-a", 768))
+	writeNoSecretsADR(t, tempDir)
+
+	failingADR := filepath.Join(tempDir, "docs", "arch", "0001-always-fails.md")
+	if err := os.WriteFile(failingADR, []byte(alwaysFailsToEmbedADRContent), 0644); err != nil {
+		t.Fatalf("Failed to create failing ADR: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(tempDir, "clean.js"), []byte("function greet() {}\n"), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	for _, run := range []string{"rebuilding", "steady state"} {
+		t.Run(run, func(t *testing.T) {
+			stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "clean.js")
+			if exitCode != int(cli.ExitSuccess) {
+				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+			}
+
+			if !strings.Contains(stdout, "0001-always-fails.md") {
+				t.Errorf("expected the report to list the ADR that is not in the index. stdout: %s", stdout)
+			}
+
+			if strings.Contains(stdout, "0000-no-secrets-in-log.md") {
+				t.Errorf("an indexed ADR was reported as missing. stdout: %s", stdout)
+			}
+		})
+	}
+
+	_, stderr, _ := runCheckJSON(t, tempDir, binaryPath, "clean.js")
+	if !strings.Contains(stderr, "not in the index") {
+		t.Errorf("expected --format json to warn about the ADR that is not in the index. stderr: %s", stderr)
+	}
+}

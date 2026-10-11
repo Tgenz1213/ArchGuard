@@ -18,6 +18,19 @@ func (s *LocalStore) ScopedADRs(filePath string) ([]SearchResult, error) {
 	return filterByScope(candidates, filePath), nil
 }
 
+func (s *LocalStore) IndexedPaths() ([]string, error) {
+	return relPaths(s.ADRs), nil
+}
+
+func relPaths(adrs []ADR) []string {
+	paths := make([]string, len(adrs))
+	for i, adr := range adrs {
+		paths[i] = adr.RelPath
+	}
+
+	return paths
+}
+
 func (s *LocalStore) scopeMatchedCandidates(queryEmbedding []float32, filePath string) []SearchResult {
 	var candidates []SearchResult
 
