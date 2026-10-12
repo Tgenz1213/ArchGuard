@@ -209,6 +209,10 @@ func TestLocalStore_BuildIndex_SkipsFailedADRAndContinuesEmbeddingOthers(t *test
 		t.Errorf("expected Valid to count only successfully-indexed ADRs (2), got %d", result.Valid)
 	}
 
+	if result.Embedded != 2 {
+		t.Errorf("expected Embedded to exclude the failed ADR (2), got %d", result.Embedded)
+	}
+
 	if len(store.ADRs) != 2 {
 		t.Fatalf("expected 2 ADRs to remain in the corpus (the failed one excluded), got %d", len(store.ADRs))
 	}
@@ -407,12 +411,17 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 				t.Fatalf("LoadSaved: %v", err)
 			}
 
-			if _, err := store.BuildIndex(t.Context(), tc.model, tc.dim, embedder, &mockADRProvider{adrs: slices.Clone(tc.adrs)}); err != nil {
+			result, err := store.BuildIndex(t.Context(), tc.model, tc.dim, embedder, &mockADRProvider{adrs: slices.Clone(tc.adrs)})
+			if err != nil {
 				t.Fatalf("BuildIndex: %v", err)
 			}
 
 			if got := embedder.embeddedTitles(); !slices.Equal(got, tc.wantEmbedded) {
 				t.Errorf("embedded %v, want %v", got, tc.wantEmbedded)
+			}
+
+			if result.Embedded != len(tc.wantEmbedded) {
+				t.Errorf("result.Embedded = %d, want %d", result.Embedded, len(tc.wantEmbedded))
 			}
 
 			for _, adr := range store.ADRs {

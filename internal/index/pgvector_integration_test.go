@@ -1005,8 +1005,9 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "0011-unchanged.md"), []byte(unchangedContent), 0644))
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	first, err := store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
 	require.NoError(t, err, "the first build must index the unchanged ADR successfully")
+	assert.Equal(t, 1, first.Embedded)
 
 	// Add two new ADRs whose content always fails to embed; the unchanged
 	// ADR's file is untouched, so it's delta-preserved, not re-attempted.
@@ -1029,6 +1030,7 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	require.NoError(t, err, "the unchanged ADR keeps the corpus non-empty, so this must not be treated as build-wide failure")
 	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs", "the unchanged ADR must not be re-attempted")
 	require.Len(t, result.Skipped, 2)
+	assert.Equal(t, 0, result.Embedded, "neither the reused ADR nor the failed ones were embedded")
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 10, "main.go")
 	require.Len(t, results, 1, "only the unchanged ADR should remain indexed")

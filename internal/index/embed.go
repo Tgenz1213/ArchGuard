@@ -40,6 +40,7 @@ func (j embedJob) embedInto(ctx context.Context, toEmbed []int, result *BuildInd
 	j.out.Info("Found %d valid ADRs. Generating embeddings for %d new/modified ADRs...", len(j.adrs), len(toEmbed))
 
 	outcome, err := j.run(ctx, toEmbed)
+	result.Embedded = len(toEmbed) - len(outcome.failed)
 	result.Skipped = append(result.Skipped, outcome.skipped...)
 
 	if err != nil {

@@ -23,6 +23,7 @@ type SkippedADR struct {
 // Skipped can be non-empty even when BuildIndex also returns an error.
 type BuildIndexResult struct {
 	Summary
+	// Embedded excludes reused, dropped and failed ADRs.
 	Embedded int
 	Skipped  []SkippedADR
 	// Attempted is false only when BuildIndex failed before fetching ADRs,
