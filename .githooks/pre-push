@@ -5,7 +5,7 @@ set -uo pipefail
 
 zero=0000000000000000000000000000000000000000
 
-if ! git fetch --quiet origin main; then
+if ! git fetch --quiet --no-auto-maintenance --no-auto-gc origin main; then
   echo "pre-push: could not fetch origin/main; push not checked" >&2
   exit 0
 fi
