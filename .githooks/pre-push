@@ -1,0 +1,22 @@
+#!/bin/bash
+# Blocks a push of any branch that does not contain the latest origin/main.
+# Tags and deletions are not checked.
+set -uo pipefail
+
+zero=0000000000000000000000000000000000000000
+
+if ! git fetch --quiet origin main; then
+  echo "pre-push: could not fetch origin/main; push not checked" >&2
+  exit 0
+fi
+
+status=0
+while read -r local_ref local_sha remote_ref _; do
+  case $remote_ref in refs/heads/*) ;; *) continue ;; esac
+  if [ "$local_sha" = "$zero" ] || git merge-base --is-ancestor origin/main "$local_sha"; then
+    continue
+  fi
+  echo "Push blocked: $local_ref does not contain origin/main. Merge origin/main into it, then push again." >&2
+  status=1
+done
+exit $status
