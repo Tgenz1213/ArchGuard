@@ -174,8 +174,8 @@ func TestE2E_CheckRebuildLogsOneLineWithItsReason(t *testing.T) {
 				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
 			}
 
-			if !strings.Contains(stderr, "Rebuilt the ADR index "+step.wantReason) {
-				t.Errorf("expected a rebuild notice giving %s. stderr: %s", step.wantReason, stderr)
+			if want := "Rebuilt the ADR index " + step.wantReason + ": embedded 1 ADR(s)."; !strings.Contains(stderr, want) {
+				t.Errorf("expected %q. stderr: %s", want, stderr)
 			}
 
 			if strings.Contains(stderr, "saved hash") != step.debug {
