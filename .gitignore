@@ -31,3 +31,6 @@ coverage.out
 
 # Working plans, never committed
 docs/superpowers/
+
+# Subagent worktrees
+.claude/worktrees/
