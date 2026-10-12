@@ -371,6 +371,7 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 		model        string
 		dim          int
 		savedFormat  string
+		sections     SectionSelection
 		wantEmbedded []string
 	}{
 		{name: "nothing changed", adrs: savedADRs, model: "model-a", dim: 4},
@@ -379,6 +380,7 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 		{name: "dimension changed", adrs: savedADRs, model: "model-a", dim: 8, wantEmbedded: []string{"A", "B", "C"}},
 		{name: "dimension unset", adrs: savedADRs, model: "model-a", dim: 0},
 		{name: "embedding format changed", adrs: savedADRs, model: "model-a", dim: 4, savedFormat: "0", wantEmbedded: []string{"A", "B", "C"}},
+		{name: "section selection changed", adrs: savedADRs, model: "model-a", dim: 4, sections: NewSectionSelection(nil, []string{"Context"}), wantEmbedded: []string{"A", "B", "C"}},
 	}
 
 	for _, tc := range tests {
@@ -399,6 +401,8 @@ func TestLocalStore_BuildIndex_ReusesSavedEmbeddings(t *testing.T) {
 			embedder := &recordingEmbedder{dim: tc.dim}
 
 			store := NewLocalStore(1)
+			store.sections = tc.sections
+
 			if err := store.LoadSaved(indexPath); err != nil {
 				t.Fatalf("LoadSaved: %v", err)
 			}
@@ -496,16 +500,18 @@ func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		path    string
-		model   string
-		dim     int
-		hash    string
-		want    []error
-		notWant []error
+		name     string
+		path     string
+		model    string
+		dim      int
+		hash     string
+		sections SectionSelection
+		want     []error
+		notWant  []error
 	}{
 		{name: "matches", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", notWant: []error{ErrIndexMissing, ErrEmbeddingModelChanged, ErrEmbeddingFormatChanged, ErrADRsChanged}},
 		{name: "embedding format changed", path: oldFormatPath, model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrEmbeddingFormatChanged}, notWant: []error{ErrEmbeddingModelChanged, ErrADRsChanged}},
+		{name: "section selection changed", path: indexPath, model: "model-a", dim: 4, hash: "hash-a", sections: NewSectionSelection([]string{"Rules"}, nil), want: []error{ErrEmbeddingFormatChanged}, notWant: []error{ErrEmbeddingModelChanged, ErrADRsChanged}},
 		{name: "missing", path: indexPath + ".gone", model: "model-a", dim: 4, hash: "hash-a", want: []error{ErrIndexMissing}},
 		{name: "ADRs changed", path: indexPath, model: "model-a", dim: 4, hash: "hash-b", want: []error{ErrADRsChanged}, notWant: []error{ErrEmbeddingModelChanged}},
 		{name: "dimension changed", path: indexPath, model: "model-a", dim: 8, hash: "hash-a", want: []error{ErrEmbeddingModelChanged}, notWant: []error{ErrADRsChanged}},
@@ -514,7 +520,10 @@ func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := NewLocalStore(1).Load(tc.path, tc.model, tc.dim, tc.hash)
+			store := NewLocalStore(1)
+			store.sections = tc.sections
+
+			err := store.Load(tc.path, tc.model, tc.dim, tc.hash)
 
 			if len(tc.want) == 0 && err != nil {
 				t.Fatalf("Load: %v", err)
@@ -532,5 +541,62 @@ func TestLocalStore_Load_NamesWhyTheIndexIsStale(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLocalStore_BuildIndex_EmbedsOnlySelectedSections(t *testing.T) {
+	selected := ADR{RelPath: "0001-a.md", Title: "A", Status: "Accepted", Content: "## Context\n\nWhy.\n\n## Rules\n\n- Code MUST use widgets.\n"}
+	noRules := ADR{RelPath: "0002-b.md", Title: "B", Status: "Accepted", Content: "## Context\n\nOnly context.\n"}
+
+	var mu sync.Mutex
+
+	embedded := map[string]string{}
+	provider := &inference.MockProvider{
+		EmbedFunc: func(_ context.Context, text string, _ inference.EmbeddingTaskType) ([]float32, error) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			embedded[strings.SplitN(text, "\n", 2)[0]] = text
+
+			return []float32{0.1, 0.2}, nil
+		},
+	}
+
+	store := NewLocalStore(1)
+	store.sections = NewSectionSelection([]string{"Rules"}, nil)
+
+	result, err := store.BuildIndex(t.Context(), "mock-model", 2, provider, &mockADRProvider{adrs: []ADR{selected, noRules}})
+	if err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+
+	text := embedded["Title: A"]
+	if !strings.Contains(text, "Code MUST use widgets.") || strings.Contains(text, "Why.") {
+		t.Errorf("embedded text = %q, want only the Rules section", text)
+	}
+
+	if _, ok := embedded["Title: B"]; ok {
+		t.Error("an ADR with no selected section was sent to the embedder")
+	}
+
+	if len(result.Skipped) != 1 || result.Skipped[0].RelPath != noRules.RelPath || !errors.Is(result.Skipped[0].Err, errNoEmbeddableText) {
+		t.Errorf("Skipped = %+v, want %s skipped for having no embeddable text", result.Skipped, noRules.RelPath)
+	}
+
+	if len(store.ADRs) != 1 || store.ADRs[0].Content != selected.Content {
+		t.Errorf("indexed ADRs = %+v, want only %s with its full content for the judge", store.ADRs, selected.RelPath)
+	}
+}
+
+func TestLocalStore_BuildIndex_EmbedsAnEmptyBodyWhenNoSectionsAreSelected(t *testing.T) {
+	embedder := &recordingEmbedder{dim: 2}
+
+	result, err := NewLocalStore(1).BuildIndex(t.Context(), "mock-model", 2, embedder, &mockADRProvider{adrs: []ADR{{RelPath: "0001-a.md", Title: "A", Status: "Accepted"}}})
+	if err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+
+	if got := embedder.embeddedTitles(); !slices.Equal(got, []string{"A"}) || len(result.Skipped) != 0 {
+		t.Errorf("embedded %v, skipped %+v; want A embedded as before", got, result.Skipped)
 	}
 }

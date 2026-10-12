@@ -1500,3 +1500,57 @@ func TestPgStore_Integration_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
 	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS DISTINCT FROM $2", "embedding_format_project", index.EmbeddingFormat).Scan(&stale))
 	assert.Zero(t, stale)
 }
+
+func TestPgStore_Integration_ReembedsEveryRowWhenSectionSelectionChanges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := t.Context()
+	connStr := setupPgContainer(ctx, t)
+	project := "section_selection_project"
+
+	store, err := index.NewPgStore(connStr, project, 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	defer store.Close()
+
+	tmpDir := t.TempDir()
+	writeADRFiles(t, tmpDir, 2)
+
+	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
+
+	_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	require.NoError(t, err)
+
+	cfg := &config.Config{ProjectName: project}
+	cfg.VectorStore.ConnectionString = connStr
+	cfg.Analysis.ExcludedHeaders = []string{"Context"}
+
+	selecting, err := index.NewVectorStore(cfg, nil)
+	require.NoError(t, err)
+	defer selecting.(*index.PgStore).Close()
+
+	stderr := captureStderr(t, func() {
+		_, err = selecting.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	})
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs")
+
+	var unselected int
+	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS NOT DISTINCT FROM $2", project, index.EmbeddingFormat).Scan(&unselected))
+	assert.Zero(t, unselected)
+
+	cfg.Analysis.IncludedHeaders = []string{"Consequences"}
+
+	emptying, err := index.NewVectorStore(cfg, nil)
+	require.NoError(t, err)
+	defer emptying.(*index.PgStore).Close()
+
+	result, err := emptying.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	require.NoError(t, err)
+	assert.Len(t, result.Skipped, 2)
+
+	var remaining int
+	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1", project).Scan(&remaining))
+	assert.Zero(t, remaining, "an ADR with no text to embed keeps no row from an earlier selection")
+}
