@@ -1,0 +1,24 @@
+#!/bin/bash
+# Blocks a commit on main, and a commit while golangci-lint reports issues in
+# changed Go code.
+set -uo pipefail
+
+if [ "$(git symbolic-ref --short -q HEAD)" = main ]; then
+  echo "Commit blocked: you are on main. Create a branch, then commit there." >&2
+  exit 1
+fi
+
+if git diff --cached --quiet -- '*.go'; then
+  exit 0
+fi
+
+PATH="$(go env GOPATH)/bin:$PATH"
+if ! command -v golangci-lint >/dev/null; then
+  echo "pre-commit: golangci-lint not found; commit not linted" >&2
+  exit 0
+fi
+
+if ! golangci-lint run --timeout=5m --new-from-rev=HEAD; then
+  echo "Commit blocked: fix the lint issues above, then commit again." >&2
+  exit 1
+fi

@@ -1,8 +1,11 @@
 #!/bin/bash
-# Installs a golangci-lint built with go.mod's Go version, because the cloud
-# image's copy is built with an older Go and can't lint this module.
-# Cloud sessions only; a local session exits at once.
+# Turns on the git hooks in .githooks for every session.
+# In cloud sessions only, also installs a golangci-lint built with go.mod's Go
+# version, because the cloud image's copy is built with an older Go and can't
+# lint this module.
 set -euo pipefail
+
+git -C "$CLAUDE_PROJECT_DIR" config core.hooksPath .githooks
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
