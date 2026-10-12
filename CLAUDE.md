@@ -61,6 +61,13 @@ Each package's `doc.go` says what the package is for, what it does not own and i
 - PR and commit titles follow Conventional Commits (see above). Link issues with `Closes #N`.
 - An architecturally-significant PR should add an ADR under `docs/arch/` (see "Keeping this guidance and the ADRs current" below) — self-apply this when opening PRs autonomously.
 
+## Writing memories
+
+- A memory's **Why** says what goes wrong without the rule, never who asked for it or the story of a correction; another session needs the reason to judge a new case.
+- One rule per memory, in a few lines.
+- Never save what a repo file, hook, permission or lint rule already holds; it drifts from the original. Delete a memory once a tool enforces it.
+- No counts or issue lists that go stale; link other memories by their exact `name:` slug.
+
 ## Keeping this guidance and the ADRs current
 
 - Where each kind of fact goes, and what guidance may not contain, is in `docs/standards/guidance.md`.
