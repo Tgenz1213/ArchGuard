@@ -23,7 +23,7 @@ It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commi
 
 The module builds on Go 1.27, so a golangci-lint built with an older Go can't lint it. In cloud sessions, `.claude/hooks/session-start.sh` installs one built with `go.mod`'s Go version and puts it first on `PATH`.
 
-Git hooks in `.githooks/` block a commit while lint reports issues in changed Go code, and a push of a branch that doesn't contain `origin/main`. The SessionStart hook turns them on; outside Claude, run `git config core.hooksPath .githooks` once per clone. `--no-verify` is denied in `.claude/settings.json`.
+Git hooks in `.githooks/` block a commit on `main`, a commit while lint reports issues in changed Go code, and a push of a branch that doesn't contain `origin/main`. The SessionStart hook turns them on; outside Claude, run `git config core.hooksPath .githooks` once per clone. `--no-verify` is denied in `.claude/settings.json`.
 
 ## Architecture
 
