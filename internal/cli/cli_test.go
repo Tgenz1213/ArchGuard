@@ -1188,6 +1188,10 @@ func TestEnterRepoRoot_SymlinkedWorkingDirectory(t *testing.T) {
 	link := filepath.Join(t.TempDir(), "link")
 
 	if err := os.Symlink(repoRoot, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("creating a symlink on Windows needs Developer Mode or admin: %v", err)
+		}
+
 		t.Fatalf("creating symlink: %v", err)
 	}
 
