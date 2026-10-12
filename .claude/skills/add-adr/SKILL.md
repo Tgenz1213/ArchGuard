@@ -8,7 +8,7 @@ description: Write a new Architectural Decision Record in docs/arch/, or superse
 What an ADR may hold is in `docs/standards/guidance.md`; how CI reads one is in `.claude/rules/adr-docs.md`. Read both first.
 
 1. **Check it is a decision.** A change in behaviour, a default or a call flow is not one; stop here if that is all it is.
-2. **Pick the number.** Take the highest number in `docs/arch/` on `origin/main`, then check open PRs for an ADR that already claims the next one. In a cloud session, `gh` is not installed; list open PRs with the GitHub connector and look at their changed files under `docs/arch/`. Use the next number nobody holds, and re-check it just before the PR opens.
+2. **Pick the number.** Take the highest number in `docs/arch/` on `origin/main`, then check open PRs for an ADR that already claims the next one. In a cloud session, `gh` is not installed; list open PRs with the GitHub connector and look at their changed files under `docs/arch/`. A stale PR may claim a number main already has; ignore it. Use the next number nobody holds, and re-check it just before the PR opens.
 3. **Copy `docs/ADR_TEMPLATE.md`** to `docs/arch/NNNN-<short-kebab-title>.md`. Keep every `##` heading, in order.
 4. **Fill it in.**
    - One decision per ADR. A second decision gets its own ADR.
