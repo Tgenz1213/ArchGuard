@@ -376,7 +376,7 @@ func (s *PgStore) BuildIndex(ctx context.Context, modelName string, dim int, emb
 }
 
 type storedADR struct {
-	ADR
+	adr             ADR
 	embeddingFormat string
 }
 
@@ -400,7 +400,7 @@ func (s *PgStore) loadExistingADRs(ctx context.Context) (map[string]storedADR, e
 		}
 
 		existing[relPath] = storedADR{
-			ADR: ADR{
+			adr: ADR{
 				ID:                  adrID,
 				Title:               title,
 				Status:              status,
@@ -425,10 +425,10 @@ func classifyADRs(existing map[string]storedADR, adrs []ADR, format string) (toE
 		stored, ok := existing[adr.RelPath]
 
 		switch {
-		case !ok || stored.embeddingFormat != format || !adrUnchanged(stored.ADR, adr):
+		case !ok || stored.embeddingFormat != format || !adrUnchanged(stored.adr, adr):
 			toEmbed = append(toEmbed, i)
-		case stored.ID != adr.ID || !slices.Equal(stored.Scope, adr.Scope) || !thresholdsEqual(stored.SimilarityThreshold, adr.SimilarityThreshold) ||
-			!rulesEqual(stored.Rules, adr.Rules):
+		case stored.adr.ID != adr.ID || !slices.Equal(stored.adr.Scope, adr.Scope) ||
+			!thresholdsEqual(stored.adr.SimilarityThreshold, adr.SimilarityThreshold) || !rulesEqual(stored.adr.Rules, adr.Rules):
 			toSync = append(toSync, i)
 		}
 	}
@@ -437,7 +437,9 @@ func classifyADRs(existing map[string]storedADR, adrs []ADR, format string) (toE
 }
 
 func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(
+		ctx,
+		`
 		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, adr_id, scope, similarity_threshold, rules, embedding_format)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (project_name, rel_path) DO UPDATE SET
@@ -450,7 +452,19 @@ func (s *PgStore) upsertADR(ctx context.Context, adr ADR) error {
 			similarity_threshold = EXCLUDED.similarity_threshold,
 			rules = EXCLUDED.rules,
 			embedding_format = EXCLUDED.embedding_format
-	`, s.projectName, adr.RelPath, adr.Title, adr.Status, adr.Content, pgvector.NewVector(adr.Embedding), adr.ID, adr.Scope, adr.SimilarityThreshold, adr.Rules, s.sections.format())
+		`,
+		s.projectName,
+		adr.RelPath,
+		adr.Title,
+		adr.Status,
+		adr.Content,
+		pgvector.NewVector(adr.Embedding),
+		adr.ID,
+		adr.Scope,
+		adr.SimilarityThreshold,
+		adr.Rules,
+		s.sections.format(),
+	)
 	if err != nil {
 		return fmt.Errorf("upsert: %w", err)
 	}
@@ -467,10 +481,18 @@ func (s *PgStore) syncMetadata(ctx context.Context, adrs []ADR, toSync []int) er
 
 	batch := &pgx.Batch{}
 	for _, idx := range toSync {
-		batch.Queue(`
+		batch.Queue(
+			`
 			UPDATE archguard_adrs SET adr_id = $1, scope = $2, similarity_threshold = $3, rules = $4
 			WHERE project_name = $5 AND rel_path = $6
-		`, adrs[idx].ID, adrs[idx].Scope, adrs[idx].SimilarityThreshold, adrs[idx].Rules, s.projectName, adrs[idx].RelPath)
+			`,
+			adrs[idx].ID,
+			adrs[idx].Scope,
+			adrs[idx].SimilarityThreshold,
+			adrs[idx].Rules,
+			s.projectName,
+			adrs[idx].RelPath,
+		)
 	}
 
 	br := s.pool.SendBatch(ctx, batch)
@@ -645,76 +667,36 @@ func (s *PgStore) dropADRCache() {
 	s.adrs, s.adrsLoaded = nil, false
 }
 
-func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
-	ctx := context.Background()
-	vec := pgvector.NewVector(queryEmbedding)
-
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
+// Returns nil when the query fails, so every Search method returns no results.
+func (s *PgStore) scopeMatchedCandidates(queryEmbedding []float32, filePath, method string) []SearchResult {
+	rows, err := s.pool.Query(context.Background(), SearchQuery, pgvector.NewVector(queryEmbedding), s.projectName, MaxSearchCandidates)
 	if err != nil {
-		s.out.Error("PgStore Search query failed: %v", err)
+		s.out.Error("PgStore %s query failed: %v", method, err)
 		return nil
 	}
 	defer rows.Close()
 
-	candidates := scanSearchResults(rows, s.out)
-	candidates = filterByScope(candidates, filePath)
+	return filterByScope(scanSearchResults(rows, s.out), filePath)
+}
+
+func (s *PgStore) Search(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
+	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath, "Search")
 	candidates = filterByThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
 
 func (s *PgStore) SearchRejected(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
-	ctx := context.Background()
-	vec := pgvector.NewVector(queryEmbedding)
-
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
-	if err != nil {
-		s.out.Error("PgStore SearchRejected query failed: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	candidates := scanSearchResults(rows, s.out)
-	candidates = filterByScope(candidates, filePath)
+	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath, "SearchRejected")
 	candidates = filterBelowThreshold(candidates, threshold)
 	return rankAndLimit(candidates, topK)
 }
 
 func (s *PgStore) SearchTruncated(queryEmbedding []float32, threshold float64, topK int, filePath string) []SearchResult {
-	ctx := context.Background()
-	vec := pgvector.NewVector(queryEmbedding)
-
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
-	if err != nil {
-		s.out.Error("PgStore SearchTruncated query failed: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	candidates := scanSearchResults(rows, s.out)
-	candidates = filterByScope(candidates, filePath)
+	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath, "SearchTruncated")
 	candidates = filterByThreshold(candidates, threshold)
 	return truncatedByTopK(candidates, topK)
 }
 
 func (s *PgStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult) {
-	ctx := context.Background()
-	vec := pgvector.NewVector(queryEmbedding)
-
-	rows, err := s.pool.Query(ctx, SearchQuery, vec, s.projectName, MaxSearchCandidates)
-	if err != nil {
-		s.out.Error("PgStore SearchWithDebugInfo query failed: %v", err)
-		return nil, nil, nil
-	}
-	defer rows.Close()
-
-	candidates := filterByScope(scanSearchResults(rows, s.out), filePath)
-
-	belowCopy := append([]SearchResult(nil), candidates...)
-	rejected = rankAndLimit(filterBelowThreshold(belowCopy, threshold), topK)
-
-	qualifying := filterByThreshold(append([]SearchResult(nil), candidates...), threshold)
-	hits = rankAndLimit(qualifying, topK)
-	truncated = truncatedByTopK(qualifying, topK)
-
-	return hits, rejected, truncated
+	return splitDebugResults(s.scopeMatchedCandidates(queryEmbedding, filePath, "SearchWithDebugInfo"), threshold, topK)
 }

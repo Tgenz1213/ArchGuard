@@ -76,9 +76,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 	}
 	pageURL := fmt.Sprintf("%s/wiki/api/v2/spaces/%s/pages?body-format=storage", p.domain, p.spaceID)
 
-	var allADRs []ADR
-
-	var stats FetchStats
+	collector := adrCollector{out: p.out, acceptedStatuses: p.acceptedStatuses}
 
 	for pageURL != "" {
 		page, err := p.fetchPage(ctx, client, pageURL)
@@ -86,7 +84,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 			return nil, FetchStats{}, err
 		}
 
-		allADRs = append(allADRs, p.pageADRs(baseURL, page, &stats)...)
+		p.collectPageADRs(baseURL, page, &collector)
 
 		pageURL, err = nextPageURL(baseURL, page.Links.Next)
 		if err != nil {
@@ -94,7 +92,7 @@ func (p *ConfluenceProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, er
 		}
 	}
 
-	return allADRs, stats, nil
+	return collector.adrs, collector.stats, nil
 }
 
 func (p *ConfluenceProvider) fetchPage(ctx context.Context, client *http.Client, pageURL string) (ConfluenceSearchResponse, error) {
@@ -130,11 +128,9 @@ func (p *ConfluenceProvider) fetchPage(ctx context.Context, client *http.Client,
 	return page, nil
 }
 
-func (p *ConfluenceProvider) pageADRs(baseURL *url.URL, page ConfluenceSearchResponse, stats *FetchStats) []ADR {
-	var adrs []ADR
-
+func (p *ConfluenceProvider) collectPageADRs(baseURL *url.URL, page ConfluenceSearchResponse, collector *adrCollector) {
 	for _, result := range page.Results {
-		stats.Discovered++
+		collector.stats.Discovered++
 		rawText := extractRawText(result.Body.Storage.Value)
 		relPath := p.pageRelPath(baseURL, result.Links.WebUI)
 
@@ -143,28 +139,8 @@ func (p *ConfluenceProvider) pageADRs(baseURL *url.URL, page ConfluenceSearchRes
 		markdown := convertHTMLToMarkdown(result.Body.Storage.Value)
 
 		adr, rulesErr, err := parseADR([]byte(rawText), adrID, relPath, p.parseOpts, &markdown)
-		if err != nil {
-			p.out.Warn("skipping Confluence page %s: %v", relPath, err)
-			stats.ParseFailed = append(stats.ParseFailed, relPath)
-
-			continue
-		}
-
-		if !isAcceptedStatus(adr.Status, p.acceptedStatuses) {
-			stats.StatusRejected++
-
-			continue
-		}
-
-		adrs = append(adrs, *adr)
-
-		if rulesErr != nil {
-			p.out.Warn("ignoring rules in Confluence page %s: %v", relPath, rulesErr)
-			stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: relPath, Reason: rulesErr.Error()})
-		}
+		collector.add(adr, rulesErr, err, "Confluence page "+relPath, relPath)
 	}
-
-	return adrs
 }
 
 func (p *ConfluenceProvider) pageRelPath(baseURL *url.URL, webUI string) string {

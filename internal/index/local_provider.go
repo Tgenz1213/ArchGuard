@@ -42,8 +42,8 @@ func (p *LocalProvider) SetPrinter(out *output.Printer) {
 }
 
 func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) {
-	var validADRs []ADR
-	var stats FetchStats
+	collector := adrCollector{out: p.out, acceptedStatuses: p.acceptedStatuses}
+
 	var idPatternMatched bool
 
 	err := filepath.Walk(p.dirPath, func(path string, stat os.FileInfo, err error) error {
@@ -55,32 +55,14 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 			return nil
 		}
 
-		stats.Discovered++
+		collector.stats.Discovered++
 
 		if p.idPattern != nil && p.idPattern.MatchString(stat.Name()) {
 			idPatternMatched = true
 		}
 
 		adr, rulesErr, err := parseADRFile(path, p.dirPath, p.idPattern, p.parseOpts)
-		if err != nil {
-			p.out.Warn("skipping %s: %v", path, err)
-			stats.ParseFailed = append(stats.ParseFailed, path)
-
-			return nil
-		}
-
-		if !isAcceptedStatus(adr.Status, p.acceptedStatuses) {
-			stats.StatusRejected++
-
-			return nil
-		}
-
-		validADRs = append(validADRs, *adr)
-
-		if rulesErr != nil {
-			p.out.Warn("ignoring rules in %s: %v", path, rulesErr)
-			stats.MalformedRules = append(stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
-		}
+		collector.add(adr, rulesErr, err, path, path)
 
 		return nil
 	})
@@ -89,9 +71,9 @@ func (p *LocalProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, error) 
 		return nil, FetchStats{}, err
 	}
 
-	if p.idPattern != nil && stats.Discovered > 0 && !idPatternMatched {
-		p.out.Warn("analysis.adr_id_pattern %q matches none of the %d ADR files in %s; every ID falls back to the filename up to its first hyphen", p.idPattern, stats.Discovered, p.dirPath)
+	if p.idPattern != nil && collector.stats.Discovered > 0 && !idPatternMatched {
+		p.out.Warn("analysis.adr_id_pattern %q matches none of the %d ADR files in %s; every ID falls back to the filename up to its first hyphen", p.idPattern, collector.stats.Discovered, p.dirPath)
 	}
 
-	return validADRs, stats, nil
+	return collector.adrs, collector.stats, nil
 }

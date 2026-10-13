@@ -79,3 +79,15 @@ func truncatedByTopK(candidates []SearchResult, topK int) []SearchResult {
 
 	return nil
 }
+
+// The threshold filters reuse their input's backing array, so each set filters its own copy.
+func splitDebugResults(candidates []SearchResult, threshold float64, topK int) (hits, rejected, truncated []SearchResult) {
+	belowCopy := append([]SearchResult(nil), candidates...)
+	rejected = rankAndLimit(filterBelowThreshold(belowCopy, threshold), topK)
+
+	qualifying := filterByThreshold(append([]SearchResult(nil), candidates...), threshold)
+	hits = rankAndLimit(qualifying, topK)
+	truncated = truncatedByTopK(qualifying, topK)
+
+	return hits, rejected, truncated
+}
