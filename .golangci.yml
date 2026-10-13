@@ -8,6 +8,7 @@ linters:
   enable:
     - bodyclose
     - errorlint
+    - forbidigo
     - funlen
     - gocognit
     - gocritic
@@ -20,6 +21,8 @@ linters:
     rules:
       - path: _test\.go
         linters: [funlen, gocognit, nestif]
+      - path-except: ^internal/index/
+        linters: [forbidigo]
   settings:
     funlen:
       lines: 60
@@ -39,6 +42,12 @@ linters:
     wsl_v5:
       default: none
       enable: [if, after-block]
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print.*$
+          msg: print through the store's or provider's out printer (docs/arch/0015-index-diagnostic-writer.md)
+        - pattern: ^os\.Stdout$
+          msg: print through the store's or provider's out printer (docs/arch/0015-index-diagnostic-writer.md)
     errcheck:
       check-blank: true
     revive:
