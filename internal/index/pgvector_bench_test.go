@@ -41,10 +41,19 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 		"near.md":       {0.9, 0.1},
 	}
 	for relPath, v := range vectors {
-		_, err := pool.Exec(ctx, `
-			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, "gt_test_project", relPath, relPath, "Accepted", "content", pgvector.NewVector(v))
+		_, err := pool.Exec(
+			ctx,
+			`
+				INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+				VALUES ($1, $2, $3, $4, $5, $6)
+			`,
+			"gt_test_project",
+			relPath,
+			relPath,
+			"Accepted",
+			"content",
+			pgvector.NewVector(v),
+		)
 		require.NoError(t, err)
 	}
 
@@ -63,23 +72,24 @@ func TestGroundTruthSearch_ForcesSeqScanAndMatchesExactOrder(t *testing.T) {
 	_, err = tx.Exec(ctx, "SET LOCAL enable_bitmapscan = off")
 	require.NoError(t, err)
 
-	rows, err := tx.Query(ctx, `
-		EXPLAIN SELECT rel_path FROM archguard_adrs
-		WHERE project_name = $2 AND embedding <=> $1 <= $3
-		ORDER BY embedding <=> $1 LIMIT $4
-	`, pgvector.NewVector([]float32{1, 0}), "gt_test_project", 2.0, 5)
+	rows, err := tx.Query(
+		ctx,
+		`
+			EXPLAIN SELECT rel_path FROM archguard_adrs
+			WHERE project_name = $2 AND embedding <=> $1 <= $3
+			ORDER BY embedding <=> $1 LIMIT $4
+		`,
+		pgvector.NewVector([]float32{1, 0}),
+		"gt_test_project",
+		2.0,
+		5,
+	)
 	require.NoError(t, err)
 	defer rows.Close()
 
-	var plan strings.Builder
-	for rows.Next() {
-		var line string
-		require.NoError(t, rows.Scan(&line))
-		plan.WriteString(line)
-	}
-
-	require.NoError(t, rows.Err())
-	assert.NotContains(t, plan.String(), "Index Scan", "expected seqscan-forced ground truth query to avoid the HNSW index")
+	plan, err := readPlan(rows)
+	require.NoError(t, err)
+	assert.NotContains(t, plan, "Index Scan", "expected seqscan-forced ground truth query to avoid the HNSW index")
 }
 
 // newBenchAdminPool is for operations PgStore's public API doesn't expose: seeding, TRUNCATE, ground truth, GUC changes.
@@ -122,17 +132,8 @@ func groundTruthSearch(ctx context.Context, pool *pgxpool.Pool, q nearestQuery) 
 
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op after Commit; Commit's error is checked
 
-	// SET LOCAL: must override the role-level seqscan-off setting used
-	// elsewhere to force PgStore.Search onto the HNSW index.
-	for _, stmt := range []string{
-		"SET LOCAL enable_seqscan = on",
-		"SET LOCAL enable_sort = on",
-		"SET LOCAL enable_indexscan = off",
-		"SET LOCAL enable_bitmapscan = off",
-	} {
-		if _, err := tx.Exec(ctx, stmt); err != nil {
-			return nil, err
-		}
+	if err := forceExactScan(ctx, tx); err != nil {
+		return nil, err
 	}
 
 	vec := pgvector.NewVector(q.embedding)
@@ -211,10 +212,19 @@ func seedProjectADRs(ctx context.Context, pool *pgxpool.Pool, rng *rand.Rand, pr
 		relPath := fmt.Sprintf("adr_%d.md", i)
 
 		vec := pgvector.NewVector(randomVector(rng, project.dim))
-		if _, err := pool.Exec(ctx, `
-			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, project.name, relPath, relPath, "Accepted", "synthetic benchmark content", vec); err != nil {
+		if _, err := pool.Exec(
+			ctx,
+			`
+				INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+				VALUES ($1, $2, $3, $4, $5, $6)
+			`,
+			project.name,
+			relPath,
+			relPath,
+			"Accepted",
+			"synthetic benchmark content",
+			vec,
+		); err != nil {
 			return err
 		}
 	}
@@ -395,23 +405,13 @@ func assertUsesHNSWIndex(ctx context.Context, connStr string, queryEmbedding []f
 	}
 	defer rows.Close()
 
-	var plan strings.Builder
-	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
-			return err
-		}
-
-		plan.WriteString(line)
-		plan.WriteString("\n")
-	}
-
-	if err := rows.Err(); err != nil {
+	plan, err := readPlan(rows)
+	if err != nil {
 		return err
 	}
 
-	if !strings.Contains(plan.String(), "archguard_adrs_embedding_idx") {
-		return fmt.Errorf("measured query did not use the HNSW index; plan was:\n%s", plan.String())
+	if !strings.Contains(plan, "archguard_adrs_embedding_idx") {
+		return fmt.Errorf("measured query did not use the HNSW index; plan was:\n%s", plan)
 	}
 
 	return nil
@@ -427,15 +427,8 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck // a no-op after Commit; Commit's error is checked
 
-	for _, stmt := range []string{
-		"SET LOCAL enable_seqscan = on",
-		"SET LOCAL enable_sort = on",
-		"SET LOCAL enable_indexscan = off",
-		"SET LOCAL enable_bitmapscan = off",
-	} {
-		if _, err := tx.Exec(ctx, stmt); err != nil {
-			return err
-		}
+	if err := forceExactScan(ctx, tx); err != nil {
+		return err
 	}
 
 	vec := pgvector.NewVector(q.embedding)
@@ -447,23 +440,13 @@ func assertGroundTruthAvoidsIndexScan(ctx context.Context, pool *pgxpool.Pool, q
 	}
 	defer rows.Close()
 
-	var plan strings.Builder
-	for rows.Next() {
-		var line string
-		if err := rows.Scan(&line); err != nil {
-			return err
-		}
-
-		plan.WriteString(line)
-		plan.WriteString("\n")
-	}
-
-	if err := rows.Err(); err != nil {
+	plan, err := readPlan(rows)
+	if err != nil {
 		return err
 	}
 
-	if strings.Contains(plan.String(), "Index Scan") {
-		return fmt.Errorf("ground truth query used an index scan, not an exact scan; plan was:\n%s", plan.String())
+	if strings.Contains(plan, "Index Scan") {
+		return fmt.Errorf("ground truth query used an index scan, not an exact scan; plan was:\n%s", plan)
 	}
 
 	return nil
@@ -500,4 +483,35 @@ func reportRecallAndLatency(b *testing.B, store *index.PgStore, queries [][]floa
 	b.ReportMetric(float64(p95.Nanoseconds()), "p95_ns")
 	b.ReportMetric(float64(resultCountSum)/float64(len(queries)), "results_per_query")
 	b.ReportMetric(0, "ns/op") // suppress the default (whole-closure wall time, dominated by pool setup) next to the real per-query metrics above
+}
+
+// SET LOCAL overrides the role-level seqscan-off setting that forces PgStore.Search onto the HNSW index.
+func forceExactScan(ctx context.Context, tx pgx.Tx) error {
+	for _, stmt := range []string{
+		"SET LOCAL enable_seqscan = on",
+		"SET LOCAL enable_sort = on",
+		"SET LOCAL enable_indexscan = off",
+		"SET LOCAL enable_bitmapscan = off",
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func readPlan(rows pgx.Rows) (string, error) {
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			return "", err
+		}
+
+		plan.WriteString(line)
+		plan.WriteString("\n")
+	}
+
+	return plan.String(), rows.Err()
 }

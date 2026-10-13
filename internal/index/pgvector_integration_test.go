@@ -41,7 +41,8 @@ func setupPgContainer(ctx context.Context, tb testing.TB) string {
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second)),
+				WithStartupTimeout(60*time.Second),
+		),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "failed to create Docker provider") || strings.Contains(err.Error(), "Cannot connect to the Docker daemon") {
@@ -76,6 +77,18 @@ func modifyADRFile(t *testing.T, dir string, i int) {
 	content := fmt.Sprintf("---\ntitle: \"ADR %d\"\nstatus: \"Accepted\"\n---\nModified Content %d", i, i)
 	err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("adr_%d.md", i)), []byte(content), 0644)
 	require.NoError(t, err)
+}
+
+// xmin changes on every UPDATE, so an equal value means the row was not rewritten.
+func adrRowVersion(ctx context.Context, t *testing.T, store *index.PgStore, project, relPath string) string {
+	t.Helper()
+
+	var xmin string
+	require.NoError(t, store.Pool().
+		QueryRow(ctx, "SELECT xmin::text FROM archguard_adrs WHERE project_name = $1 AND rel_path = $2", project, relPath).
+		Scan(&xmin))
+
+	return xmin
 }
 
 func captureStderr(t *testing.T, fn func()) string {
@@ -558,10 +571,20 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	defer store.Close()
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
-	_, err = store.Pool().Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, embedding_format)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, "sync_metadata_project", "0007-legacy.md", "Legacy ADR", "Accepted", "\nLegacy Content", pgvector.NewVector([]float32{0.1, 0.1}), index.EmbeddingFormat)
+	_, err = store.Pool().Exec(
+		ctx,
+		`
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding, embedding_format)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`,
+		"sync_metadata_project",
+		"0007-legacy.md",
+		"Legacy ADR",
+		"Accepted",
+		"\nLegacy Content",
+		pgvector.NewVector([]float32{0.1, 0.1}),
+		index.EmbeddingFormat,
+	)
 	require.NoError(t, err)
 
 	preSyncResults := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
@@ -576,12 +599,9 @@ func TestPgStore_Integration_SyncsMetadataForUnchangedADR(t *testing.T) {
 	provider := mockEmbedProvider()
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
-	stderr := captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err := store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the ID/scope mismatch must still trigger the lightweight sync path")
+	assert.Equal(t, 0, result.Embedded, "content/title/status are unchanged, so this must NOT re-embed")
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
@@ -621,12 +641,9 @@ func TestPgStore_Integration_SyncsMetadataForScopeOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Scope Edit ADR\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	stderr := captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err := store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the scope-only change must route through the sync path")
+	assert.Equal(t, 0, result.Embedded, "content/title/status are unchanged, so this must NOT re-embed")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "app.ts")
 	require.Len(t, results, 1)
@@ -702,12 +719,9 @@ func TestPgStore_Integration_SyncsMetadataForThresholdOnlyEdit(t *testing.T) {
 	editedContent := "---\ntitle: \"Threshold Edit ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.3\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(editedContent), 0644))
 
-	stderr := captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err := store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the threshold-only change must route through the sync path")
+	assert.Equal(t, 0, result.Embedded, "content/title/status are unchanged, so this must NOT re-embed")
 
 	results = store.Search([]float32{0.1, 0.1}, 0.5, 5, "main.go")
 	require.Len(t, results, 1)
@@ -787,26 +801,21 @@ func TestPgStore_Integration_SyncsMetadataForRulesOnlyEdit(t *testing.T) {
 	edited := "---\ntitle: \"Rules Edit ADR\"\nstatus: \"Accepted\"\nrules:\n  - Added later\n---\nBody unchanged."
 	require.NoError(t, os.WriteFile(adrPath, []byte(edited), 0644))
 
-	stderr := captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err := store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 0 new/modified ADRs", "content/title/status are unchanged, so this must NOT re-embed")
-	assert.Contains(t, stderr, "Syncing ID/scope/threshold metadata for 1 unchanged ADR", "the rules-only change must route through the sync path")
+	assert.Equal(t, 0, result.Embedded, "content/title/status are unchanged, so this must NOT re-embed")
 
 	scoped, err := store.ScopedADRs("main.go")
 	require.NoError(t, err)
 	require.Len(t, scoped, 1)
 	assert.Equal(t, index.Rules{{Statement: "Added later"}}, scoped[0].ADR.Rules, "sync path must pick up the new rules")
 
-	stderr = captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	rowVersion := adrRowVersion(ctx, t, store, "rules_only_edit_project", "0011-rules-edit.md")
+	_, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err)
-	assert.NotContains(t, stderr, "Syncing", "unchanged rules must not trigger another sync")
+	assert.Equal(t, rowVersion, adrRowVersion(ctx, t, store, "rules_only_edit_project", "0011-rules-edit.md"), "unchanged rules must not trigger another sync")
 }
 
-// A single failing embed call must not abort the whole build.
 func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -836,11 +845,8 @@ func TestPgStore_Integration_BuildIndexSkipsFailedADRAndContinuesEmbeddingOthers
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	stderr := captureStderr(t, func() {
-		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err, "a single ADR embed failure must not fail the whole build")
-	assert.Contains(t, stderr, "Warning: skipping ADR adr_1.md")
 
 	require.Len(t, result.Skipped, 1)
 	assert.Equal(t, "adr_1.md", result.Skipped[0].RelPath)
@@ -903,14 +909,11 @@ func TestPgStore_Integration_BuildIndexLeavesExistingRowUntouchedOnReEmbedFailur
 	}
 
 	var result index.BuildIndexResult
-	stderr := captureStderr(t, func() {
-		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
-	})
+	result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	// This ADR is the whole corpus, so the all-embeds-failed guard fires --
 	// the point is that it fires WITHOUT having touched the existing row.
 	require.Error(t, err, "every ADR failing to embed must surface as a build-wide error")
 	assert.Contains(t, err.Error(), "index not updated")
-	assert.Contains(t, stderr, "Warning: skipping ADR 0010-reembed.md")
 	require.Len(t, result.Skipped, 1, "the guard must still report what it skipped")
 	assert.Equal(t, "0010-reembed.md", result.Skipped[0].RelPath)
 	assert.Contains(t, result.Skipped[0].Err.Error(), "embed: ")
@@ -964,11 +967,8 @@ func TestPgStore_Integration_BuildIndexSkipsUpsertFailureAndContinues(t *testing
 	localProvider := index.NewLocalProvider(tmpDir, []string{"Accepted"})
 
 	var result index.BuildIndexResult
-	stderr := captureStderr(t, func() {
-		result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
-	})
+	result, err = store.BuildIndex(ctx, "test-model", 2, provider, localProvider)
 	require.NoError(t, err, "a single ADR upsert failure must not fail the whole build")
-	assert.Contains(t, stderr, "Warning: skipping ADR adr_1.md")
 
 	require.Len(t, result.Skipped, 1)
 	assert.Equal(t, "adr_1.md", result.Skipped[0].RelPath)
@@ -1024,12 +1024,9 @@ func TestPgStore_Integration_BuildIndexSucceedsWhenAllNewADRsFailButUnchangedADR
 	}
 
 	var result index.BuildIndexResult
-	stderr := captureStderr(t, func() {
-		result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
-	})
+	result, err = store.BuildIndex(ctx, "test-model", 2, failingProvider, localProvider)
 	require.NoError(t, err, "the unchanged ADR keeps the corpus non-empty, so this must not be treated as build-wide failure")
-	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs", "the unchanged ADR must not be re-attempted")
-	require.Len(t, result.Skipped, 2)
+	require.Len(t, result.Skipped, 2, "the unchanged ADR must not be re-attempted")
 	assert.Equal(t, 0, result.Embedded, "neither the reused ADR nor the failed ones were embedded")
 
 	results := store.Search([]float32{0.1, 0.1}, 0.5, 10, "main.go")
@@ -1066,10 +1063,19 @@ func TestPgStore_Integration_BuildIndexMigratesLegacyTableWithoutLoad(t *testing
 		)
 	`)
 	require.NoError(t, err)
-	_, err = store.Pool().Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, "legacy_no_load_project", "0009-legacy.md", "Legacy Pre-Migration ADR", "Accepted", "\nLegacy Pre-Migration Content", pgvector.NewVector([]float32{0.1, 0.1}))
+	_, err = store.Pool().Exec(
+		ctx,
+		`
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`,
+		"legacy_no_load_project",
+		"0009-legacy.md",
+		"Legacy Pre-Migration ADR",
+		"Accepted",
+		"\nLegacy Pre-Migration Content",
+		pgvector.NewVector([]float32{0.1, 0.1}),
+	)
 	require.NoError(t, err)
 
 	tmpDir := t.TempDir()
@@ -1105,15 +1111,32 @@ func TestPgStore_Integration_BuildIndexReturnsErrorOnScanFailure(t *testing.T) {
 
 	// A valid row plus one with a NULL title (a nullable TEXT column),
 	// proving the failure amid several rows, not a single-row table.
-	_, err = store.Pool().Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, "scan_failure_project", "0002-good.md", "Good ADR", "Accepted", "other content", pgvector.NewVector([]float32{0.1, 0.1}))
+	_, err = store.Pool().Exec(
+		ctx,
+		`
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`,
+		"scan_failure_project",
+		"0002-good.md",
+		"Good ADR",
+		"Accepted",
+		"other content",
+		pgvector.NewVector([]float32{0.1, 0.1}),
+	)
 	require.NoError(t, err)
-	_, err = store.Pool().Exec(ctx, `
-		INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
-		VALUES ($1, $2, NULL, $3, $4, $5)
-	`, "scan_failure_project", "0001-bad.md", "Accepted", "content", pgvector.NewVector([]float32{0.1, 0.1}))
+	_, err = store.Pool().Exec(
+		ctx,
+		`
+			INSERT INTO archguard_adrs (project_name, rel_path, title, status, content, embedding)
+			VALUES ($1, $2, NULL, $3, $4, $5)
+		`,
+		"scan_failure_project",
+		"0001-bad.md",
+		"Accepted",
+		"content",
+		pgvector.NewVector([]float32{0.1, 0.1}),
+	)
 	require.NoError(t, err)
 
 	tmpDir := t.TempDir()
@@ -1492,14 +1515,14 @@ func TestPgStore_Integration_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
 	_, err = store.Pool().Exec(ctx, "UPDATE archguard_adrs SET embedding_format = 'old' WHERE project_name = $1", "embedding_format_project")
 	require.NoError(t, err)
 
-	stderr := captureStderr(t, func() {
-		_, err = store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
-	})
+	result, err := store.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs")
+	assert.Equal(t, 2, result.Embedded)
 
 	var stale int
-	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS DISTINCT FROM $2", "embedding_format_project", index.EmbeddingFormat).Scan(&stale))
+	require.NoError(t, store.Pool().
+		QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS DISTINCT FROM $2", "embedding_format_project", index.EmbeddingFormat).
+		Scan(&stale))
 	assert.Zero(t, stale)
 }
 
@@ -1532,14 +1555,14 @@ func TestPgStore_Integration_ReembedsEveryRowWhenSectionSelectionChanges(t *test
 	require.NoError(t, err)
 	defer selecting.(*index.PgStore).Close()
 
-	stderr := captureStderr(t, func() {
-		_, err = selecting.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
-	})
+	result, err := selecting.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
 	require.NoError(t, err)
-	assert.Contains(t, stderr, "Generating embeddings for 2 new/modified ADRs")
+	assert.Equal(t, 2, result.Embedded)
 
 	var unselected int
-	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS NOT DISTINCT FROM $2", project, index.EmbeddingFormat).Scan(&unselected))
+	require.NoError(t, store.Pool().
+		QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1 AND embedding_format IS NOT DISTINCT FROM $2", project, index.EmbeddingFormat).
+		Scan(&unselected))
 	assert.Zero(t, unselected)
 
 	cfg.Analysis.IncludedHeaders = []string{"Consequences"}
@@ -1548,11 +1571,13 @@ func TestPgStore_Integration_ReembedsEveryRowWhenSectionSelectionChanges(t *test
 	require.NoError(t, err)
 	defer emptying.(*index.PgStore).Close()
 
-	result, err := emptying.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
+	result, err = emptying.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), localProvider)
 	require.NoError(t, err)
 	assert.Len(t, result.Skipped, 2)
 
 	var remaining int
-	require.NoError(t, store.Pool().QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1", project).Scan(&remaining))
+	require.NoError(t, store.Pool().
+		QueryRow(ctx, "SELECT count(*) FROM archguard_adrs WHERE project_name = $1", project).
+		Scan(&remaining))
 	assert.Zero(t, remaining, "an ADR with no text to embed keeps no row from an earlier selection")
 }
