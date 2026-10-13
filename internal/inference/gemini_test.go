@@ -4,9 +4,32 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
+
+type geminiPart struct {
+	Text string `json:"text"`
+}
+
+type geminiContent struct {
+	Parts []geminiPart `json:"parts"`
+}
+
+type geminiCandidate struct {
+	Content geminiContent `json:"content"`
+}
+
+type geminiResponse struct {
+	Candidates []geminiCandidate `json:"candidates"`
+}
+
+func geminiTextResponse(text string) geminiResponse {
+	return geminiResponse{
+		Candidates: []geminiCandidate{{Content: geminiContent{Parts: []geminiPart{{Text: text}}}}},
+	}
+}
 
 func TestGeminiProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,37 +77,7 @@ func TestGeminiProvider_Chat(t *testing.T) {
 			t.Errorf("Expected responseMimeType 'application/json', got %q", reqBody.GenerationConfig.ResponseMimeType)
 		}
 
-		resp := struct {
-			Candidates []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-			} `json:"candidates"`
-		}{
-			Candidates: []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-			}{
-				{
-					Content: struct {
-						Parts []struct {
-							Text string `json:"text"`
-						} `json:"parts"`
-					}{
-						Parts: []struct {
-							Text string `json:"text"`
-						}{
-							{Text: "{\"violation\": false}"},
-						},
-					},
-				},
-			},
-		}
+		resp := geminiTextResponse("{\"violation\": false}")
 		w.Header().Set("Content-Type", "application/json")
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -223,14 +216,8 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 	}
 
 	expected := []float32{0.1, 0.2, 0.3}
-	if len(res.Vector) != len(expected) {
-		t.Fatalf("Expected length %d, got %d", len(expected), len(res.Vector))
-	}
-
-	for i := range res.Vector {
-		if res.Vector[i] != expected[i] {
-			t.Errorf("At index %d: expected %f, got %f", i, expected[i], res.Vector[i])
-		}
+	if !slices.Equal(res.Vector, expected) {
+		t.Errorf("vector = %v, want %v", res.Vector, expected)
 	}
 }
 
@@ -305,37 +292,7 @@ func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
 			t.Errorf("API key header mismatch. Expected 'test+key&with=special%%chars', got: %s", key)
 		}
 
-		resp := struct {
-			Candidates []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-			} `json:"candidates"`
-		}{
-			Candidates: []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-			}{
-				{
-					Content: struct {
-						Parts []struct {
-							Text string `json:"text"`
-						} `json:"parts"`
-					}{
-						Parts: []struct {
-							Text string `json:"text"`
-						}{
-							{Text: "{}"},
-						},
-					},
-				},
-			},
-		}
+		resp := geminiTextResponse("{}")
 		w.Header().Set("Content-Type", "application/json")
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -357,105 +314,63 @@ func TestGeminiProvider_HeaderAuth_SpecialChars(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ErrorHandling_StructuredError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-
-		_, errw := w.Write([]byte(`{"error": {"message": "Invalid API key"}}`))
-		if errw != nil {
-			t.Fatalf("Failed to write response: %v", errw)
-		}
-	}))
-	defer server.Close()
-
-	p := &GeminiProvider{
-		apiKey:  "test-api-key",
-		model:   "gemini-1.5-flash",
-		baseURL: server.URL,
-		client:  server.Client(),
+func TestGeminiProvider_ErrorHandling(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   []string
+	}{
+		{
+			name:   "structured error",
+			status: http.StatusBadRequest,
+			body:   `{"error": {"message": "Invalid API key"}}`,
+			want:   []string{"Invalid API key", "400 Bad Request"},
+		},
+		{
+			name:   "malformed JSON",
+			status: http.StatusInternalServerError,
+			body:   `This is not valid JSON`,
+			want:   []string{"This is not valid JSON", "500 Internal Server Error"},
+		},
+		{
+			name:   "empty error message",
+			status: http.StatusForbidden,
+			body:   `{"error": {"message": ""}}`,
+			want:   []string{`{"error": {"message": ""}}`, "403 Forbidden"},
+		},
 	}
 
-	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
 
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "Invalid API key") {
-		t.Errorf("Expected error to contain 'Invalid API key', got: %s", errMsg)
-	}
+				if _, err := w.Write([]byte(tt.body)); err != nil {
+					t.Errorf("Failed to write response: %v", err)
+				}
+			}))
+			defer server.Close()
 
-	if !strings.Contains(errMsg, "400 Bad Request") {
-		t.Errorf("Expected error to contain status code, got: %s", errMsg)
-	}
-}
+			p := &GeminiProvider{
+				apiKey:  "test-api-key",
+				model:   "gemini-1.5-flash",
+				baseURL: server.URL,
+				client:  server.Client(),
+			}
 
-func TestGeminiProvider_ErrorHandling_MalformedJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
+			_, err := p.Chat(t.Context(), "system prompt", "user prompt")
+			if err == nil {
+				t.Fatal("Expected error, got nil")
+			}
 
-		_, errw := w.Write([]byte(`This is not valid JSON`))
-		if errw != nil {
-			t.Fatalf("Failed to write response: %v", errw)
-		}
-	}))
-	defer server.Close()
-
-	p := &GeminiProvider{
-		apiKey:  "test-api-key",
-		model:   "gemini-1.5-flash",
-		baseURL: server.URL,
-		client:  server.Client(),
-	}
-
-	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
-
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "This is not valid JSON") {
-		t.Errorf("Expected error to contain raw body, got: %s", errMsg)
-	}
-
-	if !strings.Contains(errMsg, "500 Internal Server Error") {
-		t.Errorf("Expected error to contain status code, got: %s", errMsg)
-	}
-}
-
-func TestGeminiProvider_ErrorHandling_EmptyErrorMessage(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-
-		_, errw := w.Write([]byte(`{"error": {"message": ""}}`))
-		if errw != nil {
-			t.Fatalf("Failed to write response: %v", errw)
-		}
-	}))
-	defer server.Close()
-
-	p := &GeminiProvider{
-		apiKey:  "test-api-key",
-		model:   "gemini-1.5-flash",
-		baseURL: server.URL,
-		client:  server.Client(),
-	}
-
-	_, err := p.Chat(t.Context(), "system prompt", "user prompt")
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
-
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, `{"error": {"message": ""}}`) {
-		t.Errorf("Expected error to contain raw body when message is empty, got: %s", errMsg)
-	}
-
-	if !strings.Contains(errMsg, "403 Forbidden") {
-		t.Errorf("Expected error to contain status code, got: %s", errMsg)
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Expected error to contain %q, got: %s", want, err)
+				}
+			}
+		})
 	}
 }
 

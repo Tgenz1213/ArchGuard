@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -120,14 +121,8 @@ func TestOpenAIProvider_CreateEmbedding(t *testing.T) {
 	}
 
 	expected := []float32{0.1, 0.2, 0.3}
-	if len(res.Vector) != len(expected) {
-		t.Fatalf("expected length %d, got %d", len(expected), len(res.Vector))
-	}
-
-	for i := range res.Vector {
-		if res.Vector[i] != expected[i] {
-			t.Errorf("at index %d: expected %f, got %f", i, expected[i], res.Vector[i])
-		}
+	if !slices.Equal(res.Vector, expected) {
+		t.Errorf("vector = %v, want %v", res.Vector, expected)
 	}
 }
 

@@ -4,14 +4,20 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
 	"github.com/pkoukk/tiktoken-go"
+	tiktokenloader "github.com/pkoukk/tiktoken-go-loader"
 )
 
 const openAIBaseURL = "https://api.openai.com/v1"
+
+// tiktoken only takes its BPE loader as package state. Without the bundled loader
+// it downloads each encoding from the internet on first use.
+var useBundledTokenizers sync.Once
 
 type OpenAIProvider struct {
 	temperature
@@ -100,6 +106,8 @@ func (p *OpenAIProvider) CountTokens(ctx context.Context, text string) (int, err
 	if model == "" {
 		model = "gpt-3.5-turbo"
 	}
+
+	useBundledTokenizers.Do(func() { tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader()) })
 
 	tkm, err := tiktoken.EncodingForModel(model)
 	if err != nil {
