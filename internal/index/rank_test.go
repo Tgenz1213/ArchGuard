@@ -120,17 +120,22 @@ func TestFilterBelowThreshold_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestEffectiveThreshold_OverridePresent(t *testing.T) {
-	adr := &ADR{Title: "override", SimilarityThreshold: float64Ptr(0.3)}
-	if got := EffectiveThreshold(adr, 0.75); got != 0.3 {
-		t.Errorf("expected override 0.3, got %v", got)
+func TestEffectiveThreshold(t *testing.T) {
+	tests := []struct {
+		name string
+		adr  *ADR
+		want float64
+	}{
+		{name: "override present", adr: &ADR{Title: "override", SimilarityThreshold: float64Ptr(0.3)}, want: 0.3},
+		{name: "falls back to global", adr: &ADR{Title: "no override"}, want: 0.75},
 	}
-}
 
-func TestEffectiveThreshold_FallsBackToGlobal(t *testing.T) {
-	adr := &ADR{Title: "no override"}
-	if got := EffectiveThreshold(adr, 0.75); got != 0.75 {
-		t.Errorf("expected global fallback 0.75, got %v", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EffectiveThreshold(tt.adr, 0.75); got != tt.want {
+				t.Errorf("EffectiveThreshold = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

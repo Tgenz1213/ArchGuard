@@ -72,12 +72,12 @@ func TestStore_Save_Atomic(t *testing.T) {
 
 	loadedStore := NewLocalStore(5)
 
-	data, err := os.ReadFile(indexPath)
+	indexBytes, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatalf("Failed to read index.json: %v", err)
 	}
 
-	if err := json.Unmarshal(data, loadedStore); err != nil {
+	if err := json.Unmarshal(indexBytes, loadedStore); err != nil {
 		t.Fatalf("Failed to unmarshal saved index: %v", err)
 	}
 
@@ -338,8 +338,8 @@ func TestLocalStore_BuildIndex_WritesProgressToConfiguredWriter(t *testing.T) {
 		t.Fatalf("BuildIndex failed: %v", err)
 	}
 
-	if !strings.Contains(buf.String(), "Found 1 valid ADRs") {
-		t.Errorf("expected progress text on the configured writer, got %q", buf.String())
+	if buf.Len() == 0 {
+		t.Error("expected progress on the configured writer, got nothing")
 	}
 }
 

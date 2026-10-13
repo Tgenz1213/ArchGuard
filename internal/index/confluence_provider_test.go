@@ -27,18 +27,7 @@ func TestConfluenceProvider_GetADRs_Success(t *testing.T) {
 
 		response := ConfluenceSearchResponse{}
 
-		validPage := struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			Body  struct {
-				Storage struct {
-					Value string `json:"value"`
-				} `json:"storage"`
-			} `json:"body"`
-			Links struct {
-				WebUI string `json:"webui"`
-			} `json:"_links"`
-		}{}
+		var validPage confluencePage
 		validPage.ID = "1"
 		validPage.Title = "Use Go"
 		validPage.Body.Storage.Value = `<p>---
@@ -102,18 +91,7 @@ func TestConfluenceProvider_GetADRs_RespectsFrontmatterMappings(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := ConfluenceSearchResponse{}
 
-		page := struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			Body  struct {
-				Storage struct {
-					Value string `json:"value"`
-				} `json:"storage"`
-			} `json:"body"`
-			Links struct {
-				WebUI string `json:"webui"`
-			} `json:"_links"`
-		}{}
+		var page confluencePage
 		page.ID = "1"
 		page.Title = "Use Go"
 		page.Body.Storage.Value = `<p>---
@@ -268,18 +246,7 @@ func TestConfluenceProvider_GetADRs_Pagination(t *testing.T) {
 		requests++
 		response := ConfluenceSearchResponse{}
 
-		validPage := struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-			Body  struct {
-				Storage struct {
-					Value string `json:"value"`
-				} `json:"storage"`
-			} `json:"body"`
-			Links struct {
-				WebUI string `json:"webui"`
-			} `json:"_links"`
-		}{}
+		var validPage confluencePage
 
 		if requests == 1 {
 			validPage.ID = "1"
@@ -370,4 +337,17 @@ func TestConfluenceProvider_GetADRs_HTTPError(t *testing.T) {
 	if !strings.Contains(err.Error(), "confluence returned 500") {
 		t.Errorf("unexpected error message: %v", err)
 	}
+}
+
+type confluencePage struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  struct {
+		Storage struct {
+			Value string `json:"value"`
+		} `json:"storage"`
+	} `json:"body"`
+	Links struct {
+		WebUI string `json:"webui"`
+	} `json:"_links"`
 }

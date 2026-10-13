@@ -2,6 +2,7 @@ package index
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -30,60 +31,49 @@ func TestScopePatterns_EmptyMatchesEverything(t *testing.T) {
 	}
 }
 
-func TestScopePatterns_UnmarshalYAML_Scalar(t *testing.T) {
-	var fm FrontMatter
-
-	err := yaml.Unmarshal([]byte(`scope: "**/*.go"`), &fm)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestScopePatterns_UnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want []string
+	}{
+		{name: "scalar", yaml: `scope: "**/*.go"`, want: []string{"**/*.go"}},
+		{
+			name: "list",
+			yaml: "scope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n",
+			want: []string{"internal/api/**", "internal/handlers/**"},
+		},
+		{name: "absent", yaml: `title: "No scope here"`, want: nil},
 	}
 
-	if len(fm.Scope) != 1 || fm.Scope[0] != "**/*.go" {
-		t.Errorf("expected single-pattern scope, got %+v", fm.Scope)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fm FrontMatter
+			if err := yaml.Unmarshal([]byte(tt.yaml), &fm); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-func TestScopePatterns_UnmarshalYAML_List(t *testing.T) {
-	var fm FrontMatter
-	yamlDoc := "scope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n"
-
-	err := yaml.Unmarshal([]byte(yamlDoc), &fm)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(fm.Scope) != 2 || fm.Scope[0] != "internal/api/**" || fm.Scope[1] != "internal/handlers/**" {
-		t.Errorf("expected two patterns, got %+v", fm.Scope)
-	}
-}
-
-func TestScopePatterns_UnmarshalYAML_Absent(t *testing.T) {
-	var fm FrontMatter
-
-	err := yaml.Unmarshal([]byte(`title: "No scope here"`), &fm)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(fm.Scope) != 0 {
-		t.Errorf("expected empty scope when key is absent, got %+v", fm.Scope)
+			if !slices.Equal(fm.Scope, tt.want) {
+				t.Errorf("scope = %+v, want %+v", fm.Scope, tt.want)
+			}
+		})
 	}
 }
 
 func TestScopePatterns_JSONRoundTrip_SinglePattern(t *testing.T) {
 	sp := ScopePatterns{"**/*.go"}
 
-	data, err := json.Marshal(sp)
+	encoded, err := json.Marshal(sp)
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}
 
-	if string(data) != `"**/*.go"` {
-		t.Errorf("expected bare-string JSON for single pattern, got %s", data)
+	if string(encoded) != `"**/*.go"` {
+		t.Errorf("expected bare-string JSON for single pattern, got %s", encoded)
 	}
 
 	var got ScopePatterns
-	if err := json.Unmarshal(data, &got); err != nil {
+	if err := json.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 
@@ -95,13 +85,13 @@ func TestScopePatterns_JSONRoundTrip_SinglePattern(t *testing.T) {
 func TestScopePatterns_JSONRoundTrip_MultiPattern(t *testing.T) {
 	sp := ScopePatterns{"internal/api/**", "internal/handlers/**"}
 
-	data, err := json.Marshal(sp)
+	encoded, err := json.Marshal(sp)
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}
 
 	var got ScopePatterns
-	if err := json.Unmarshal(data, &got); err != nil {
+	if err := json.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 

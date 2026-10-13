@@ -19,10 +19,10 @@ func TestSplitFrontMatter_MatchesSplitNForWellFormedFiles(t *testing.T) {
 		"---\ntitle: T\n---trailing text on the closing line",
 	}
 	for _, in := range inputs {
-		data := []byte(in)
-		want := bytes.SplitN(data, []byte("---"), 3)
+		raw := []byte(in)
+		want := bytes.SplitN(raw, []byte("---"), 3)
 
-		frontMatter, body, ok := splitFrontMatter(data)
+		frontMatter, body, ok := splitFrontMatter(raw)
 		if !ok || !bytes.Equal(frontMatter, want[1]) || !bytes.Equal(body, want[2]) {
 			t.Errorf("splitFrontMatter(%q) = (%q, %q, %v), want (%q, %q, true)", in, frontMatter, body, ok, want[1], want[2])
 		}
@@ -48,9 +48,9 @@ func TestParseADR_DashesInsideFrontMatterValues(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data := []byte("---\nstatus: Accepted\n" + tt.frontMatter + "---\nBody")
+			raw := []byte("---\nstatus: Accepted\n" + tt.frontMatter + "---\nBody")
 
-			adr, rulesErr, err := parseADR(data, "1", "x.md", ParseOptions{}, nil)
+			adr, rulesErr, err := parseADR(raw, "1", "x.md", ParseOptions{}, nil)
 			if err != nil || rulesErr != nil {
 				t.Fatalf("parseADR err = %v, rulesErr = %v", err, rulesErr)
 			}
@@ -63,9 +63,9 @@ func TestParseADR_DashesInsideFrontMatterValues(t *testing.T) {
 }
 
 func TestParseADRContent_SimilarityThresholdOverride(t *testing.T) {
-	data := []byte("---\ntitle: \"Strict ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.6\n---\nBody")
+	raw := []byte("---\ntitle: \"Strict ADR\"\nstatus: \"Accepted\"\nsimilarity_threshold: 0.6\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-strict.md", ParseOptions{})
+	adr, err := ParseADRContent(raw, "0001", "0001-strict.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -76,9 +76,9 @@ func TestParseADRContent_SimilarityThresholdOverride(t *testing.T) {
 }
 
 func TestParseADRContent_SimilarityThresholdUnsetIsNil(t *testing.T) {
-	data := []byte("---\ntitle: \"Default ADR\"\nstatus: \"Accepted\"\n---\nBody")
+	raw := []byte("---\ntitle: \"Default ADR\"\nstatus: \"Accepted\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0002", "0002-default.md", ParseOptions{})
+	adr, err := ParseADRContent(raw, "0002", "0002-default.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,9 +89,9 @@ func TestParseADRContent_SimilarityThresholdUnsetIsNil(t *testing.T) {
 }
 
 func TestParseADRContent_MultiPatternScope(t *testing.T) {
-	data := []byte("---\ntitle: \"Multi Scope\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody")
+	raw := []byte("---\ntitle: \"Multi Scope\"\nstatus: \"Accepted\"\nscope:\n  - \"internal/api/**\"\n  - \"internal/handlers/**\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-multi-scope.md", ParseOptions{})
+	adr, err := ParseADRContent(raw, "0001", "0001-multi-scope.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,10 +102,10 @@ func TestParseADRContent_MultiPatternScope(t *testing.T) {
 }
 
 func TestParseADRContent_CustomScopeKeyMappedIsReadAsScope(t *testing.T) {
-	data := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
+	raw := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
 	mappings := map[string]string{"scope": "applies_to"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", ParseOptions{FrontmatterMappings: mappings})
+	adr, err := ParseADRContent(raw, "0001", "0001-custom-scope.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,9 +116,9 @@ func TestParseADRContent_CustomScopeKeyMappedIsReadAsScope(t *testing.T) {
 }
 
 func TestParseADRContent_CustomScopeKeyUnmappedFallsBackToUnrestrictedScope(t *testing.T) {
-	data := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
+	raw := []byte("---\ntitle: \"Custom Scope Key\"\nstatus: \"Accepted\"\napplies_to: \"**/*.go\"\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-scope.md", ParseOptions{})
+	adr, err := ParseADRContent(raw, "0001", "0001-custom-scope.md", ParseOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,10 +129,10 @@ func TestParseADRContent_CustomScopeKeyUnmappedFallsBackToUnrestrictedScope(t *t
 }
 
 func TestParseADRContent_CustomSimilarityThresholdKeyMapped(t *testing.T) {
-	data := []byte("---\ntitle: \"Custom Threshold Key\"\nstatus: \"Accepted\"\nconfidence: 0.42\n---\nBody")
+	raw := []byte("---\ntitle: \"Custom Threshold Key\"\nstatus: \"Accepted\"\nconfidence: 0.42\n---\nBody")
 	mappings := map[string]string{"similarity_threshold": "confidence"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-custom-threshold.md", ParseOptions{FrontmatterMappings: mappings})
+	adr, err := ParseADRContent(raw, "0001", "0001-custom-threshold.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -143,10 +143,10 @@ func TestParseADRContent_CustomSimilarityThresholdKeyMapped(t *testing.T) {
 }
 
 func TestParseADRContent_MappedSimilarityThresholdExplicitNullStaysNil(t *testing.T) {
-	data := []byte("---\ntitle: \"Explicit Null Threshold\"\nstatus: \"Accepted\"\nconfidence: null\n---\nBody")
+	raw := []byte("---\ntitle: \"Explicit Null Threshold\"\nstatus: \"Accepted\"\nconfidence: null\n---\nBody")
 	mappings := map[string]string{"similarity_threshold": "confidence"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-null-threshold.md", ParseOptions{FrontmatterMappings: mappings})
+	adr, err := ParseADRContent(raw, "0001", "0001-null-threshold.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,10 +157,10 @@ func TestParseADRContent_MappedSimilarityThresholdExplicitNullStaysNil(t *testin
 }
 
 func TestParseADRContent_UnmappedFieldKeepsDefaultKeyWithOneFieldRemapped(t *testing.T) {
-	data := []byte("---\ntitle: \"Title Stays Default\"\nstatus: \"Accepted\"\napplies_to: \"internal/**\"\n---\nBody")
+	raw := []byte("---\ntitle: \"Title Stays Default\"\nstatus: \"Accepted\"\napplies_to: \"internal/**\"\n---\nBody")
 	mappings := map[string]string{"scope": "applies_to"}
 
-	adr, err := ParseADRContent(data, "0001", "0001-mixed.md", ParseOptions{FrontmatterMappings: mappings})
+	adr, err := ParseADRContent(raw, "0001", "0001-mixed.md", ParseOptions{FrontmatterMappings: mappings})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -178,22 +178,53 @@ func TestParseADRContent_UnmappedFieldKeepsDefaultKeyWithOneFieldRemapped(t *tes
 	}
 }
 
-func TestParseADR_DefaultSplitBehaviorUnchanged(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "0001-use-postgres.md")
-
-	content := "---\ntitle: Use Postgres\nstatus: Accepted\n---\nBody"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
+func TestParseADR_IDFromFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		pattern  *regexp.Regexp
+		wantID   string
+	}{
+		{name: "default split", filename: "0001-use-postgres.md", wantID: "0001"},
+		{
+			name:     "custom pattern without a match falls back to default split",
+			filename: "0003-unrelated.md",
+			pattern:  regexp.MustCompile(`^adr-(\d+)-`),
+			wantID:   "0003",
+		},
+		{
+			name:     "empty capture group falls back to default split",
+			filename: "0005-empty-capture.md",
+			pattern:  regexp.MustCompile(`^0005(x?)-`),
+			wantID:   "0005",
+		},
+		{
+			name:     "pattern without a capture group uses the whole match",
+			filename: "adr-7-use-redis.md",
+			pattern:  regexp.MustCompile(`^adr-\d+`),
+			wantID:   "adr-7",
+		},
 	}
 
-	adr, err := ParseADR(path, dir, nil, ParseOptions{})
-	if err != nil {
-		t.Fatalf("ParseADR failed: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tt.filename)
 
-	if adr.ID != "0001" {
-		t.Errorf("ID = %q, want %q", adr.ID, "0001")
+			content := "---\ntitle: Some ADR\nstatus: Accepted\n---\nBody"
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			adr, err := ParseADR(path, dir, tt.pattern, ParseOptions{})
+			if err != nil {
+				t.Fatalf("ParseADR failed: %v", err)
+			}
+
+			if adr.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", adr.ID, tt.wantID)
+			}
+		})
 	}
 }
 
@@ -231,68 +262,5 @@ func TestParseADR_CustomPatternDistinguishesCollidingDefaultIDs(t *testing.T) {
 
 	if adr1.ID == adr2.ID {
 		t.Errorf("adr1.ID and adr2.ID both = %q, want distinct IDs", adr1.ID)
-	}
-}
-
-func TestParseADR_CustomPatternNoMatchFallsBackToDefaultSplit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "0003-unrelated.md")
-
-	content := "---\ntitle: Unrelated\nstatus: Accepted\n---\nBody"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	pattern := regexp.MustCompile(`^adr-(\d+)-`)
-
-	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
-	if err != nil {
-		t.Fatalf("ParseADR failed: %v", err)
-	}
-
-	if adr.ID != "0003" {
-		t.Errorf("ID = %q, want %q (fallback to default split)", adr.ID, "0003")
-	}
-}
-
-func TestParseADR_PatternWithEmptyCaptureGroupFallsBackToDefaultSplit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "0005-empty-capture.md")
-
-	content := "---\ntitle: Empty Capture\nstatus: Accepted\n---\nBody"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	pattern := regexp.MustCompile(`^0005(x?)-`)
-
-	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
-	if err != nil {
-		t.Fatalf("ParseADR failed: %v", err)
-	}
-
-	if adr.ID != "0005" {
-		t.Errorf("ID = %q, want %q (fallback to default split when capture group is empty)", adr.ID, "0005")
-	}
-}
-
-func TestParseADR_PatternWithoutCaptureGroupUsesWholeMatch(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "adr-7-use-redis.md")
-
-	content := "---\ntitle: Use Redis\nstatus: Accepted\n---\nBody"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	pattern := regexp.MustCompile(`^adr-\d+`)
-
-	adr, err := ParseADR(path, dir, pattern, ParseOptions{})
-	if err != nil {
-		t.Fatalf("ParseADR failed: %v", err)
-	}
-
-	if adr.ID != "adr-7" {
-		t.Errorf("ID = %q, want %q", adr.ID, "adr-7")
 	}
 }
