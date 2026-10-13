@@ -11,7 +11,11 @@ import (
 	"testing"
 )
 
-const hooksDir = "../../.claude/hooks"
+const (
+	hooksDir    = "../../.claude/hooks"
+	readOnlyGit = "read-only-git.sh"
+	blockEnv    = "block-env.sh"
+)
 
 func TestReadOnlyGitHook(t *testing.T) {
 	bash := findBash(t)
@@ -52,7 +56,7 @@ func TestReadOnlyGitHook(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := runHook(t, bash, tc.command); got != tc.wantCode {
+			if got := runHook(t, bash, readOnlyGit, tc.command); got != tc.wantCode {
 				t.Errorf("exit code for %q = %d, want %d", tc.command, got, tc.wantCode)
 			}
 		})
@@ -67,15 +71,15 @@ func TestReadOnlyGitHookIgnoresTheDescription(t *testing.T) {
 		"description": `"command": "git status"`,
 	})
 
-	if got := runHookWithInput(t, bash, input); got != 2 {
+	if got := runHookWithInput(t, bash, readOnlyGit, input); got != 2 {
 		t.Errorf("exit code = %d, want 2", got)
 	}
 }
 
-func runHook(t *testing.T, bash, command string) int {
+func runHook(t *testing.T, bash, script, command string) int {
 	t.Helper()
 
-	return runHookWithInput(t, bash, hookInput(t, map[string]string{
+	return runHookWithInput(t, bash, script, hookInput(t, map[string]string{
 		"command":     command,
 		"description": "Probe the hook",
 	}))
@@ -104,10 +108,10 @@ func hookInput(t *testing.T, toolInput map[string]string) []byte {
 	return buf.Bytes()
 }
 
-func runHookWithInput(t *testing.T, bash string, input []byte) int {
+func runHookWithInput(t *testing.T, bash, script string, input []byte) int {
 	t.Helper()
 
-	cmd := exec.CommandContext(t.Context(), bash, "read-only-git.sh")
+	cmd := exec.CommandContext(t.Context(), bash, script)
 	cmd.Dir = hooksDir
 	cmd.Stdin = bytes.NewReader(input)
 
