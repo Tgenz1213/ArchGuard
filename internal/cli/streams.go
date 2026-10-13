@@ -29,9 +29,9 @@ func (c streamColors) stderrPrinter(debug bool) *output.Printer {
 }
 
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
+	stat, err := f.Stat()
 
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return err == nil && stat.Mode()&os.ModeCharDevice != 0
 }
 
 func outputWriteError(err error) error {

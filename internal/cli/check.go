@@ -47,10 +47,6 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		}
 	}()
 
-	if opts.Format == "json" && opts.UpdateBaseline {
-		run.log.Note("--format json has no effect with --update-baseline; ignoring it.")
-	}
-
 	store, err := index.NewVectorStore(setup.cfg, run.log)
 	if err != nil {
 		return ExitIndexError, fmt.Errorf("failed to initialize vector store: %w", err)
@@ -60,11 +56,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitIndexError, err
 	}
 
-	run.noteIgnoredBaselineFlags()
-
-	if opts.DryRun && opts.SuggestFixes {
-		run.log.Note("--dry-run does not project the cost of --suggest-fixes suggestions.")
-	}
+	run.noteFlagCombinations()
 
 	contentProvider := opts.contentProvider(run.log)
 
@@ -113,13 +105,21 @@ func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun,
 	return run, nil
 }
 
-func (r *checkRun) noteIgnoredBaselineFlags() {
+func (r *checkRun) noteFlagCombinations() {
+	if r.opts.Format == "json" && r.opts.UpdateBaseline {
+		r.log.Note("--format json has no effect with --update-baseline; ignoring it.")
+	}
+
 	if r.opts.UpdateBaseline && (len(r.opts.Paths) > 0 || r.opts.Staged) {
 		r.log.Note("--update-baseline always scans the full repository; ignoring --staged and any file arguments.")
 	}
 
 	if r.opts.BaselineReason != "" && !r.opts.UpdateBaseline {
 		r.log.Note("--baseline-reason has no effect without --update-baseline; ignoring it.")
+	}
+
+	if r.opts.DryRun && r.opts.SuggestFixes {
+		r.log.Note("--dry-run does not project the cost of --suggest-fixes suggestions.")
 	}
 }
 

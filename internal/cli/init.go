@@ -37,7 +37,7 @@ func (p prompter) ask(question string) (string, error) {
 	p.scanner.Scan()
 
 	if err := p.scanner.Err(); err != nil {
-		return "", fmt.Errorf("input error: %w", err)
+		return "", fmt.Errorf("failed to read answer: %w", err)
 	}
 
 	return strings.TrimSpace(p.scanner.Text()), nil
@@ -193,8 +193,10 @@ analysis:
 }
 
 func ensureGitignore() (err error) {
-	const gitignorePath = ".gitignore"
-	const archguardEntry = ".archguard/"
+	const (
+		gitignorePath  = ".gitignore"
+		archguardEntry = ".archguard/"
+	)
 
 	content, err := os.ReadFile(gitignorePath)
 	if err != nil && !os.IsNotExist(err) {

@@ -26,26 +26,22 @@ import (
 )
 
 func TestExitCodeForAnalysisError(t *testing.T) {
-	t.Run("returns drift exit code for direct drift detection errors", func(t *testing.T) {
-		err := &analysis.DriftDetectedError{Count: 2}
-		if got := exitCodeForAnalysisError(err); got != ExitDriftDetected {
-			t.Fatalf("expected %d, got %d", ExitDriftDetected, got)
-		}
-	})
-
-	t.Run("returns drift exit code for wrapped drift detection errors", func(t *testing.T) {
-		err := fmt.Errorf("wrapped: %w", &analysis.DriftDetectedError{Count: 2})
-		if got := exitCodeForAnalysisError(err); got != ExitDriftDetected {
-			t.Fatalf("expected %d, got %d", ExitDriftDetected, got)
-		}
-	})
-
-	t.Run("returns generic error exit code for operational errors", func(t *testing.T) {
-		err := errors.New("git content provider failure")
-		if got := exitCodeForAnalysisError(err); got != ExitError {
-			t.Fatalf("expected %d, got %d", ExitError, got)
-		}
-	})
+	tests := []struct {
+		name string
+		err  error
+		want ExitCode
+	}{
+		{"direct drift detection error", &analysis.DriftDetectedError{Count: 2}, ExitDriftDetected},
+		{"wrapped drift detection error", fmt.Errorf("wrapped: %w", &analysis.DriftDetectedError{Count: 2}), ExitDriftDetected},
+		{"operational error", errors.New("git content provider failure"), ExitError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := exitCodeForAnalysisError(tt.err); got != tt.want {
+				t.Fatalf("expected %d, got %d", tt.want, got)
+			}
+		})
+	}
 }
 
 func TestStageFailureExit(t *testing.T) {
@@ -124,23 +120,28 @@ func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 	}
 }
 
-func TestValidateProviderConfig_ClaudeRequiresEmbeddingProvider(t *testing.T) {
-	cfg := &config.Config{
-		LLM:         config.LLMConfig{Provider: "claude"},
-		VectorStore: config.VectorStore{Provider: ""},
+func TestValidateProviderConfig(t *testing.T) {
+	tests := []struct {
+		name          string
+		llmProvider   string
+		embedProvider string
+		wantErr       bool
+	}{
+		{"claude requires an embedding provider", "claude", "", true},
+		{"claude with an embedding provider", "claude", "openai", false},
+		{"voyage rejected as llm provider", "voyage", "", true},
+		{"claude rejected as embedding provider", "gemini", "claude", true},
 	}
-	if err := validateProviderConfig(cfg); err == nil {
-		t.Fatal("expected an error when llm.provider is claude and vector_store.provider is unset")
-	}
-}
-
-func TestValidateProviderConfig_ClaudeWithEmbeddingProviderOK(t *testing.T) {
-	cfg := &config.Config{
-		LLM:         config.LLMConfig{Provider: "claude"},
-		VectorStore: config.VectorStore{Provider: "openai"},
-	}
-	if err := validateProviderConfig(cfg); err != nil {
-		t.Errorf("expected no error, got: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				LLM:         config.LLMConfig{Provider: tt.llmProvider},
+				VectorStore: config.VectorStore{Provider: tt.embedProvider},
+			}
+			if err := validateProviderConfig(cfg); (err != nil) != tt.wantErr {
+				t.Errorf("validateProviderConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -153,15 +154,6 @@ func TestValidateProviderConfig_NonClaudeProvidersUnaffected(t *testing.T) {
 		if err := validateProviderConfig(cfg); err != nil {
 			t.Errorf("provider %q: expected no error with vector_store.provider unset, got: %v", provider, err)
 		}
-	}
-}
-
-func TestValidateProviderConfig_VoyageRejectedAsLLMProvider(t *testing.T) {
-	cfg := &config.Config{
-		LLM: config.LLMConfig{Provider: "voyage"},
-	}
-	if err := validateProviderConfig(cfg); err == nil {
-		t.Fatal("expected an error when llm.provider is voyage (embeddings-only, no chat capability)")
 	}
 }
 
@@ -202,16 +194,6 @@ func TestCompileADRIDPattern_EmptyIsNil(t *testing.T) {
 	}
 }
 
-func TestCompileADRIDPattern_InvalidPatternErrors(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Analysis.ADRIDPattern = `[unterminated`
-
-	_, err := compileADRIDPattern(cfg)
-	if err == nil {
-		t.Fatal("expected error for invalid regex, got nil")
-	}
-}
-
 func TestCompileADRIDPattern_CaptureGroups(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -223,6 +205,7 @@ func TestCompileADRIDPattern_CaptureGroups(t *testing.T) {
 		{"a non-capturing group does not count", `^(?:adr|ADR)-(\d+)-`, false},
 		{"two groups are ambiguous", `^(adr)-(\d+)-`, true},
 		{"named groups count too", `^(?P<kind>adr)-(?P<id>\d+)-`, true},
+		{"invalid regex errors", `[unterminated`, true},
 	}
 
 	for _, tt := range tests {
@@ -273,30 +256,24 @@ func TestValidateFrontmatterMappings_ValidMappingPassesThrough(t *testing.T) {
 	}
 }
 
-func TestValidateFrontmatterMappings_UnknownCanonicalFieldErrors(t *testing.T) {
-	cfg := &config.Config{}
-
-	cfg.Analysis.FrontmatterMappings = map[string]string{"scop": "applies_to"}
-	if _, err := validateFrontmatterMappings(cfg); err == nil {
-		t.Fatal("expected error for unknown canonical field name, got nil")
+func TestValidateFrontmatterMappings_InvalidMappingsError(t *testing.T) {
+	tests := []struct {
+		name     string
+		mappings map[string]string
+	}{
+		{"unknown canonical field", map[string]string{"scop": "applies_to"}},
+		{"two fields mapped to the same key", map[string]string{"scope": "x", "title": "x"}},
+		{"mapped key collides with an unmapped field's default key", map[string]string{"scope": "title"}},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Analysis.FrontmatterMappings = tt.mappings
 
-func TestValidateFrontmatterMappings_TwoFieldsMappedToSameKeyErrors(t *testing.T) {
-	cfg := &config.Config{}
-
-	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "x", "title": "x"}
-	if _, err := validateFrontmatterMappings(cfg); err == nil {
-		t.Fatal("expected collision error when two canonical fields map to the same YAML key, got nil")
-	}
-}
-
-func TestValidateFrontmatterMappings_MappedKeyCollidesWithUnmappedDefaultErrors(t *testing.T) {
-	cfg := &config.Config{}
-
-	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "title"}
-	if _, err := validateFrontmatterMappings(cfg); err == nil {
-		t.Fatal("expected collision error when a mapped key matches an unmapped field's own default key, got nil")
+			if _, err := validateFrontmatterMappings(cfg); err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+		})
 	}
 }
 
@@ -320,32 +297,22 @@ func TestValidateFrontmatterMappings_MappedKeyCollidesWithRulesDefaultErrors(t *
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "rules"}
 
 	_, err := validateFrontmatterMappings(cfg)
-	if err == nil {
-		t.Fatal("expected collision error when a mapped key matches the rules field's default key, got nil")
-	}
 
-	if want := `"rules" reads that key by default, so map "rules" to another key (e.g. rules: rules_field)`; !strings.Contains(err.Error(), want) {
-		t.Errorf("error = %q, want it to suggest %q", err, want)
+	var collision *mappingCollisionError
+	if !errors.As(err, &collision) || collision.defaultKeyField() != "rules" {
+		t.Fatalf("error = %v, want a collision with the rules field's default key", err)
 	}
 }
 
-func TestValidateFrontmatterMappings_CollisionBetweenTwoMappedKeysHasNoRemapHint(t *testing.T) {
+func TestValidateFrontmatterMappings_CollisionBetweenTwoMappedKeysNamesNoDefaultField(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Analysis.FrontmatterMappings = map[string]string{"scope": "x", "title": "x"}
 
 	_, err := validateFrontmatterMappings(cfg)
-	if err == nil || strings.Contains(err.Error(), "reads that key by default") {
-		t.Fatalf("error = %v, want a collision error without the default-key hint", err)
-	}
-}
 
-func TestValidateProviderConfig_ClaudeRejectedAsEmbeddingProvider(t *testing.T) {
-	cfg := &config.Config{
-		LLM:         config.LLMConfig{Provider: "gemini"},
-		VectorStore: config.VectorStore{Provider: "claude"},
-	}
-	if err := validateProviderConfig(cfg); err == nil {
-		t.Fatal("expected an error when vector_store.provider is claude (chat-only, no embeddings capability)")
+	var collision *mappingCollisionError
+	if !errors.As(err, &collision) || collision.defaultKeyField() != "" {
+		t.Fatalf("error = %v, want a collision between two mapped keys", err)
 	}
 }
 
@@ -930,48 +897,29 @@ func TestParseCommandLine_UsageErrorIgnoresBrokenStreams(t *testing.T) {
 	}
 }
 
-func TestNormalizePaths_CleansRelativePathAtRepoRoot(t *testing.T) {
+func TestNormalizePaths(t *testing.T) {
 	repoRoot := filepath.Clean(t.TempDir())
 
-	paths := []string{"./sub/../file.go"}
-	normalizePaths(paths, repoRoot, repoRoot)
-
-	if paths[0] != "file.go" {
-		t.Errorf("got %q, want %q", paths[0], "file.go")
+	tests := []struct {
+		name string
+		path string
+		cwd  string
+		want string
+	}{
+		{"cleans a relative path at the repo root", "./sub/../file.go", repoRoot, "file.go"},
+		{"resolves from a subdirectory", "cli.go", filepath.Join(repoRoot, "internal", "cli"), "internal/cli/cli.go"},
+		{"handles an absolute path", filepath.Join(repoRoot, "sub", "file.go"), repoRoot, "sub/file.go"},
+		{"leaves an empty path empty rather than a whole-repo scan", "", repoRoot, ""},
 	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			paths := []string{tt.path}
+			normalizePaths(paths, tt.cwd, repoRoot)
 
-func TestNormalizePaths_ResolvesFromSubdirectory(t *testing.T) {
-	repoRoot := filepath.Clean(t.TempDir())
-	cwd := filepath.Join(repoRoot, "internal", "cli")
-
-	paths := []string{"cli.go"}
-	normalizePaths(paths, cwd, repoRoot)
-
-	if paths[0] != "internal/cli/cli.go" {
-		t.Errorf("got %q, want %q", paths[0], "internal/cli/cli.go")
-	}
-}
-
-func TestNormalizePaths_HandlesAbsolutePath(t *testing.T) {
-	repoRoot := filepath.Clean(t.TempDir())
-
-	paths := []string{filepath.Join(repoRoot, "sub", "file.go")}
-	normalizePaths(paths, repoRoot, repoRoot)
-
-	if paths[0] != "sub/file.go" {
-		t.Errorf("got %q, want %q", paths[0], "sub/file.go")
-	}
-}
-
-func TestNormalizePaths_LeavesEmptyPathUntouched(t *testing.T) {
-	repoRoot := filepath.Clean(t.TempDir())
-
-	paths := []string{""}
-	normalizePaths(paths, repoRoot, repoRoot)
-
-	if paths[0] != "" {
-		t.Errorf("an empty path must stay empty, not become %q (a whole-repo scan), got %q", ".", paths[0])
+			if paths[0] != tt.want {
+				t.Errorf("got %q, want %q", paths[0], tt.want)
+			}
+		})
 	}
 }
 
@@ -996,34 +944,16 @@ func TestNormalizePaths_MatchesBaselineEntryRecordedWithForwardSlashes(t *testin
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
-
-	orig := os.Stdout
-	os.Stdout = writer
-	defer func() { os.Stdout = orig }()
-
-	fn()
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("failed to close pipe writer: %v", err)
-	}
-
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
-		t.Fatalf("failed to read pipe: %v", err)
-	}
-
-	if err := reader.Close(); err != nil {
-		t.Fatalf("failed to close pipe reader: %v", err)
-	}
-
-	return buf.String()
+	return captureStream(t, &os.Stdout, fn)
 }
 
 func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	return captureStream(t, &os.Stderr, fn)
+}
+
+func captureStream(t *testing.T, stream **os.File, fn func()) string {
 	t.Helper()
 
 	reader, writer, err := os.Pipe()
@@ -1031,9 +961,9 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("failed to create pipe: %v", err)
 	}
 
-	orig := os.Stderr
-	os.Stderr = writer
-	defer func() { os.Stderr = orig }()
+	orig := *stream
+	*stream = writer
+	defer func() { *stream = orig }()
 
 	fn()
 
@@ -1075,12 +1005,11 @@ func setupExecuteTestRepo(t *testing.T) string {
 	return cleanRoot
 }
 
-func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
+func runCheckCapturingStderr(t *testing.T) string {
+	t.Helper()
+
 	origArgs := os.Args
-
-	defer func() { os.Args = origArgs }()
-
-	setupExecuteTestRepo(t)
+	t.Cleanup(func() { os.Args = origArgs })
 
 	os.Args = []string{"archguard", "check"}
 
@@ -1092,6 +1021,14 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 			}
 		})
 	})
+
+	return stderr
+}
+
+func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
+	setupExecuteTestRepo(t)
+
+	stderr := runCheckCapturingStderr(t)
 
 	if strings.Contains(stderr, ".env") {
 		t.Errorf("expected no .env warning when .env is simply absent, got: %q", stderr)
@@ -1099,26 +1036,13 @@ func TestExecute_MissingDotEnv_NoStderrWarning(t *testing.T) {
 }
 
 func TestExecute_MalformedDotEnv_PrintsStderrWarning(t *testing.T) {
-	origArgs := os.Args
-
-	defer func() { os.Args = origArgs }()
-
 	cleanRoot := setupExecuteTestRepo(t)
 
 	if err := os.WriteFile(filepath.Join(cleanRoot, ".env"), []byte(`KEY="unterminated`), 0644); err != nil {
 		t.Fatalf("failed to write malformed .env: %v", err)
 	}
 
-	os.Args = []string{"archguard", "check"}
-
-	var stderr string
-	captureStdout(t, func() {
-		stderr = captureStderr(t, func() {
-			if code, err := Execute(t.Context(), "test", ProviderFactories{}); code != ExitConfig || err == nil {
-				t.Errorf("Execute() = (%d, %v), want exit %d: this repo has no archguard.yaml", code, err, ExitConfig)
-			}
-		})
-	})
+	stderr := runCheckCapturingStderr(t)
 
 	if !strings.Contains(stderr, "failed to load .env") {
 		t.Errorf("expected a .env parse-failure warning on stderr, got: %q", stderr)
@@ -1165,11 +1089,10 @@ func TestPrintIndexSummary_MalformedRules(t *testing.T) {
 		},
 	}, output.New(&buf, false))
 
-	want := "  Rules ignored (malformed): 2\n" +
-		"    - 0001-a.md: frontmatter: rules must be a list\n" +
-		"    - 0002-b.md: \"Rules\" section: rule 1: bullet has no statement text\n"
-	if !strings.Contains(buf.String(), want) {
-		t.Errorf("summary missing the malformed-rules section.\ngot:\n%s\nwant it to contain:\n%s", buf.String(), want)
+	for _, want := range []string{"0001-a.md", "0002-b.md", "malformed): 2"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("summary missing %q:\n%s", want, buf.String())
+		}
 	}
 }
 

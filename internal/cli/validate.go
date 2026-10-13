@@ -81,7 +81,7 @@ func checkSourceKeyCollisions(mappings map[string]string) error {
 		}
 
 		if owner, exists := sourceKeyOwner[sourceKey]; exists {
-			return collisionError(owner, canonical, sourceKey)
+			return &mappingCollisionError{owner: owner, canonical: canonical, sourceKey: sourceKey}
 		}
 
 		sourceKeyOwner[sourceKey] = canonical
@@ -90,16 +90,28 @@ func checkSourceKeyCollisions(mappings map[string]string) error {
 	return nil
 }
 
-func collisionError(owner, canonical, sourceKey string) error {
-	err := fmt.Errorf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", owner, canonical, sourceKey)
+type mappingCollisionError struct {
+	owner, canonical, sourceKey string
+}
 
-	for _, field := range []string{owner, canonical} {
-		if field == sourceKey {
-			err = fmt.Errorf("%w; %q reads that key by default, so map %q to another key (e.g. %s: %s_field)", err, field, field, field, field)
+func (e *mappingCollisionError) defaultKeyField() string {
+	for _, field := range []string{e.owner, e.canonical} {
+		if field == e.sourceKey {
+			return field
 		}
 	}
 
-	return err
+	return ""
+}
+
+func (e *mappingCollisionError) Error() string {
+	msg := fmt.Sprintf("analysis.frontmatter_mappings collision: %q and %q both resolve to YAML key %q", e.owner, e.canonical, e.sourceKey)
+
+	if field := e.defaultKeyField(); field != "" {
+		msg += fmt.Sprintf("; %q reads that key by default, so map %q to another key (e.g. %s: %s_field)", field, field, field, field)
+	}
+
+	return msg
 }
 
 // Invariants the YAML schema can't express (docs/arch/0004).
