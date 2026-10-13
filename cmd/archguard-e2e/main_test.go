@@ -8,23 +8,33 @@ import (
 )
 
 func TestCodeContextContainsTrigger(t *testing.T) {
-	t.Run("matches when trigger appears in code context", func(t *testing.T) {
-		prompt := inference.GetAnalyzeDriftPrompt("ADR without trigger", "const s = \"password\";", "x.js")
-		if !codeContextContainsTrigger(prompt, testutil.MockViolationTrigger) {
-			t.Fatalf("expected trigger match inside code_context")
-		}
-	})
+	tests := []struct {
+		name   string
+		prompt string
+		want   bool
+	}{
+		{
+			name:   "matches when trigger appears in code context",
+			prompt: inference.GetAnalyzeDriftPrompt("ADR without trigger", "const s = \"password\";", "x.js"),
+			want:   true,
+		},
+		{
+			name:   "does not match when trigger appears only in ADR content",
+			prompt: inference.GetAnalyzeDriftPrompt("Do not print passwords", "const s = \"token\";", "x.js"),
+			want:   false,
+		},
+		{
+			name:   "does not match when code context tags are missing",
+			prompt: "random prompt content",
+			want:   false,
+		},
+	}
 
-	t.Run("does not match when trigger appears only in ADR content", func(t *testing.T) {
-		prompt := inference.GetAnalyzeDriftPrompt("Do not print passwords", "const s = \"token\";", "x.js")
-		if codeContextContainsTrigger(prompt, testutil.MockViolationTrigger) {
-			t.Fatalf("expected no trigger match when only ADR contains trigger")
-		}
-	})
-
-	t.Run("does not match when code context tags are missing", func(t *testing.T) {
-		if codeContextContainsTrigger("random prompt content", testutil.MockViolationTrigger) {
-			t.Fatalf("expected no trigger match without code_context tags")
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := codeContextContainsTrigger(tt.prompt, testutil.MockViolationTrigger); got != tt.want {
+				t.Fatalf("codeContextContainsTrigger() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

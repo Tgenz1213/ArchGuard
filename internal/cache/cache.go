@@ -95,7 +95,16 @@ type SuggestionKeyInput struct {
 }
 
 func ComputeSuggestionKey(in SuggestionKeyInput) string {
-	return hashParts(in.ModelName, in.ADRContent, in.FileContent, in.Filename, in.Reasoning, in.QuotedCode, in.SuggestionSystemPrompt, in.SuggestionPromptTemplate)
+	return hashParts(
+		in.ModelName,
+		in.ADRContent,
+		in.FileContent,
+		in.Filename,
+		in.Reasoning,
+		in.QuotedCode,
+		in.SuggestionSystemPrompt,
+		in.SuggestionPromptTemplate,
+	)
 }
 
 func (c *Cache) suggestionPath(key string) string {
