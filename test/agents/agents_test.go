@@ -13,6 +13,16 @@ import (
 
 const agentsDir = "../../.claude/agents"
 
+// readOnlyMCPTools are the MCP tools a read-only agent may list. Add a tool
+// here only if it cannot write files. Context7 is listed under the name a
+// cloud session gives it and the name a local claude.ai connector gives it.
+var readOnlyMCPTools = []string{
+	"mcp__Context7__resolve-library-id",
+	"mcp__Context7__query-docs",
+	"mcp__claude_ai_Context7__resolve-library-id",
+	"mcp__claude_ai_Context7__query-docs",
+}
+
 type hookCommand struct {
 	Command string `yaml:"command"`
 }
@@ -23,10 +33,9 @@ type hookMatcher struct {
 }
 
 type agent struct {
-	Tools           yaml.Node `yaml:"tools"`
-	DisallowedTools yaml.Node `yaml:"disallowedTools"`
-	Isolation       string    `yaml:"isolation"`
-	Hooks           struct {
+	Tools     yaml.Node `yaml:"tools"`
+	Isolation string    `yaml:"isolation"`
+	Hooks     struct {
 		PreToolUse []hookMatcher `yaml:"PreToolUse"`
 	} `yaml:"hooks"`
 }
@@ -69,13 +78,15 @@ func TestViolationsCatchEachRule(t *testing.T) {
 		frontmatter string
 		want        int
 	}{
-		{"reviewer", "tools: Read, Grep, Glob, Bash\ndisallowedTools: mcp__*\n" + readOnlyHook, 0},
-		{"reviewer as a YAML list", "tools: [Read, Bash]\ndisallowedTools: [mcp__*]\n" + readOnlyHook, 0},
-		{"reviewer without disallowedTools", "tools: Read, Grep, Glob, Bash\n" + readOnlyHook, 1},
-		{"reviewer denying one server only", "tools: Read, Bash\ndisallowedTools: mcp__serena\n" + readOnlyHook, 1},
-		{"reviewer without the hook", "tools: Read, Grep, Glob, Bash\ndisallowedTools: mcp__*\n", 1},
-		{"hook on another matcher", "tools: Read, Bash\ndisallowedTools: mcp__*\n" + strings.Replace(readOnlyHook, "matcher: Bash", "matcher: Read", 1), 1},
-		{"read-only without Bash", "tools: Read, Grep\ndisallowedTools: mcp__*\n", 0},
+		{"reviewer", "tools: Read, Grep, Glob, Bash\n" + readOnlyHook, 0},
+		{"reviewer as a YAML list", "tools: [Read, Bash, mcp__Context7__query-docs]\n" + readOnlyHook, 0},
+		{"reviewer with Context7", "tools: Read, Bash, mcp__Context7__query-docs, mcp__claude_ai_Context7__query-docs\n" + readOnlyHook, 0},
+		{"reviewer with a write-capable MCP tool", "tools: Read, Bash, mcp__serena__create_text_file\n" + readOnlyHook, 1},
+		{"reviewer with a server pattern", "tools: Read, Bash, mcp__Context7\n" + readOnlyHook, 1},
+		{"reviewer with a server wildcard", "tools: Read, Bash, mcp__Context7__*\n" + readOnlyHook, 1},
+		{"reviewer without the hook", "tools: Read, Grep, Glob, Bash\n", 1},
+		{"hook on another matcher", "tools: Read, Bash\n" + strings.Replace(readOnlyHook, "matcher: Bash", "matcher: Read", 1), 1},
+		{"read-only without Bash", "tools: Read, Grep\n", 0},
 		{"writer", "isolation: worktree\n", 0},
 		{"no tools without a worktree", "name: x\n", 1},
 		{"Edit without a worktree", "tools: Read, Edit\n", 1},
@@ -94,7 +105,7 @@ func TestViolationsCatchEachRule(t *testing.T) {
 }
 
 // violations checks the rules of docs/arch/0040-isolated-subagents.md and
-// docs/arch/0041-read-only-subagents-get-no-mcp-tools.md.
+// docs/arch/0041-read-only-subagents-name-their-mcp-tools.md.
 func violations(t *testing.T, a agent) []string {
 	t.Helper()
 
@@ -111,8 +122,12 @@ func violations(t *testing.T, a agent) []string {
 		found = append(found, "a read-only agent with Bash must run read-only-git.sh as a PreToolUse hook on Bash")
 	}
 
-	if !writes && !slices.Contains(toolList(t, a.DisallowedTools), "mcp__*") {
-		found = append(found, "a read-only agent must set disallowedTools: mcp__*")
+	if !writes {
+		for _, tool := range tools {
+			if strings.HasPrefix(tool, "mcp__") && !slices.Contains(readOnlyMCPTools, tool) {
+				found = append(found, "a read-only agent lists "+tool+", which is not a known read-only MCP tool")
+			}
+		}
 	}
 
 	return found
