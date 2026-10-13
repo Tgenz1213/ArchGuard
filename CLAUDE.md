@@ -25,6 +25,8 @@ The module builds on Go 1.27, so a golangci-lint built with an older Go can't li
 
 Git hooks in `.githooks/` block a commit on `main`, a commit while lint reports issues in changed Go code, and a push of a branch that doesn't contain `origin/main`. The SessionStart hook turns them on; outside Claude, run `git config core.hooksPath .githooks` once per clone. `--no-verify` is denied in `.claude/settings.json`.
 
+Claude may not read `.env`: deny rules in `.claude/settings.json` and the `block-env.sh` Bash hook refuse it (`docs/arch/0042-claude-may-not-read-env.md`). A recursive search that never names the file still gets through, so keep API keys in environment variables rather than `.env`.
+
 ## Architecture
 
 Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` → `internal/analysis.Engine.Run`.
