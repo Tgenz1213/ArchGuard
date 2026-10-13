@@ -40,8 +40,8 @@ func (t *Telemetry) Apply(ctx context.Context, i int, file File, debug Debug, ca
 
 	t.mu.Lock()
 	t.stats[i].Received += len(candidates)
-
 	t.stats[i].Kept += len(kept)
+
 	if len(candidates) > 0 {
 		t.spent[i] += elapsed
 	}

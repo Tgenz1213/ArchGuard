@@ -42,24 +42,52 @@ type Stage struct {
 	FailOnError bool
 }
 
+// decision is what a stage did with one file's candidates, kept as data so the debug report is a separate step.
+type decision struct {
+	received   int
+	kept       []Candidate
+	below      []Candidate
+	qualifying []Candidate
+	floor      Threshold
+}
+
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
+	d, err := s.decide(ctx, file, debug, candidates)
+	if err != nil {
+		return nil, err
+	}
+
+	if debug.DebugEnabled() {
+		s.report(debug, d)
+	}
+
+	return d.kept, nil
+}
+
+func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
 	if len(candidates) == 0 {
-		debug.Debug("Stage %s: 0 candidate(s) received, 0 kept", s.Name)
-		return nil, nil
+		return decision{}, nil
 	}
 
 	scores, err := s.Scorer.Score(ctx, file, debug, candidates)
 	if err != nil {
 		var stageErr *Error
 		if errors.As(err, &stageErr) {
-			return nil, err
+			return decision{}, err
 		}
 
-		return nil, &Error{Action: "scoring candidates", Err: err}
+		return decision{}, &Error{Action: "scoring candidates", Err: err}
 	}
 
 	if len(scores) != len(candidates) {
-		return nil, &Error{Action: "scoring candidates", Err: fmt.Errorf("scorer returned %d scores for %d candidates", len(scores), len(candidates))}
+		return decision{}, &Error{
+			Action: "scoring candidates",
+			Err: fmt.Errorf(
+				"scorer returned %d scores for %d candidates",
+				len(scores),
+				len(candidates),
+			),
+		}
 	}
 
 	floor := s.Min
@@ -78,27 +106,46 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	}
 
 	sort.SliceStable(qualifying, func(i, j int) bool { return qualifying[i].Score > qualifying[j].Score })
+	sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
 
 	kept := qualifying
 	if s.MaxKeep > 0 && len(kept) > s.MaxKeep {
 		kept = kept[:s.MaxKeep]
 	}
 
-	if debug.DebugEnabled() {
-		debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, len(candidates), len(kept))
-		for _, candidate := range kept {
-			debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
-		}
+	return decision{
+		received:   len(candidates),
+		kept:       kept,
+		below:      below,
+		qualifying: qualifying,
+		floor:      floor,
+	}, nil
+}
 
-		sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
-		for _, candidate := range below {
-			debug.Debug("Below threshold: %s (score %.2f < threshold %.2f)", candidate.ADR.Title, candidate.Score, floor.For(candidate.ADR))
-		}
+func (d decision) cut() []Candidate { return d.qualifying[len(d.kept):] }
 
-		for i, candidate := range qualifying[len(kept):] {
-			debug.Debug("Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)", candidate.ADR.Title, candidate.Score, len(kept)+i+1, len(qualifying))
-		}
+func (s Stage) report(debug Debug, d decision) {
+	debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept))
+	for _, candidate := range d.kept {
+		debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
 	}
 
-	return kept, nil
+	for _, candidate := range d.below {
+		debug.Debug(
+			"Below threshold: %s (score %.2f < threshold %.2f)",
+			candidate.ADR.Title,
+			candidate.Score,
+			d.floor.For(candidate.ADR),
+		)
+	}
+
+	for i, candidate := range d.cut() {
+		debug.Debug(
+			"Cut by top-K limit: %s (score %.2f, rank %d of %d qualifying ADRs)",
+			candidate.ADR.Title,
+			candidate.Score,
+			len(d.kept)+i+1,
+			len(d.qualifying),
+		)
+	}
 }

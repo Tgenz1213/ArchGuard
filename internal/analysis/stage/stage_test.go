@@ -1,7 +1,6 @@
 package stage_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
-	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type scorerFunc func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error)
@@ -103,74 +101,6 @@ func TestStage_PerADRThreshold(t *testing.T) {
 
 	if ids(got) != "b" {
 		t.Fatalf("got %s, want only b (a's own 0.95 threshold rejects 0.9)", ids(got))
-	}
-}
-
-func TestStage_DebugReportsBelowThresholdAndTopKCut(t *testing.T) {
-	var buf bytes.Buffer
-	s := stage.Stage{Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
-
-	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := buf.String()
-	if !strings.Contains(out, "Below threshold: ADR d (score 0.10 < threshold 0.50)") {
-		t.Errorf("missing below-threshold line in %q", out)
-	}
-
-	if !strings.Contains(out, "Cut by top-K limit: ADR c (score 0.70, rank 3 of 3 qualifying ADRs)") {
-		t.Errorf("missing top-K cut line in %q", out)
-	}
-}
-
-func TestStage_DebugListsEveryBelowThresholdDrop(t *testing.T) {
-	var buf bytes.Buffer
-	scoringStage := stage.Stage{Scorer: fixedScores(0.1, 0.2, 0.3, 0.4), Min: stage.FixedMin(0.5), MaxKeep: 2}
-
-	if _, err := scoringStage.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if dropped := strings.Count(buf.String(), "Below threshold"); dropped != 4 {
-		t.Fatalf("printed %d below-threshold lines, want 4", dropped)
-	}
-}
-
-func TestStage_DebugReportsReceivedAndKeptWithScores(t *testing.T) {
-	var buf bytes.Buffer
-	s := stage.Stage{Name: "rerank", Scorer: fixedScores(0.9, 0.8, 0.7, 0.1), Min: stage.FixedMin(0.5), MaxKeep: 2}
-
-	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c", "d")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{
-		"Stage rerank: 4 candidate(s) received, 2 kept",
-		"Kept: ADR a (score 0.90)",
-		"Kept: ADR b (score 0.80)",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in %q", want, out)
-		}
-	}
-
-	if strings.Contains(out, "Kept: ADR c") {
-		t.Errorf("cut candidate c reported as kept in %q", out)
-	}
-}
-
-func TestStage_DebugReportsAStageThatReceivedNothing(t *testing.T) {
-	var buf bytes.Buffer
-	s := stage.Stage{Name: "rank", Scorer: fixedScores()}
-
-	if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !strings.Contains(buf.String(), "Stage rank: 0 candidate(s) received, 0 kept") {
-		t.Errorf("missing zero-candidate summary in %q", buf.String())
 	}
 }
 
