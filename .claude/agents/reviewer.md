@@ -2,6 +2,7 @@
 name: reviewer
 description: Reviews code read-only. It can read files and run git diff, log, show, status, grep or ls-files, and nothing else, so it can't change the checkout it reviews. Use for any subagent that only reviews.
 tools: Read, Grep, Glob, Bash
+disallowedTools: mcp__*
 hooks:
   PreToolUse:
     - matcher: Bash
