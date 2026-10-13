@@ -18,9 +18,10 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
-const changeSampleHunks = "@@ -1,5 +1,6 @@\n package a\n-var old = 1\n+var added = 1\n+var alsoAdded = 2\n \n func keep() {}\n"
-
-const changeSamplePreamble = "diff --git a/service.py b/service.py\nindex 111..222 100644\n--- a/service.py\n+++ b/service.py\n"
+const (
+	changeSampleHunks    = "@@ -1,5 +1,6 @@\n package a\n-var old = 1\n+var added = 1\n+var alsoAdded = 2\n \n func keep() {}\n"
+	changeSamplePreamble = "diff --git a/service.py b/service.py\nindex 111..222 100644\n--- a/service.py\n+++ b/service.py\n"
+)
 
 type changeRunOptions struct {
 	whole          string

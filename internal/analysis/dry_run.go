@@ -34,7 +34,12 @@ func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inf
 	tokens, err := e.Chat.CountTokens(ctx, e.systemPrompt()+"\n\n"+inference.DriftPrompt(input))
 	if err != nil {
 		fc.out.Warn("counting tokens failed: %v", err)
-		fc.findings.failedChecks = append(fc.findings.failedChecks, output.FailedCheck{File: fc.file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: fmt.Sprintf("counting tokens: %v", err)})
+		fc.findings.failedChecks = append(fc.findings.failedChecks, output.FailedCheck{
+			File:   fc.file,
+			ADRID:  hit.ADR.ID,
+			Title:  hit.ADR.Title,
+			Reason: fmt.Sprintf("counting tokens: %v", err),
+		})
 		fc.findings.uncounted = true
 
 		return

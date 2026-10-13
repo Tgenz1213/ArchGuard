@@ -26,21 +26,14 @@ func TestLog_CompliantFileIsSilentUnlessDebug(t *testing.T) {
 	}
 
 	run := func(debug bool) string {
-		store := index.NewLocalStore(5)
-		store.ADRs = []index.ADR{{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		}}
+		store := goLangStore()
 		content := &MockContentProvider{Files: map[string]string{"service.go": "package main\n"}}
 
 		engine := analysis.NewEngine(cfg, store, provider, provider, content)
 		engine.Cache = nil
 		engine.Debug = debug
 
-		return captureStderr(t, func() { runEngine(t, engine, false) })
+		return captureOutput(engine, func() { runEngine(t, engine, false) })
 	}
 
 	if got := run(false); got != "" {
@@ -69,7 +62,7 @@ func TestLog_FileWithNoRelevantADRsIsSilentUnlessDebug(t *testing.T) {
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content)
 	engine.Cache = nil
 
-	if got := captureStderr(t, func() { runEngine(t, engine, false) }); got != "" {
+	if got := captureOutput(engine, func() { runEngine(t, engine, false) }); got != "" {
 		t.Errorf("a file with no relevant ADRs logged without --debug: %q", got)
 	}
 }
@@ -79,14 +72,7 @@ func TestLog_DebugLogsOneOutcomeLinePerADRCheck(t *testing.T) {
 	violation := `{"violation": true, "reasoning": "bad", "quoted_code": "package main"}`
 
 	runDebug := func(chat inference.Chatter, cacheDir string) string {
-		store := index.NewLocalStore(5)
-		store.ADRs = []index.ADR{{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		}}
+		store := goLangStore()
 		cfg := &config.Config{
 			VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 			Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -106,7 +92,7 @@ func TestLog_DebugLogsOneOutcomeLinePerADRCheck(t *testing.T) {
 			engine.Cache = analysisCache
 		}
 
-		return captureStderr(t, func() {
+		return captureOutput(engine, func() {
 			if err := engine.Run(t.Context()); err != nil && !errors.Is(err, analysis.ErrDriftDetected) {
 				t.Errorf("Run() = %v, want nil or drift", err)
 			}

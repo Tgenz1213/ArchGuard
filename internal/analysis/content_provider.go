@@ -20,12 +20,7 @@ func (p *UncommittedProvider) GetFiles(ctx context.Context) ([]string, error) {
 }
 
 func (p *UncommittedProvider) GetContent(_ context.Context, path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
+	return readFileContent(path)
 }
 
 func (p *UncommittedProvider) GetDiff(ctx context.Context, path string) (string, error) {
@@ -53,12 +48,7 @@ func (p *AllProvider) GetFiles(ctx context.Context) ([]string, error) {
 }
 
 func (p *AllProvider) GetContent(_ context.Context, path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
+	return readFileContent(path)
 }
 
 func (p *AllProvider) GetDiff(ctx context.Context, path string) (string, error) {
@@ -91,12 +81,7 @@ func (p *ChangedSinceProvider) GetFiles(ctx context.Context) ([]string, error) {
 }
 
 func (p *ChangedSinceProvider) GetContent(_ context.Context, path string) (string, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
+	return readFileContent(path)
 }
 
 func (p *ChangedSinceProvider) GetDiff(ctx context.Context, path string) (string, error) {
@@ -125,14 +110,18 @@ func (p *MultiFileProvider) GetFiles(_ context.Context) ([]string, error) {
 }
 
 func (p *MultiFileProvider) GetContent(_ context.Context, path string) (string, error) {
+	return readFileContent(path)
+}
+
+func (p *MultiFileProvider) GetDiff(ctx context.Context, path string) (string, error) {
+	return git.GetWorktreeDiff(ctx, path)
+}
+
+func readFileContent(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 
 	return string(b), nil
-}
-
-func (p *MultiFileProvider) GetDiff(ctx context.Context, path string) (string, error) {
-	return git.GetWorktreeDiff(ctx, path)
 }

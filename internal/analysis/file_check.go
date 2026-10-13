@@ -158,7 +158,12 @@ func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
 	if err != nil {
 		fc.out.Debug("%s", checkOutcomeLine(hit, "failed", false))
 		fc.out.Warn("LLM analysis failed: %v", err)
-		fc.findings.failedChecks = append(fc.findings.failedChecks, output.FailedCheck{File: fc.file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: err.Error()})
+		fc.findings.failedChecks = append(fc.findings.failedChecks, output.FailedCheck{
+			File:   fc.file,
+			ADRID:  hit.ADR.ID,
+			Title:  hit.ADR.Title,
+			Reason: err.Error(),
+		})
 
 		return
 	}
@@ -328,7 +333,12 @@ func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.
 	// A QuotedCode that can't match the file would suppress nothing, so skip it.
 	if result.QuotedCode != "" && !strings.Contains(fc.fullContent, result.QuotedCode) {
 		fc.out.Warn("quoted code not found verbatim in file; skipping baseline entry")
-		fc.findings.unrecorded = append(fc.findings.unrecorded, output.UnrecordedViolation{File: fc.file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Reason: "the quoted code was not found verbatim in the file"})
+		fc.findings.unrecorded = append(fc.findings.unrecorded, output.UnrecordedViolation{
+			File:   fc.file,
+			ADRID:  hit.ADR.ID,
+			Title:  hit.ADR.Title,
+			Reason: "the quoted code was not found verbatim in the file",
+		})
 
 		return
 	}
@@ -339,7 +349,13 @@ func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.
 		QuotedCode: result.QuotedCode,
 		Reason:     reason,
 	})
-	fc.findings.recorded = append(fc.findings.recorded, output.RecordedEntry{File: fc.file, ADRID: hit.ADR.ID, Title: hit.ADR.Title, Line: record.Line, Reason: reason})
+	fc.findings.recorded = append(fc.findings.recorded, output.RecordedEntry{
+		File:   fc.file,
+		ADRID:  hit.ADR.ID,
+		Title:  hit.ADR.Title,
+		Line:   record.Line,
+		Reason: reason,
+	})
 }
 
 func (fc *fileCheck) reportViolation(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult, record Violation) {

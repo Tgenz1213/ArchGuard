@@ -175,8 +175,10 @@ func TestFetchContext_CountTokensError_PropagatesLoudly(t *testing.T) {
 
 // Truncation must converge within maxTokens even when token density varies across the file.
 func TestFetchContext_TruncationGuaranteesTokenBudget(t *testing.T) {
-	const denseWindow = 1000
-	const maxTokens = denseWindow - 1
+	const (
+		denseWindow = 1000
+		maxTokens   = denseWindow - 1
+	)
 
 	content := strings.Repeat("x", 100_000)
 

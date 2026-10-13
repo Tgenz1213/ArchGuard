@@ -7,7 +7,6 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
-	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
@@ -22,14 +21,7 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{{
-		ID:        "0001",
-		Title:     "Use Golang",
-		Status:    "Accepted",
-		Content:   "All services must be Go.",
-		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-	}}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -43,7 +35,7 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 	engine.CI = true
 	engine.Cache = nil
 
-	captureStderr(t, func() { runEngine(t, engine, false) })
+	captureOutput(engine, func() { runEngine(t, engine, false) })
 
 	if chatCalls != 0 {
 		t.Errorf("a file too large to analyze in CI mode reached the LLM %d time(s)", chatCalls)
@@ -64,14 +56,7 @@ func baselineEngine(t *testing.T, chatResponse string, content analysis.ContentP
 	provider := &inference.MockProvider{
 		ChatFunc: func(context.Context, string, string) (string, error) { return chatResponse, nil },
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{{
-		ID:        "0001",
-		Title:     "Use Golang",
-		Status:    "Accepted",
-		Content:   "All services must be Go.",
-		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-	}}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -83,7 +68,7 @@ func baselineEngine(t *testing.T, chatResponse string, content analysis.ContentP
 	engine.UpdateBaseline = true
 	engine.BaselineReason = "accepted-debt"
 
-	captureStderr(t, func() { runEngine(t, engine, false) })
+	captureOutput(engine, func() { runEngine(t, engine, false) })
 
 	return engine
 }
@@ -141,14 +126,7 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{{
-		ID:        "0001",
-		Title:     "Use Golang",
-		Status:    "Accepted",
-		Content:   "All services must be Go.",
-		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-	}}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -161,7 +139,7 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	captureStderr(t, func() { runEngine(t, engine, false) })
+	captureOutput(engine, func() { runEngine(t, engine, false) })
 
 	if chatCalls != 1 {
 		t.Errorf("the truncated file should still be analyzed once, got %d LLM call(s)", chatCalls)

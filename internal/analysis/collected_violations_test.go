@@ -74,7 +74,7 @@ func TestRun_AnnotatesNewFindings(t *testing.T) {
 			store := index.NewLocalStore(5)
 			store.ADRs = []index.ADR{{
 				ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-				Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+				Embedding: unitVector(),
 			}}
 			cfg := &config.Config{LLM: config.LLMConfig{MaxTokens: tt.maxTokens}}
 

@@ -5,23 +5,25 @@ import (
 	"testing"
 )
 
-const sampleDiffPreamble = "diff --git a/a.go b/a.go\n" +
-	"index 111..222 100644\n" +
-	"--- a/a.go\n" +
-	"+++ b/a.go\n"
+const (
+	sampleDiffPreamble = "diff --git a/a.go b/a.go\n" +
+		"index 111..222 100644\n" +
+		"--- a/a.go\n" +
+		"+++ b/a.go\n"
 
-const sampleHunks = "@@ -1,5 +1,6 @@\n" +
-	" package a\n" +
-	"-var old = 1\n" +
-	"+var added = 1\n" +
-	"+var alsoAdded = 2\n" +
-	" \n" +
-	" func keep() {}\n" +
-	"@@ -20,2 +21,3 @@\n" +
-	" ctx\n" +
-	"+++ looks like a header but is added\n" +
-	" tail\n" +
-	"\\ No newline at end of file\n"
+	sampleHunks = "@@ -1,5 +1,6 @@\n" +
+		" package a\n" +
+		"-var old = 1\n" +
+		"+var added = 1\n" +
+		"+var alsoAdded = 2\n" +
+		" \n" +
+		" func keep() {}\n" +
+		"@@ -20,2 +21,3 @@\n" +
+		" ctx\n" +
+		"+++ looks like a header but is added\n" +
+		" tail\n" +
+		"\\ No newline at end of file\n"
+)
 
 func TestHunksOnly(t *testing.T) {
 	tests := []struct{ name, diff, want string }{

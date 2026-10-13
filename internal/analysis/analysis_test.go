@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +17,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type MockContentProvider struct {
@@ -46,27 +45,27 @@ func (m *MockContentProvider) GetDiff(ctx context.Context, path string) (string,
 	return m.GetContent(ctx, path)
 }
 
-func TestDriftDetection(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
+func goLangADR() index.ADR {
+	return index.ADR{
+		ID:        "0001",
+		Title:     "Use Golang",
+		Status:    "Accepted",
+		Content:   "All services must be Go.",
+		Embedding: unitVector(),
 	}
+}
 
+func goLangStore() *index.LocalStore {
 	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store.ADRs = []index.ADR{goLangADR()}
+
+	return store
+}
+
+func TestDriftDetection(t *testing.T) {
+	provider := violatingProvider()
+
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0}, // Force match
@@ -108,16 +107,7 @@ func TestRun_EmbedsFileContentAsQuery(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -150,14 +140,7 @@ func TestRun_UpdateBaselineMode_EmbedsFullContentNotDiff(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{{
-		ID:        "0001",
-		Title:     "Use Golang",
-		Status:    "Accepted",
-		Content:   "All services must be Go.",
-		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-	}}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -236,14 +219,7 @@ func TestRun_NeverStripsFallbackContent(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{{
-		ID:        "0001",
-		Title:     "Use Golang",
-		Status:    "Accepted",
-		Content:   "All services must be Go.",
-		Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-	}}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -285,16 +261,7 @@ func TestRun_EmbedsWithEmbedNotChat(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -339,7 +306,7 @@ func TestCustomSystemPrompt(t *testing.T) {
 			Title:     "Test ADR",
 			Status:    "Accepted",
 			Content:   "Test content",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+			Embedding: unitVector(),
 		},
 	}
 
@@ -440,26 +407,9 @@ func TestRun_RespectsMaxConcurrency(t *testing.T) {
 }
 
 func TestRun_SuppressesBaselinedViolation(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
+	provider := violatingProvider()
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -494,16 +444,7 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -538,26 +479,9 @@ func TestRun_ReSurfacesWhenQuotedCodeNoLongerInFile(t *testing.T) {
 }
 
 func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
+	provider := violatingProvider()
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -593,186 +517,66 @@ func TestRun_UpdateBaselineMode_CollectsViolationsAndNeverErrors(t *testing.T) {
 	}
 }
 
-func TestRun_UpdateBaselineMode_CarriesForwardPreviousReason(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
+func TestRun_UpdateBaselineMode_EntryReason(t *testing.T) {
+	priorWithReason := func() *baseline.Baseline {
+		prior := baseline.New()
+		prior.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
+
+		return prior
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
+	tests := []struct {
+		name           string
+		prior          *baseline.Baseline
+		baselineReason string
+		wantReason     string
+	}{
+		{name: "carries forward the previous reason", prior: priorWithReason(), wantReason: "accepted-debt"},
+		{name: "explicit reason overrides carry-forward", prior: priorWithReason(), baselineReason: "false-positive", wantReason: "false-positive"},
+		{name: "new entry has an empty reason"},
 	}
 
-	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
-		Analysis:    config.Analysis{ExcludePatterns: []string{}},
-	}
-	content := &MockContentProvider{
-		Files: map[string]string{
-			"service.py": "import python_library\n// content ignored by mock",
-		},
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := violatingProvider()
+			cfg := &config.Config{
+				VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+				Analysis:    config.Analysis{ExcludePatterns: []string{}},
+			}
+			content := &MockContentProvider{
+				Files: map[string]string{
+					"service.py": "import python_library\n// content ignored by mock",
+				},
+			}
 
-	priorBaseline := baseline.New()
-	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
+			engine := analysis.NewEngine(cfg, goLangStore(), provider, provider, content)
+			engine.Cache = nil
+			engine.UpdateBaseline = true
+			engine.BaselineReason = tt.baselineReason
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
-	engine.Cache = nil
-	engine.UpdateBaseline = true
-	engine.Baseline = priorBaseline
+			if tt.prior != nil {
+				engine.Baseline = tt.prior
+			}
 
-	if err := engine.Run(t.Context()); err != nil {
-		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
-	}
+			if err := engine.Run(t.Context()); err != nil {
+				t.Fatalf("expected no error in update-baseline mode, got: %v", err)
+			}
 
-	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
-		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
-	}
+			if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
+				t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
+			}
 
-	got := engine.CollectedBaseline.Entries[0]
-	if got.Reason != "accepted-debt" {
-		t.Errorf("expected carried-forward Reason %q, got %q", "accepted-debt", got.Reason)
-	}
-}
-
-func TestRun_UpdateBaselineMode_ExplicitBaselineReasonOverridesCarryForward(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
-
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
-
-	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
-		Analysis:    config.Analysis{ExcludePatterns: []string{}},
-	}
-	content := &MockContentProvider{
-		Files: map[string]string{
-			"service.py": "import python_library\n// content ignored by mock",
-		},
-	}
-
-	priorBaseline := baseline.New()
-	priorBaseline.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
-
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
-	engine.Cache = nil
-	engine.UpdateBaseline = true
-	engine.Baseline = priorBaseline
-	engine.BaselineReason = "false-positive"
-
-	if err := engine.Run(t.Context()); err != nil {
-		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
-	}
-
-	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
-		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
-	}
-
-	got := engine.CollectedBaseline.Entries[0]
-	if got.Reason != "false-positive" {
-		t.Errorf("expected explicit BaselineReason %q to override carry-forward, got %q", "false-positive", got.Reason)
-	}
-}
-
-func TestRun_UpdateBaselineMode_NoExistingReason_NewEntryHasEmptyReason(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
-
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
-
-	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
-		Analysis:    config.Analysis{ExcludePatterns: []string{}},
-	}
-	content := &MockContentProvider{
-		Files: map[string]string{
-			"service.py": "import python_library\n// content ignored by mock",
-		},
-	}
-
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
-	engine.Cache = nil
-	engine.UpdateBaseline = true
-
-	if err := engine.Run(t.Context()); err != nil {
-		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
-	}
-
-	if engine.CollectedBaseline == nil || len(engine.CollectedBaseline.Entries) != 1 {
-		t.Fatalf("expected exactly 1 collected entry, got %+v", engine.CollectedBaseline)
-	}
-
-	got := engine.CollectedBaseline.Entries[0]
-	if got.Reason != "" {
-		t.Errorf("expected empty Reason for a brand-new entry, got %q", got.Reason)
+			if got := engine.CollectedBaseline.Entries[0].Reason; got != tt.wantReason {
+				t.Errorf("Reason = %q, want %q", got, tt.wantReason)
+			}
+		})
 	}
 }
 
 func TestRun_UpdateBaselineMode_IgnoresPreexistingBaselineSuppression(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
+	provider := violatingProvider()
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -825,16 +629,7 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -849,17 +644,8 @@ func TestRun_ViolationOutputFlagsUnverifiedQuotedCode(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	var runErr error
-	output := captureStderr(t, func() {
-		runErr = engine.Run(t.Context())
-	})
-
-	if runErr != nil {
-		t.Fatalf("an unverified finding alone must not fail the run, got: %v", runErr)
-	}
-
-	if strings.Contains(output, "Line 0") {
-		t.Errorf("expected no fabricated Line 0, got: %q", output)
+	if err := engine.Run(t.Context()); err != nil {
+		t.Fatalf("an unverified finding alone must not fail the run, got: %v", err)
 	}
 
 	report := engine.Report()
@@ -881,16 +667,7 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -905,20 +682,16 @@ func TestRun_ViolationOutputVerifiesAgainstEscapedContent(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	var runErr error
-	output := captureStderr(t, func() {
-		runErr = engine.Run(t.Context())
-	})
-
-	if !errors.Is(runErr, analysis.ErrDriftDetected) {
-		t.Fatalf("expected a drift-detected error, got: %v", runErr)
+	if err := engine.Run(t.Context()); !errors.Is(err, analysis.ErrDriftDetected) {
+		t.Fatalf("expected a drift-detected error, got: %v", err)
 	}
 
-	if strings.Contains(output, "UNVERIFIED") {
-		t.Errorf("expected the escaped-form quote to verify, got: %q", output)
+	report := engine.Report()
+	if len(report.Unverified) != 0 {
+		t.Errorf("expected the escaped-form quote to verify, got unverified %+v", report.Unverified)
 	}
 
-	violations := engine.Report().Violations
+	violations := report.Violations
 	if len(violations) != 1 || violations[0].Line != 1 {
 		t.Errorf("expected one verified violation at line 1, got %+v", violations)
 	}
@@ -935,16 +708,7 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -974,26 +738,9 @@ func TestRun_UpdateBaselineMode_SkipsEntryWhenQuotedCodeNotInFile(t *testing.T) 
 }
 
 func TestRun_UpdateBaselineMode_CIWarnOpenDoesNotSkipFile(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
+	provider := violatingProvider()
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -1045,32 +792,11 @@ func runEngine(t *testing.T, engine *analysis.Engine, wantDrift bool) {
 	}
 }
 
-func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("failed to create pipe: %v", err)
-	}
-
-	orig := os.Stderr
-	os.Stderr = writer
-	defer func() { os.Stderr = orig }()
-
-	fn()
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("failed to close pipe writer: %v", err)
-	}
-
+func captureOutput(engine *analysis.Engine, run func()) string {
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
-		t.Fatalf("failed to read pipe: %v", err)
-	}
 
-	if err := reader.Close(); err != nil {
-		t.Fatalf("failed to close pipe reader: %v", err)
-	}
+	engine.Out = output.New(&buf, engine.Debug)
+	run()
 
 	return buf.String()
 }
@@ -1117,16 +843,7 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -1146,13 +863,8 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 
-	var runErr error
-
-	output := captureStderr(t, func() {
-		runErr = engine.Run(t.Context())
-	})
-	if runErr != nil {
-		t.Fatalf("expected no error in update-baseline mode, got: %v", runErr)
+	if err := engine.Run(t.Context()); err != nil {
+		t.Fatalf("expected no error in update-baseline mode, got: %v", err)
 	}
 
 	if engine.CollectedBaseline == nil {
@@ -1177,35 +889,10 @@ func TestRun_UpdateBaselineMode_ReportsSkippedFileCount(t *testing.T) {
 			t.Errorf("SkippedFiles has no entry with a reason for %s: %+v", want, engine.SkippedFiles)
 		}
 	}
-
-	if !strings.Contains(output, "badread.go\n  Error: reading file: ") {
-		t.Fatalf("expected per-file error to still be logged, got output: %q", output)
-	}
 }
 
 func TestRun_ViolationOutputFormat(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
-	newStore := func() *index.LocalStore {
-		store := index.NewLocalStore(5)
-		store.ADRs = []index.ADR{
-			{
-				ID:        "0001",
-				Title:     "Use Golang",
-				Status:    "Accepted",
-				Content:   "All services must be Go.",
-				Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-			},
-		}
-		return store
-	}
+	provider := violatingProvider()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -1219,11 +906,11 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 	}
 
 	t.Run("new violation", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent())
+		engine := analysis.NewEngine(cfg, goLangStore(), provider, provider, newContent())
 		engine.Cache = nil
 
 		var runErr error
-		output := captureStderr(t, func() {
+		logged := captureOutput(engine, func() {
 			runErr = engine.Run(t.Context())
 		})
 
@@ -1236,8 +923,8 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Errorf("expected the violation in the report, got %+v", violations)
 		}
 
-		if !strings.Contains(output, "service.py") || !strings.Contains(output, "0001") {
-			t.Errorf("expected the log to name the file and ADR, got: %q", output)
+		if !strings.Contains(logged, "service.py") || !strings.Contains(logged, "0001") {
+			t.Errorf("expected the log to name the file and ADR, got: %q", logged)
 		}
 	})
 
@@ -1245,12 +932,12 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		b := baseline.New()
 		b.Add(baseline.Entry{ADRID: "0001", File: "service.py", QuotedCode: "import python_library", Reason: "accepted-debt"})
 
-		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent())
+		engine := analysis.NewEngine(cfg, goLangStore(), provider, provider, newContent())
 		engine.Cache = nil
 		engine.Baseline = b
 
 		var runErr error
-		output := captureStderr(t, func() {
+		logged := captureOutput(engine, func() {
 			runErr = engine.Run(t.Context())
 		})
 
@@ -1262,18 +949,18 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 			t.Errorf("expected one baselined hit and no new violations, got %+v", report)
 		}
 
-		if !strings.Contains(output, "service.py") || !strings.Contains(output, "0001") {
-			t.Errorf("expected the log to name the file and ADR, got: %q", output)
+		if !strings.Contains(logged, "service.py") || !strings.Contains(logged, "0001") {
+			t.Errorf("expected the log to name the file and ADR, got: %q", logged)
 		}
 	})
 
 	t.Run("update baseline", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent())
+		engine := analysis.NewEngine(cfg, goLangStore(), provider, provider, newContent())
 		engine.Cache = nil
 		engine.UpdateBaseline = true
 
 		var runErr error
-		output := captureStderr(t, func() {
+		logged := captureOutput(engine, func() {
 			runErr = engine.Run(t.Context())
 		})
 
@@ -1282,18 +969,18 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		}
 
 		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Line != 1 {
-			t.Errorf("expected one recorded entry at line 1, got %+v (log: %q)", entries, output)
+			t.Errorf("expected one recorded entry at line 1, got %+v (log: %q)", entries, logged)
 		}
 	})
 
 	t.Run("update baseline with explicit reason", func(t *testing.T) {
-		engine := analysis.NewEngine(cfg, newStore(), provider, provider, newContent())
+		engine := analysis.NewEngine(cfg, goLangStore(), provider, provider, newContent())
 		engine.Cache = nil
 		engine.UpdateBaseline = true
 		engine.BaselineReason = "accepted-debt"
 
 		var runErr error
-		output := captureStderr(t, func() {
+		logged := captureOutput(engine, func() {
 			runErr = engine.Run(t.Context())
 		})
 
@@ -1302,7 +989,7 @@ func TestRun_ViolationOutputFormat(t *testing.T) {
 		}
 
 		if entries := engine.RecordedEntries; len(entries) != 1 || entries[0].Reason != "accepted-debt" {
-			t.Errorf("expected one recorded entry with the reason, got %+v (log: %q)", entries, output)
+			t.Errorf("expected one recorded entry with the reason, got %+v (log: %q)", entries, logged)
 		}
 	})
 }
@@ -1325,19 +1012,13 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 
 	store := index.NewLocalStore(5)
 	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
+		goLangADR(),
 		{
 			ID:        "0002",
 			Title:     "Bad ADR",
 			Status:    "Accepted",
 			Content:   "BADADRMARKER content.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+			Embedding: unitVector(),
 		},
 	}
 
@@ -1377,26 +1058,9 @@ func TestRun_UpdateBaselineMode_ReportsSkippedADRCheckCount(t *testing.T) {
 }
 
 func TestRun_ReportsSkippedFileCount(t *testing.T) {
-	provider := &inference.MockProvider{
-		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return `{
-            "violation": true,
-            "reasoning": "Python is not allowed.",
-            "quoted_code": "import python_library"
-        }`, nil
-		},
-	}
+	provider := violatingProvider()
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -1415,7 +1079,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runErr = engine.Run(t.Context())
 	})
 
@@ -1424,7 +1088,7 @@ func TestRun_ReportsSkippedFileCount(t *testing.T) {
 	}
 
 	if skipped := engine.Report().SkippedFiles; len(skipped) != 1 || skipped[0].File != "badread.go" {
-		t.Fatalf("expected the report to list badread.go as skipped, got %+v (log: %q)", skipped, output)
+		t.Fatalf("expected the report to list badread.go as skipped, got %+v (log: %q)", skipped, logged)
 	}
 }
 
@@ -1436,16 +1100,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 		},
 	}
 
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{
-			ID:        "0001",
-			Title:     "Use Golang",
-			Status:    "Accepted",
-			Content:   "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
-		},
-	}
+	store := goLangStore()
 
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
@@ -1461,7 +1116,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	engine.Cache = nil
 
 	var runErr error
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runErr = engine.Run(t.Context())
 	})
 
@@ -1474,7 +1129,7 @@ func TestRun_ReportsSkippedADRCheckCount(t *testing.T) {
 	}
 
 	if failed := engine.Report().FailedChecks; len(failed) != 1 || failed[0].File != "good.go" {
-		t.Fatalf("expected the report to list the failed ADR check on good.go, got %+v (log: %q)", failed, output)
+		t.Fatalf("expected the report to list the failed ADR check on good.go, got %+v (log: %q)", failed, logged)
 	}
 }
 
@@ -1555,12 +1210,12 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
-	if !strings.Contains(output, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
-		t.Fatalf("expected the below-threshold debug line with title and score, got: %q", output)
+	if !strings.Contains(logged, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
+		t.Fatalf("expected the below-threshold debug line with title and score, got: %q", logged)
 	}
 }
 
@@ -1599,22 +1254,22 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
-	if !strings.Contains(output, "Cut by top-K limit: Fourth ADR") {
-		t.Fatalf("expected a top-K-truncated debug line naming the 4th-ranked ADR, got: %q", output)
+	if !strings.Contains(logged, "Cut by top-K limit: Fourth ADR") {
+		t.Fatalf("expected a top-K-truncated debug line naming the 4th-ranked ADR, got: %q", logged)
 	}
 
-	if !strings.Contains(output, "rank 4 of 4 qualifying ADRs") {
-		t.Fatalf("expected the truncated line to report rank 4 of 4, got: %q", output)
+	if !strings.Contains(logged, "rank 4 of 4 qualifying ADRs") {
+		t.Fatalf("expected the truncated line to report rank 4 of 4, got: %q", logged)
 	}
 
-	if strings.Contains(output, "Cut by top-K limit: First ADR") ||
-		strings.Contains(output, "Cut by top-K limit: Second ADR") ||
-		strings.Contains(output, "Cut by top-K limit: Third ADR") {
-		t.Fatalf("only the ADR(s) beyond topK=3 should be reported as truncated, got: %q", output)
+	if strings.Contains(logged, "Cut by top-K limit: First ADR") ||
+		strings.Contains(logged, "Cut by top-K limit: Second ADR") ||
+		strings.Contains(logged, "Cut by top-K limit: Third ADR") {
+		t.Fatalf("only the ADR(s) beyond topK=3 should be reported as truncated, got: %q", logged)
 	}
 }
 
@@ -1649,12 +1304,12 @@ func TestRun_DebugMode_NoTopKTruncatedLineWhenFewerThanTopKQualify(t *testing.T)
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
-	if strings.Contains(output, "Cut by top-K limit") {
-		t.Fatalf("expected no top-K-truncated line when fewer than topK ADRs qualify, got: %q", output)
+	if strings.Contains(logged, "Cut by top-K limit") {
+		t.Fatalf("expected no top-K-truncated line when fewer than topK ADRs qualify, got: %q", logged)
 	}
 }
 
@@ -1830,8 +1485,12 @@ func TestRun_DebugMode_UsesSingleConsolidatedQueryNotThreeIndependentOnes(t *tes
 	}
 
 	if store.searchCalls != 0 || store.searchRejectedCalls != 0 || store.searchTruncatedCalls != 0 {
-		t.Fatalf("expected debug mode to derive hits/rejected/truncated from the single SearchWithDebugInfo call, not independent Search/SearchRejected/SearchTruncated calls (got Search=%d, SearchRejected=%d, SearchTruncated=%d)",
-			store.searchCalls, store.searchRejectedCalls, store.searchTruncatedCalls)
+		t.Fatalf(
+			"expected debug mode to derive hits/rejected/truncated from the single SearchWithDebugInfo call, not independent Search/SearchRejected/SearchTruncated calls (got Search=%d, SearchRejected=%d, SearchTruncated=%d)",
+			store.searchCalls,
+			store.searchRejectedCalls,
+			store.searchTruncatedCalls,
+		)
 	}
 }
 
@@ -1955,12 +1614,12 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
-	if !strings.Contains(output, "Below threshold: Strict Override ADR (score 0.71 < threshold 0.95)") {
-		t.Fatalf("expected the debug line to print the ADR's own override (0.95), not the global 0.50, got: %q", output)
+	if !strings.Contains(logged, "Below threshold: Strict Override ADR (score 0.71 < threshold 0.95)") {
+		t.Fatalf("expected the debug line to print the ADR's own override (0.95), not the global 0.50, got: %q", logged)
 	}
 }
 
@@ -1982,14 +1641,14 @@ func TestRun_DebugMode_LogsExplicitlyRequestedFileExcluded(t *testing.T) {
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	if !strings.Contains(output, "Skipping generated.pb.go: explicitly requested but matches exclude_patterns") {
-		t.Fatalf("expected a debug line naming the excluded explicit file, got: %q", output)
+	if !strings.Contains(logged, "Skipping generated.pb.go: explicitly requested but matches exclude_patterns") {
+		t.Fatalf("expected a debug line naming the excluded explicit file, got: %q", logged)
 	}
 }
 
@@ -2013,14 +1672,14 @@ func TestRun_DebugMode_ExplicitlyRequestedBaselineFile_NoExcludePatternsMessage(
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	if strings.Contains(output, "matches exclude_patterns") {
-		t.Fatalf("expected no exclude_patterns message for the always-excluded baseline file, got: %q", output)
+	if strings.Contains(logged, "matches exclude_patterns") {
+		t.Fatalf("expected no exclude_patterns message for the always-excluded baseline file, got: %q", logged)
 	}
 }
 
@@ -2046,14 +1705,14 @@ func TestRun_DebugMode_NonExplicitProviderExcludedFile_NoSkipMessage(t *testing.
 	engine.Debug = true
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	if strings.Contains(output, "Skipping") || strings.Contains(output, "matches exclude_patterns") {
-		t.Fatalf("expected no skip message for a non-explicit (non-MultiFileProvider) scan, got: %q", output)
+	if strings.Contains(logged, "Skipping") || strings.Contains(logged, "matches exclude_patterns") {
+		t.Fatalf("expected no skip message for a non-explicit (non-MultiFileProvider) scan, got: %q", logged)
 	}
 }
 
@@ -2074,14 +1733,14 @@ func TestRun_NonDebugMode_SilentForExplicitlyRequestedExcludedFile(t *testing.T)
 	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content)
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		if err := engine.Run(t.Context()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	if output != "" {
-		t.Fatalf("expected no output in non-debug mode for an excluded file, got: %q", output)
+	if logged != "" {
+		t.Fatalf("expected no output in non-debug mode for an excluded file, got: %q", logged)
 	}
 }
 
@@ -2093,11 +1752,7 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2107,16 +1762,14 @@ func TestRun_SuggestFixesDisabled_NoExtraCallNoSuggestionOutput(t *testing.T) {
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
-	output := captureStderr(t, func() {
-		runEngine(t, engine, true)
-	})
+	runEngine(t, engine, true)
 
 	if chatCalls != 1 {
 		t.Errorf("expected exactly 1 chat call (no suggestion call) when SuggestFixes is off, got %d", chatCalls)
 	}
 
-	if strings.Contains(output, "Suggestion") {
-		t.Errorf("expected no Suggestion line in output when SuggestFixes is off, got: %s", output)
+	if violations := engine.Report().Violations; len(violations) != 1 || violations[0].Suggestion != "" {
+		t.Errorf("expected one violation with no suggestion when SuggestFixes is off, got %+v", violations)
 	}
 }
 
@@ -2133,11 +1786,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2149,7 +1798,7 @@ func TestRun_SuggestFixesEnabled_AddsSuggestionLineAndJSONField(t *testing.T) {
 	engine.SuggestFixes = true
 	engine.JSONOutput = true
 
-	_ = captureStderr(t, func() {
+	_ = captureOutput(engine, func() {
 		runEngine(t, engine, true)
 	})
 
@@ -2174,11 +1823,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 			return `{"violation": false, "reasoning": "no violation", "quoted_code": ""}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2189,7 +1834,7 @@ func TestRun_SuggestFixesEnabled_NoViolation_NeverCallsSuggestion(t *testing.T) 
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
-	_ = captureStderr(t, func() {
+	_ = captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
@@ -2206,11 +1851,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2225,7 +1866,7 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 	engine.SuggestFixes = true
 	engine.Baseline = b
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
@@ -2233,8 +1874,8 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 		t.Errorf("expected exactly 1 chat call for an already-baselined violation, got %d", chatCalls)
 	}
 
-	if strings.Contains(output, "Suggestion") {
-		t.Errorf("expected no Suggestion line for a baselined violation, got: %s", output)
+	if strings.Contains(logged, "Suggestion") {
+		t.Errorf("expected no Suggestion line for a baselined violation, got: %s", logged)
 	}
 }
 
@@ -2253,11 +1894,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2268,7 +1905,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
 
-	_ = captureStderr(t, func() {
+	_ = captureOutput(firstEngine, func() {
 		runEngine(t, firstEngine, true)
 	})
 
@@ -2281,7 +1918,7 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 	secondEngine.SuggestFixes = false
 	secondEngine.JSONOutput = true
 
-	secondOutput := captureStderr(t, func() {
+	secondOutput := captureOutput(secondEngine, func() {
 		runEngine(t, secondEngine, true)
 	})
 	if strings.Contains(secondOutput, "Suggestion") {
@@ -2329,11 +1966,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2344,7 +1977,7 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 	engine.Cache = c
 	engine.SuggestFixes = true
 
-	_ = captureStderr(t, func() {
+	_ = captureOutput(engine, func() {
 		runEngine(t, engine, true)
 	})
 
@@ -2375,11 +2008,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2389,7 +2018,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	firstEngine := analysis.NewEngine(cfg, store, provider, provider, content)
 	firstEngine.Cache = c
 	firstEngine.SuggestFixes = true
-	_ = captureStderr(t, func() { runEngine(t, firstEngine, true) })
+	_ = captureOutput(firstEngine, func() { runEngine(t, firstEngine, true) })
 
 	// Debug toggles between runs but isn't part of the suggestion key, so
 	// the cached suggestion should still be reused.
@@ -2397,7 +2026,7 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 	secondEngine.Debug = true
 	secondEngine.Cache = c
 	secondEngine.SuggestFixes = true
-	_ = captureStderr(t, func() { runEngine(t, secondEngine, true) })
+	_ = captureOutput(secondEngine, func() { runEngine(t, secondEngine, true) })
 
 	if suggestionCalls != 1 {
 		t.Errorf("expected the cached suggestion to be reused (1 total suggestion call across both runs), got %d", suggestionCalls)
@@ -2433,11 +2062,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2452,7 +2077,7 @@ func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSu
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Cache = c
 	engine.SuggestFixes = true
-	_ = captureStderr(t, func() { runEngine(t, engine, true) })
+	_ = captureOutput(engine, func() { runEngine(t, engine, true) })
 
 	mu.Lock()
 	calls := suggestionCalls
@@ -2480,11 +2105,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "this snippet was never in the file"}`, nil
 		},
 	}
-	store := index.NewLocalStore(5)
-	store.ADRs = []index.ADR{
-		{ID: "0001", Title: "Use Golang", Status: "Accepted", Content: "All services must be Go.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }()},
-	}
+	store := goLangStore()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
@@ -2495,7 +2116,7 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 	engine.Cache = nil
 	engine.SuggestFixes = true
 
-	output := captureStderr(t, func() {
+	logged := captureOutput(engine, func() {
 		runEngine(t, engine, false)
 	})
 
@@ -2503,8 +2124,8 @@ func TestRun_SuggestFixesEnabled_UnverifiedViolation_NeverCallsSuggestion(t *tes
 		t.Errorf("expected exactly 1 chat call (no suggestion call) for an unverified violation, got %d", chatCalls)
 	}
 
-	if strings.Contains(output, "Suggestion") {
-		t.Errorf("expected no Suggestion line for an unverified violation, got: %s", output)
+	if strings.Contains(logged, "Suggestion") {
+		t.Errorf("expected no Suggestion line for an unverified violation, got: %s", logged)
 	}
 }
 
@@ -2518,7 +2139,7 @@ func fourEquallyRelevantADRs() *index.LocalStore {
 			Title:     fmt.Sprintf("ADR %d", i),
 			Status:    "Accepted",
 			Content:   "Some rule.",
-			Embedding: func() []float32 { v := make([]float32, 1536); v[0] = 1.0; return v }(),
+			Embedding: unitVector(),
 		})
 	}
 

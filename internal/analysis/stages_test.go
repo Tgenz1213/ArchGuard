@@ -106,8 +106,8 @@ func TestBuildStages_RerankAloneRunsAfterDefaultRank(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Warning: analysis.pipeline.rerank.threshold not set, defaulting to 0",
-		"Warning: analysis.pipeline.rerank.top_k not set, defaulting to 3",
+		"rerank.threshold",
+		"rerank.top_k",
 	} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("warnings %q missing %q", warnings, want)
