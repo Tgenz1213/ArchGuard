@@ -667,6 +667,7 @@ func (s *PgStore) dropADRCache() {
 	s.adrs, s.adrsLoaded = nil, false
 }
 
+// Pooled connections already carry hnsw.iterative_scan from afterConnect (docs/arch/0005).
 // Returns nil when the query fails, so every Search method returns no results.
 func (s *PgStore) scopeMatchedCandidates(queryEmbedding []float32, filePath, method string) []SearchResult {
 	rows, err := s.pool.Query(context.Background(), SearchQuery, pgvector.NewVector(queryEmbedding), s.projectName, MaxSearchCandidates)
