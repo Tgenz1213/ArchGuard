@@ -24,16 +24,16 @@ func (c *Chatter) Chat(ctx context.Context, systemPrompt, userPrompt string) (in
 }
 
 type Embedder struct {
-	inference.Embedder
+	embedder inference.Embedder
 	recorder Recorder
 }
 
 func NewEmbedder(embed inference.Embedder, recorder Recorder) *Embedder {
-	return &Embedder{Embedder: embed, recorder: recorder}
+	return &Embedder{embedder: embed, recorder: recorder}
 }
 
 func (e *Embedder) CreateEmbedding(ctx context.Context, text string, task inference.EmbeddingTaskType) (inference.Embedding, error) {
-	embedding, err := e.Embedder.CreateEmbedding(ctx, text, task)
+	embedding, err := e.embedder.CreateEmbedding(ctx, text, task)
 	e.recorder.Record(RequestSent{Role: Embedding, Usage: embedding.Usage, Err: err})
 
 	return embedding, err

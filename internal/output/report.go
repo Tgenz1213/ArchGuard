@@ -106,9 +106,9 @@ func (p *Printer) reportUsage(usage *Usage) {
 	}
 }
 
-func (report Report) summary(files int, gaps []string) string {
-	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined", len(report.Violations), files, report.Baselined)
-	if count := len(report.Unverified); count > 0 {
+func (r Report) summary(files int, gaps []string) string {
+	summary := fmt.Sprintf("%d new violation(s) in %d file(s), %d baselined", len(r.Violations), files, r.Baselined)
+	if count := len(r.Unverified); count > 0 {
 		summary += fmt.Sprintf(", %d unverified", count)
 	}
 

@@ -2,7 +2,6 @@ package output
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -30,43 +29,17 @@ type BaselineReport struct {
 
 func (p *Printer) BaselineReport(report BaselineReport) {
 	report.Gaps = report.sortedGaps()
-	recorded := sortedRecorded(report.Recorded)
-	unrecorded := sortedUnrecorded(report.Unrecorded)
+	recorded := sortedByFileAndADR(report.Recorded, func(e RecordedEntry) (string, string) {
+		return e.File, e.ADRID
+	})
+	unrecorded := sortedByFileAndADR(report.Unrecorded, func(v UnrecordedViolation) (string, string) {
+		return v.File, v.ADRID
+	})
 
 	p.printRecorded(recorded)
 	p.printUnrecorded(unrecorded)
 	p.reportGaps(report.Gaps)
 	p.Result("%s", report.summary(len(recorded), len(unrecorded)))
-}
-
-func sortedRecorded(entries []RecordedEntry) []RecordedEntry {
-	sorted := append([]RecordedEntry(nil), entries...)
-
-	sort.SliceStable(sorted, func(i, j int) bool {
-		left, right := sorted[i], sorted[j]
-		if left.File != right.File {
-			return left.File < right.File
-		}
-
-		return left.ADRID < right.ADRID
-	})
-
-	return sorted
-}
-
-func sortedUnrecorded(violations []UnrecordedViolation) []UnrecordedViolation {
-	sorted := append([]UnrecordedViolation(nil), violations...)
-
-	sort.SliceStable(sorted, func(i, j int) bool {
-		left, right := sorted[i], sorted[j]
-		if left.File != right.File {
-			return left.File < right.File
-		}
-
-		return left.ADRID < right.ADRID
-	})
-
-	return sorted
 }
 
 func (p *Printer) printRecorded(entries []RecordedEntry) {
