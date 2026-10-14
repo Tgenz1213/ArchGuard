@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/index"
@@ -92,12 +93,7 @@ func printIndexSummary(result index.BuildIndexResult, out *output.Printer) {
 	}
 
 	if len(result.DuplicateIDs) > 0 {
-		ids := make([]string, 0, len(result.DuplicateIDs))
-		for id := range result.DuplicateIDs {
-			ids = append(ids, id)
-		}
-
-		sort.Strings(ids)
+		ids := slices.Sorted(maps.Keys(result.DuplicateIDs))
 		section.Result("Duplicate ADR IDs: %d", len(ids))
 		for _, id := range ids {
 			detail.Result("- %q used by: %s", id, strings.Join(result.DuplicateIDs[id], ", "))
