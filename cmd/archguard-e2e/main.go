@@ -138,38 +138,28 @@ func defaultMockEmbedding(dim int) []float32 {
 	return v
 }
 
+// codeContextBlock returns the text between the prompt's code_context tags.
+func codeContextBlock(prompt string) (string, bool) {
+	_, after, found := strings.Cut(prompt, "<code_context>")
+	if !found {
+		return "", false
+	}
+
+	block, _, found := strings.Cut(after, "</code_context>")
+
+	return block, found
+}
+
 func codeContextContainsTrigger(prompt, trigger string) bool {
-	start := strings.Index(prompt, "<code_context>")
-	if start == -1 {
-		return false
-	}
+	block, ok := codeContextBlock(prompt)
 
-	start += len("<code_context>")
-
-	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
-	if endRelativeOffset == -1 {
-		return false
-	}
-
-	return strings.Contains(prompt[start:start+endRelativeOffset], trigger)
+	return ok && strings.Contains(block, trigger)
 }
 
 // extractTriggerLine returns the trimmed line containing trigger, so
 // quoted_code is a real snippet, not the bare trigger word.
 func extractTriggerLine(prompt, trigger string) string {
-	start := strings.Index(prompt, "<code_context>")
-	if start == -1 {
-		return ""
-	}
-
-	start += len("<code_context>")
-
-	endRelativeOffset := strings.Index(prompt[start:], "</code_context>")
-	if endRelativeOffset == -1 {
-		return ""
-	}
-
-	block := prompt[start : start+endRelativeOffset]
+	block, _ := codeContextBlock(prompt)
 	for _, line := range strings.Split(block, "\n") {
 		if strings.Contains(line, trigger) {
 			return strings.TrimSpace(line)
@@ -181,16 +171,14 @@ func extractTriggerLine(prompt, trigger string) string {
 
 // Stands in for a diff-aware model: an added trigger or a removed required line is a violation; a trigger in unchanged context is reported too, so the engine has something to drop.
 func diffVerdict(prompt string) (quote string, violation bool) {
-	start := strings.Index(prompt, "<code_context>")
-	end := strings.Index(prompt, "</code_context>")
-
-	if start == -1 || end < start {
+	block, ok := codeContextBlock(prompt)
+	if !ok {
 		return "", false
 	}
 
 	unchanged := ""
 
-	for _, line := range strings.Split(prompt[start+len("<code_context>"):end], "\n") {
+	for _, line := range strings.Split(block, "\n") {
 		if line == "" {
 			continue
 		}

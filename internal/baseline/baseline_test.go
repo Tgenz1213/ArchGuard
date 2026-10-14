@@ -9,15 +9,10 @@ import (
 	"testing"
 )
 
-func TestSaveThenLoad_RoundTrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "baseline.json")
+func saveAndLoad(t *testing.T, b *Baseline, path string) *Baseline {
+	t.Helper()
 
-	baseline := New()
-	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
-	baseline.Add(Entry{ADRID: "adr-002", File: "file2.go", QuotedCode: ""})
-
-	if err := baseline.Save(path); err != nil {
+	if err := b.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
 
@@ -28,8 +23,20 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 
 	if loaded == nil {
 		t.Fatal("loaded baseline is nil")
-		return
 	}
+
+	return loaded
+}
+
+func TestSaveThenLoad_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "baseline.json")
+
+	baseline := New()
+	baseline.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()"})
+	baseline.Add(Entry{ADRID: "adr-002", File: "file2.go", QuotedCode: ""})
+
+	loaded := saveAndLoad(t, baseline, path)
 
 	if len(loaded.Entries) != 2 {
 		t.Errorf("expected 2 entries, got %d", len(loaded.Entries))
@@ -232,13 +239,13 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	saved, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("Failed to read saved file: %v", err)
 	}
 
 	var loaded Baseline
-	if err := json.Unmarshal(data, &loaded); err != nil {
+	if err := json.Unmarshal(saved, &loaded); err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
@@ -248,12 +255,12 @@ func TestSave_UsesCorrectJSONFormat(t *testing.T) {
 
 	// Must be human-reviewable in git diffs: 2-space-indented on disk, not just unmarshal-compatible.
 	var want bytes.Buffer
-	if err := json.Indent(&want, data, "", "  "); err != nil {
+	if err := json.Indent(&want, saved, "", "  "); err != nil {
 		t.Fatalf("Failed to compute expected indentation: %v", err)
 	}
 
-	if want.String() != string(data) {
-		t.Errorf("saved file is not 2-space indented:\ngot:\n%s\nwant:\n%s", data, want.String())
+	if want.String() != string(saved) {
+		t.Errorf("saved file is not 2-space indented:\ngot:\n%s\nwant:\n%s", saved, want.String())
 	}
 }
 
@@ -268,19 +275,7 @@ func TestSave_SortsEntriesDeterministically(t *testing.T) {
 	baseline.Add(Entry{ADRID: "adr-001", File: "b_file.go", QuotedCode: "code b1"})
 	baseline.Add(Entry{ADRID: "adr-002", File: "a_file.go", QuotedCode: "code a2"})
 
-	if err := baseline.Save(path); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
-
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if loaded == nil {
-		t.Fatal("loaded baseline is nil")
-		return
-	}
+	loaded := saveAndLoad(t, baseline, path)
 
 	want := []struct{ File, ADRID string }{
 		{"a_file.go", "adr-001"},
@@ -307,16 +302,9 @@ func TestEntry_ReasonField_RoundTripsThroughSaveAndLoad(t *testing.T) {
 	b := New()
 	b.Add(Entry{ADRID: "adr-001", File: "file1.go", QuotedCode: "func main()", Reason: "accepted-debt"})
 
-	if err := b.Save(path); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	loaded := saveAndLoad(t, b, path)
 
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if loaded == nil || len(loaded.Entries) != 1 {
+	if len(loaded.Entries) != 1 {
 		t.Fatalf("expected 1 loaded entry, got %+v", loaded)
 	}
 
@@ -336,13 +324,13 @@ func TestEntry_ReasonField_OmittedWhenEmpty(t *testing.T) {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	saved, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("Failed to read saved file: %v", err)
 	}
 
-	if strings.Contains(string(data), `"reason"`) {
-		t.Errorf("expected no \"reason\" key in JSON when Reason is empty, got:\n%s", data)
+	if strings.Contains(string(saved), `"reason"`) {
+		t.Errorf("expected no \"reason\" key in JSON when Reason is empty, got:\n%s", saved)
 	}
 }
 

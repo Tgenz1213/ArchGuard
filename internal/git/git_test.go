@@ -107,19 +107,12 @@ func TestGetUncommittedFiles_NonASCIINames(t *testing.T) {
 
 func assertContainsExactly(t *testing.T, got, want []string) {
 	t.Helper()
-	gotSorted := append([]string(nil), got...)
-	wantSorted := append([]string(nil), want...)
-	sort.Strings(gotSorted)
-	sort.Strings(wantSorted)
 
-	if len(gotSorted) != len(wantSorted) {
-		t.Fatalf("expected %v, got %v", wantSorted, gotSorted)
-	}
+	gotSorted := slices.Sorted(slices.Values(got))
+	wantSorted := slices.Sorted(slices.Values(want))
 
-	for i := range gotSorted {
-		if gotSorted[i] != wantSorted[i] {
-			t.Fatalf("expected %v, got %v (path not exact match -- likely still C-quoted/escaped)", wantSorted, gotSorted)
-		}
+	if !slices.Equal(gotSorted, wantSorted) {
+		t.Fatalf("expected %v, got %v (path not exact match -- likely still C-quoted/escaped)", wantSorted, gotSorted)
 	}
 }
 
@@ -143,7 +136,7 @@ func TestGetChangedSince(t *testing.T) {
 
 	got, err := changedPaths(t.Context(), "HEAD~1")
 	if err != nil {
-		t.Fatalf("GetFilesChangedSince: %v", err)
+		t.Fatalf("changedPaths: %v", err)
 	}
 
 	sort.Strings(got)
@@ -154,7 +147,7 @@ func TestGetChangedSince(t *testing.T) {
 	}
 }
 
-func TestGetFilesChangedSince_NothingChangedIsEmpty(t *testing.T) {
+func TestGetChangedSince_NothingChangedIsEmpty(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, dir, "a.go", "package a\n")
 	runGit(t, dir, "add", ".")
@@ -166,7 +159,7 @@ func TestGetFilesChangedSince_NothingChangedIsEmpty(t *testing.T) {
 	}
 }
 
-func TestGetFilesChangedSince_RefNamedLikeAFile(t *testing.T) {
+func TestGetChangedSince_RefNamedLikeAFile(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, dir, "same.go", "package a\n")
 	runGit(t, dir, "add", ".")
@@ -182,7 +175,7 @@ func TestGetFilesChangedSince_RefNamedLikeAFile(t *testing.T) {
 	}
 }
 
-func TestGetFilesChangedSince_RejectsBadRefs(t *testing.T) {
+func TestGetChangedSince_RejectsBadRefs(t *testing.T) {
 	dir := initTestRepo(t)
 	writeFile(t, dir, "a.go", "package a\n")
 	runGit(t, dir, "add", ".")

@@ -13,13 +13,13 @@ func TestWrite_CreatesFileAndCleansUpTmp(t *testing.T) {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	written, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read written file: %v", err)
 	}
 
-	if string(data) != `{"key":"value"}` {
-		t.Errorf("expected written content %q, got %q", `{"key":"value"}`, data)
+	if string(written) != `{"key":"value"}` {
+		t.Errorf("expected written content %q, got %q", `{"key":"value"}`, written)
 	}
 
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {

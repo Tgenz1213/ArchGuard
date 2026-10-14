@@ -22,7 +22,7 @@ func GetAllTrackedFiles(ctx context.Context) ([]string, error) {
 
 func GetStagedFileContent(ctx context.Context, path string) (string, error) {
 	// The leading ':' makes git show read the staged (index) copy, not HEAD.
-	out, err := output(ctx, "show", ":"+path)
+	out, err := execGit(ctx, "show", ":"+path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get staged content for %s: %w", path, err)
 	}
@@ -31,7 +31,7 @@ func GetStagedFileContent(ctx context.Context, path string) (string, error) {
 }
 
 func GetStagedDiff(ctx context.Context, path string) (string, error) {
-	out, err := output(ctx, "diff", "--cached", "--unified=100", "--", path)
+	out, err := execGit(ctx, "diff", "--cached", "--unified=100", "--", path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get staged diff for %s: %w", path, err)
 	}
@@ -40,7 +40,7 @@ func GetStagedDiff(ctx context.Context, path string) (string, error) {
 }
 
 func GetWorktreeDiff(ctx context.Context, path string) (string, error) {
-	out, err := output(ctx, "diff", "--unified=100", "--", path)
+	out, err := execGit(ctx, "diff", "--unified=100", "--", path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree diff for %s: %w", path, err)
 	}
@@ -59,7 +59,7 @@ func GetChangedSince(ctx context.Context, ref string) ([]ChangedFile, error) {
 		return nil, err
 	}
 
-	out, err := output(ctx, "diff", "-z", "--name-status", "-M", "--diff-filter=ACMR", ref, "HEAD", "--")
+	out, err := execGit(ctx, "diff", "-z", "--name-status", "-M", "--diff-filter=ACMR", ref, "HEAD", "--")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files changed since %q: %w", ref, err)
 	}
@@ -97,7 +97,7 @@ func GetDiffSince(ctx context.Context, ref string, paths ...string) (string, err
 
 	args := append([]string{"diff", "-M", "--unified=100", ref, "HEAD", "--"}, paths...)
 
-	out, err := output(ctx, args...)
+	out, err := execGit(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff for %v since %q: %w", paths, ref, err)
 	}
@@ -114,7 +114,7 @@ func validateRef(ref string) error {
 }
 
 func GetRepoRoot(ctx context.Context) (string, error) {
-	out, err := output(ctx, "rev-parse", "--show-toplevel")
+	out, err := execGit(ctx, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("failed to find git root (are you in a git repo?): %w", err)
 	}
@@ -124,7 +124,7 @@ func GetRepoRoot(ctx context.Context) (string, error) {
 
 // -z goes right after the subcommand (args[0]) so a caller's arguments can end in "--" and a pathspec.
 func runGitLines(ctx context.Context, args ...string) ([]string, error) {
-	out, err := output(ctx, slices.Insert(slices.Clone(args), 1, "-z")...)
+	out, err := execGit(ctx, slices.Insert(slices.Clone(args), 1, "-z")...)
 	if err != nil {
 		return nil, fmt.Errorf("git command failed %v: %w", args, err)
 	}
@@ -140,7 +140,7 @@ func runGitLines(ctx context.Context, args ...string) ([]string, error) {
 }
 
 // A killed git surfaces as a bare exit error; report the cancellation that caused it instead.
-func output(ctx context.Context, args ...string) ([]byte, error) {
+func execGit(ctx context.Context, args ...string) ([]byte, error) {
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil && ctx.Err() != nil {
 		return nil, ctx.Err()
