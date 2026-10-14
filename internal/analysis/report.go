@@ -9,8 +9,8 @@ import (
 
 func (e *Engine) Report() output.Report {
 	return output.Report{
-		Violations: toOutputViolations(e.CollectedViolations),
-		Unverified: toOutputViolations(e.UnverifiedFindings),
+		Violations: toOutputFindings(e.CollectedViolations),
+		Unverified: toOutputFindings(e.UnverifiedFindings),
 		Gaps:       e.gaps(),
 		Baselined:  e.Baselined,
 		Coverage:   e.Coverage,
@@ -18,7 +18,7 @@ func (e *Engine) Report() output.Report {
 	}
 }
 
-func toOutputViolations(violations []Violation) []output.Violation {
+func toOutputFindings(violations []Violation) []output.Violation {
 	var found []output.Violation
 
 	for _, violation := range violations {
