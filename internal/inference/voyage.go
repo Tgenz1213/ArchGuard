@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-const maxVoyageErrorBodyBytes = 4096
-
-const voyageBaseURL = "https://api.voyageai.com"
-const defaultVoyageModel = "voyage-4"
+const (
+	maxVoyageErrorBodyBytes = 4096
+	voyageBaseURL           = "https://api.voyageai.com"
+	defaultVoyageModel      = "voyage-4"
+)
 
 type VoyageProvider struct {
 	apiKey     string
