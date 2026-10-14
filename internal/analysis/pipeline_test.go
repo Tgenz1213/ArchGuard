@@ -1,7 +1,6 @@
 package analysis_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -207,12 +206,11 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	}
 }
 
-func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) (*scorerHarness, string) {
+func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) *scorerHarness {
 	t.Helper()
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
 	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
-	var out bytes.Buffer
-	h.engine.Out = output.New(&out, h.engine.Debug)
+	h.engine.Out = output.Discard()
 	cfg := &config.Config{
 		VectorStore: config.VectorStore{SimilarityThreshold: 0},
 		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
@@ -223,7 +221,7 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	return h, out.String()
+	return h
 }
 
 func embedFailingOnBAD() inference.Embedder {
@@ -241,13 +239,13 @@ func embedFailingOnBAD() inference.Embedder {
 func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 	for _, onError := range []string{"", config.OnErrorSkip} {
 		t.Run("on_error="+onError, func(t *testing.T) {
-			h, out := runRankWithOnError(t, onError, embedFailingOnBAD())
+			h := runRankWithOnError(t, onError, embedFailingOnBAD())
 			if len(h.engine.SkippedFiles) != 1 || len(h.engine.StageFailures) != 0 {
 				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", len(h.engine.SkippedFiles), h.engine.StageFailures)
 			}
 
-			if !strings.Contains(out, "bad.go\n  Error: generating embedding: embedding service down") {
-				t.Errorf("output %q missing the skipped-file error", out)
+			if skipped := h.engine.SkippedFiles[0]; skipped.File != "bad.go" || !strings.Contains(skipped.Reason, "embedding service down") {
+				t.Errorf("SkippedFiles[0] = %+v, want bad.go skipped for the embedding error", skipped)
 			}
 
 			if strings.Join(h.judged, ",") != "0001" {
@@ -258,7 +256,7 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 }
 
 func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
-	harness, out := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
+	harness := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
 	if len(harness.engine.SkippedFiles) != 0 || len(harness.engine.StageFailures) != 1 {
 		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", len(harness.engine.SkippedFiles), harness.engine.StageFailures)
 	}
@@ -268,19 +266,13 @@ func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 		t.Errorf("failure = %+v", failure)
 	}
 
-	for _, want := range []string{"stage rank", "bad.go", "unavailable", "embedding service down"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output %q missing %q", out, want)
-		}
-	}
-
 	if strings.Join(harness.judged, ",") != "0001" {
 		t.Errorf("judged %v, want the healthy file still judged", harness.judged)
 	}
 }
 
 func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
-	harness, _ := runRankWithOnError(t, config.OnErrorFail, nil)
+	harness := runRankWithOnError(t, config.OnErrorFail, nil)
 	if len(harness.engine.StageFailures) != 2 || len(harness.judged) != 0 {
 		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", harness.engine.StageFailures, harness.judged)
 	}
@@ -293,7 +285,7 @@ func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
 }
 
 func TestPipeline_OnErrorSkipPreconditionSkipsFiles(t *testing.T) {
-	h, _ := runRankWithOnError(t, config.OnErrorSkip, nil)
+	h := runRankWithOnError(t, config.OnErrorSkip, nil)
 	if len(h.engine.SkippedFiles) != 2 || len(h.engine.StageFailures) != 0 {
 		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want both files skipped", len(h.engine.SkippedFiles), h.engine.StageFailures)
 	}

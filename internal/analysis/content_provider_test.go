@@ -19,12 +19,18 @@ func commitFiles(t *testing.T, dir, message string, files map[string]string) {
 	}
 
 	for _, args := range [][]string{{"add", "."}, {"commit", "-m", message}} {
-		cmd := exec.CommandContext(t.Context(), "git", args...)
+		runGit(t, dir, args...)
+	}
+}
 
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), "git", args...)
+
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
@@ -34,12 +40,7 @@ func initRepo(t *testing.T) string {
 	dir := t.TempDir()
 
 	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@example.com"}, {"config", "user.name", "t"}} {
-		cmd := exec.CommandContext(t.Context(), "git", args...)
-
-		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
+		runGit(t, dir, args...)
 	}
 
 	return dir
