@@ -32,6 +32,37 @@ func isAcceptedStatus(status string, accepted []string) bool {
 	return false
 }
 
+// Gives every provider the same parse, status and malformed-rules bookkeeping.
+type adrCollector struct {
+	out              *output.Printer
+	acceptedStatuses []string
+	adrs             []ADR
+	stats            FetchStats
+}
+
+// label names the ADR in warnings; failedPath is what stats.ParseFailed records.
+func (c *adrCollector) add(adr *ADR, rulesErr, parseErr error, label, failedPath string) {
+	if parseErr != nil {
+		c.out.Warn("skipping %s: %v", label, parseErr)
+		c.stats.ParseFailed = append(c.stats.ParseFailed, failedPath)
+
+		return
+	}
+
+	if !isAcceptedStatus(adr.Status, c.acceptedStatuses) {
+		c.stats.StatusRejected++
+
+		return
+	}
+
+	c.adrs = append(c.adrs, *adr)
+
+	if rulesErr != nil {
+		c.out.Warn("ignoring rules in %s: %v", label, rulesErr)
+		c.stats.MalformedRules = append(c.stats.MalformedRules, MalformedRules{RelPath: adr.RelPath, Reason: rulesErr.Error()})
+	}
+}
+
 type Provider interface {
 	GetADRs(ctx context.Context) ([]ADR, FetchStats, error)
 }

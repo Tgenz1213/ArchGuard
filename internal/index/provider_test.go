@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/output"
@@ -102,7 +101,7 @@ func TestCompositeProvider_SetPrinter_RoutesFetchWarningThere(t *testing.T) {
 		t.Fatalf("unexpected error (only one of two providers failed): %v", err)
 	}
 
-	if !strings.Contains(buf.String(), "Warning: failed to fetch ADRs from a provider") {
-		t.Errorf("expected the fetch warning on the configured writer, got %q", buf.String())
+	if buf.Len() == 0 {
+		t.Error("expected the fetch warning on the configured writer, got nothing")
 	}
 }

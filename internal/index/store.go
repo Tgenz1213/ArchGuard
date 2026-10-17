@@ -72,12 +72,18 @@ func NewVectorStore(cfg *config.Config, out *output.Printer) (VectorStore, error
 	sections := NewSectionSelection(cfg.Analysis.IncludedHeaders, cfg.Analysis.ExcludedHeaders)
 
 	if cfg.VectorStore.ConnectionString != "" {
-		store, err := NewPgStore(cfg.VectorStore.ConnectionString, cfg.ProjectName, cfg.VectorStore.EmbeddingConcurrency, HNSWOptions{
-			Enabled:       cfg.VectorStore.ReindexEnabled,
-			Threshold:     cfg.VectorStore.ReindexThreshold,
-			Concurrently:  cfg.VectorStore.ReindexConcurrently,
-			IterativeScan: cfg.VectorStore.IterativeScan,
-		}, out)
+		store, err := NewPgStore(
+			cfg.VectorStore.ConnectionString,
+			cfg.ProjectName,
+			cfg.VectorStore.EmbeddingConcurrency,
+			HNSWOptions{
+				Enabled:       cfg.VectorStore.ReindexEnabled,
+				Threshold:     cfg.VectorStore.ReindexThreshold,
+				Concurrently:  cfg.VectorStore.ReindexConcurrently,
+				IterativeScan: cfg.VectorStore.IterativeScan,
+			},
+			out,
+		)
 		if err != nil {
 			return nil, err
 		}

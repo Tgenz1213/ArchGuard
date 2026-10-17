@@ -9,9 +9,9 @@ import (
 
 func parseWithFrontMatter(t *testing.T, frontMatter string, opts ParseOptions) (*ADR, error) {
 	t.Helper()
-	data := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\n" + frontMatter + "---\nBody")
+	raw := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\n" + frontMatter + "---\nBody")
 
-	adr, rulesErr, err := parseADR(data, "0001", "0001-t.md", opts, nil)
+	adr, rulesErr, err := parseADR(raw, "0001", "0001-t.md", opts, nil)
 	if err != nil {
 		t.Fatalf("parseADR failed: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestParseADRContent_MalformedRulesKeepTheRestOfTheADR(t *testing.T) {
 }
 
 func TestParseADRContent_ExportedWrapperStillReturnsTheADRWhenRulesAreMalformed(t *testing.T) {
-	data := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\nrules: nope\n---\nBody")
+	raw := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\nrules: nope\n---\nBody")
 
-	adr, err := ParseADRContent(data, "0001", "0001-t.md", ParseOptions{})
+	adr, err := ParseADRContent(raw, "0001", "0001-t.md", ParseOptions{})
 	if err != nil || adr == nil || adr.Title != "T" || adr.Rules != nil {
 		t.Fatalf("ParseADRContent = (%+v, %v), want the ADR without rules and no error", adr, err)
 	}
@@ -211,13 +211,13 @@ func TestRules_ScanRejectsUnsupportedType(t *testing.T) {
 
 func TestADR_JSONOmitsRulesWhenEmpty(t *testing.T) {
 	for _, adr := range []ADR{{ID: "1", Title: "T"}, {ID: "1", Title: "T", Rules: Rules{}}} {
-		data, err := json.Marshal(adr)
+		encoded, err := json.Marshal(adr)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if strings.Contains(string(data), "rules") {
-			t.Errorf("ADR without rules must not emit a rules key, got %s", data)
+		if strings.Contains(string(encoded), "rules") {
+			t.Errorf("ADR without rules must not emit a rules key, got %s", encoded)
 		}
 	}
 }
@@ -225,13 +225,13 @@ func TestADR_JSONOmitsRulesWhenEmpty(t *testing.T) {
 func TestADR_JSONRoundTripsRules(t *testing.T) {
 	in := ADR{ID: "1", Rules: Rules{{Statement: "S", Violating: []string{"v"}}}}
 
-	data, err := json.Marshal(in)
+	encoded, err := json.Marshal(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var out ADR
-	if err := json.Unmarshal(data, &out); err != nil {
+	if err := json.Unmarshal(encoded, &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -503,9 +503,9 @@ const bodySection = "\n## Rules\n\n- Body rule\n"
 
 func parseWithBody(t *testing.T, frontMatter, body string, opts ParseOptions) (*ADR, error) {
 	t.Helper()
-	data := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\n" + frontMatter + "---\nIntro\n" + body)
+	raw := []byte("---\ntitle: \"T\"\nstatus: \"Accepted\"\n" + frontMatter + "---\nIntro\n" + body)
 
-	adr, rulesErr, err := parseADR(data, "0001", "0001-t.md", opts, nil)
+	adr, rulesErr, err := parseADR(raw, "0001", "0001-t.md", opts, nil)
 	if err != nil {
 		t.Fatalf("parseADR failed: %v", err)
 	}

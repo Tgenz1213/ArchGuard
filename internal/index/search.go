@@ -63,16 +63,7 @@ func (s *LocalStore) SearchTruncated(queryEmbedding []float32, threshold float64
 }
 
 func (s *LocalStore) SearchWithDebugInfo(queryEmbedding []float32, threshold float64, topK int, filePath string) (hits, rejected, truncated []SearchResult) {
-	candidates := s.scopeMatchedCandidates(queryEmbedding, filePath)
-
-	belowCopy := append([]SearchResult(nil), candidates...)
-	rejected = rankAndLimit(filterBelowThreshold(belowCopy, threshold), topK)
-
-	qualifying := filterByThreshold(append([]SearchResult(nil), candidates...), threshold)
-	hits = rankAndLimit(qualifying, topK)
-	truncated = truncatedByTopK(qualifying, topK)
-
-	return hits, rejected, truncated
+	return splitDebugResults(s.scopeMatchedCandidates(queryEmbedding, filePath), threshold, topK)
 }
 
 func cosineSimilarity(lhs, rhs []float32) float64 {
