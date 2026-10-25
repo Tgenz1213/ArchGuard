@@ -78,16 +78,19 @@ const issues = uniqueByNumber(selected.issues)
 log(`Triaging ${issues.length} issue(s)`)
 
 phase('Triage')
-const results = await pipeline(issues, issue =>
-  agent(triagePrompt(issue), {
+const firstPass = await pipeline(issues, triage)
+const results = await pipeline(issues, (issue, _, index) => firstPass[index] ?? triage(issue))
+
+return report(issues, results)
+
+function triage(issue) {
+  return agent(triagePrompt(issue), {
     agentType: 'triager',
     schema: TRIAGE_SCHEMA,
     label: `#${issue.number}`,
     phase: 'Triage',
-  }),
-)
-
-return report(issues, results)
+  })
+}
 
 function parseSelection(input) {
   const words = Array.isArray(input) ? input : String(input ?? 'all').split(/[\s,]+/)
@@ -146,6 +149,8 @@ function report(issues, results) {
   const unverified = []
   const failed = []
   const rows = []
+  let withRequired = 0
+  let clean = 0
 
   issues.forEach((issue, index) => {
     const result = results[index]
@@ -166,23 +171,35 @@ function report(issues, results) {
     unchecked.forEach(f => unverified.push(`- #${issue.number} (${f.check}): ${f.finding}`))
 
     rows.push(`| #${issue.number} | ${cell(issue.title)} | ${status(requiredHere, optionalHere, unchecked)} |`)
+    if (requiredHere.length > 0) {
+      withRequired++
+    }
+    if (findings.length === 0) {
+      clean++
+    }
   })
 
-  const missingMilestone = issues.filter(i => i.state === 'open' && !i.milestone).map(i => `#${i.number}`)
+  const missingMilestone = issues.filter(i => i.state === 'open' && !i.milestone).map(i => i.number)
   const editHeader = '| Issue | Check | Finding | Proposed edit | Evidence |\n|---|---|---|---|---|'
 
   return [
-    '## Issues',
-    ['| Issue | Title | Result |\n|---|---|---|', ...rows].join('\n'),
-    `**No milestone:** ${missingMilestone.length > 0 ? missingMilestone.join(', ') : 'none'}`,
+    '## Summary',
+    `${issues.length - failed.length} of ${issues.length} issue(s) triaged: ${withRequired} with required edits, ${clean} with no change.`,
+    `**Not triaged (agent failed twice):** ${numbers(failed)}`,
+    `**No milestone:** ${numbers(missingMilestone)}`,
     '## Required edits',
     required.length > 0 ? [editHeader, ...required].join('\n') : 'None.',
     '## Optional edits',
     optional.length > 0 ? [editHeader, ...optional].join('\n') : 'None.',
     '## Unverified',
     unverified.length > 0 ? unverified.join('\n') : 'None.',
-    failed.length > 0 ? `**Not triaged (agent failed):** ${failed.map(n => `#${n}`).join(', ')}` : '',
-  ].filter(Boolean).join('\n\n')
+    '## Issues',
+    ['| Issue | Title | Result |\n|---|---|---|', ...rows].join('\n'),
+  ].join('\n\n')
+}
+
+function numbers(list) {
+  return list.length > 0 ? list.map(n => `#${n}`).join(', ') : 'none'
 }
 
 function status(requiredHere, optionalHere, unchecked) {
