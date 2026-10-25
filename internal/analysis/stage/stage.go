@@ -52,16 +52,16 @@ type decision struct {
 }
 
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
-	d, err := s.decide(ctx, file, debug, candidates)
+	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
 		return nil, err
 	}
 
 	if debug.DebugEnabled() {
-		s.report(debug, d)
+		s.report(debug, decided)
 	}
 
-	return d.kept, nil
+	return decided.kept, nil
 }
 
 func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
