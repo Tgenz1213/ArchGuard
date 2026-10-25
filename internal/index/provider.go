@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -97,8 +98,6 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 			defer mu.Unlock()
 
 			if err != nil {
-				// One failing provider must not fail the run.
-				c.out.Warn("failed to fetch ADRs from a provider: %v", err)
 				errs = append(errs, err)
 				return nil
 			}
@@ -117,7 +116,12 @@ func (c *CompositeProvider) GetADRs(ctx context.Context) ([]ADR, FetchStats, err
 	}
 
 	if len(c.providers) > 0 && len(errs) == len(c.providers) {
-		return nil, FetchStats{}, fmt.Errorf("all providers failed to fetch ADRs: %w", errs[0])
+		return nil, FetchStats{}, fmt.Errorf("all providers failed to fetch ADRs: %w", errors.Join(errs...))
+	}
+
+	// One failing provider must not fail the run.
+	for _, err := range errs {
+		c.out.Warn("failed to fetch ADRs from a provider: %v", err)
 	}
 
 	return allADRs, stats, nil
