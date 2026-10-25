@@ -130,7 +130,6 @@ func formatEach[T any](items []T, format func(T) string) []string {
 	return lines
 }
 
-// sortedByFileAndADR returns a copy of items stable-sorted by file, then ADR ID.
 func sortedByFileAndADR[T any](items []T, key func(T) (file, adrID string)) []T {
 	sorted := slices.Clone(items)
 	slices.SortStableFunc(sorted, func(a, b T) int {

@@ -138,7 +138,6 @@ func defaultMockEmbedding(dim int) []float32 {
 	return v
 }
 
-// codeContextBlock returns the text between the prompt's code_context tags.
 func codeContextBlock(prompt string) (string, bool) {
 	_, after, found := strings.Cut(prompt, "<code_context>")
 	if !found {

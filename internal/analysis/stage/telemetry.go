@@ -33,17 +33,17 @@ func NewTelemetry(stages []Stage) *Telemetry {
 }
 
 // A failed stage still counts what it received and how long it ran, with nothing kept.
-func (t *Telemetry) Apply(ctx context.Context, i int, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
+func (t *Telemetry) Apply(ctx context.Context, stageIndex int, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	start := time.Now()
-	kept, err := t.stages[i].Apply(ctx, file, debug, candidates)
+	kept, err := t.stages[stageIndex].Apply(ctx, file, debug, candidates)
 	elapsed := time.Since(start)
 
 	t.mu.Lock()
-	t.stats[i].Received += len(candidates)
-	t.stats[i].Kept += len(kept)
+	t.stats[stageIndex].Received += len(candidates)
+	t.stats[stageIndex].Kept += len(kept)
 
 	if len(candidates) > 0 {
-		t.spent[i] += elapsed
+		t.spent[stageIndex] += elapsed
 	}
 
 	t.mu.Unlock()

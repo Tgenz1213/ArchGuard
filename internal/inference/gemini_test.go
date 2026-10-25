@@ -31,6 +31,18 @@ func geminiTextResponse(text string) geminiResponse {
 	}
 }
 
+type geminiEmbedding struct {
+	Values []float32 `json:"values"`
+}
+
+type geminiEmbeddingsResponse struct {
+	Embeddings []geminiEmbedding `json:"embeddings"`
+}
+
+func geminiEmbeddingResponse(values []float32) geminiEmbeddingsResponse {
+	return geminiEmbeddingsResponse{Embeddings: []geminiEmbedding{{Values: values}}}
+}
+
 func TestGeminiProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -184,17 +196,7 @@ func TestGeminiProvider_CreateEmbedding(t *testing.T) {
 			t.Errorf("Expected model 'models/text-embedding-004', got %q", reqBody.Requests[0].Model)
 		}
 
-		resp := struct {
-			Embeddings []struct {
-				Values []float32 `json:"values"`
-			} `json:"embeddings"`
-		}{
-			Embeddings: []struct {
-				Values []float32 `json:"values"`
-			}{
-				{Values: []float32{0.1, 0.2, 0.3}},
-			},
-		}
+		resp := geminiEmbeddingResponse([]float32{0.1, 0.2, 0.3})
 		w.Header().Set("Content-Type", "application/json")
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -250,15 +252,7 @@ func TestGeminiProvider_CreateEmbedding_TaskType(t *testing.T) {
 
 				gotTaskType = reqBody.Requests[0].TaskType
 
-				resp := struct {
-					Embeddings []struct {
-						Values []float32 `json:"values"`
-					} `json:"embeddings"`
-				}{
-					Embeddings: []struct {
-						Values []float32 `json:"values"`
-					}{{Values: []float32{0.1}}},
-				}
+				resp := geminiEmbeddingResponse([]float32{0.1})
 				w.Header().Set("Content-Type", "application/json")
 
 				if err := json.NewEncoder(w).Encode(resp); err != nil {

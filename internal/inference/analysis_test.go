@@ -3,9 +3,11 @@ package inference
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 func TestAnalyzeDrift_DiffInputUsesTheDiffTemplateAndKeepsACustomSystemPrompt(t *testing.T) {
@@ -164,7 +166,7 @@ func TestSuggestRemediation_ReturnsSuggestionText(t *testing.T) {
 func TestSuggestRemediation_PropagatesProviderError(t *testing.T) {
 	provider := &MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
-			return "", fmt.Errorf("persistent error")
+			return "", backoff.Permanent(errors.New("persistent error"))
 		},
 	}
 

@@ -145,29 +145,27 @@ func TestOpenAIProvider_ChatErrorOnNon200(t *testing.T) {
 }
 
 func TestOpenAIProvider_CountTokens(t *testing.T) {
-	provider := NewOpenAIProvider("unused-key", "gpt-3.5-turbo", "unused-embed-model")
-
-	count, err := provider.CountTokens(t.Context(), "Hello, world!")
-	if err != nil {
-		t.Fatalf("CountTokens failed: %v", err)
+	// "Hello, world!" is 4 tokens under cl100k_base: ["Hello", ",", " world", "!"].
+	tests := []struct {
+		name  string
+		model string
+	}{
+		{name: "known model resolves to cl100k_base", model: "gpt-3.5-turbo"},
+		{name: "unknown model falls back to cl100k_base", model: "some-future-model-tiktoken-does-not-know"},
 	}
 
-	// "Hello, world!" is 4 tokens under cl100k_base (the encoding gpt-3.5-turbo
-	// resolves to): ["Hello", ",", " world", "!"].
-	if count != 4 {
-		t.Errorf("expected 4 tokens, got %d", count)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := NewOpenAIProvider("unused-key", tt.model, "unused-embed-model")
 
-func TestOpenAIProvider_CountTokens_UnknownModelFallsBackToCl100kBase(t *testing.T) {
-	provider := NewOpenAIProvider("unused-key", "some-future-model-tiktoken-does-not-know", "unused-embed-model")
+			count, err := provider.CountTokens(t.Context(), "Hello, world!")
+			if err != nil {
+				t.Fatalf("CountTokens failed: %v", err)
+			}
 
-	count, err := provider.CountTokens(t.Context(), "Hello, world!")
-	if err != nil {
-		t.Fatalf("CountTokens failed: %v", err)
-	}
-
-	if count != 4 {
-		t.Errorf("expected fallback cl100k_base count of 4 tokens, got %d", count)
+			if count != 4 {
+				t.Errorf("expected 4 tokens, got %d", count)
+			}
+		})
 	}
 }
