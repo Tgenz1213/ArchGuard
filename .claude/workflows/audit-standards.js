@@ -3,25 +3,25 @@ export const meta = {
   description: 'Audit Go packages against the docs/standards pages and verify each finding, without changing any file',
   whenToUse: 'Run with no arguments or "all" for every Go package, or with package directories, such as /audit-standards internal/output internal/git',
   phases: [
-    { title: 'Select', detail: 'list the Go packages' },
+    { title: 'Select', detail: 'list the Go packages and the standards pages' },
     { title: 'Audit', detail: 'one reviewer per package' },
     { title: 'Verify', detail: 'skeptical reviewers, one per batch of findings' },
   ],
 }
 
-const PAGES = ['paradigm', 'functions', 'errors', 'naming', 'formatting', 'comments', 'testing']
-const PAGE_LIST = PAGES.map(page => `docs/standards/${page}.md`).join(', ')
+const NOT_GO_PAGES = ['README.md', 'guidance.md']
 const BATCH_SIZE = 20
 
 const SELECTION_SCHEMA = {
   type: 'object',
-  required: ['packages'],
+  required: ['packages', 'pages'],
   properties: {
     packages: { type: 'array', items: { type: 'string' } },
+    pages: { type: 'array', items: { type: 'string' } },
   },
 }
 
-const FINDINGS_SCHEMA = {
+const findingsSchema = pages => ({
   type: 'object',
   required: ['findings'],
   properties: {
@@ -33,7 +33,7 @@ const FINDINGS_SCHEMA = {
         properties: {
           file: { type: 'string' },
           line: { type: 'integer' },
-          page: { type: 'string', enum: PAGES.map(page => `${page}.md`) },
+          page: { type: 'string', enum: pages },
           rule: { type: 'string', description: "the rule's bold sentence, verbatim" },
           code: { type: 'string', description: 'the offending code as read' },
           why: { type: 'string', description: 'one sentence on how the code breaks the rule' },
@@ -41,7 +41,7 @@ const FINDINGS_SCHEMA = {
       },
     },
   },
-}
+})
 
 const VERDICTS_SCHEMA = {
   type: 'object',
@@ -66,11 +66,16 @@ const VERDICTS_SCHEMA = {
 const named = packageArgs(args)
 
 phase('Select')
-const packages = named.length > 0 ? named : await listPackages()
-if (!packages) {
-  return 'Could not list the Go packages to audit.'
+const selected = await select()
+if (!selected) {
+  return 'Could not list the Go packages and standards pages to audit.'
 }
-log(`Auditing ${packages.length} package(s)`)
+const packages = named.length > 0 ? named : selected.packages
+const pages = selected.pages
+if (pages.length === 0) {
+  return 'Found no Go standards pages in docs/standards/.'
+}
+log(`Auditing ${packages.length} package(s) against ${pages.join(', ')}`)
 
 const results = await pipeline(packages, audit, verify)
 
@@ -82,19 +87,25 @@ function packageArgs(input) {
   return words.map(word => String(word).trim().replace(/\/+$/, '')).filter(word => word && word !== 'all')
 }
 
-async function listPackages() {
+async function select() {
   const listed = await agent(
-    "Use Glob with the patterns internal/**/*.go and cmd/**/*.go, and return the sorted, distinct directories that hold the matched files. Each directory is one Go package. Change nothing.",
-    { agentType: 'reviewer', effort: 'low', schema: SELECTION_SCHEMA, label: 'list packages' },
+    'Use Glob with the patterns internal/**/*.go and cmd/**/*.go, and return the sorted, distinct directories that hold the matched files as packages. Each directory is one Go package. Then use Glob with the pattern docs/standards/*.md and return the file names, such as naming.md, as pages. Change nothing.',
+    { agentType: 'reviewer', effort: 'low', schema: SELECTION_SCHEMA, label: 'list packages and pages' },
   )
+  if (!listed) {
+    return null
+  }
 
-  return listed ? [...new Set(listed.packages)].sort() : null
+  return {
+    packages: [...new Set(listed.packages)].sort(),
+    pages: [...new Set(listed.pages)].filter(page => /^[\w-]+\.md$/.test(page) && !NOT_GO_PAGES.includes(page)).sort(),
+  }
 }
 
 async function audit(pkg) {
   const audited = await agent(auditPrompt(pkg), {
     agentType: 'reviewer',
-    schema: FINDINGS_SCHEMA,
+    schema: findingsSchema(pages),
     label: `audit ${pkg}`,
     phase: 'Audit',
   })
@@ -125,7 +136,7 @@ async function verify(findings, pkg) {
 function auditPrompt(pkg) {
   return `Audit the Go package in \`${pkg}\` against this repository's coding standards: only the .go files directly in that directory, test files included, not subdirectories.
 
-1. Read each of these pages in full: ${PAGE_LIST}. Each rule is a bold sentence in a "## Rules" list.
+1. Read each of these pages in full: ${pages.map(page => `docs/standards/${page}`).join(', ')}. Each rule is a bold sentence in a "## Rules" list.
 2. List the package's files with Glob (pattern \`${pkg}/*.go\`) and read every one in full.
 3. Report every place the code breaks a rule. Skip a breach the page says a linter already enforces. Test files follow the pages too, except where a page exempts them.
 
@@ -170,7 +181,7 @@ function withVerdicts(batch, judged) {
 }
 
 function cited(finding) {
-  return finding.file.trim() !== '' && finding.line > 0 && PAGES.includes(finding.page.replace(/\.md$/, ''))
+  return finding.file.trim() !== '' && finding.line > 0 && pages.includes(finding.page)
 }
 
 function report(packages, results) {
