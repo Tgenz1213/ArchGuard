@@ -74,6 +74,7 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 func decodeScorer(prefix string, node *yaml.Node) (string, error) {
 	var name string
 	if err := node.Decode(&name); err != nil {
+		// The yaml cause adds nothing to "must be a string"; callers must not match it.
 		return "", fmt.Errorf("%s.scorer: must be a string", prefix)
 	}
 
