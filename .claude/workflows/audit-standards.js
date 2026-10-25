@@ -84,7 +84,7 @@ function packageArgs(input) {
 
 async function listPackages() {
   const listed = await agent(
-    "In the local checkout, run `git ls-files '*.go'` and return the sorted, distinct directories under internal/ and cmd/ that hold .go files. Each directory is one Go package. Read only the local files, not GitHub, and change nothing.",
+    "Use Glob with the patterns internal/**/*.go and cmd/**/*.go, and return the sorted, distinct directories that hold the matched files. Each directory is one Go package. Change nothing.",
     { agentType: 'reviewer', effort: 'low', schema: SELECTION_SCHEMA, label: 'list packages' },
   )
 
@@ -126,7 +126,7 @@ function auditPrompt(pkg) {
   return `Audit the Go package in \`${pkg}\` against this repository's coding standards: only the .go files directly in that directory, test files included, not subdirectories.
 
 1. Read each of these pages in full: ${PAGE_LIST}. Each rule is a bold sentence in a "## Rules" list.
-2. List the package's files with \`git ls-files '${pkg}/*.go'\` and read every one in full.
+2. List the package's files with Glob (pattern \`${pkg}/*.go\`) and read every one in full.
 3. Report every place the code breaks a rule. Skip a breach the page says a linter already enforces. Test files follow the pages too, except where a page exempts them.
 
 For each finding give the file path from the repo root, the line, the page file name, the rule's bold sentence verbatim, the code you read and one sentence on why it breaks the rule. Report only what you read. Return an empty list if the package is clean. Read only; change nothing.`
