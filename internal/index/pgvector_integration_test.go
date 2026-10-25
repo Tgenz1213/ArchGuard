@@ -195,6 +195,31 @@ Test Content`
 	}
 }
 
+func TestPgStore_Integration_IndexedPathsEmptyForProjectWithoutRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	ctx := t.Context()
+	connStr := setupPgContainer(ctx, t)
+
+	tmpDir := t.TempDir()
+	writeADRFiles(t, tmpDir, 1)
+
+	storeOther, err := index.NewPgStore(connStr, "other_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	_, err = storeOther.BuildIndex(ctx, "test-model", 2, mockEmbedProvider(), index.NewLocalProvider(tmpDir, []string{"Accepted"}))
+	require.NoError(t, err)
+
+	store, err := index.NewPgStore(connStr, "empty_project", 5, index.HNSWOptions{}, nil)
+	require.NoError(t, err)
+	require.NoError(t, store.Load("", "test-model", 2, ""))
+
+	paths, err := store.IndexedPaths()
+	require.NoError(t, err)
+	assert.Empty(t, paths, "another project's rows must not count toward this project's index")
+}
+
 func TestPgStore_Integration_MultiPatternScopeRoundTrips(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
