@@ -13,3 +13,4 @@ if [[ $cmd =~ ^gh\ (issue\ (view|list)|pr\ (view|list|diff))$args ]]; then
 fi
 echo "Refused: this agent may only run git diff, log, show, status, grep or ls-files, or gh issue or pr view, list or diff, one command at a time, with no cd." >&2
 exit 2
+
