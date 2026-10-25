@@ -15,6 +15,7 @@
   | Must always happen, or a command to allow or deny | A hook or permission in `.claude/settings.json` |
   | Checkable by a tool | A lint rule or a test |
   | Recurring multi-step procedure | A skill in `.claude/skills/` |
+  | The same check fanned out over many items, rerunnable | A workflow in `.claude/workflows/` |
   | What the code does | Nowhere; the code is the source |
 
 - **State a fact once.** Every other place points to its home. Two copies drift apart, and a reader cannot tell which one is current.
