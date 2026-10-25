@@ -21,6 +21,12 @@ var readOnlyMCPTools = []string{
 	"mcp__Context7__query-docs",
 	"mcp__claude_ai_Context7__resolve-library-id",
 	"mcp__claude_ai_Context7__query-docs",
+	"mcp__github__issue_read",
+	"mcp__github__list_issues",
+	"mcp__github__search_issues",
+	"mcp__github__pull_request_read",
+	"mcp__github__list_pull_requests",
+	"mcp__github__search_pull_requests",
 }
 
 type hookCommand struct {
