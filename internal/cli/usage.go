@@ -80,7 +80,7 @@ func projectedChatUsage(usage inference.Usage, costPer1KInput *float64) output.C
 
 	report := output.ChatUsage{InputTokens: &usage.InputTokens}
 	if costPer1KInput != nil {
-		cost := price(usage.InputTokens, *costPer1KInput)
+		cost := priceTokens(usage.InputTokens, *costPer1KInput)
 		report.Cost = &cost
 	}
 
@@ -94,7 +94,7 @@ func chatUsage(usage inference.Usage, llm config.LLMConfig) output.ChatUsage {
 
 	report := output.ChatUsage{InputTokens: &usage.InputTokens, OutputTokens: &usage.OutputTokens}
 	if llm.CostPer1KInputTokens != nil && llm.CostPer1KOutputTokens != nil {
-		cost := price(usage.InputTokens, *llm.CostPer1KInputTokens) + price(usage.OutputTokens, *llm.CostPer1KOutputTokens)
+		cost := priceTokens(usage.InputTokens, *llm.CostPer1KInputTokens) + priceTokens(usage.OutputTokens, *llm.CostPer1KOutputTokens)
 		report.Cost = &cost
 	}
 
@@ -108,13 +108,13 @@ func embeddingUsage(usage inference.Usage, costPer1K *float64) output.EmbeddingU
 
 	report := output.EmbeddingUsage{Tokens: &usage.InputTokens}
 	if costPer1K != nil {
-		cost := price(usage.InputTokens, *costPer1K)
+		cost := priceTokens(usage.InputTokens, *costPer1K)
 		report.Cost = &cost
 	}
 
 	return report
 }
 
-func price(tokens int, costPer1K float64) float64 {
+func priceTokens(tokens int, costPer1K float64) float64 {
 	return float64(tokens) / 1000 * costPer1K
 }

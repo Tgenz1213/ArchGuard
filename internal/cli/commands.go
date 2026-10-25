@@ -131,14 +131,14 @@ type invocation struct {
 	index   indexCmd
 }
 
-func (inv *invocation) configPath() string {
+func (iv *invocation) configPath() string {
 	var config configOption
 
-	switch inv.command {
+	switch iv.command {
 	case "check":
-		config = inv.check.configOption
+		config = iv.check.configOption
 	case "index":
-		config = inv.index.configOption
+		config = iv.index.configOption
 	}
 
 	if config.Config == "" {
@@ -148,12 +148,12 @@ func (inv *invocation) configPath() string {
 	return config.Config
 }
 
-func (inv *invocation) color() output.ColorMode {
-	switch inv.command {
+func (iv *invocation) color() output.ColorMode {
+	switch iv.command {
 	case "check":
-		return inv.check.Color
+		return iv.check.Color
 	case "index":
-		return inv.index.Color
+		return iv.index.Color
 	default:
 		return output.ColorAuto
 	}

@@ -35,8 +35,10 @@ const (
 
 var errInterrupted = errors.New("interrupted")
 
-const defaultADRPath = "./docs/arch"
-const configFilename = "archguard.yaml"
+const (
+	defaultADRPath = "./docs/arch"
+	configFilename = "archguard.yaml"
+)
 
 // Test injection points for Execute; zero value in production.
 type ProviderFactories struct {
