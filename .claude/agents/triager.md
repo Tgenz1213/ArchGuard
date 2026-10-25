@@ -1,6 +1,6 @@
 ---
 name: triager
-description: Reads GitHub issues and pull requests and the repo without changing either. It can read files, run read-only git commands and gh issue or pr view, list and diff, and call named read-only GitHub tools, and nothing else. Use for any subagent that triages issues.
+description: Reads GitHub issues and pull requests and the repo without changing either. It can read files, run read-only git commands and gh issue or pr view, list and diff, and call the GitHub tools it names, each of which only reads, and nothing else. Use for any subagent that triages issues.
 tools: Read, Grep, Glob, Bash, mcp__github__issue_read, mcp__github__list_issues, mcp__github__search_issues, mcp__github__pull_request_read, mcp__github__list_pull_requests, mcp__github__search_pull_requests
 hooks:
   PreToolUse:
