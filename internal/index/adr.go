@@ -290,26 +290,17 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 		return canonical
 	}
 
-	if node, ok := nodes[sourceKey("title")]; ok {
-		if err := node.Decode(&fm.Title); err != nil {
-			return FrontMatter{}, err
-		}
+	fields := []struct {
+		key    string
+		target any
+	}{
+		{"title", &fm.Title},
+		{"status", &fm.Status},
+		{"scope", &fm.Scope},
+		{"similarity_threshold", &fm.SimilarityThreshold},
 	}
-
-	if node, ok := nodes[sourceKey("status")]; ok {
-		if err := node.Decode(&fm.Status); err != nil {
-			return FrontMatter{}, err
-		}
-	}
-
-	if node, ok := nodes[sourceKey("scope")]; ok {
-		if err := node.Decode(&fm.Scope); err != nil {
-			return FrontMatter{}, err
-		}
-	}
-
-	if node, ok := nodes[sourceKey("similarity_threshold")]; ok {
-		if err := node.Decode(&fm.SimilarityThreshold); err != nil {
+	for _, field := range fields {
+		if err := decodeField(nodes, sourceKey(field.key), field.target); err != nil {
 			return FrontMatter{}, err
 		}
 	}
@@ -319,4 +310,13 @@ func decodeFrontMatter(raw []byte, frontmatterMappings map[string]string) (Front
 	}
 
 	return fm, nil
+}
+
+func decodeField(nodes map[string]yaml.Node, key string, target any) error {
+	node, ok := nodes[key]
+	if !ok {
+		return nil
+	}
+
+	return node.Decode(target)
 }

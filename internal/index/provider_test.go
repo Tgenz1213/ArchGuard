@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/output"
@@ -64,7 +65,9 @@ func TestCompositeProvider_GetADRs_PartialFailureKeepsOtherProviderStats(t *test
 	}
 	failing := &fakeProvider{err: errors.New("connection dropped")}
 
+	var buf bytes.Buffer
 	composite := NewCompositeProvider(ok, failing)
+	composite.SetPrinter(output.New(&buf, false))
 
 	adrs, stats, err := composite.GetADRs(t.Context())
 	if err != nil {
@@ -74,17 +77,31 @@ func TestCompositeProvider_GetADRs_PartialFailureKeepsOtherProviderStats(t *test
 	if len(adrs) != 1 || stats.Discovered != 1 {
 		t.Errorf("expected the healthy provider's ADRs and stats to survive, got adrs=%+v stats=%+v", adrs, stats)
 	}
+
+	if got := strings.Count(buf.String(), "connection dropped"); got != 1 {
+		t.Errorf("expected the failure warned once, got %d times in %q", got, buf.String())
+	}
 }
 
 func TestCompositeProvider_GetADRs_AllProvidersFail(t *testing.T) {
-	composite := NewCompositeProvider(
-		&fakeProvider{err: errors.New("first failure")},
-		&fakeProvider{err: errors.New("second failure")},
-	)
+	first := errors.New("first failure")
+	second := errors.New("second failure")
+
+	var buf bytes.Buffer
+	composite := NewCompositeProvider(&fakeProvider{err: first}, &fakeProvider{err: second})
+	composite.SetPrinter(output.New(&buf, false))
 
 	_, _, err := composite.GetADRs(t.Context())
 	if err == nil {
 		t.Fatal("expected an error when every provider fails")
+	}
+
+	if !errors.Is(err, first) || !errors.Is(err, second) {
+		t.Errorf("expected the error to wrap both failures, got: %v", err)
+	}
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no warning when the error is returned, got %q", buf.String())
 	}
 }
 

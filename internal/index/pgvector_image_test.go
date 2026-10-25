@@ -23,9 +23,8 @@ type pgvectorTagSource struct {
 	content string
 }
 
-// checkPgvectorTags enforces the pin that docs/arch/0005 relies on: every
-// source names one pgvector/pgvector tag, the same one, of the form
-// <pgvector-version>-pg<postgres-major>, at a version with hnsw.iterative_scan.
+// Every source must name the same pgvector/pgvector tag, <pgvector-version>-pg<postgres-major>,
+// at a version with hnsw.iterative_scan, the pin docs/arch/0005 relies on.
 func checkPgvectorTags(sources []pgvectorTagSource) error {
 	paths := make([]string, len(sources))
 	tags := make([]string, len(sources))

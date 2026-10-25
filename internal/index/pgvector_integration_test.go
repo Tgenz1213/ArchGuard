@@ -72,6 +72,33 @@ func writeADRFiles(t *testing.T, dir string, count int) {
 	}
 }
 
+type titledADR struct {
+	filename string
+	title    string
+	content  string
+}
+
+func writeTitledADRs(t *testing.T, dir string, adrs []titledADR) {
+	t.Helper()
+	for _, adr := range adrs {
+		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s", adr.title, adr.content)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, adr.filename), []byte(body), 0644))
+	}
+}
+
+func writeScopeFixtureADRs(t *testing.T, dir string) {
+	t.Helper()
+	adrs := map[string]string{
+		"0001-distractor-a.md": "---\ntitle: \"Distractor A\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor A body",
+		"0002-distractor-b.md": "---\ntitle: \"Distractor B\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor B body",
+		"0003-distractor-c.md": "---\ntitle: \"Distractor C\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor C body",
+		"0004-scope-match.md":  "---\ntitle: \"Scope Match\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nScope Match body",
+	}
+	for name, content := range adrs {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0644))
+	}
+}
+
 func modifyADRFile(t *testing.T, dir string, i int) {
 	t.Helper()
 	content := fmt.Sprintf("---\ntitle: \"ADR %d\"\nstatus: \"Accepted\"\n---\nModified Content %d", i, i)
@@ -273,20 +300,12 @@ func TestPgStore_Integration_SearchTruncated(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	adrDefs := []struct {
-		filename string
-		title    string
-		content  string
-	}{
+	adrDefs := []titledADR{
 		{"0001-first.md", "First ADR", "First Content"},
 		{"0002-second.md", "Second ADR", "Second Content"},
 		{"0003-third.md", "Third ADR", "Third Content"},
 	}
-	for _, def := range adrDefs {
-		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s", def.title, def.content)
-		err = os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644)
-		require.NoError(t, err)
-	}
+	writeTitledADRs(t, tmpDir, adrDefs)
 
 	// All three embed identically to [1,0] so every one clears threshold;
 	// topK=2 must leave exactly one truncated.
@@ -326,21 +345,13 @@ func TestPgStore_Integration_SearchWithDebugInfo(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	adrDefs := []struct {
-		filename string
-		title    string
-		content  string
-	}{
+	adrDefs := []titledADR{
 		{"0001-first.md", "First ADR", "First Content"},
 		{"0002-second.md", "Second ADR", "Second Content"},
 		{"0003-third.md", "Third ADR", "Third Content"},
 		{"0004-far.md", "Far ADR", "Far Content"},
 	}
-	for _, def := range adrDefs {
-		body := fmt.Sprintf("---\ntitle: %q\nstatus: \"Accepted\"\n---\n%s", def.title, def.content)
-		err = os.WriteFile(filepath.Join(tmpDir, def.filename), []byte(body), 0644)
-		require.NoError(t, err)
-	}
+	writeTitledADRs(t, tmpDir, adrDefs)
 
 	// First/Second/Third embed to [1,0] and clear 0.5; Far embeds to [0,1]. topK=2
 	// leaves 2 hits, 1 truncated, 1 rejected, all from one SearchWithDebugInfo query.
@@ -1271,15 +1282,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteLowerSimilarit
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
 	tmpDir := t.TempDir()
-	adrs := map[string]string{
-		"0001-distractor-a.md": "---\ntitle: \"Distractor A\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor A body",
-		"0002-distractor-b.md": "---\ntitle: \"Distractor B\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor B body",
-		"0003-distractor-c.md": "---\ntitle: \"Distractor C\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor C body",
-		"0004-scope-match.md":  "---\ntitle: \"Scope Match\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nScope Match body",
-	}
-	for name, content := range adrs {
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
-	}
+	writeScopeFixtureADRs(t, tmpDir)
 
 	// "Scope Match" embeds a less-aligned vector (~0.707 similarity) than
 	// the distractors (1.0), but it's the only one scoped to "service.go".
@@ -1318,15 +1321,7 @@ func TestPgStore_Integration_SearchScopeMatchingADRSurvivesDespiteBelowThreshold
 	require.NoError(t, store.Load("", "test-model", 2, ""))
 
 	tmpDir := t.TempDir()
-	adrs := map[string]string{
-		"0001-distractor-a.md": "---\ntitle: \"Distractor A\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor A body",
-		"0002-distractor-b.md": "---\ntitle: \"Distractor B\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor B body",
-		"0003-distractor-c.md": "---\ntitle: \"Distractor C\"\nstatus: \"Accepted\"\nscope: \"**/*.ts\"\n---\nDistractor C body",
-		"0004-scope-match.md":  "---\ntitle: \"Scope Match\"\nstatus: \"Accepted\"\nscope: \"**/*.go\"\n---\nScope Match body",
-	}
-	for name, content := range adrs {
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644))
-	}
+	writeScopeFixtureADRs(t, tmpDir)
 
 	// "Scope Match" is below threshold but the only ADR scoped to "service.go"; a SQL threshold predicate would drop it before scope filtering.
 	provider := &inference.MockProvider{
