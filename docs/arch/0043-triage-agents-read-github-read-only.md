@@ -1,6 +1,6 @@
 ---
 title: Triage agents read GitHub through read-only tools and gh commands
-status: Accepted
+status: Superseded
 scope:
   - ".claude/agents/**"
   - ".claude/hooks/read-only-git.sh"
