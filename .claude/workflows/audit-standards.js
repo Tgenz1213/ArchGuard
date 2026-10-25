@@ -84,7 +84,7 @@ function packageArgs(input) {
 
 async function listPackages() {
   const listed = await agent(
-    "Run `git ls-files '*.go'` and return the sorted, distinct directories under internal/ and cmd/ that hold .go files. Each directory is one Go package. Read only; change nothing.",
+    "In the local checkout, run `git ls-files '*.go'` and return the sorted, distinct directories under internal/ and cmd/ that hold .go files. Each directory is one Go package. Read only the local files, not GitHub, and change nothing.",
     { agentType: 'reviewer', effort: 'low', schema: SELECTION_SCHEMA, label: 'list packages' },
   )
 
