@@ -78,8 +78,7 @@ const issues = uniqueByNumber(selected.issues)
 log(`Triaging ${issues.length} issue(s)`)
 
 phase('Triage')
-const firstPass = await pipeline(issues, triage)
-const results = await pipeline(issues, (issue, _, index) => firstPass[index] ?? triage(issue))
+const results = await pipeline(issues, triage)
 
 return report(issues, results)
 
@@ -131,7 +130,7 @@ function triagePrompt(issue) {
 - still-true: main or a merged PR does not already do what it asks, and the files, lines and ADR numbers it cites still say what it claims.
 - duplicate: no other open or closed issue asks for the same thing.
 Do not report milestones; they are summarised separately.
-Report only problems, each with the edit that fixes it. Mark an edit "required" when it breaks a convention or a claim is false, and "optional" when it only improves the issue. Put a file:line or an issue or PR number you read in evidence; a finding you could not check gets an empty evidence list. Read only; change nothing on GitHub.`
+Report only problems, each with the edit that fixes it. A check that passes or does not apply gets no finding. Mark an edit "required" when it breaks a convention or a claim is false, and "optional" when it only improves the issue. Put a file:line or an issue or PR number you read in evidence; a finding you could not check gets an empty evidence list. Read only; change nothing on GitHub.`
 }
 
 function uniqueByNumber(list) {
@@ -185,7 +184,7 @@ function report(issues, results) {
   return [
     '## Summary',
     `${issues.length - failed.length} of ${issues.length} issue(s) triaged: ${withRequired} with required edits, ${clean} with no change.`,
-    `**Not triaged (agent failed twice):** ${numbers(failed)}`,
+    `**Not triaged (agent failed):** ${numbers(failed)}`,
     `**No milestone:** ${numbers(missingMilestone)}`,
     '## Required edits',
     required.length > 0 ? [editHeader, ...required].join('\n') : 'None.',
