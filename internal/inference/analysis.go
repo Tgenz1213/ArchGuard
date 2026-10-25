@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func chatJSON[T any](ctx context.Context, chat Chatter, systemPrompt, userPrompt
 
 		raw := reply.Text
 
-		cleaned := CleanJSON(raw)
+		cleaned := escapeStrayBackslashes(CleanJSON(raw))
 
 		var parsed T
 		if err := json.Unmarshal([]byte(cleaned), &parsed); err != nil {
@@ -113,4 +114,45 @@ func CleanJSON(input string) string {
 	}
 
 	return input
+}
+
+func escapeStrayBackslashes(input string) string {
+	var out strings.Builder
+	out.Grow(len(input))
+
+	for i := 0; i < len(input); i++ {
+		if input[i] != '\\' {
+			out.WriteByte(input[i])
+			continue
+		}
+
+		if startsJSONEscape(input[i+1:]) {
+			out.WriteString(input[i : i+2])
+			i++
+
+			continue
+		}
+
+		out.WriteString(`\\`)
+	}
+
+	return out.String()
+}
+
+func startsJSONEscape(rest string) bool {
+	if rest == "" {
+		return false
+	}
+
+	if strings.IndexByte(`"\/bfnrt`, rest[0]) >= 0 {
+		return true
+	}
+
+	if rest[0] != 'u' || len(rest) < 5 {
+		return false
+	}
+
+	_, err := strconv.ParseUint(rest[1:5], 16, 16)
+
+	return err == nil
 }

@@ -45,6 +45,36 @@ func TestAnalyzeDrift_WholeFileInputKeepsTheWholeFileTemplate(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDrift_QuotedCodeWithBackslashes(t *testing.T) {
+	tests := []struct {
+		name       string
+		quotedCode string
+		want       string
+	}{
+		{name: "shell escaped space", quotedCode: `^git\ (diff|log)$args`, want: `^git\ (diff|log)$args`},
+		{name: "shell escaped semicolon", quotedCode: `[^\;\&\|]*`, want: `[^\;\&\|]*`},
+		{name: "u without four hex digits", quotedCode: `C:\users`, want: `C:\users`},
+		{name: "valid escapes still decode", quotedCode: `a\nb \\ \u0041 \"`, want: "a\nb \\ A \""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat := &MockProvider{ChatFunc: func(_ context.Context, _, _ string) (string, error) {
+				return `{"violation": true, "reasoning": "r", "quoted_code": "` + tt.quotedCode + `"}`, nil
+			}}
+
+			got, _, err := AnalyzeDrift(t.Context(), chat, DriftInput{ADRContent: "adr", CodeContext: "x", Filename: "a.sh"}, "system")
+			if err != nil {
+				t.Fatalf("AnalyzeDrift: %v", err)
+			}
+
+			if !got.Violation || got.QuotedCode != tt.want {
+				t.Fatalf("got violation %v, quoted code %q; want true, %q", got.Violation, got.QuotedCode, tt.want)
+			}
+		})
+	}
+}
+
 func TestCleanJSON(t *testing.T) {
 	tests := []struct {
 		name     string
