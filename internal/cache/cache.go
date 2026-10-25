@@ -38,7 +38,7 @@ func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
 
 	var result inference.AnalysisResult
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, false, err // Corrupt cache? Treat as miss.
+		return nil, false, err
 	}
 
 	return &result, true, nil
@@ -123,7 +123,7 @@ func (c *Cache) GetSuggestion(key string) (string, bool, error) {
 
 	var suggestion string
 	if err := json.Unmarshal(raw, &suggestion); err != nil {
-		return "", false, err // Corrupt cache? Treat as miss.
+		return "", false, err
 	}
 
 	return suggestion, true, nil

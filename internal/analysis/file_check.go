@@ -227,8 +227,12 @@ func (fc *fileCheck) cachedVerdict(key string) (*inference.AnalysisResult, bool)
 	}
 
 	result, found, err := fc.engine.Cache.Get(key)
+	if err != nil {
+		fc.out.Warn("reading the cached verdict failed: %v", err)
+		return nil, false
+	}
 
-	return result, err == nil && found
+	return result, found
 }
 
 func (fc *fileCheck) cachedSuggestion(key string) (string, bool) {
@@ -237,8 +241,12 @@ func (fc *fileCheck) cachedSuggestion(key string) (string, bool) {
 	}
 
 	suggestion, found, err := fc.engine.Cache.GetSuggestion(key)
+	if err != nil {
+		fc.out.Warn("reading the cached suggestion failed: %v", err)
+		return "", false
+	}
 
-	return suggestion, err == nil && found && suggestion != ""
+	return suggestion, found && suggestion != ""
 }
 
 func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {

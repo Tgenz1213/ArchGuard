@@ -3,6 +3,7 @@ package baseline
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,11 @@ func TestLoad_CorruptFile_ReturnsError(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load should return error for corrupt JSON")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) || !strings.Contains(err.Error(), path) {
+		t.Errorf("Load error = %v, want it to name %s and wrap the *json.SyntaxError", err, path)
 	}
 }
 

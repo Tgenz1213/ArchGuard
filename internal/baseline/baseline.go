@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -41,7 +42,7 @@ func Load(path string) (*Baseline, error) {
 
 	var b Baseline
 	if err := json.Unmarshal(raw, &b); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse baseline %s: %w", path, err)
 	}
 
 	if b.Entries == nil {

@@ -3,8 +3,11 @@ package analysis_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -68,7 +71,7 @@ func TestDriftDetection(t *testing.T) {
 	store := goLangStore()
 
 	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0.0}, // Force match
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
 
@@ -2034,6 +2037,78 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 
 	if violations := secondEngine.Report().Violations; len(violations) != 1 || violations[0].Suggestion != "Rewrite this in Go, not Python." {
 		t.Errorf("expected the cached suggestion in the second run's report, got %+v", violations)
+	}
+}
+
+func TestRun_CorruptCacheEntriesWarnAndJudgeAfresh(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New failed: %v", err)
+	}
+
+	verdictCalls, suggestionCalls := 0, 0
+	provider := &inference.MockProvider{
+		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+			if strings.Contains(system, "Remediation Advisor") {
+				suggestionCalls++
+				return `{"suggestion": "Rewrite this in Go, not Python."}`, nil
+			}
+
+			verdictCalls++
+
+			return `{"violation": true, "reasoning": "Python is not allowed.", "quoted_code": "import python_library"}`, nil
+		},
+	}
+	cfg := &config.Config{
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
+
+	firstEngine := analysis.NewEngine(cfg, goLangStore(), provider, provider, content)
+	firstEngine.Cache = c
+	firstEngine.SuggestFixes = true
+	_ = captureOutput(firstEngine, func() { runEngine(t, firstEngine, true) })
+
+	corrupt := []byte("{not json")
+
+	entries, err := filepath.Glob(filepath.Join(c.Dir, "*.json"))
+	if err != nil {
+		t.Fatalf("glob cache entries: %v", err)
+	}
+
+	suggestions, err := filepath.Glob(filepath.Join(c.Dir, "suggestions", "*.json"))
+	if err != nil {
+		t.Fatalf("glob cached suggestions: %v", err)
+	}
+
+	entries = append(entries, suggestions...)
+	if len(entries) != 2 {
+		t.Fatalf("cache entries = %v, want one verdict and one suggestion", entries)
+	}
+
+	for _, entry := range entries {
+		if err := os.WriteFile(entry, corrupt, 0644); err != nil {
+			t.Fatalf("corrupt %s: %v", entry, err)
+		}
+	}
+
+	secondEngine := analysis.NewEngine(cfg, goLangStore(), provider, provider, content)
+	secondEngine.Cache = c
+	secondEngine.SuggestFixes = true
+	logged := captureOutput(secondEngine, func() { runEngine(t, secondEngine, true) })
+
+	if verdictCalls != 2 || suggestionCalls != 2 {
+		t.Errorf("verdict calls = %d, suggestion calls = %d; want 2 each, a corrupt entry judged afresh", verdictCalls, suggestionCalls)
+	}
+
+	decodeErr := json.Unmarshal(corrupt, new(any))
+	if got := strings.Count(logged, decodeErr.Error()); got != 2 {
+		t.Errorf("decode error appears %d times in %q, want once per corrupt entry", got, logged)
+	}
+
+	if violations := secondEngine.Report().Violations; len(violations) != 1 || violations[0].Suggestion != "Rewrite this in Go, not Python." {
+		t.Errorf("expected the fresh result in the second run's report, got %+v", violations)
 	}
 }
 

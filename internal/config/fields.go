@@ -12,6 +12,7 @@ func decodeFields(prefix string, node *yaml.Node) (map[string]yaml.Node, error) 
 	var fields map[string]yaml.Node
 	if err := node.Decode(&fields); err != nil {
 		if typeErr, ok := errors.AsType[*yaml.TypeError](err); ok {
+			// Flattened to one line for the user; callers must not match the yaml cause.
 			return nil, fmt.Errorf("%s: %s", prefix, strings.Join(typeErr.Errors, "; "))
 		}
 
