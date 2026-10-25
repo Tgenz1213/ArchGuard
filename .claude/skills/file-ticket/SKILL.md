@@ -5,7 +5,7 @@ description: Draft and file a GitHub issue for this repo with testable acceptanc
 
 # File a ticket
 
-The conventions are in `CLAUDE.md` under "Ticket & PR Conventions". Read them first.
+The conventions are in `CLAUDE.md` under "Ticket & PR Conventions". Read them first. To check issues that are already open against them, run `/triage-issues` instead.
 
 1. **Search for a duplicate** among open and closed issues before writing anything.
 2. **Pick the template** in `.github/ISSUE_TEMPLATE/`: bug report for broken behaviour, feature request for everything else. Use its headings and its label.

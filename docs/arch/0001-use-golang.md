@@ -1,6 +1,6 @@
 ---
 title: Use Golang for Backend Services
-status: Accepted
+status: Superseded
 scope: "**"
 ---
 
