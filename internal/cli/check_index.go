@@ -12,6 +12,8 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
+var errIndexEmpty = errors.New("the ADR index holds no ADRs for this project; run `archguard index` to build it")
+
 func (r *checkRun) loadIndex(ctx context.Context, store index.VectorStore) error {
 	cfg := r.setup.cfg
 
@@ -43,9 +45,7 @@ func (r *checkRun) loadIndex(ctx context.Context, store index.VectorStore) error
 		}
 	}
 
-	r.unindexed = r.unindexedADRs(store, validADRs, skipped)
-
-	return nil
+	return r.checkIndexCoverage(store, validADRs, skipped)
 }
 
 func staleReason(err error) string {
@@ -97,13 +97,24 @@ func (r *checkRun) logRebuild(reason string, result index.BuildIndexResult) {
 	}
 }
 
-func (r *checkRun) unindexedADRs(store index.VectorStore, validADRs []index.ADR, skipped []index.SkippedADR) []output.ADRGap {
+// An empty index finds no relevant ADR for any file, so the run would pass without checking anything.
+func (r *checkRun) checkIndexCoverage(store index.VectorStore, validADRs []index.ADR, skipped []index.SkippedADR) error {
 	paths, err := store.IndexedPaths()
 	if err != nil {
 		r.log.Warn("could not list the indexed ADRs, so ADRs missing from the index are not reported: %v", err)
 		return nil
 	}
 
+	if len(paths) == 0 {
+		return errIndexEmpty
+	}
+
+	r.unindexed = unindexedADRs(paths, validADRs, skipped)
+
+	return nil
+}
+
+func unindexedADRs(paths []string, validADRs []index.ADR, skipped []index.SkippedADR) []output.ADRGap {
 	reasons := make(map[string]string, len(skipped))
 	for _, adr := range skipped {
 		reasons[adr.RelPath] = fmt.Sprintf("failed to embed: %v", adr.Err)

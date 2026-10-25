@@ -381,7 +381,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **2**: Usage error (missing/unknown command, bad flags).
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected. The report is the result, so no `Error:` line repeats it.
-- **5**: Index error (failed to build, load, or fetch ADRs for the vector store).
+- **5**: Index error (failed to build, load, or fetch ADRs for the vector store), or the index holds no ADRs for the project. `check` never builds a Postgres index itself, so a new or emptied one fails until you run `archguard index`. See [ADR 0046](docs/arch/0046-an-empty-index-fails-check.md).
 - **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
 - **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
 - **8**: Errors left the run with no ADR check: files were skipped or ADR checks failed (for example the database, the embedding provider or the LLM was unreachable) and no ADR check returned a verdict. The report still lists what failed. A run where at least one ADR check returned a verdict exits as usual, with the failures listed in the report. A file skipped as too large under `--ci` does not count. See [ADR 0032](docs/arch/0032-a-run-that-checked-nothing-fails.md).
