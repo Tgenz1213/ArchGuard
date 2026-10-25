@@ -37,8 +37,7 @@ func worktreeIncludePatterns(t *testing.T) []string {
 	return patterns
 }
 
-// matchesGitignorePattern reports whether a .gitignore-style pattern selects file.
-// A pattern with no slash before its end matches at any depth.
+// As in .gitignore, a pattern with no slash before its end matches at any depth.
 func matchesGitignorePattern(pattern, file string) bool {
 	pattern = strings.TrimSuffix(pattern, "/")
 	if !strings.Contains(pattern, "/") {
