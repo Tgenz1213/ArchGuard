@@ -36,8 +36,6 @@ type sink struct {
 	failed    *error
 }
 
-var stderrSink = &sink{mu: &sync.Mutex{}}
-
 func New(w io.Writer, debug bool, opts ...Option) *Printer {
 	s := &sink{mu: &sync.Mutex{}, w: w, failed: new(error)}
 	for _, opt := range opts {
@@ -115,8 +113,10 @@ func (p *Printer) Group(header string) *Printer {
 }
 
 func (p *Printer) group(header string, headerStyle style) *Printer {
+	out := p.out()
+
 	g := &Printer{
-		sink:        &sink{mu: p.out().mu, buf: &bytes.Buffer{}, failed: p.out().failed, color: p.out().color, noDots: p.out().noDots},
+		sink:        &sink{mu: out.mu, buf: &bytes.Buffer{}, failed: out.failed, color: out.color, noDots: out.noDots},
 		debug:       p.DebugEnabled(),
 		quiet:       p != nil && p.quiet,
 		indent:      p.depth(),
@@ -242,7 +242,7 @@ func (p *Printer) write(text string, partial, result bool) {
 
 func (p *Printer) out() *sink {
 	if p == nil {
-		return stderrSink
+		return &sink{mu: &sync.Mutex{}}
 	}
 
 	return p.sink
