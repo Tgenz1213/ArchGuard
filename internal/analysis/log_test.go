@@ -84,9 +84,9 @@ func TestLog_DebugLogsOneOutcomeLinePerADRCheck(t *testing.T) {
 		engine.Cache = nil
 
 		if cacheDir != "" {
-			analysisCache, err := cache.NewCache(cacheDir)
+			analysisCache, err := cache.New(cacheDir)
 			if err != nil {
-				t.Fatalf("cache.NewCache failed: %v", err)
+				t.Fatalf("cache.New failed: %v", err)
 			}
 
 			engine.Cache = analysisCache

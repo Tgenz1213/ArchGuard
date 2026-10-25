@@ -146,7 +146,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.CI = opts.CI
 	engine.JudgeChange = opts.Since != "" && !opts.WholeFile
 
-	analysisCache, err := cache.NewCache(".")
+	analysisCache, err := cache.New(".")
 	if err != nil {
 		r.log.Warn("analysis cache disabled: %v", err)
 	}
