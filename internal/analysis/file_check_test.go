@@ -181,9 +181,9 @@ func TestRun_UnwrapsMarkdownAroundQuoteUnderSince(t *testing.T) {
 }
 
 func TestRun_UnwrapsMarkdownAroundCachedQuote(t *testing.T) {
-	shared, err := cache.NewCache(t.TempDir())
+	shared, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewCache: %v", err)
+		t.Fatalf("cache.New: %v", err)
 	}
 
 	const file = "package a\nimport \"os\"\n"
@@ -243,9 +243,9 @@ func TestRun_ReportsFileLinesForAFileAnalyzedThroughItsDiff(t *testing.T) {
 }
 
 func TestChange_CacheKeyDiffersFromWholeFileJudging(t *testing.T) {
-	shared, err := cache.NewCache(t.TempDir())
+	shared, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewCache: %v", err)
+		t.Fatalf("cache.New: %v", err)
 	}
 
 	runChange(t, changeRunOptions{whole: changeSampleHunks, quote: "var added = 1", cache: shared})

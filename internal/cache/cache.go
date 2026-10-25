@@ -16,7 +16,7 @@ type Cache struct {
 	Dir string
 }
 
-func NewCache(projectRoot string) (*Cache, error) {
+func New(projectRoot string) (*Cache, error) {
 	cacheDir := filepath.Join(projectRoot, ".archguard", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create cache dir: %w", err)

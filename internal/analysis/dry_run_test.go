@@ -83,9 +83,9 @@ func TestDryRun_CountsThePromptsInsteadOfSendingThem(t *testing.T) {
 }
 
 func TestDryRun_CachedVerdictCostsNothing(t *testing.T) {
-	analysisCache, err := cache.NewCache(t.TempDir())
+	analysisCache, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	warm := dryRunEngine(t, violatingProvider(), analysisCache)

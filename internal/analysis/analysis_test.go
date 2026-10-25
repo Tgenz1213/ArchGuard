@@ -1880,9 +1880,9 @@ func TestRun_SuggestFixesEnabled_BaselinedViolation_NoSuggestionCall(t *testing.
 }
 
 func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlaggedRun(t *testing.T) {
-	c, err := cache.NewCache(t.TempDir())
+	c, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	provider := &inference.MockProvider{
@@ -1935,9 +1935,9 @@ func TestRun_SuggestFixesDisabled_DoesNotSurfaceCachedSuggestionFromPriorFlagged
 }
 
 func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
-	c, err := cache.NewCache(t.TempDir())
+	c, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	// Seeds a suggestion under a key computed with different prompt text,
@@ -1992,9 +1992,9 @@ func TestRun_SuggestFixesEnabled_StaleSuggestionKeyIsIgnored(t *testing.T) {
 }
 
 func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *testing.T) {
-	c, err := cache.NewCache(t.TempDir())
+	c, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	suggestionCalls := 0
@@ -2038,9 +2038,9 @@ func TestRun_SuggestFixesEnabled_UnrelatedEngineChangeReusesCachedSuggestion(t *
 }
 
 func TestRun_SuggestFixesEnabled_IdenticalContentDifferentFile_GetsIndependentSuggestion(t *testing.T) {
-	c, err := cache.NewCache(t.TempDir())
+	c, err := cache.New(t.TempDir())
 	if err != nil {
-		t.Fatalf("cache.NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	var mu sync.Mutex

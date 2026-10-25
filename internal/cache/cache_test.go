@@ -94,9 +94,9 @@ func TestComputeAnalysisKey_MatchesPreRefactorDigest(t *testing.T) {
 }
 
 func TestCache_AnalysisRoundTrip(t *testing.T) {
-	c, err := NewCache(t.TempDir())
+	c, err := New(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	key := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
@@ -121,9 +121,9 @@ func TestCache_AnalysisRoundTrip(t *testing.T) {
 }
 
 func TestCache_SuggestionRoundTrip(t *testing.T) {
-	c, err := NewCache(t.TempDir())
+	c, err := New(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	key := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
@@ -147,9 +147,9 @@ func TestCache_SuggestionRoundTrip(t *testing.T) {
 }
 
 func TestCache_SuggestionDoesNotCollideWithAnalysisEntry(t *testing.T) {
-	c, err := NewCache(t.TempDir())
+	c, err := New(t.TempDir())
 	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
+		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	// Same key value used in both namespaces to prove they're stored separately.
