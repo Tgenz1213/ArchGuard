@@ -104,7 +104,7 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(buf.String(), "Below threshold: ADR mid (score 0.71 < threshold 0.90)") {
+	if !strings.Contains(buf.String(), "Below threshold: 1 ADR(s), score 0.71 (threshold 0.90)") {
 		t.Fatalf("debug output %q lacks mid's real cosine score", buf.String())
 	}
 }

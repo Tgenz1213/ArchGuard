@@ -1,6 +1,7 @@
 package stage_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/index"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 type scorerFunc func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error)
@@ -159,5 +161,69 @@ func TestStage_RejectsWrongScoreCount(t *testing.T) {
 	var stageErr *stage.Error
 	if !errors.As(err, &stageErr) || stageErr.Action != "scoring candidates" {
 		t.Fatalf("err = %v, want a scoring-candidates *stage.Error for 1 score across 2 candidates", err)
+	}
+}
+
+func TestStage_DebugReportOfRejectedCandidates(t *testing.T) {
+	perADR := 0.6
+	strict := candidates("a", "b", "c", "d", "e", "f")
+	strict[5].ADR.SimilarityThreshold = &perADR
+
+	tests := []struct {
+		name         string
+		listRejected bool
+		want         []string
+		absent       []string
+	}{
+		{
+			name: "summarized per reason",
+			want: []string{
+				"Kept: ADR a (score 0.90)",
+				"Kept: ADR b (score 0.80)",
+				"Below threshold: 2 ADR(s), scores 0.20 to 0.50 (thresholds 0.55 to 0.60)",
+				"Cut by top-K limit: 2 ADR(s), scores 0.60 to 0.70 (limit 2)",
+			},
+			absent: []string{"ADR c", "ADR d", "ADR e", "ADR f"},
+		},
+		{
+			name:         "listed one by one",
+			listRejected: true,
+			want: []string{
+				"Kept: ADR a (score 0.90)",
+				"Below threshold: ADR e (score 0.20 < threshold 0.55)",
+				"Below threshold: ADR f (score 0.50 < threshold 0.60)",
+				"Cut by top-K limit: ADR c (score 0.70, rank 3 of 4 qualifying ADRs)",
+				"Cut by top-K limit: ADR d (score 0.60, rank 4 of 4 qualifying ADRs)",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := stage.Stage{
+				Name:         "rank",
+				Scorer:       fixedScores(0.9, 0.8, 0.7, 0.6, 0.2, 0.5),
+				Min:          stage.ADRThreshold{Global: 0.55},
+				MaxKeep:      2,
+				ListRejected: tt.listRejected,
+			}
+			var buf bytes.Buffer
+
+			if _, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), strict); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			for _, line := range tt.want {
+				if !strings.Contains(buf.String(), line) {
+					t.Errorf("debug output lacks %q:\n%s", line, buf.String())
+				}
+			}
+
+			for _, title := range tt.absent {
+				if strings.Contains(buf.String(), title) {
+					t.Errorf("debug output names rejected %q:\n%s", title, buf.String())
+				}
+			}
+		})
 	}
 }

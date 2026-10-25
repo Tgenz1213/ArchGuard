@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -27,6 +28,7 @@ type Engine struct {
 	Embed                inference.Embedder
 	Content              ContentProvider
 	Debug                bool
+	DebugRejected        bool
 	CI                   bool
 	JudgeChange          bool
 	Cache                *cache.Cache
@@ -141,11 +143,16 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 func (e *Engine) scoringStages() []stage.Stage {
-	if len(e.Stages) > 0 {
-		return e.Stages
+	stages := slices.Clone(e.Stages)
+	if len(stages) == 0 {
+		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
 	}
 
-	return []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+	for i := range stages {
+		stages[i].ListRejected = e.DebugRejected
+	}
+
+	return stages
 }
 
 func (e *Engine) systemPrompt() string {

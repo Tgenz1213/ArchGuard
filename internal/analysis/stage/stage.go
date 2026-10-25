@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 )
 
@@ -35,11 +36,12 @@ func (e *Error) Error() string { return e.Err.Error() }
 func (e *Error) Unwrap() error { return e.Err }
 
 type Stage struct {
-	Name        string
-	Scorer      Scorer
-	Min         Threshold
-	MaxKeep     int
-	FailOnError bool
+	Name         string
+	Scorer       Scorer
+	Min          Threshold
+	MaxKeep      int
+	FailOnError  bool
+	ListRejected bool
 }
 
 // decision is what a stage did with one file's candidates, kept as data so the debug report is a separate step.
@@ -130,6 +132,26 @@ func (s Stage) report(debug Debug, d decision) {
 		debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
 	}
 
+	if s.ListRejected {
+		reportEachRejected(debug, d)
+		return
+	}
+
+	if len(d.below) > 0 {
+		thresholds := make([]float64, len(d.below))
+		for i, candidate := range d.below {
+			thresholds[i] = d.floor.For(candidate.ADR)
+		}
+
+		debug.Debug("Below threshold: %d ADR(s), %s (%s)", len(d.below), spread("score", scoresOf(d.below)), spread("threshold", thresholds))
+	}
+
+	if cut := d.cut(); len(cut) > 0 {
+		debug.Debug("Cut by top-K limit: %d ADR(s), %s (limit %d)", len(cut), spread("score", scoresOf(cut)), s.MaxKeep)
+	}
+}
+
+func reportEachRejected(debug Debug, d decision) {
 	for _, candidate := range d.below {
 		debug.Debug(
 			"Below threshold: %s (score %.2f < threshold %.2f)",
@@ -148,4 +170,25 @@ func (s Stage) report(debug Debug, d decision) {
 			len(d.qualifying),
 		)
 	}
+}
+
+func scoresOf(candidates []Candidate) []float64 {
+	scores := make([]float64, len(candidates))
+	for i, candidate := range candidates {
+		scores[i] = candidate.Score
+	}
+
+	return scores
+}
+
+// spread prints "score 0.71" when the values round alike, else "scores 0.31 to 0.59".
+func spread(noun string, values []float64) string {
+	low := fmt.Sprintf("%.2f", slices.Min(values))
+	high := fmt.Sprintf("%.2f", slices.Max(values))
+
+	if low == high {
+		return noun + " " + low
+	}
+
+	return fmt.Sprintf("%ss %s to %s", noun, low, high)
 }
