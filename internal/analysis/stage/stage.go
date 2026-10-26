@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 )
@@ -42,12 +43,21 @@ type Stage struct {
 	MaxKeep      int
 	FailOnError  bool
 	ListRejected bool
+	// Under on_error: skip, the stage passes its candidates on instead of the file being skipped.
+	PassThroughOnSkip bool
 }
+
+// Skipped is a stage error the stage recovered from by passing its candidates on unchanged.
+type Skipped struct{ Err error }
+
+func (e *Skipped) Error() string { return e.Err.Error() }
+func (e *Skipped) Unwrap() error { return e.Err }
 
 // decision is what a stage did with one file's candidates, kept as data so the debug report is a separate step.
 type decision struct {
 	received   int
 	kept       []Candidate
+	passed     []Candidate
 	below      []Candidate
 	qualifying []Candidate
 	floor      Threshold
@@ -56,14 +66,18 @@ type decision struct {
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
-		return nil, err
+		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil {
+			return nil, err
+		}
+
+		return candidates, &Skipped{Err: err}
 	}
 
 	if debug.DebugEnabled() {
 		s.report(debug, decided)
 	}
 
-	return decided.kept, nil
+	return slices.Concat(decided.kept, decided.passed), nil
 }
 
 func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
@@ -97,39 +111,48 @@ func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []
 		floor = FixedMin(0)
 	}
 
-	var qualifying, below []Candidate
+	decided := partition(candidates, scores, floor)
+	decided.kept = decided.qualifying
+
+	if s.MaxKeep > 0 && len(decided.kept) > s.MaxKeep {
+		decided.kept = decided.kept[:s.MaxKeep]
+	}
+
+	return decided, nil
+}
+
+func partition(candidates []Candidate, scores []float64, floor Threshold) decision {
+	d := decision{received: len(candidates), floor: floor}
 	for i, candidate := range candidates {
+		if math.IsInf(scores[i], 1) {
+			d.passed = append(d.passed, candidate)
+			continue
+		}
+
 		candidate.Score = scores[i]
 		if candidate.Score >= floor.For(candidate.ADR) {
-			qualifying = append(qualifying, candidate)
+			d.qualifying = append(d.qualifying, candidate)
 		} else {
-			below = append(below, candidate)
+			d.below = append(d.below, candidate)
 		}
 	}
 
-	sort.SliceStable(qualifying, func(i, j int) bool { return qualifying[i].Score > qualifying[j].Score })
-	sort.SliceStable(below, func(i, j int) bool { return below[i].Score > below[j].Score })
+	sort.SliceStable(d.qualifying, func(i, j int) bool { return d.qualifying[i].Score > d.qualifying[j].Score })
+	sort.SliceStable(d.below, func(i, j int) bool { return d.below[i].Score > d.below[j].Score })
 
-	kept := qualifying
-	if s.MaxKeep > 0 && len(kept) > s.MaxKeep {
-		kept = kept[:s.MaxKeep]
-	}
-
-	return decision{
-		received:   len(candidates),
-		kept:       kept,
-		below:      below,
-		qualifying: qualifying,
-		floor:      floor,
-	}, nil
+	return d
 }
 
 func (d decision) cut() []Candidate { return d.qualifying[len(d.kept):] }
 
 func (s Stage) report(debug Debug, d decision) {
-	debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept))
+	debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept)+len(d.passed))
 	for _, candidate := range d.kept {
 		debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
+	}
+
+	for _, candidate := range d.passed {
+		debug.Debug("Kept: %s (not scored by this stage)", candidate.ADR.Title)
 	}
 
 	if s.ListRejected {

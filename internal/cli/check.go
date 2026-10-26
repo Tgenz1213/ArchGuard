@@ -154,7 +154,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, r.log)
+	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, setup.screener, r.log)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason

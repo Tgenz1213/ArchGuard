@@ -124,12 +124,15 @@ analysis:
   rules_heading: "Rules" # Optional: the ADR body section whose bullets are read as screening rules; this is the default
   # included_headers: ["Decision", "Rules"] # Optional: embed only these ADR sections; see Embedded Sections
   # excluded_headers: ["Context"] # Optional: embed every ADR section but these; ignored when included_headers is set
-  pipeline: # Optional: how candidate ADRs are ranked before the LLM judges them; this rank stage matches the default
+  pipeline: # Optional: how candidate ADRs are ranked and screened before the LLM judges them; this rank stage matches the default
     rank:
       scorer: "cosine"
       threshold: 0.6 # Minimum score; defaults to vector_store.similarity_threshold
       top_k: 3 # Maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
       on_error: "skip" # "skip" (default) skips the file when the stage fails; "fail" fails the check
+    # pre_judge: # Optional: screen candidates with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY
+    #   scorer: "jev"
+    #   threshold: 0.3 # Required
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -182,12 +185,13 @@ An ADR can set its own `similarity_threshold` in frontmatter (see [ADR Format](#
 
 ### Ranking Stages
 
-For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Two stages are available, `rank` then `rerank`, both optional, always run in that order and followed by LLM judgment. Each takes:
+For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Three stages are available, `rank`, `rerank` and `pre_judge`, all optional, always run in that order and followed by LLM judgment. `rank` and `rerank` rank candidates by relevance; `pre_judge` screens them for likely violations (see [Screening with Jev](#screening-with-jev)). Each stage scores all of a file's candidates together and takes:
 
-- `scorer`: how candidates are scored. `cosine` (embedding similarity) is the only scorer today, and it is the default when omitted.
+- `scorer`: how candidates are scored. `cosine` (embedding similarity) ranks, and is the default for `rank` and `rerank` when omitted. `jev` screens for violations and is the only scorer `pre_judge` accepts; `pre_judge` has no default.
 - `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped.
 - `top_k`: the maximum number of candidates kept, a positive integer.
 - `on_error`: what happens when the stage fails, `skip` or `fail` (see [When a stage fails](#when-a-stage-fails)). Unset behaves as `skip`.
+- `options`: settings for the stage's scorer. Only `jev` takes any.
 
 | | `rank` | `rerank` |
 |---|---|---|
@@ -211,11 +215,32 @@ A `rerank` configured without a `rank` runs after the default `rank`. An ADR's o
 
 Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. It becomes useful once other scorers can fill a stage.
 
-An unknown scorer, an unrecognized stage or stage key, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, or an `on_error` other than `skip` or `fail` stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+An unknown scorer, a scorer in a stage it can't fill (`jev` in `rank`, `cosine` in `pre_judge`), an unrecognized stage, stage key or option, a missing `pre_judge` `scorer` or `threshold`, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, or a missing scorer API key stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+
+#### Screening with Jev
+
+A `pre_judge` stage with `scorer: jev` sends each file to [TypeSafe's Jev](https://docs.typesafe.ai/api), a hosted model that answers yes/no questions with a probability, before any LLM judgment. For each file, Jev is called once, with one question per [screening rule](#screening-rules) of every candidate ADR that has rules: does this code break the rule? An ADR whose likeliest-broken rule scores at or above `threshold` goes on to LLM judgment; the rest are dropped without an LLM call. Jev gives no reasoning, so every reported violation still comes from the LLM, with its reasoning and quoted code.
+
+```yaml
+analysis:
+  pipeline:
+    pre_judge:
+      scorer: jev
+      threshold: 0.3
+      options:
+        model: jev-latest # Optional; this is the default
+```
+
+- **File content goes to TypeSafe.** Jev receives what the LLM would judge: the file, or under `--since` and for an oversized file, the diff with its `+`/`-` markers.
+- **The API key** is read from the `ARCHGUARD_JEV_API_KEY` environment variable, never from `archguard.yaml`. It is required only when a Jev stage is configured, and a missing key stops `archguard index` and `archguard check` at startup with exit code 3.
+- **`threshold` is required.** Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`.
+- **ADRs without rules pass through `pre_judge` unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this stage)`.
+- **When Jev fails** (an error response, a timeout, or a file over Jev's size limit), `on_error: skip`, the default, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
+- **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 
 #### When a stage fails
 
-By default, if a stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a `rank` or `rerank` stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
 
 ```yaml
 analysis:
@@ -231,7 +256,7 @@ Under `fail`, a failed stage stops that file's remaining stages, other files sti
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
 | `precondition_not_met` | The stage could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. A `pre_judge` stage under `skip` passes the file's candidates on instead of skipping the file (see [Screening with Jev](#screening-with-jev)). With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -286,7 +311,7 @@ scope:
 
 #### Screening Rules
 
-An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers; they don't yet change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
+An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers, which a [`pre_judge` stage](#screening-with-jev) uses to decide which ADRs reach the LLM; without one, rules don't change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
 
 ```markdown
 ## Rules
@@ -443,7 +468,7 @@ src/auth.js
   src/auth.js: violates ADR 0007 (No Secrets in Logs), line 2
 ```
 
-With `--debug`, each stage logs how many candidate ADRs it received and kept, each kept ADR with its score, and one line per reason for the ones it rejected: their count, their score range, and the threshold or the `top_k` limit. Each ADR check then logs its outcome on one line: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
+With `--debug`, each stage logs how many candidate ADRs it received and kept, each kept ADR with its score, and one line per reason for the ones it rejected: their count, their score range, and the threshold or the `top_k` limit. Each ADR check then logs its outcome on one line, with the ADR's score from the last stage that scored it: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
 
 ```
 src/auth.js
@@ -454,9 +479,9 @@ src/auth.js
   [DEBUG] Kept: Error Wrapping (score 0.74)
   [DEBUG] Below threshold: 12 ADR(s), scores 0.31 to 0.59 (threshold 0.60)
   [DEBUG] Cut by top-K limit: 5 ADR(s), scores 0.61 to 0.72 (limit 3)
-  [DEBUG] ADR 0007 (No Secrets in Logs), similarity 0.82: compliant
-  [DEBUG] ADR 0012 (Structured Logging), similarity 0.79: compliant (cached)
-  [DEBUG] ADR 0003 (Error Wrapping), similarity 0.74: compliant
+  [DEBUG] ADR 0007 (No Secrets in Logs), score 0.82: compliant
+  [DEBUG] ADR 0012 (Structured Logging), score 0.79: compliant (cached)
+  [DEBUG] ADR 0003 (Error Wrapping), score 0.74: compliant
 ```
 
 When ADRs set their own `similarity_threshold`, the below-threshold line gives the range of thresholds that applied. Add `--debug-rejected` to list every rejected ADR on its own line instead, with its score and its threshold or its rank among the ADRs that cleared the threshold.

@@ -278,8 +278,10 @@ func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 		pipeline string
 		want     string
 	}{
-		{"unknown scorer", "  pipeline:\n    rank:\n      scorer: jev\n", "analysis.pipeline.rank.scorer"},
-		{"unrecognized stage", "  pipeline:\n    pre_judge:\n      scorer: cosine\n", "analysis.pipeline: unrecognized stage \"pre_judge\""},
+		{"unknown scorer", "  pipeline:\n    rank:\n      scorer: bm25\n", "analysis.pipeline.rank.scorer"},
+		{"scorer that cannot rank", "  pipeline:\n    rank:\n      scorer: jev\n", "analysis.pipeline.rank.scorer"},
+		{"scorer that cannot screen", "  pipeline:\n    pre_judge:\n      scorer: cosine\n      threshold: 0.3\n", "analysis.pipeline.pre_judge.scorer"},
+		{"unrecognized stage", "  pipeline:\n    judge:\n      scorer: cosine\n", "analysis.pipeline: unrecognized stage \"judge\""},
 		{"out-of-range threshold", "  pipeline:\n    rerank:\n      threshold: 2\n", "analysis.pipeline.rerank.threshold"},
 		{"non-positive top_k", "  pipeline:\n    rank:\n      top_k: 0\n", "analysis.pipeline.rank.top_k"},
 		{"unknown on_error", "  pipeline:\n    rerank:\n      on_error: warn\n", "analysis.pipeline.rerank.on_error"},

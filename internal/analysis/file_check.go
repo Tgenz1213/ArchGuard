@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -126,6 +127,11 @@ func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage
 		var err error
 
 		hits, err = fc.run.telemetry.Apply(ctx, i, query, fc.out, hits)
+		if skipped, ok := errors.AsType[*stage.Skipped](err); ok {
+			fc.out.Warn("stage %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
+			continue
+		}
+
 		if err != nil {
 			fc.failStage(st, err)
 			return nil, false

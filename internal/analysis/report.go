@@ -69,7 +69,7 @@ func violationLine(violation Violation, baselined bool) string {
 }
 
 func checkOutcomeLine(hit stage.Candidate, outcome string, cached bool) string {
-	line := fmt.Sprintf("ADR %s (%s), similarity %.2f: %s", hit.ADR.ID, hit.ADR.Title, hit.Score, outcome)
+	line := fmt.Sprintf("ADR %s (%s), score %.2f: %s", hit.ADR.ID, hit.ADR.Title, hit.Score, outcome)
 	if cached {
 		line += " (cached)"
 	}
