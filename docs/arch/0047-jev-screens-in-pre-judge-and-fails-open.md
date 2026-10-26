@@ -10,11 +10,11 @@ scope:
 
 ## Context
 
-Every ADR that survives ranking costs a full LLM compliance call, and most conclude "no violation". TypeSafe's Jev answers many yes/no questions about one text in a single cheap call, with a probability and no reasoning. The #202 spike found it near-perfect on literal, single-condition rules (violations 0.94-0.99, compliant code 0.03-0.16), weak on LLM-generated questions, misled by marker-stripped diffs, and less proven as a relevance ranker than as a violation screen. The pipeline (`docs/arch/0022-candidate-scoring-pipeline.md`) has a slot for a stage between ranking and judgment.
+Every ADR that survives ranking costs a full LLM compliance call, and most conclude "no violation". TypeSafe's Jev answers many yes/no questions about one text in a single cheap call, with a probability and no reasoning. The #202 spike found it near-perfect on literal, single-condition rules (violations 0.94-0.99, compliant code 0.03-0.16), weak on LLM-generated questions, and misled by marker-stripped diffs. The pipeline (`docs/arch/0022-candidate-scoring-pipeline.md`) has a slot for a stage between ranking and judgment.
 
 ## Decision
 
-- **Jev runs only as the `pre_judge` stage, after ranking.** It screens for likely violations; it does not rank. `pre_judge` accepts only a scorer that screens for violations, and `rank` and `rerank` reject one.
+- **Jev screens for violations as the `pre_judge` stage, after ranking.** `pre_judge` accepts only a scorer that screens for violations, so cosine is rejected there. Whether Jev also ranks is a separate decision.
 - **One Jev call per file asks one question per rule of every candidate ADR that has rules.** An ADR's score is its highest rule probability, and the stage keeps ADRs scoring at or above its required `threshold`.
 - **An ADR without rules passes through the stage unchanged** and takes no `top_k` slot, since Jev has nothing to ask about it.
 - **Jev sees exactly what the LLM would judge,** a diff keeping its `+`/`-` markers included.
@@ -31,7 +31,6 @@ Every ADR that survives ranking costs a full LLM compliance call, and most concl
 
 ## Alternatives considered
 
-- **Jev as `rank` or `rerank`.** Its relevance ordering beat cosine's on the spike but its top-3 recall did not, and it kept about 7 of 20 ADRs at 0.5. Left for a later decision.
 - **Fail closed (drop candidates when Jev fails).** A Jev outage would silently stop violations from being found.
 - **Skip the file when Jev fails, as a failed cosine stage does.** Ranking cannot run without its scorer, but judgment can run without screening, only at a higher cost.
 - **One Jev call per ADR or per rule.** More calls and latency for the same answers.
