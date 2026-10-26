@@ -18,7 +18,7 @@ Every ADR that survives ranking costs a full LLM compliance call, and most concl
 - **One Jev call per file asks one question per rule of every candidate ADR that has rules.** An ADR's score is its highest rule probability, and the stage keeps ADRs scoring at or above its required `threshold`.
 - **An ADR without rules passes through the stage unchanged** and takes no `top_k` slot, since Jev has nothing to ask about it.
 - **Jev sees exactly what the LLM would judge,** a diff keeping its `+`/`-` markers included.
-- **The stage fails open.** Under `on_error: skip`, the default, a Jev failure passes every candidate on to the LLM with a warning, instead of skipping the file. A file over Jev's size limit is a precondition failure; any other failure means Jev is unavailable. Rate-limited and overloaded responses are retried first.
+- **The stage fails open.** Under `on_error: skip`, the default, a Jev failure passes every candidate on to the LLM with a warning, instead of skipping the file. Under `on_error: fail` it fails the check, as any stage does. A file over Jev's size limit is a precondition failure; any other failure means Jev is unavailable. Rate-limited and overloaded responses are retried first.
 - **The API key comes only from `ARCHGUARD_JEV_API_KEY`,** and its absence is a config error whenever a Jev stage is configured.
 
 ## Rules
@@ -26,7 +26,7 @@ Every ADR that survives ranking costs a full LLM compliance call, and most concl
 - A screening stage MUST NOT report a violation; only LLM judgment reports one.
 - A screening stage MUST pass an ADR that has no rules through unchanged.
 - A screening stage MUST send the screener the same content the LLM judges, never a diff stripped of its markers.
-- A screening stage under `on_error: skip` MUST pass its candidates on when it fails, never drop them or skip the file.
+- A screening stage whose `on_error` is `skip` or unset MUST pass its candidates on unchanged when it fails; it MUST NOT drop them or skip the file. Failing the check under `on_error: fail` is allowed.
 - Scorer credentials MUST be read from environment variables, never from `archguard.yaml`.
 
 ## Alternatives considered
