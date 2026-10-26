@@ -143,6 +143,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine := analysis.NewEngine(setup.cfg, store, setup.chat, setup.embed, contentProvider)
 	engine.Debug = opts.Debug
+	engine.DebugRejected = opts.DebugRejected
 	engine.CI = opts.CI
 	engine.JudgeChange = opts.Since != "" && !opts.WholeFile
 

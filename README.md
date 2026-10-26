@@ -173,7 +173,7 @@ Measured on this repository: 30 ADRs against the files changed in 60 commits, wi
 
 At those values nearly every Go file reaches the model and `analysis.max_relevant_adrs` does the selecting. At `0.75`, 46% (Gemini) to 99% (OpenAI) of the Go files had no ADR above the threshold, and at most 37% of the ADRs that applied were judged. Raising `max_relevant_adrs` from 3 to 6 judged more of the ADRs that applied (nomic: 67% to 85%; Gemini: 81% to 93%; OpenAI: 78% to 81%; Voyage: 78% to 93%), at up to twice the LLM calls. Other models, such as `text-embedding-3-large`, have not been measured; find a value as below.
 
-To find a value, run `archguard check --debug` on a few typical changes. Each file lists the ADRs it kept and those `Below threshold`, with their scores. Set the threshold just below the scores of the ADRs you expect to apply, and let `max_relevant_adrs` bound the cost.
+To find a value, run `archguard check --debug --debug-rejected` on a few typical changes. Each file lists the ADRs it kept and those `Below threshold`, with their scores. Set the threshold just below the scores of the ADRs you expect to apply, and let `max_relevant_adrs` bound the cost.
 
 - **Too high:** the report's coverage line counts files whose candidates all scored below the threshold, or the run says no file was checked against an ADR.
 - **Too low:** nearly every file is judged against `max_relevant_adrs` ADRs, including ADRs unrelated to the change, so a run makes more LLM calls for little gain.
@@ -364,6 +364,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, judging only the lines the change added or removed; a finding that quotes only code the change left alone is dropped (see [ADR 0030](docs/arch/0030-judge-the-change-under-since.md)). For a pull request, use its base commit; if `<ref>` has moved on since the branch started, use `$(git merge-base <ref> HEAD)`. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
   - `--whole-file`: With `--since`, judge each changed file in full instead of only the lines the change touched, so touching a file means leaving it compliant: a violation on a line the change did not touch is reported too. Needs `--since`.
   - `--debug`: Enable verbose logging.
+  - `--debug-rejected`: With `--debug`, list every ADR a stage rejected on its own line, with its score, instead of one summary line per reason. Needs `--debug`.
   - `--ci`: Enable CI-safe mode. It needs a scope (`--since`, `--all`, `--staged` or paths): a CI checkout has no uncommitted changes, so a bare `--ci` would check nothing and is rejected.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
@@ -442,7 +443,23 @@ src/auth.js
   src/auth.js: violates ADR 0007 (No Secrets in Logs), line 2
 ```
 
-With `--debug`, each ADR check also logs its outcome on one line: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
+With `--debug`, each stage logs how many candidate ADRs it received and kept, each kept ADR with its score, and one line per reason for the ones it rejected: their count, their score range, and the threshold or the `top_k` limit. Each ADR check then logs its outcome on one line: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
+
+```
+src/auth.js
+  [DEBUG] Context mode: full
+  [DEBUG] Stage rank: 20 candidate(s) received, 3 kept
+  [DEBUG] Kept: No Secrets in Logs (score 0.82)
+  [DEBUG] Kept: Structured Logging (score 0.79)
+  [DEBUG] Kept: Error Wrapping (score 0.74)
+  [DEBUG] Below threshold: 12 ADR(s), scores 0.31 to 0.59 (threshold 0.60)
+  [DEBUG] Cut by top-K limit: 5 ADR(s), scores 0.61 to 0.72 (limit 3)
+  [DEBUG] ADR 0007 (No Secrets in Logs), similarity 0.82: compliant
+  [DEBUG] ADR 0012 (Structured Logging), similarity 0.79: compliant (cached)
+  [DEBUG] ADR 0003 (Error Wrapping), similarity 0.74: compliant
+```
+
+When ADRs set their own `similarity_threshold`, the below-threshold line gives the range of thresholds that applied. Add `--debug-rejected` to list every rejected ADR on its own line instead, with its score and its threshold or its rank among the ADRs that cleared the threshold.
 
 `archguard check --update-baseline` ends with a report in the same way: every recorded entry (file, ADR, line, reason), every violation it could not record and why (the quoted code is not in the file, so it could suppress nothing), and the files not fully checked, then the path written and the totals:
 
@@ -516,7 +533,7 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
 
 `coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against, and `files_below_threshold` how many of those had candidate ADRs that all scored below the threshold.
 
-`stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and the ones it dropped with the reason.
+`stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and a summary of the ones it dropped (see [Reading a Check Run](#reading-a-check-run)).
 
 When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 

@@ -1217,12 +1217,12 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore(t *testing.T) {
 		runEngine(t, engine, false)
 	})
 
-	if !strings.Contains(logged, "Below threshold: Near Miss ADR (score 0.71 < threshold 0.90)") {
-		t.Fatalf("expected the below-threshold debug line with title and score, got: %q", logged)
+	if !strings.Contains(logged, "Below threshold: 1 ADR(s), score 0.71 (threshold 0.90)") {
+		t.Fatalf("expected the below-threshold summary line with count, score and threshold, got: %q", logged)
 	}
 }
 
-func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
+func TestRun_DebugRejected_ListsEachTopKCutADR(t *testing.T) {
 	provider := &inference.MockProvider{
 		ChatFunc: func(ctx context.Context, system, user string) (string, error) {
 			return `{"violation": false, "reasoning": "", "quoted_code": ""}`, nil
@@ -1255,6 +1255,7 @@ func TestRun_DebugMode_LogsTopKTruncatedADRs(t *testing.T) {
 
 	engine := analysis.NewEngine(cfg, store, provider, provider, content)
 	engine.Debug = true
+	engine.DebugRejected = true
 	engine.Cache = nil
 
 	logged := captureOutput(engine, func() {
@@ -1621,7 +1622,7 @@ func TestRun_DebugMode_LogsBelowThresholdADRScore_UsesPerADROverride(t *testing.
 		runEngine(t, engine, false)
 	})
 
-	if !strings.Contains(logged, "Below threshold: Strict Override ADR (score 0.71 < threshold 0.95)") {
+	if !strings.Contains(logged, "Below threshold: 1 ADR(s), score 0.71 (threshold 0.95)") {
 		t.Fatalf("expected the debug line to print the ADR's own override (0.95), not the global 0.50, got: %q", logged)
 	}
 }
