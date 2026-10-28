@@ -1,0 +1,162 @@
+name: PR Risk
+
+# Shadow mode: labels and comments on each PR with its risk lane, and never
+# fails, so nothing is blocked while Jev's verdicts are compared with review.
+
+on:
+  pull_request:
+    branches:
+      - main
+    # labeled and unlabeled put back a risk label someone changed by hand.
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-risk-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # A PR touching any red path needs the owner. Bash patterns: * also matches /.
+  RED_PATHS: |
+    .github/*
+    .githooks/*
+    .claude/*
+    CLAUDE.md
+    action.yml
+    docs/arch/*
+    docs/standards/*
+    docs/ADR_TEMPLATE.md
+    .goreleaser.yaml
+    .golangci.yml
+    go.mod
+    go.sum
+    LICENSE.md
+    SECURITY.md
+  # A PR whose every file is green may ship on CI alone.
+  GREEN_PATHS: |
+    README.md
+    CONTRIBUTING.md
+    docs/*
+  JEV_MIN_CONFIDENCE: "0.7"
+  JEV_DEESCALATE_CONFIDENCE: "0.85"
+
+jobs:
+  classify:
+    name: Classify
+    if: github.event.pull_request.user.login == github.repository_owner && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Classify the change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set -uo pipefail
+
+          matches() {
+            local pattern
+            while IFS= read -r pattern; do
+              # shellcheck disable=SC2053 # the pattern is a glob on purpose
+              [ -n "$pattern" ] && [[ $1 == $pattern ]] && return 0
+            done <<< "$2"
+            return 1
+          }
+
+          above() {
+            awk -v value="$1" -v bound="$2" 'BEGIN { exit !(value >= bound) }'
+          }
+
+          stats=$(gh pr view "$PR" -R "$REPO" --json files --jq '.files[] | "\(.path) +\(.additions) -\(.deletions)"')
+
+          path_lane=green
+          red_hits=""
+          while IFS=' ' read -r file _; do
+            [ -z "$file" ] && continue
+            if matches "$file" "$RED_PATHS"; then
+              path_lane=red
+              red_hits+="\`$file\` "
+            elif [ "$path_lane" = green ] && ! matches "$file" "$GREEN_PATHS"; then
+              path_lane=yellow
+            fi
+          done <<< "$stats"
+
+          tier=unavailable
+          confidence=0
+          if [ -n "$TYPESAFE_API_KEY" ]; then
+            diff=$(gh pr diff "$PR" -R "$REPO" | head -c 30000)
+            request=$(jq -n --arg title "$TITLE" --arg files "$stats" --arg diff "$diff" '{
+              model: "jev-latest",
+              state: {title: $title, changed_files: $files, diff: $diff},
+              questions: {risk: {
+                type: "choice",
+                instructions: "What risk tier is this pull request to ArchGuard, a Go CLI that also ships as a GitHub Action?",
+                criteria: {
+                  "very-low": "Docs, comments, formatting or a mechanical rename, with no change in behaviour",
+                  "low": "A local change covered by tests that changes no CLI flag, exit code, output format, config key or Action input",
+                  "medium": "Changes a CLI flag, exit code, output format, config key, Action input, cache key or a cross-package interface",
+                  "high": "Could lose data, leak a secret, weaken a CI gate or ADR check, or break a public contract"
+                }
+              }}
+            }')
+            if response=$(printf '%s' "$request" | curl -sS --fail-with-body --max-time 30 \
+              -H "Authorization: Bearer $TYPESAFE_API_KEY" -H 'Content-Type: application/json' \
+              --data @- https://api.typesafe.ai/v1/systemone); then
+              tier=$(jq -r '.answers.risk.choice // "unavailable"' <<< "$response")
+              confidence=$(jq -r '.answers.risk.confidence // 0' <<< "$response")
+            else
+              echo "::warning::Jev request failed: $response"
+            fi
+          fi
+
+          lane=$path_lane
+          escalated=no
+          if [ "$path_lane" != red ]; then
+            case $tier in
+              medium | high | unavailable) escalated=yes ;;
+            esac
+            above "$confidence" "$JEV_MIN_CONFIDENCE" || escalated=yes
+            [ "$escalated" = yes ] && lane=red
+          fi
+
+          would_deescalate=no
+          if [ "$path_lane" = yellow ] && [ "$tier" = very-low ] && above "$confidence" "$JEV_DEESCALATE_CONFIDENCE"; then
+            would_deescalate=yes
+          fi
+
+          gh label create risk:green -R "$REPO" --color 2da44e --description "PR risk: may ship on CI" --force > /dev/null
+          gh label create risk:yellow -R "$REPO" --color d4a72c --description "PR risk: automated review" --force > /dev/null
+          gh label create risk:red -R "$REPO" --color cf222e --description "PR risk: needs the owner" --force > /dev/null
+          gh pr edit "$PR" -R "$REPO" --remove-label risk:green,risk:yellow,risk:red > /dev/null 2>&1 || true
+          gh pr edit "$PR" -R "$REPO" --add-label "risk:$lane" > /dev/null
+
+          marker='<!-- pr-risk -->'
+          body="$marker
+          **PR risk: $lane** (shadow mode, nothing is blocked)
+
+          | Signal | Result |
+          | --- | --- |
+          | Path lane | $path_lane |
+          | Jev tier | $tier (confidence $confidence) |
+          | Jev escalated to red | $escalated |
+          | Jev would move yellow to green | $would_deescalate |
+          | Red paths touched | ${red_hits:-none} |"
+
+          comment_id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+          if [ -n "$comment_id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" -R "$REPO" --body "$body" > /dev/null
+          fi
+
+          printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
