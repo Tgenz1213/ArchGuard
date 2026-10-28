@@ -59,17 +59,20 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 
 type mockJev struct{}
 
-func jevFactory(*config.Config) stage.Screener { return mockJev{} }
+func jevFactory(*config.JevOptions) stage.Screener { return mockJev{} }
 
 func (mockJev) Screen(_ context.Context, state any, questions map[string]string) (map[string]float64, error) {
 	if strings.Contains(fmt.Sprint(state), testutil.MockJevFailureTrigger) {
 		return nil, fmt.Errorf("mock jev failure (E2E trigger)")
 	}
 
+	// A ranking state is an object whose fields the questions name; a screening state is the code.
+	fields, _ := state.(map[string]string)
+
 	answers := make(map[string]float64, len(questions))
 	for name, question := range questions {
 		answers[name] = 0.05
-		if strings.Contains(question, testutil.MockJevBreaksTrigger) {
+		if strings.Contains(question+fields[name], testutil.MockJevBreaksTrigger) {
 			answers[name] = 0.95
 		}
 	}

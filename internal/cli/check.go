@@ -157,7 +157,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.Stages = analysis.BuildStages(setup.cfg, analysis.StageDeps{
 		Store:     store,
 		Embed:     setup.embed,
-		Screener:  setup.screener,
+		Jev:       setup.jev,
 		Questions: analysis.NewQuestionGenerator(setup.chat, analysisCache, setup.cfg.LLM.Model, r.log),
 	}, r.log)
 	engine.Baseline = loaded

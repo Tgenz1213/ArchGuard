@@ -505,7 +505,7 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 		PreJudge: &config.StageConfig{Scorer: config.ScorerJev, Threshold: &threshold, OnError: run.onError, Jev: &config.JevOptions{}},
 	}}}
 
-	h.engine.Stages = analysis.BuildStages(cfg, analysis.StageDeps{Store: h.engine.Store, Embed: h.engine.Embed, Screener: screener}, output.Discard())
+	h.engine.Stages = analysis.BuildStages(cfg, analysis.StageDeps{Store: h.engine.Store, Embed: h.engine.Embed, Jev: func(*config.JevOptions) stage.Screener { return screener }}, output.Discard())
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -589,5 +589,88 @@ func TestPipeline_PreJudgeScreensTheDiffWithItsMarkers(t *testing.T) {
 
 	if len(states) != 1 || !strings.Contains(states[0], "-old()") || !strings.Contains(states[0], "+fmt.Println(x)") {
 		t.Errorf("screener states = %q, want the judged diff with its +/- markers", states)
+	}
+}
+
+func runRankers(t *testing.T, pipeline *config.Pipeline, screener stage.Screener) (*scorerHarness, string) {
+	t.Helper()
+
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1), scorerADR("0003", 1)}, "svc.go", "package svc")
+	var logged bytes.Buffer
+	h.engine.Out = output.New(&logged, false)
+	h.engine.JSONOutput = true
+
+	cfg := &config.Config{Analysis: config.Analysis{Pipeline: pipeline}}
+	h.engine.Stages = analysis.BuildStages(cfg, analysis.StageDeps{Store: h.engine.Store, Embed: h.engine.Embed, Jev: func(*config.JevOptions) stage.Screener { return screener }}, output.Discard())
+
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	return h, logged.String()
+}
+
+func jevRanker(onError string) *config.StageConfig {
+	threshold := 0.5
+	return &config.StageConfig{Scorer: config.ScorerJev, Threshold: &threshold, OnError: onError, Jev: &config.JevOptions{}}
+}
+
+func TestPipeline_JevRankJudgesOnlyGovernedADRsWithoutEmbedding(t *testing.T) {
+	governs0002 := screenerFunc(func(state any, questions map[string]string) (map[string]float64, error) {
+		fields := state.(map[string]string)
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = 0.1
+			if strings.Contains(fields[name], "0002") {
+				answers[name] = 0.9
+			}
+		}
+
+		return answers, nil
+	})
+
+	h, _ := runRankers(t, &config.Pipeline{Rank: jevRanker("")}, governs0002)
+
+	if strings.Join(h.judged, ",") != "0002" || h.embeds != 0 {
+		t.Errorf("judged %v after %d embedding call(s), want only 0002 and no embedding", h.judged, h.embeds)
+	}
+}
+
+func TestPipeline_JevRankerOnErrorDefaults(t *testing.T) {
+	down := screenerFunc(func(any, map[string]string) (map[string]float64, error) {
+		return nil, errors.New("jev down")
+	})
+
+	tests := []struct {
+		name        string
+		pipeline    *config.Pipeline
+		wantJudged  int
+		wantFailure string
+	}{
+		{"the only ranker fails the file by default", &config.Pipeline{Rank: jevRanker("")}, 0, "rank"},
+		{"the only ranker under skip passes every candidate on", &config.Pipeline{Rank: jevRanker(config.OnErrorSkip)}, 3, ""},
+		{"a rerank after cosine passes cosine's candidates on by default", &config.Pipeline{Rerank: jevRanker("")}, 3, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, logged := runRankers(t, tt.pipeline, down)
+
+			if len(h.judged) != tt.wantJudged {
+				t.Errorf("judged %v, want %d ADR(s)", h.judged, tt.wantJudged)
+			}
+
+			if tt.wantFailure == "" {
+				if len(h.engine.StageFailures) != 0 || !strings.Contains(logged, "jev down") {
+					t.Errorf("failures %+v, log %q; want no failure and a warning naming the error", h.engine.StageFailures, logged)
+				}
+
+				return
+			}
+
+			if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != tt.wantFailure {
+				t.Errorf("failures %+v, want one %s failure", h.engine.StageFailures, tt.wantFailure)
+			}
+		})
 	}
 }

@@ -17,7 +17,7 @@ const (
 type StageDeps struct {
 	Store     index.VectorStore
 	Embed     inference.Embedder
-	Screener  stage.Screener
+	Jev       func(*config.JevOptions) stage.Screener
 	Questions stage.QuestionSource
 }
 
@@ -28,20 +28,28 @@ func BuildStages(cfg *config.Config, deps StageDeps, out *output.Printer) []stag
 		return nil
 	}
 
-	stages := []stage.Stage{rankStage(cfg, pipeline.Rank, deps.Store, deps.Embed)}
+	b := stageBuilder{cfg: cfg, deps: deps, out: out}
+
+	stages := []stage.Stage{b.rank(pipeline.Rank)}
 	if pipeline.Rerank != nil {
-		stages = append(stages, rerankStage(pipeline.Rerank, deps.Store, deps.Embed, out))
+		stages = append(stages, b.rerank(pipeline.Rerank))
 	}
 
 	if pipeline.PreJudge != nil {
-		stages = append(stages, preJudgeStage(pipeline.PreJudge, deps))
+		stages = append(stages, b.preJudge(pipeline.PreJudge))
 	}
 
 	return stages
 }
 
+type stageBuilder struct {
+	cfg  *config.Config
+	deps StageDeps
+	out  *output.Printer
+}
+
 // config guarantees a pre_judge stage is jev with a threshold.
-func preJudgeStage(sc *config.StageConfig, deps StageDeps) stage.Stage {
+func (b stageBuilder) preJudge(sc *config.StageConfig) stage.Stage {
 	topK := 0
 	if sc.TopK != nil {
 		topK = *sc.TopK
@@ -49,53 +57,62 @@ func preJudgeStage(sc *config.StageConfig, deps StageDeps) stage.Stage {
 
 	var generated stage.QuestionSource
 	if sc.Jev.GenerateQuestions {
-		generated = deps.Questions
+		generated = b.deps.Questions
 	}
 
-	st := stage.NewJevStage(deps.Screener, generated, *sc.Threshold, topK)
+	st := stage.NewJevStage(b.deps.Jev(sc.Jev), generated, *sc.Threshold, topK)
 	st.FailOnError = sc.OnError == config.OnErrorFail
 	return st
 }
 
-func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed inference.Embedder) stage.Stage {
-	threshold := cfg.VectorStore.SimilarityThreshold
-	topK := cfg.Analysis.RelevantADRLimit()
+func (b stageBuilder) rank(sc *config.StageConfig) stage.Stage {
+	threshold := b.cfg.VectorStore.SimilarityThreshold
+	topK := b.cfg.Analysis.RelevantADRLimit()
 
-	if sc != nil {
-		if sc.Threshold != nil {
-			threshold = *sc.Threshold
-		}
-
-		if sc.TopK != nil {
-			topK = *sc.TopK
-		}
+	if sc == nil {
+		return stage.NewCosineStage(b.deps.Store, b.deps.Embed, threshold, topK)
 	}
 
-	st := stage.NewCosineStage(store, embed, threshold, topK)
-	if sc != nil {
-		st.FailOnError = sc.OnError == config.OnErrorFail
+	if sc.Threshold != nil {
+		threshold = *sc.Threshold
 	}
 
-	return st
+	if sc.TopK != nil {
+		topK = *sc.TopK
+	}
+
+	return b.ranker("rank", sc, threshold, topK)
 }
 
-func rerankStage(sc *config.StageConfig, store index.VectorStore, embed inference.Embedder, out *output.Printer) stage.Stage {
+func (b stageBuilder) rerank(sc *config.StageConfig) stage.Stage {
 	threshold := rerankDefaultThreshold
 	if sc.Threshold != nil {
 		threshold = *sc.Threshold
 	} else {
-		out.Warn("analysis.pipeline.rerank.threshold not set, defaulting to %v", rerankDefaultThreshold)
+		b.out.Warn("analysis.pipeline.rerank.threshold not set, defaulting to %v", rerankDefaultThreshold)
 	}
 
 	topK := rerankDefaultTopK
 	if sc.TopK != nil {
 		topK = *sc.TopK
 	} else {
-		out.Warn("analysis.pipeline.rerank.top_k not set, defaulting to %d", rerankDefaultTopK)
+		b.out.Warn("analysis.pipeline.rerank.top_k not set, defaulting to %d", rerankDefaultTopK)
 	}
 
-	st := stage.NewCosineStage(store, embed, threshold, topK)
-	st.Name = "rerank"
-	st.FailOnError = sc.OnError == config.OnErrorFail
+	return b.ranker("rerank", sc, threshold, topK)
+}
+
+func (b stageBuilder) ranker(name string, sc *config.StageConfig, threshold float64, topK int) stage.Stage {
+	if sc.Scorer != config.ScorerJev {
+		st := stage.NewCosineStage(b.deps.Store, b.deps.Embed, threshold, topK)
+		st.Name = name
+		st.FailOnError = sc.OnError == config.OnErrorFail
+		return st
+	}
+
+	st := stage.NewJevRankStage(name, b.deps.Jev(sc.Jev), threshold, topK)
+
+	// Skipping the only ranker would send every scope-matched ADR to the LLM, so it fails unless on_error says skip.
+	st.FailOnError = sc.OnError == config.OnErrorFail || (sc.OnError == "" && b.cfg.Analysis.Pipeline.JevIsOnlyRanker())
 	return st
 }

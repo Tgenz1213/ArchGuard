@@ -85,6 +85,34 @@ func TestE2E_JevPreJudge(t *testing.T) {
 	}
 }
 
+func TestE2E_JevRerank(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rerank:\n      scorer: jev\n      threshold: 0.5\n      top_k: 3\n"))
+	writeRuledADRs(t, tempDir)
+
+	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
+		t.Fatalf("Failed to create fixture: %v", err)
+	}
+
+	stdout, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, []string{config.JevAPIKeyEnv + "=mock_key"}, "--format", "json", fixtureFilename)
+	if exitCode != int(cli.ExitDriftDetected) {
+		t.Fatalf("expected drift exit code %d, got %d. stderr: %s", cli.ExitDriftDetected, exitCode, stderr)
+	}
+
+	var report checkReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\nstdout: %q", err, stdout)
+	}
+
+	if report.Count != 1 {
+		t.Errorf("violation count = %d, want 1 from the one ADR Jev ranks as governing", report.Count)
+	}
+
+	if len(report.Stages) != 2 || report.Stages[1].Name != "rerank" || report.Stages[1].Received != 2 || report.Stages[1].Kept != 1 {
+		t.Errorf("stages = %+v, want rerank receiving 2 and keeping 1", report.Stages)
+	}
+}
+
 func TestE2E_JevPreJudgeWithoutAPIKeyIsAConfigError(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
 	writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPreJudge))

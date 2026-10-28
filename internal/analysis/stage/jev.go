@@ -11,7 +11,10 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-const screeningAction = "screening candidates"
+const (
+	screeningAction = "screening candidates"
+	rankingAction   = "ranking candidates"
+)
 
 // Screener asks yes/no questions about one state in a single call and returns each answer's probability of yes, by question name.
 // The state is a text, or an object whose fields the questions name.
@@ -63,7 +66,7 @@ func (j *JevScreen) Score(ctx context.Context, file File, debug Debug, candidate
 
 	answers, err := j.Screener.Screen(ctx, state, asked)
 	if err != nil {
-		return nil, screeningError(err)
+		return nil, jevError(screeningAction, err)
 	}
 
 	for name, question := range questions {
@@ -121,13 +124,58 @@ func questionText(rule index.Rule) string {
 	return text.String()
 }
 
-func screeningError(err error) error {
-	var jevErr *inference.JevError
-	if errors.As(err, &jevErr) && jevErr.TooLarge() {
-		return &Error{Action: screeningAction, Kind: KindPreconditionNotMet, Err: err}
+// JevRanker scores each candidate by the probability that its decision governs the file,
+// in one call whose state holds the file and every candidate's full ADR.
+type JevRanker struct {
+	Screener Screener
+}
+
+func (j *JevRanker) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
+	scores := make([]float64, len(candidates))
+
+	code := file.JudgedText()
+	if strings.TrimSpace(code) == "" {
+		for i := range scores {
+			scores[i] = math.Inf(1)
+		}
+
+		return scores, nil
 	}
 
-	return &Error{Action: screeningAction, Err: err}
+	state := map[string]string{"code": code}
+	names := make([]string, len(candidates))
+	questions := make(map[string]string, len(candidates))
+
+	for i, candidate := range candidates {
+		names[i] = fmt.Sprintf("adr%d", i)
+		state[names[i]] = candidate.ADR.Content
+		questions[names[i]] = fmt.Sprintf("Is `code` governed by the decision in `%s`?", names[i])
+	}
+
+	answers, err := j.Screener.Screen(ctx, state, questions)
+	if err != nil {
+		return nil, jevError(rankingAction, err)
+	}
+
+	for i, name := range names {
+		probability, ok := answers[name]
+		if !ok {
+			return nil, &Error{Action: rankingAction, Err: fmt.Errorf("no answer for question %s", name)}
+		}
+
+		scores[i] = probability
+	}
+
+	return scores, nil
+}
+
+func jevError(action string, err error) error {
+	var jevErr *inference.JevError
+	if errors.As(err, &jevErr) && jevErr.TooLarge() {
+		return &Error{Action: action, Kind: KindPreconditionNotMet, Err: err}
+	}
+
+	return &Error{Action: action, Err: err}
 }
 
 // A nil generated leaves ADRs without rules unscreened.
@@ -135,6 +183,17 @@ func NewJevStage(screener Screener, generated QuestionSource, threshold float64,
 	return Stage{
 		Name:              "pre_judge",
 		Scorer:            &JevScreen{Screener: screener, Generated: generated},
+		Min:               FixedMin(threshold),
+		MaxKeep:           topK,
+		PassThroughOnSkip: true,
+	}
+}
+
+// NewJevRankStage makes a rank or rerank stage named name; under on_error: skip it passes its candidates on unranked.
+func NewJevRankStage(name string, screener Screener, threshold float64, topK int) Stage {
+	return Stage{
+		Name:              name,
+		Scorer:            &JevRanker{Screener: screener},
 		Min:               FixedMin(threshold),
 		MaxKeep:           topK,
 		PassThroughOnSkip: true,

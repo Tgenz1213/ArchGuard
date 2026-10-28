@@ -133,16 +133,13 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// Nil unless a stage uses Jev; config has already required its API key.
-func selectScreener(cfg *config.Config, factories ProviderFactories) stage.Screener {
-	pipeline := cfg.Analysis.Pipeline
-	if pipeline == nil || pipeline.PreJudge == nil || pipeline.PreJudge.Jev == nil {
-		return nil
-	}
-
+// Config has already read the API key of every Jev stage.
+func jevScreener(factories ProviderFactories) func(*config.JevOptions) stage.Screener {
 	if factories.Jev != nil {
-		return factories.Jev(cfg)
+		return factories.Jev
 	}
 
-	return inference.NewJevProvider(pipeline.PreJudge.Jev.APIKey, pipeline.PreJudge.Jev.Model)
+	return func(opts *config.JevOptions) stage.Screener {
+		return inference.NewJevProvider(opts.APIKey, opts.Model)
+	}
 }

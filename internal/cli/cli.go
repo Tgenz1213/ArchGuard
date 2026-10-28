@@ -45,7 +45,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(*config.Config) stage.Screener
+	Jev      func(*config.JevOptions) stage.Screener
 	Recorder telemetry.Recorder
 }
 
@@ -188,7 +188,7 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		cfg:                 cfg,
 		chat:                chat,
 		embed:               embed,
-		screener:            selectScreener(cfg, factories),
+		jev:                 jevScreener(factories),
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
@@ -200,7 +200,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
-	screener            stage.Screener
+	jev                 func(*config.JevOptions) stage.Screener
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

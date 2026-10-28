@@ -1,6 +1,7 @@
 /*
 Package inference talks to the model providers: Ollama, OpenAI, Gemini, Claude
-and Voyage, and to Jev, which answers yes/no questions about a text.
+and Voyage, and to Jev, which answers yes/no questions about a text, or about
+an object whose fields the questions name.
 
 Chat and embedding are separate roles. A provider implements only the roles
 its vendor offers, so Claude only chats and Voyage only embeds, and code

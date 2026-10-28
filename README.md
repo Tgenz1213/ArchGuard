@@ -185,12 +185,12 @@ An ADR can set its own `similarity_threshold` in frontmatter (see [ADR Format](#
 
 ### Ranking Stages
 
-For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Three stages are available, `rank`, `rerank` and `pre_judge`, all optional, always run in that order and followed by LLM judgment. `rank` and `rerank` rank candidates by relevance; `pre_judge` screens them for likely violations (see [Screening with Jev](#screening-with-jev)). Each stage scores all of a file's candidates together and takes:
+For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Three stages are available, `rank`, `rerank` and `pre_judge`, all optional, always run in that order and followed by LLM judgment. `rank` and `rerank` rank candidates by relevance (see [Ranking with Jev](#ranking-with-jev)); `pre_judge` screens them for likely violations (see [Screening with Jev](#screening-with-jev)). Each stage scores all of a file's candidates together and takes:
 
-- `scorer`: how candidates are scored. `cosine` (embedding similarity) ranks, and is the default for `rank` and `rerank` when omitted. `jev` screens for violations and is the only scorer `pre_judge` accepts; `pre_judge` has no default.
-- `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped.
+- `scorer`: how candidates are scored. `rank` and `rerank` take `cosine` (embedding similarity, the default when omitted) or `jev`. `pre_judge` takes only `jev`, which there screens for violations, and has no default.
+- `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped. Required on any `jev` stage, since Jev's probabilities share no scale with cosine similarity.
 - `top_k`: the maximum number of candidates kept, a positive integer.
-- `on_error`: what happens when the stage fails, `skip` or `fail` (see [When a stage fails](#when-a-stage-fails)). Unset behaves as `skip`.
+- `on_error`: what happens when the stage fails, `skip` or `fail` (see [When a stage fails](#when-a-stage-fails)). Unset behaves as `skip`, except on a Jev stage that is the only ranker (see [Ranking with Jev](#ranking-with-jev)).
 - `options`: settings for the stage's scorer. Only `jev` takes any.
 
 | | `rank` | `rerank` |
@@ -213,9 +213,32 @@ analysis:
 
 A `rerank` configured without a `rank` runs after the default `rank`. An ADR's own `similarity_threshold` frontmatter overrides a cosine stage's `threshold` for that ADR, so the stage `threshold` is a default for ADRs that don't set their own, not a hard floor.
 
-Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. It becomes useful once other scorers can fill a stage.
+Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. A `rerank` pays off with a different scorer: a wide cosine `rank` narrows the candidates cheaply, and a Jev `rerank` orders what is left.
 
-An unknown scorer, a scorer in a stage it can't fill (`jev` in `rank`, `cosine` in `pre_judge`), an unrecognized stage, stage key or option, a missing `pre_judge` `scorer` or `threshold`, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, or a missing scorer API key stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+An unknown scorer, `cosine` in `pre_judge`, an unrecognized stage, stage key or option, `generate_questions` outside `pre_judge`, a missing `pre_judge` `scorer`, a `jev` stage without a `threshold`, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, or a missing scorer API key stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+
+#### Ranking with Jev
+
+A `rank` or `rerank` stage with `scorer: jev` asks [TypeSafe's Jev](https://docs.typesafe.ai/api) how likely each candidate ADR governs the file. For each file, Jev is called once, with the file and every candidate's full ADR, and one question per ADR: is the code governed by this decision? Each candidate's score is that probability, and the stage keeps those at or above `threshold`, best first, up to `top_k`.
+
+```yaml
+analysis:
+  pipeline:
+    rank:
+      scorer: cosine
+      threshold: 0.4
+      top_k: 10
+    rerank:
+      scorer: jev
+      threshold: 0.5
+      top_k: 3
+```
+
+- **Use Jev after a wide cosine `rank`.** On [#202](https://github.com/Tgenz1213/ArchGuard/issues/202)'s 20 known file-to-ADR pairs from this repository, Jev ordered the ADRs that apply better than cosine (mean reciprocal rank 0.68 against 0.49), but kept about 7 of 20 ADRs at `0.5`, with many scores tied between 0.93 and 0.98. So let cosine cut the candidates loosely and let Jev pick the top few. Those runs asked about one ADR per call; tune `threshold` with `--debug`.
+- **File content goes to TypeSafe,** and the API key comes from `ARCHGUARD_JEV_API_KEY`, as for [screening](#screening-with-jev).
+- **A Jev `rank` with no cosine stage makes no embedding calls.**
+- **A file whose state is over Jev's size limit** fails the stage as `precondition_not_met`. Every candidate's full ADR is in the call, so a large file with many scope-matched ADRs reaches the limit sooner than screening does.
+- **When Jev fails**, `on_error: skip` prints a warning and passes the stage's candidates on unranked. After a cosine stage that means cosine's candidates; when Jev is the only ranker (no cosine `rank` or `rerank`), it means every scope-matched ADR goes to the LLM. So `on_error` defaults to `fail` for a Jev stage that is the only ranker, and to `skip` otherwise.
 
 #### Screening with Jev
 
@@ -243,7 +266,7 @@ analysis:
 
 #### When a stage fails
 
-By default, if a `rank` or `rerank` stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a cosine `rank` or `rerank` stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
 
 ```yaml
 analysis:

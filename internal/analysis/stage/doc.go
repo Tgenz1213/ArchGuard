@@ -16,8 +16,10 @@ Terms:
 
   - Cosine stage: scores each candidate by how similar its embedding is to the
     file's.
-  - Jev stage: screens candidates by asking Jev whether the file breaks each
-    of their rules, scoring an ADR by its likeliest-broken rule.
+  - Jev screening stage: the pre_judge stage that asks Jev whether the file
+    breaks each candidate's rules, scoring an ADR by its likeliest-broken rule.
+  - Jev ranking stage: a rank or rerank stage that asks Jev, in one call, how
+    likely each candidate's decision governs the file.
   - Pass-through: a candidate a scorer does not judge, such as an ADR with no
     rules in a Jev stage. The stage keeps it whatever its threshold or limit.
   - Skipped: a stage that failed under on_error: skip and passed its

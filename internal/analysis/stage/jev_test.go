@@ -264,3 +264,120 @@ func TestJevStage_GenerationFailureFollowsOnError(t *testing.T) {
 		t.Errorf("got %s, err %v, %d Jev call(s); want a skipped stage passing a on with no Jev call", ids(got), err, len(screener.calls))
 	}
 }
+
+func contentCandidate(id, content string) stage.Candidate {
+	return stage.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id, Content: content}, Score: 0.7}
+}
+
+// Answers each question by whether the ADR text it names, in the state, mentions "prints".
+func governsPrints(state map[string]string, questions map[string]string) map[string]float64 {
+	answers := make(map[string]float64, len(questions))
+	for name := range questions {
+		answers[name] = 0.2
+		if strings.Contains(state[name], "prints") {
+			answers[name] = 0.95
+		}
+	}
+
+	return answers
+}
+
+func TestJevRankStage_RanksEveryCandidateInOneCall(t *testing.T) {
+	var states []map[string]string
+	var asked []map[string]string
+
+	ranker := stage.NewJevRankStage("rerank", rankScreener(func(state map[string]string, questions map[string]string) map[string]float64 {
+		states, asked = append(states, state), append(asked, questions)
+		return governsPrints(state, questions)
+	}), 0.5, 0)
+
+	candidates := []stage.Candidate{contentCandidate("a", "no globals"), contentCandidate("b", "no prints"), contentCandidate("c", "no prints in handlers")}
+
+	got, err := ranker.Apply(t.Context(), fakeFile{text: "+fmt.Println(x)"}, stage.NoDebug, candidates)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if ids(got) != "b,c" || got[0].Score != 0.95 {
+		t.Errorf("kept %s scoring %v, want b and c at 0.95", ids(got), got)
+	}
+
+	if len(states) != 1 {
+		t.Fatalf("calls = %d, want one", len(states))
+	}
+
+	if states[0]["code"] != "+fmt.Println(x)" || states[0]["adr1"] != "no prints" || len(states[0]) != 4 {
+		t.Errorf("state = %v, want the judged code and each candidate's full ADR", states[0])
+	}
+
+	if asked[0]["adr2"] != "Is `code` governed by the decision in `adr2`?" || len(asked[0]) != 3 {
+		t.Errorf("questions = %v, want one per candidate naming its state field", asked[0])
+	}
+}
+
+func TestJevRankStage_BlankCodePassesCandidatesThrough(t *testing.T) {
+	screener := &fakeScreener{answer: breaks()}
+	candidates := []stage.Candidate{contentCandidate("a", "x"), contentCandidate("b", "y")}
+
+	got, err := stage.NewJevRankStage("rank", screener, 0.5, 1).Apply(t.Context(), fakeFile{text: " \n"}, stage.NoDebug, candidates)
+	if err != nil || ids(got) != "a,b" || len(screener.calls) != 0 {
+		t.Errorf("got %s, %v after %d calls; want both candidates unchanged and no call", ids(got), err, len(screener.calls))
+	}
+}
+
+func TestJevRankStage_Errors(t *testing.T) {
+	tooLarge := &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded"}
+	unauthorized := &inference.JevError{Status: http.StatusUnauthorized}
+
+	tests := []struct {
+		name     string
+		err      error
+		failOn   bool
+		wantKind stage.Kind
+		skipped  bool
+	}{
+		{"skip passes candidates through unranked", unauthorized, false, stage.KindUnavailable, true},
+		{"fail reports an unavailable dependency", unauthorized, true, stage.KindUnavailable, false},
+		{"fail reports input over the size limit as a precondition", tooLarge, true, stage.KindPreconditionNotMet, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := stage.NewJevRankStage("rank", &fakeScreener{err: tt.err}, 0.5, 1)
+			s.FailOnError = tt.failOn
+			candidates := []stage.Candidate{contentCandidate("a", "x"), contentCandidate("b", "y")}
+
+			got, err := s.Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, candidates)
+
+			var skipped *stage.Skipped
+			if errors.As(err, &skipped) != tt.skipped {
+				t.Fatalf("err = %v, want skipped %v", err, tt.skipped)
+			}
+
+			if tt.skipped && ids(got) != "a,b" {
+				t.Errorf("kept %s, want every candidate unchanged", ids(got))
+			}
+
+			var stageErr *stage.Error
+			if !errors.As(err, &stageErr) || stageErr.Kind != tt.wantKind || stageErr.Action != "ranking candidates" {
+				t.Errorf("err = %v, want a ranking stage error of kind %v", err, tt.wantKind)
+			}
+		})
+	}
+}
+
+func TestJevRankStage_MissingAnswerIsAnError(t *testing.T) {
+	screener := screenerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
+	s := stage.NewJevRankStage("rank", screener, 0.5, 0)
+	s.FailOnError = true
+
+	if _, err := s.Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{contentCandidate("a", "x")}); err == nil {
+		t.Fatal("expected an error when a candidate gets no answer")
+	}
+}
+
+type rankScreener func(state map[string]string, questions map[string]string) map[string]float64
+
+func (f rankScreener) Screen(_ context.Context, state any, questions map[string]string) (map[string]float64, error) {
+	return f(state.(map[string]string), questions), nil
+}

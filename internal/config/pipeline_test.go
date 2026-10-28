@@ -245,6 +245,53 @@ func TestLoadConfig_JevPreJudgeWithoutAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_JevRankers(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "test-key")
+
+	cfg, err := loadFromYAML(t, "analysis:\n  pipeline:\n    rank:\n      scorer: jev\n      threshold: 0.4\n    rerank:\n      scorer: jev\n      threshold: 0.5\n      options:\n        model: jev-1.13.0\n")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	rank, rerank := cfg.Analysis.Pipeline.Rank, cfg.Analysis.Pipeline.Rerank
+	if rank.Jev == nil || rank.Jev.APIKey != "test-key" || rerank.Jev == nil || rerank.Jev.APIKey != "test-key" || rerank.Jev.Model != "jev-1.13.0" {
+		t.Errorf("rank Jev = %+v, rerank Jev = %+v; want both keyed and rerank on jev-1.13.0", rank.Jev, rerank.Jev)
+	}
+}
+
+func TestLoadConfig_JevRerankWithoutAPIKey(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "")
+
+	_, err := loadFromYAML(t, "analysis:\n  pipeline:\n    rerank:\n      scorer: jev\n      threshold: 0.5\n")
+	if err == nil || !strings.Contains(err.Error(), "analysis.pipeline.rerank") || !strings.Contains(err.Error(), JevAPIKeyEnv) {
+		t.Fatalf("err = %v, want one naming analysis.pipeline.rerank and %s", err, JevAPIKeyEnv)
+	}
+}
+
+func TestPipeline_JevIsOnlyRanker(t *testing.T) {
+	cosine, jev := &StageConfig{Scorer: ScorerCosine}, &StageConfig{Scorer: ScorerJev}
+	tests := []struct {
+		name     string
+		pipeline *Pipeline
+		want     bool
+	}{
+		{"no pipeline", nil, false},
+		{"default rank", &Pipeline{Rerank: jev}, false},
+		{"jev rank alone", &Pipeline{Rank: jev}, true},
+		{"jev rank and rerank", &Pipeline{Rank: jev, Rerank: jev}, true},
+		{"jev rank, cosine rerank", &Pipeline{Rank: jev, Rerank: cosine}, false},
+		{"cosine rank, jev rerank", &Pipeline{Rank: cosine, Rerank: jev}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.pipeline.JevIsOnlyRanker(); got != tt.want {
+				t.Errorf("JevIsOnlyRanker() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_NoJevStageNeedsNoAPIKey(t *testing.T) {
 	t.Setenv(JevAPIKeyEnv, "")
 
@@ -260,8 +307,8 @@ func TestLoadConfig_PipelineInvalid(t *testing.T) {
 		want []string
 	}{
 		{"unknown scorer", "rank:\n      scorer: bm25", []string{"analysis.pipeline.rank.scorer", `"bm25"`, "cosine, jev"}},
-		{"jev ranking", "rank:\n      scorer: jev", []string{"analysis.pipeline.rank.scorer", `"jev"`, "pre_judge"}},
-		{"jev reranking", "rerank:\n      scorer: jev\n      threshold: 0.3", []string{"analysis.pipeline.rerank.scorer", `"jev"`}},
+		{"jev ranking without threshold", "rank:\n      scorer: jev", []string{"analysis.pipeline.rank.threshold", "required"}},
+		{"jev reranking with generated questions", "rerank:\n      scorer: jev\n      threshold: 0.5\n      options:\n        generate_questions: true", []string{"analysis.pipeline.rerank.options.generate_questions", "pre_judge"}},
 		{"cosine screening", "pre_judge:\n      scorer: cosine\n      threshold: 0.3", []string{"analysis.pipeline.pre_judge.scorer", `"cosine"`, "jev"}},
 		{"pre_judge without scorer", "pre_judge:\n      threshold: 0.3", []string{"analysis.pipeline.pre_judge.scorer", "required"}},
 		{"empty pre_judge", "pre_judge:", []string{"analysis.pipeline.pre_judge.scorer", "required"}},

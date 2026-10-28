@@ -24,7 +24,7 @@ const (
 
 var (
 	scorerNames      = []string{ScorerCosine, ScorerJev}
-	rankingScorers   = []string{ScorerCosine}
+	rankingScorers   = []string{ScorerCosine, ScorerJev}
 	screeningScorers = []string{ScorerJev}
 	onErrorModes     = []string{OnErrorSkip, OnErrorFail}
 )
@@ -84,6 +84,10 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 		stage.Jev = &JevOptions{}
 	}
 
+	if err == nil && name != stagePreJudge && stage.Jev != nil && stage.Jev.GenerateQuestions {
+		err = fmt.Errorf("%s.options.generate_questions: only pre_judge screens with questions", prefix)
+	}
+
 	return stage, err
 }
 
@@ -111,23 +115,20 @@ func (s *StageConfig) decodeKey(prefix, key string, value *yaml.Node) error {
 func checkStage(name string, stage *StageConfig) error {
 	prefix := "analysis.pipeline." + name
 
-	if name != stagePreJudge {
-		if !slices.Contains(rankingScorers, stage.Scorer) {
-			return fmt.Errorf("%s.scorer: %q screens for violations and cannot rank; use it in pre_judge (ranking scorers: %s)", prefix, stage.Scorer, strings.Join(rankingScorers, ", "))
-		}
-
-		return nil
+	if name != stagePreJudge && !slices.Contains(rankingScorers, stage.Scorer) {
+		return fmt.Errorf("%s.scorer: %q cannot rank (available: %s)", prefix, stage.Scorer, strings.Join(rankingScorers, ", "))
 	}
 
-	if stage.Scorer == "" {
+	if name == stagePreJudge && stage.Scorer == "" {
 		return fmt.Errorf("%s.scorer: required (available: %s)", prefix, strings.Join(screeningScorers, ", "))
 	}
 
-	if !slices.Contains(screeningScorers, stage.Scorer) {
+	if name == stagePreJudge && !slices.Contains(screeningScorers, stage.Scorer) {
 		return fmt.Errorf("%s.scorer: %q cannot screen for violations (available: %s)", prefix, stage.Scorer, strings.Join(screeningScorers, ", "))
 	}
 
-	if stage.Threshold == nil {
+	// Jev's probabilities share no scale with cosine similarity, so no cosine default fits.
+	if stage.Scorer == ScorerJev && stage.Threshold == nil {
 		return fmt.Errorf("%s.threshold: required for scorer %s", prefix, stage.Scorer)
 	}
 

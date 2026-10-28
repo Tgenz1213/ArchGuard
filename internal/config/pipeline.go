@@ -49,16 +49,33 @@ func (p *Pipeline) UnmarshalYAML(node *yaml.Node) error {
 
 // Credentials come from the environment only, so a key never sits in archguard.yaml.
 func (p *Pipeline) loadCredentials(getenv func(string) string) error {
-	if p == nil || p.PreJudge == nil || p.PreJudge.Jev == nil {
+	if p == nil {
 		return nil
 	}
 
-	key := getenv(JevAPIKeyEnv)
-	if key == "" {
-		return fmt.Errorf("analysis.pipeline.%s: scorer jev needs the %s environment variable", stagePreJudge, JevAPIKeyEnv)
+	stages := map[string]*StageConfig{"rank": p.Rank, "rerank": p.Rerank, stagePreJudge: p.PreJudge}
+	for _, name := range slices.Sorted(maps.Keys(stages)) {
+		stage := stages[name]
+		if stage == nil || stage.Jev == nil {
+			continue
+		}
+
+		key := getenv(JevAPIKeyEnv)
+		if key == "" {
+			return fmt.Errorf("analysis.pipeline.%s: scorer jev needs the %s environment variable", name, JevAPIKeyEnv)
+		}
+
+		stage.Jev.APIKey = key
 	}
 
-	p.PreJudge.Jev.APIKey = key
-
 	return nil
+}
+
+// JevIsOnlyRanker reports whether no cosine stage narrows the candidates, so a skipped Jev ranker sends every scope-matched ADR to the LLM.
+func (p *Pipeline) JevIsOnlyRanker() bool {
+	if p == nil || p.Rank == nil || p.Rank.Scorer != ScorerJev {
+		return false
+	}
+
+	return p.Rerank == nil || p.Rerank.Scorer == ScorerJev
 }
