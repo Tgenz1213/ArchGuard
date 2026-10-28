@@ -85,6 +85,10 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if err := cfg.Analysis.Pipeline.loadCredentials(os.Getenv); err != nil {
+		return nil, err
+	}
+
 	if envDBURL := os.Getenv("ARCHGUARD_DB_URL"); envDBURL != "" {
 		cfg.VectorStore.ConnectionString = envDBURL
 	}

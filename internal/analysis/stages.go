@@ -14,7 +14,7 @@ const (
 )
 
 // BuildStages returns nil when no pipeline is configured, leaving Engine on its default stages.
-func BuildStages(cfg *config.Config, store index.VectorStore, embed inference.Embedder, out *output.Printer) []stage.Stage {
+func BuildStages(cfg *config.Config, store index.VectorStore, embed inference.Embedder, screener stage.Screener, out *output.Printer) []stage.Stage {
 	pipeline := cfg.Analysis.Pipeline
 	if pipeline == nil {
 		return nil
@@ -25,7 +25,23 @@ func BuildStages(cfg *config.Config, store index.VectorStore, embed inference.Em
 		stages = append(stages, rerankStage(pipeline.Rerank, store, embed, out))
 	}
 
+	if pipeline.PreJudge != nil {
+		stages = append(stages, preJudgeStage(pipeline.PreJudge, screener))
+	}
+
 	return stages
+}
+
+// config guarantees a pre_judge stage is jev with a threshold.
+func preJudgeStage(sc *config.StageConfig, screener stage.Screener) stage.Stage {
+	topK := 0
+	if sc.TopK != nil {
+		topK = *sc.TopK
+	}
+
+	st := stage.NewJevStage(screener, *sc.Threshold, topK)
+	st.FailOnError = sc.OnError == config.OnErrorFail
+	return st
 }
 
 func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed inference.Embedder) stage.Stage {
