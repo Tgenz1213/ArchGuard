@@ -37,6 +37,26 @@ type suggestionResult struct {
 	Suggestion string `json:"suggestion"`
 }
 
+type questionResult struct {
+	Questions []string `json:"questions"`
+}
+
+// GenerateQuestions asks the chat model for yes/no screening questions about an ADR, each phrased so yes means a violation.
+func GenerateQuestions(ctx context.Context, chat Chatter, adrContent string) (questions []string, retries int, err error) {
+	result, retries, err := chatJSON[questionResult](ctx, chat, QuestionSystemPrompt, GetQuestionPrompt(adrContent), "question generation")
+	if err != nil {
+		return nil, retries, err
+	}
+
+	for _, question := range result.Questions {
+		if question = strings.TrimSpace(question); question != "" {
+			questions = append(questions, question)
+		}
+	}
+
+	return questions, retries, nil
+}
+
 // SuggestRemediation should only be called after AnalyzeDrift has returned
 // Violation == true.
 func SuggestRemediation(ctx context.Context, chat Chatter, in DriftInput, violation AnalysisResult) (suggestion string, retries int, err error) {

@@ -307,3 +307,21 @@ func TestLoadConfig_PipelineInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfig_JevGenerateQuestions(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "test-key")
+
+	cfg, err := loadFromYAML(t, "analysis:\n  pipeline:\n    pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        generate_questions: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Analysis.Pipeline.PreJudge.Jev.GenerateQuestions {
+		t.Error("GenerateQuestions = false, want true")
+	}
+
+	_, err = loadFromYAML(t, "analysis:\n  pipeline:\n    pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        generate_questions: \"yes\"\n")
+	if err == nil || !strings.Contains(err.Error(), "analysis.pipeline.pre_judge.options.generate_questions") {
+		t.Errorf("err = %v, want one naming options.generate_questions", err)
+	}
+}

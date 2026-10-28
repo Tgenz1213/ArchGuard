@@ -126,3 +126,24 @@ func GetSuggestionPrompt(adrContent, codeContext, filename, reasoning, quotedCod
 
 	return fmt.Sprintf(SuggestionPrompt, safeFilename, safeADR, safeCode, safeReasoning, safeQuoted)
 }
+
+const QuestionSystemPrompt = `You turn an Architectural Decision Record into screening questions for a yes/no classifier that reads one code file.
+
+CRITICAL GUIDELINES:
+1. ONE CONDITION EACH: Every question checks one literal, concrete condition the ADR's decision forbids or requires.
+2. YES MEANS VIOLATION: Phrase each question so that "yes" means the code breaks the ADR.
+3. NO LOCATIONS: Do not name files, packages or functions the ADR mentions; they move.
+4. NOTHING TO CHECK, NO QUESTIONS: If no code could break the ADR, return an empty list.`
+
+const QuestionPrompt = `<adr_content>
+%s
+</adr_content>
+
+### OUTPUT FORMAT (JSON ONLY)
+{
+  "questions": ["Does this code ...?"]
+}`
+
+func GetQuestionPrompt(adrContent string) string {
+	return fmt.Sprintf(QuestionPrompt, EscapePromptDelimiter(adrContent))
+}

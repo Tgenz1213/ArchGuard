@@ -61,7 +61,7 @@ func ruledCandidate(id string, statements ...string) stage.Candidate {
 
 func TestJevStage_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 	screener := &fakeScreener{answer: breaks("no prints")}
-	s := stage.NewJevStage(screener, 0.3, 0)
+	s := stage.NewJevStage(screener, nil, 0.3, 0)
 	candidates := []stage.Candidate{
 		ruledCandidate("a", "no globals", "no prints"),
 		ruledCandidate("b", "no globals"),
@@ -104,7 +104,7 @@ func TestJevStage_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			screener := &fakeScreener{answer: breaks()}
 
-			got, err := stage.NewJevStage(screener, 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, stage.NoDebug, tt.candidates)
+			got, err := stage.NewJevStage(screener, nil, 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, stage.NoDebug, tt.candidates)
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}
@@ -124,7 +124,7 @@ func TestJevStage_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 		Compliant: []string{"log.Info(x)"},
 	}}}}
 
-	if _, err := stage.NewJevStage(screener, 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{candidate}); err != nil {
+	if _, err := stage.NewJevStage(screener, nil, 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{candidate}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -155,7 +155,7 @@ func TestJevStage_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := stage.NewJevStage(&fakeScreener{err: tt.err}, 0.3, 0)
+			s := stage.NewJevStage(&fakeScreener{err: tt.err}, nil, 0.3, 0)
 			s.FailOnError = tt.failOn
 			candidates := []stage.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals")}
 
@@ -180,7 +180,7 @@ func TestJevStage_Errors(t *testing.T) {
 
 func TestJevStage_MissingAnswerIsAnError(t *testing.T) {
 	screener := screenerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
-	s := stage.NewJevStage(screener, 0.3, 0)
+	s := stage.NewJevStage(screener, nil, 0.3, 0)
 	s.FailOnError = true
 
 	if _, err := s.Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no prints")}); err == nil {
@@ -195,7 +195,7 @@ func (f screenerFunc) Screen(_ context.Context, _ string, questions map[string]s
 }
 
 func TestJevStage_TopKLeavesPassedThroughCandidates(t *testing.T) {
-	s := stage.NewJevStage(&fakeScreener{answer: breaks("no prints", "no globals")}, 0.3, 1)
+	s := stage.NewJevStage(&fakeScreener{answer: breaks("no prints", "no globals")}, nil, 0.3, 1)
 	var buf bytes.Buffer
 	candidates := []stage.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals"), ruledCandidate("c")}
 
@@ -210,5 +210,57 @@ func TestJevStage_TopKLeavesPassedThroughCandidates(t *testing.T) {
 
 	if !strings.Contains(buf.String(), "Kept: ADR c (not scored by this stage)") {
 		t.Errorf("debug output does not show c passing through:\n%s", buf.String())
+	}
+}
+
+type fakeQuestions struct {
+	questions map[string][]string
+	err       error
+	asked     []string
+}
+
+func (f *fakeQuestions) Questions(_ context.Context, adr *index.ADR) ([]string, error) {
+	f.asked = append(f.asked, adr.ID)
+	return f.questions[adr.ID], f.err
+}
+
+func TestJevStage_GeneratedQuestionsScreenADRsWithoutRules(t *testing.T) {
+	generated := &fakeQuestions{questions: map[string][]string{"b": {"Does this code print a secret?"}, "c": {"Does this code open a socket?"}}}
+	screener := &fakeScreener{answer: breaks("print a secret")}
+	var buf bytes.Buffer
+
+	got, err := stage.NewJevStage(screener, generated, 0.3, 0).Apply(
+		t.Context(),
+		fakeFile{text: "code"},
+		output.New(&buf, true),
+		[]stage.Candidate{ruledCandidate("a", "no globals"), ruledCandidate("b"), ruledCandidate("c")},
+	)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if ids(got) != "b" {
+		t.Errorf("kept %s, want only b, whose generated question scored 0.9", ids(got))
+	}
+
+	if strings.Join(generated.asked, ",") != "b,c" {
+		t.Errorf("generated questions for %v, want only the ADRs without rules", generated.asked)
+	}
+
+	if !strings.Contains(buf.String(), "Generated question for ADR b: Does this code print a secret?") {
+		t.Errorf("debug output does not show the generated question:\n%s", buf.String())
+	}
+}
+
+func TestJevStage_GenerationFailureFollowsOnError(t *testing.T) {
+	generated := &fakeQuestions{err: errors.New("chat down")}
+	screener := &fakeScreener{answer: breaks()}
+	candidates := []stage.Candidate{ruledCandidate("a")}
+
+	got, err := stage.NewJevStage(screener, generated, 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, candidates)
+
+	var skipped *stage.Skipped
+	if !errors.As(err, &skipped) || ids(got) != "a" || len(screener.calls) != 0 {
+		t.Errorf("got %s, err %v, %d Jev call(s); want a skipped stage passing a on with no Jev call", ids(got), err, len(screener.calls))
 	}
 }

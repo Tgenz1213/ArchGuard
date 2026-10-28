@@ -226,3 +226,24 @@ func TestAnalysisResult_HasNoSuggestionField(t *testing.T) {
 		t.Errorf("expected no suggestion field on AnalysisResult (suggestions are cached separately, see cache.ComputeSuggestionKey), got: %s", encoded)
 	}
 }
+
+func TestGenerateQuestions_SendsTheADRAndDropsBlankQuestions(t *testing.T) {
+	var gotSystem, gotUser string
+	chat := &MockProvider{ChatFunc: func(ctx context.Context, system, user string) (string, error) {
+		gotSystem, gotUser = system, user
+		return `{"questions": ["Does this code print a secret?", "", "Does it open a socket?"]}`, nil
+	}}
+
+	questions, _, err := GenerateQuestions(t.Context(), chat, "No secrets in logs.")
+	if err != nil {
+		t.Fatalf("GenerateQuestions: %v", err)
+	}
+
+	if strings.Join(questions, "|") != "Does this code print a secret?|Does it open a socket?" {
+		t.Errorf("questions = %q", questions)
+	}
+
+	if gotSystem != QuestionSystemPrompt || !strings.Contains(gotUser, "No secrets in logs.") {
+		t.Errorf("system %q, user %q: want the question prompt carrying the ADR", gotSystem, gotUser)
+	}
+}

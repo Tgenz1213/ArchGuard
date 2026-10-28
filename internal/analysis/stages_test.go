@@ -18,7 +18,7 @@ func ptr[T any](v T) *T { return &v }
 func buildStages(t *testing.T, cfg *config.Config) ([]stage.Stage, string) {
 	t.Helper()
 	var warnings bytes.Buffer
-	stages := analysis.BuildStages(cfg, index.NewLocalStore(1), &inference.MockProvider{}, nil, output.New(&warnings, false))
+	stages := analysis.BuildStages(cfg, analysis.StageDeps{Store: index.NewLocalStore(1), Embed: &inference.MockProvider{}}, output.New(&warnings, false))
 	return stages, warnings.String()
 }
 

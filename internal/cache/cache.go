@@ -93,6 +93,18 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	)
 }
 
+// QuestionsKeyInput is its own namespace, so changing the question prompt or model regenerates only questions.
+type QuestionsKeyInput struct {
+	ModelName      string
+	ADRContent     string
+	SystemPrompt   string
+	PromptTemplate string
+}
+
+func ComputeQuestionsKey(in QuestionsKeyInput) string {
+	return hashParts(in.ModelName, in.ADRContent, in.SystemPrompt, in.PromptTemplate)
+}
+
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {
 	var suggestion string
 	found, err := c.readEntry("suggestions", key, &suggestion)
@@ -102,6 +114,17 @@ func (c *Cache) GetSuggestion(key string) (string, bool, error) {
 
 func (c *Cache) PutSuggestion(key, suggestion string) error {
 	return c.writeEntry("suggestions", key, suggestion)
+}
+
+func (c *Cache) GetQuestions(key string) ([]string, bool, error) {
+	var questions []string
+	found, err := c.readEntry("questions", key, &questions)
+
+	return questions, found, err
+}
+
+func (c *Cache) PutQuestions(key string, questions []string) error {
+	return c.writeEntry("questions", key, questions)
 }
 
 func (c *Cache) readEntry(namespace, key string, value any) (bool, error) {

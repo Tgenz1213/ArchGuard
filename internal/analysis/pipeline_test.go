@@ -218,7 +218,7 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
 	}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, nil, output.Discard())
+	h.engine.Stages = analysis.BuildStages(cfg, analysis.StageDeps{Store: h.engine.Store, Embed: embed}, output.Discard())
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -505,7 +505,7 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 		PreJudge: &config.StageConfig{Scorer: config.ScorerJev, Threshold: &threshold, OnError: run.onError, Jev: &config.JevOptions{}},
 	}}}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, h.engine.Embed, screener, output.Discard())
+	h.engine.Stages = analysis.BuildStages(cfg, analysis.StageDeps{Store: h.engine.Store, Embed: h.engine.Embed, Screener: screener}, output.Discard())
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

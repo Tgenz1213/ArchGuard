@@ -39,7 +39,8 @@ type StageConfig struct {
 }
 
 type JevOptions struct {
-	Model string
+	Model             string
+	GenerateQuestions bool
 	// Read from JevAPIKeyEnv when the config loads, never from archguard.yaml.
 	APIKey string
 }
@@ -141,7 +142,7 @@ func (s *StageConfig) decodeOptions(prefix string, node *yaml.Node) error {
 	}
 
 	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("%s: must be a mapping with a model key", prefix)
+		return fmt.Errorf("%s: must be a mapping with model and generate_questions keys", prefix)
 	}
 
 	fields, err := decodeFields(prefix, node)
@@ -158,8 +159,12 @@ func (s *StageConfig) decodeOptions(prefix string, node *yaml.Node) error {
 			if value.Tag != "!!str" || value.Decode(&s.Jev.Model) != nil || s.Jev.Model == "" {
 				return fmt.Errorf("%s.model: must be a non-empty string", prefix)
 			}
+		case "generate_questions":
+			if value.Tag != "!!bool" || value.Decode(&s.Jev.GenerateQuestions) != nil {
+				return fmt.Errorf("%s.generate_questions: must be true or false", prefix)
+			}
 		default:
-			return fmt.Errorf("%s: unrecognized key %q for scorer jev (expected model)", prefix, key)
+			return fmt.Errorf("%s: unrecognized key %q for scorer jev (expected model or generate_questions)", prefix, key)
 		}
 	}
 

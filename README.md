@@ -229,14 +229,16 @@ analysis:
       threshold: 0.3
       options:
         model: jev-latest # Optional; this is the default
+        generate_questions: false # Optional; see below
 ```
 
 - **File content goes to TypeSafe.** Jev receives what the LLM would judge: the file, or under `--since` and for an oversized file, the diff with its `+`/`-` markers.
 - **The API key** is read from the `ARCHGUARD_JEV_API_KEY` environment variable, never from `archguard.yaml`. It is required only when a Jev stage is configured, and a missing key stops `archguard index` and `archguard check` at startup with exit code 3.
 - **`threshold` is required.** Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`.
+- **`generate_questions: true` screens ADRs without rules too.** For each such ADR, the configured `llm` writes yes/no questions from the whole ADR, and Jev asks those instead. `--debug` prints each generated question. Questions are kept in the analysis cache and reused on later runs until the ADR text, the question prompt or `llm.model` changes, and each ADR's questions are generated at most once per run. Generation calls count in the run's judgment usage, and run under `--dry-run` too. On [#202](https://github.com/Tgenz1213/ArchGuard/issues/202)'s seeded violations, generated questions caught fewer than authored rules did, so writing rules is the better fix for an ADR Jev misses.
 - **`top_k` is optional.** Unset, `pre_judge` keeps every ADR that clears `threshold`.
-- **ADRs without rules pass through `pre_judge` unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this stage)`.
-- **When Jev fails** (an error response, a timeout, or a file over Jev's size limit), `on_error: skip`, the default, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
+- **ADRs without rules pass through `pre_judge` unchanged** unless `generate_questions` is on, and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this stage)`.
+- **When Jev fails** (an error response, a timeout, a file over Jev's size limit, or question generation failing), `on_error: skip`, the default, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
 - **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 
 #### When a stage fails

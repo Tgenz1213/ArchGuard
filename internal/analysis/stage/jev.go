@@ -18,9 +18,16 @@ type Screener interface {
 	Screen(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
 }
 
-// JevScreen scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
+// QuestionSource writes screening questions for an ADR that has no rules, each phrased so yes means a violation.
+type QuestionSource interface {
+	Questions(ctx context.Context, adr *index.ADR) ([]string, error)
+}
+
+// JevScreen scores a candidate by its likeliest-broken rule. A candidate with no rules passes through,
+// unless Generated is set and writes questions for it.
 type JevScreen struct {
-	Screener Screener
+	Screener  Screener
+	Generated QuestionSource
 }
 
 type ruleQuestion struct {
@@ -28,16 +35,23 @@ type ruleQuestion struct {
 	text      string
 }
 
-func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
+func (j *JevScreen) Score(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]float64, error) {
 	scores := make([]float64, len(candidates))
 	for i := range scores {
 		scores[i] = math.Inf(1)
 	}
 
-	questions := ruleQuestions(candidates)
 	state := file.JudgedText()
+	if strings.TrimSpace(state) == "" {
+		return scores, nil
+	}
 
-	if len(questions) == 0 || strings.TrimSpace(state) == "" {
+	questions, err := j.questions(ctx, debug, candidates)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(questions) == 0 {
 		return scores, nil
 	}
 
@@ -65,15 +79,29 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 	return scores, nil
 }
 
-func ruleQuestions(candidates []Candidate) map[string]ruleQuestion {
+func (j *JevScreen) questions(ctx context.Context, debug Debug, candidates []Candidate) (map[string]ruleQuestion, error) {
 	questions := make(map[string]ruleQuestion)
 	for i, candidate := range candidates {
-		for j, rule := range candidate.ADR.Rules {
-			questions[fmt.Sprintf("adr%d_rule%d", i, j)] = ruleQuestion{candidate: i, text: questionText(rule)}
+		for k, rule := range candidate.ADR.Rules {
+			questions[fmt.Sprintf("adr%d_rule%d", i, k)] = ruleQuestion{candidate: i, text: questionText(rule)}
+		}
+
+		if len(candidate.ADR.Rules) > 0 || j.Generated == nil {
+			continue
+		}
+
+		generated, err := j.Generated.Questions(ctx, candidate.ADR)
+		if err != nil {
+			return nil, &Error{Action: "generating questions", Err: err}
+		}
+
+		for k, text := range generated {
+			debug.Debug("Generated question for %s: %s", candidate.ADR.Title, text)
+			questions[fmt.Sprintf("adr%d_generated%d", i, k)] = ruleQuestion{candidate: i, text: text}
 		}
 	}
 
-	return questions
+	return questions, nil
 }
 
 func questionText(rule index.Rule) string {
@@ -101,10 +129,11 @@ func screeningError(err error) error {
 	return &Error{Action: screeningAction, Err: err}
 }
 
-func NewJevStage(screener Screener, threshold float64, topK int) Stage {
+// A nil generated leaves ADRs without rules unscreened.
+func NewJevStage(screener Screener, generated QuestionSource, threshold float64, topK int) Stage {
 	return Stage{
 		Name:              "pre_judge",
-		Scorer:            &JevScreen{Screener: screener},
+		Scorer:            &JevScreen{Screener: screener, Generated: generated},
 		Min:               FixedMin(threshold),
 		MaxKeep:           topK,
 		PassThroughOnSkip: true,
