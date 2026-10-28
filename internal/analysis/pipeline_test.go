@@ -469,9 +469,9 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 	}
 }
 
-type screenerFunc func(state string, questions map[string]string) (map[string]float64, error)
+type screenerFunc func(state any, questions map[string]string) (map[string]float64, error)
 
-func (f screenerFunc) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f screenerFunc) Screen(_ context.Context, state any, questions map[string]string) (map[string]float64, error) {
 	return f(state, questions)
 }
 
@@ -515,8 +515,8 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 
 func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 	var states []string
-	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
-		states = append(states, state)
+	screener := screenerFunc(func(state any, questions map[string]string) (map[string]float64, error) {
+		states = append(states, state.(string))
 		answers := make(map[string]float64, len(questions))
 		for name, question := range questions {
 			answers[name] = 0.05
@@ -546,7 +546,7 @@ func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 }
 
 func TestPipeline_PreJudgeSkipPassesCandidatesToTheLLM(t *testing.T) {
-	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+	down := screenerFunc(func(any, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
@@ -562,7 +562,7 @@ func TestPipeline_PreJudgeSkipPassesCandidatesToTheLLM(t *testing.T) {
 }
 
 func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
-	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+	down := screenerFunc(func(any, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
@@ -575,8 +575,8 @@ func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
 
 func TestPipeline_PreJudgeScreensTheDiffWithItsMarkers(t *testing.T) {
 	var states []string
-	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
-		states = append(states, state)
+	screener := screenerFunc(func(state any, questions map[string]string) (map[string]float64, error) {
+		states = append(states, state.(string))
 		answers := make(map[string]float64, len(questions))
 		for name := range questions {
 			answers[name] = 0.9

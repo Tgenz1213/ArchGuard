@@ -18,10 +18,10 @@ type fakeScreener struct {
 	answer func(instructions string) float64
 	err    error
 	calls  []map[string]string
-	states []string
+	states []any
 }
 
-func (f *fakeScreener) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f *fakeScreener) Screen(_ context.Context, state any, questions map[string]string) (map[string]float64, error) {
 	f.calls = append(f.calls, questions)
 	f.states = append(f.states, state)
 
@@ -190,7 +190,7 @@ func TestJevStage_MissingAnswerIsAnError(t *testing.T) {
 
 type screenerFunc func(questions map[string]string) map[string]float64
 
-func (f screenerFunc) Screen(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
+func (f screenerFunc) Screen(_ context.Context, _ any, questions map[string]string) (map[string]float64, error) {
 	return f(questions), nil
 }
 

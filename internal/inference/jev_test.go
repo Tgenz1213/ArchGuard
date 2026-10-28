@@ -66,6 +66,30 @@ func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
 	}
 }
 
+func TestJevProvider_ScreenSendsAnObjectStateAsAnObject(t *testing.T) {
+	var got struct {
+		State map[string]string `json:"state"`
+	}
+
+	provider := jevServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decoding request: %v", err)
+		}
+
+		if _, err := w.Write([]byte(`{"answers":{"a":{"type":"noul","noul":0.5}}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
+	})
+
+	if _, err := provider.Screen(t.Context(), map[string]string{"code": "x := 1", "adr0": "No globals."}, map[string]string{"a": "Is `code` governed by `adr0`?"}); err != nil {
+		t.Fatalf("Screen: %v", err)
+	}
+
+	if got.State["code"] != "x := 1" || got.State["adr0"] != "No globals." {
+		t.Errorf("state = %v, want the object's fields", got.State)
+	}
+}
+
 func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, statusOverloaded} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

@@ -13,9 +13,10 @@ import (
 
 const screeningAction = "screening candidates"
 
-// Screener asks yes/no questions about one text in a single call and returns each answer's probability of yes, by question name.
+// Screener asks yes/no questions about one state in a single call and returns each answer's probability of yes, by question name.
+// The state is a text, or an object whose fields the questions name.
 type Screener interface {
-	Screen(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
+	Screen(ctx context.Context, state any, questions map[string]string) (map[string]float64, error)
 }
 
 // QuestionSource writes screening questions for an ADR that has no rules, each phrased so yes means a violation.
