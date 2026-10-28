@@ -107,35 +107,41 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	)
 }
 
-func (c *Cache) suggestionPath(key string) string {
-	return filepath.Join(c.Dir, "suggestions", key+".json")
-}
-
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {
-	raw, err := os.ReadFile(c.suggestionPath(key))
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-
-	if err != nil {
-		return "", false, err
-	}
-
 	var suggestion string
-	if err := json.Unmarshal(raw, &suggestion); err != nil {
-		return "", false, err
-	}
+	found, err := c.readEntry("suggestions", key, &suggestion)
 
-	return suggestion, true, nil
+	return suggestion, found, err
 }
 
 func (c *Cache) PutSuggestion(key, suggestion string) error {
-	dir := filepath.Join(c.Dir, "suggestions")
+	return c.writeEntry("suggestions", key, suggestion)
+}
+
+func (c *Cache) readEntry(namespace, key string, value any) (bool, error) {
+	raw, err := os.ReadFile(filepath.Join(c.Dir, namespace, key+".json"))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	if err := json.Unmarshal(raw, value); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (c *Cache) writeEntry(namespace, key string, value any) error {
+	dir := filepath.Join(c.Dir, namespace)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	encoded, err := json.Marshal(suggestion)
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
