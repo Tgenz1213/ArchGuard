@@ -31,8 +31,14 @@ analysis:
   # rules_heading: "Rules"          # Optional: the ADR body section whose bullets are read as screening rules (default "Rules")
   included_headers: ["Decision", "Rules"] # Embed what the code must do; Context, Alternatives and Consequences are narrative
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    pre_judge: # Screens with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY (README: Screening with Jev)
+  pipeline: # The Jev stages need ARCHGUARD_JEV_API_KEY
+    rank: # A wide cosine cut at vector_store.similarity_threshold, for Jev to reorder
+      top_k: 10
+    rerank: # README: Ranking with Jev
+      scorer: jev
+      threshold: 0.5
+      top_k: 3
+    pre_judge: # README: Screening with Jev
       scorer: jev
       threshold: 0.3
   exclude_patterns:
