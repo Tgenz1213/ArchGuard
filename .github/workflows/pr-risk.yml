@@ -1,15 +1,21 @@
 name: PR Risk
 
-# Labels and comments on each PR with its risk lane, and never fails. A green PR
-# is set to squash-merge once the ruleset's required checks pass; Jev can only
-# move a PR to red, never to green.
+# Labels and comments on each PR with its risk lane, and never fails. This is the
+# only thing that turns on auto-merge: a green PR is set to squash-merge once the
+# ruleset's required checks pass, and auto-merge on any other PR is turned off.
+# Jev can only move a PR to red, never to green.
 
 on:
-  pull_request:
+  # pull_request_target runs this file as it is on main, so a PR can't edit it to
+  # merge itself. That is safe only while no step checks out or runs the PR's
+  # code: read the PR through the API, never with actions/checkout.
+  pull_request_target:
     branches:
       - main
-    # labeled and unlabeled put back a risk label someone changed by hand.
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    # labeled and unlabeled put back a risk label someone changed by hand;
+    # auto_merge_enabled turns off auto-merge someone turned on for a PR that
+    # isn't green.
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, auto_merge_enabled]
 
 permissions:
   contents: read
@@ -142,7 +148,7 @@ jobs:
 
           automerge=no
           if [ "$lane" = green ]; then
-            if gh pr merge "$PR" -R "$REPO" --auto --squash > /dev/null 2>&1               || gh pr merge "$PR" -R "$REPO" --squash > /dev/null 2>&1; then
+            if gh pr merge "$PR" -R "$REPO" --auto --squash > /dev/null 2>&1; then
               automerge=yes
             else
               echo "::warning::Could not enable auto-merge for green PR $PR"
