@@ -1,6 +1,7 @@
 package analysis_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -380,6 +381,28 @@ func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 
 	if len(h.engine.SkippedFiles) != 1 || len(h.judged) != 0 {
 		t.Fatalf("SkippedFiles = %d, judged = %v; want the file skipped with nothing judged", len(h.engine.SkippedFiles), h.judged)
+	}
+}
+
+func TestPipeline_PassThroughStageErrorJudgesEveryCandidate(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "svc.go", "package svc")
+	var logged bytes.Buffer
+	h.engine.Out = output.New(&logged, false)
+	h.engine.JSONOutput = true
+	h.engine.Stages = []stage.Stage{{Name: "screen", PassThroughOnSkip: true, Scorer: scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+		return nil, errors.New("scorer down")
+	})}}
+
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(h.engine.SkippedFiles) != 0 || len(h.judged) != 2 {
+		t.Errorf("SkippedFiles = %d, judged = %v; want both ADRs judged and the file not skipped", len(h.engine.SkippedFiles), h.judged)
+	}
+
+	if !strings.Contains(logged.String(), "stage screen skipped, 2 candidate(s) pass through unchanged") || !strings.Contains(logged.String(), "scorer down") {
+		t.Errorf("log %q lacks a warning naming the stage and the error", logged.String())
 	}
 }
 
