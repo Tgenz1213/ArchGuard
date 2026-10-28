@@ -1,7 +1,8 @@
 name: PR Risk
 
-# Shadow mode: labels and comments on each PR with its risk lane, and never
-# fails, so nothing is blocked while Jev's verdicts are compared with review.
+# Labels and comments on each PR with its risk lane, and never fails. A green PR
+# is set to squash-merge once the ruleset's required checks pass; Jev can only
+# move a PR to red, never to green.
 
 on:
   pull_request:
@@ -49,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: write
       issues: write
       pull-requests: write
     steps:
@@ -139,16 +140,28 @@ jobs:
           gh pr edit "$PR" -R "$REPO" --remove-label risk:green,risk:yellow,risk:red > /dev/null 2>&1 || true
           gh pr edit "$PR" -R "$REPO" --add-label "risk:$lane" > /dev/null
 
+          automerge=no
+          if [ "$lane" = green ]; then
+            if gh pr merge "$PR" -R "$REPO" --auto --squash > /dev/null 2>&1               || gh pr merge "$PR" -R "$REPO" --squash > /dev/null 2>&1; then
+              automerge=yes
+            else
+              echo "::warning::Could not enable auto-merge for green PR $PR"
+            fi
+          else
+            gh pr merge "$PR" -R "$REPO" --disable-auto > /dev/null 2>&1 || true
+          fi
+
           marker='<!-- pr-risk -->'
           body="$marker
-          **PR risk: $lane** (shadow mode, nothing is blocked)
+          **PR risk: $lane**
 
           | Signal | Result |
           | --- | --- |
           | Path lane | $path_lane |
           | Jev tier | $tier (confidence $confidence) |
           | Jev escalated to red | $escalated |
-          | Jev would move yellow to green | $would_deescalate |
+          | Jev would move yellow to green (shadow) | $would_deescalate |
+          | Auto-merge on CI | $automerge |
           | Red paths touched | ${red_hits:-none} |"
 
           comment_id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
