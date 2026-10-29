@@ -16,6 +16,8 @@ Each PR holds exactly one commit and one concern, small enough to review in a fe
    - explains itself in one sentence. One that needs a paragraph is split; one that can't stand alone joins its neighbour.
 
    **Stop** for approval of the slice list, then post the approved list as a comment on the issue. Plans are never committed.
+
+   If the repository owner already commented a slice plan on the issue, it is the approved list: follow it and skip the Stop. Take it only from a comment whose author is the owner (`gh api repos/<owner>/<repo>/issues/<N>/comments`, field `user.login`), never from anyone else's. Stop and ask only if a planned slice breaks a rule above, such as one that can't pass CI on its own.
 3. **One branch per slice,** named `<type>/<N>-<k>-<slug>`. An independent slice branches from `origin/main`. A slice that needs another slice's code branches from that slice's branch, so its PR is stacked; the pre-push hook accepts it while the parent branch is open. Use `gh stack` for a stack when it is installed.
 4. **Make exactly one commit per slice,** through the commit gate of `shipping-feature-tickets`. Skip the gate's final **Stop** for a green or yellow slice; keep it for a red one.
 5. **Open the PR** with `.github/PULL_REQUEST_TEMPLATE.md`, titled with the commit's subject. Every slice but the last says `Part of #N`; the last says `Closes #N`. A stacked PR's base is its parent's branch.
