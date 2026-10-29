@@ -52,7 +52,8 @@ env:
 jobs:
   classify:
     name: Classify
-    if: github.event.pull_request.user.login == github.repository_owner && !github.event.pull_request.draft
+    # AGENT_BOT_LOGIN is the agent's GitHub App login, e.g. archguard-bot[bot].
+    if: (github.event.pull_request.user.login == github.repository_owner || github.event.pull_request.user.login == vars.AGENT_BOT_LOGIN) && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

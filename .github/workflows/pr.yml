@@ -12,18 +12,21 @@ concurrency:
   group: pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# AGENT_BOT_LOGIN is the agent's GitHub App login, e.g. archguard-bot[bot]. Its PRs
+# come from branches in this repo, so they can read secrets like the owner's.
+
 jobs:
   checks:
     name: Checks
     uses: ./.github/workflows/checks.yml
     with:
-      docker-login: ${{ github.event.pull_request.user.login == github.repository_owner }}
+      docker-login: ${{ github.event.pull_request.user.login == github.repository_owner || github.event.pull_request.user.login == vars.AGENT_BOT_LOGIN }}
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   archguard:
     name: ArchGuard
-    if: github.event.pull_request.user.login == github.repository_owner
+    if: github.event.pull_request.user.login == github.repository_owner || github.event.pull_request.user.login == vars.AGENT_BOT_LOGIN
     uses: ./.github/workflows/archguard.yml
     secrets:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
