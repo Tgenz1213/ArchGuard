@@ -1,9 +1,11 @@
 name: PR Risk
 
 # Labels and comments on each PR with its risk lane, and never fails. This is the
-# only thing that turns on auto-merge: a green PR is set to squash-merge once the
-# ruleset's required checks pass, and auto-merge on any other PR is turned off.
-# Jev can only move a PR to red, never to green.
+# only thing that approves a PR for the owner or turns on auto-merge: the gate
+# GitHub App approves a green PR and it is set to squash-merge once the ruleset's
+# required checks pass; on any other PR the gate's approval is dismissed and
+# auto-merge is turned off. Jev can only move a PR to red, never to green
+# (docs/arch/0048-only-the-green-lane-merges-without-the-owner.md).
 
 on:
   # pull_request_target runs this file as it is on main, so a PR can't edit it to
@@ -61,11 +63,24 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      # The gate app's approval counts toward the ruleset's required approval. Its
+      # key is safe here only because no step checks out or runs the PR's code.
+      - name: Get the gate app's token
+        id: gate
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.ARCHGUARD_GATE_APP_ID }}
+          private-key: ${{ secrets.ARCHGUARD_GATE_PRIVATE_KEY }}
+
       - name: Classify the change
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_TOKEN: ${{ steps.gate.outputs.token }}
+          GATE_SLUG: ${{ steps.gate.outputs.app-slug }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           TITLE: ${{ github.event.pull_request.title }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
@@ -147,14 +162,44 @@ jobs:
           gh pr edit "$PR" -R "$REPO" --remove-label risk:green,risk:yellow,risk:red > /dev/null 2>&1 || true
           gh pr edit "$PR" -R "$REPO" --add-label "risk:$lane" > /dev/null
 
+          # Prints "<review id> <commit>" for each standing approval by the gate app.
+          gate_approvals() {
+            [ -z "$GATE_SLUG" ] && return
+            gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+              --jq ".[] | select(.user.login == \"$GATE_SLUG[bot]\" and .state == \"APPROVED\") | \"\(.id) \(.commit_id)\""
+          }
+
+          approval=none
           automerge=no
           if [ "$lane" = green ]; then
+            # Approve the commit that was classified; a later push makes the
+            # approval stale, and this workflow runs again for it.
+            if [ -z "$GATE_TOKEN" ]; then
+              echo "::warning::No gate app token, so green PR $PR is not approved"
+            elif gate_approvals | grep -q " $HEAD_SHA\$"; then
+              approval=kept
+            elif GH_TOKEN=$GATE_TOKEN gh api -X POST "repos/$REPO/pulls/$PR/reviews" \
+              -f event=APPROVE -f commit_id="$HEAD_SHA" \
+              -f body="Green lane: every changed file is on the green path list and Jev did not escalate it." > /dev/null; then
+              approval=given
+            else
+              echo "::warning::The gate app could not approve green PR $PR"
+            fi
             if gh pr merge "$PR" -R "$REPO" --auto --squash > /dev/null 2>&1; then
               automerge=yes
             else
               echo "::warning::Could not enable auto-merge for green PR $PR"
             fi
           else
+            while read -r review _; do
+              [ -z "$review" ] && continue
+              if gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$review/dismissals" \
+                -f event=DISMISS -f message="No longer green: the lane is $lane." > /dev/null; then
+                approval=dismissed
+              else
+                echo "::warning::Could not dismiss the gate approval $review on PR $PR"
+              fi
+            done < <(gate_approvals)
             gh pr merge "$PR" -R "$REPO" --disable-auto > /dev/null 2>&1 || true
           fi
 
@@ -168,6 +213,7 @@ jobs:
           | Jev tier | $tier (confidence $confidence) |
           | Jev escalated to red | $escalated |
           | Jev would move yellow to green (shadow) | $would_deescalate |
+          | Gate approval | $approval |
           | Auto-merge on CI | $automerge |
           | Red paths touched | ${red_hits:-none} |"
 
