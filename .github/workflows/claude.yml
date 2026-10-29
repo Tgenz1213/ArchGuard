@@ -1,0 +1,78 @@
+name: Claude
+
+# Runs Claude Code as the agent's GitHub App when the owner mentions @claude, so
+# its commits and PRs are the bot's, not the owner's: the owner can approve them,
+# and only the owner holds the ruleset bypass. Runs bill the owner's Claude
+# subscription through CLAUDE_CODE_OAUTH_TOKEN, not API credits.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    name: Claude
+    # Only the owner starts a run, so nobody else can spend the subscription or
+    # steer the agent, and the agent's own comments can't start a loop.
+    if: >-
+      (github.event.comment.user.login == github.repository_owner && contains(github.event.comment.body, '@claude'))
+      || (github.event.review.user.login == github.repository_owner && contains(github.event.review.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Get the agent app's token
+        id: bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.ARCHGUARD_BOT_APP_ID }}
+          private-key: ${{ secrets.ARCHGUARD_BOT_PRIVATE_KEY }}
+
+      - name: Look up the agent app's user ID
+        id: bot-user
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          LOGIN: ${{ steps.bot.outputs.app-slug }}[bot]
+        run: echo "id=$(gh api "users/$LOGIN" --jq .id)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.bot.outputs.token }}
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+
+      # The pre-commit hook lints with it, and lets a commit through unlinted
+      # when it is missing.
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          install-only: true
+
+      - name: Run Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.bot.outputs.token }}
+          bot_id: ${{ steps.bot-user.outputs.id }}
+          bot_name: ${{ steps.bot.outputs.app-slug }}[bot]
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash(git *),Bash(go *),Bash(gofmt *),Bash(golangci-lint *),Bash(gh issue *),Bash(gh pr view *),Bash(gh pr list *),Bash(gh pr diff *),Bash(gh pr checks *),Bash(gh pr create *),Bash(gh pr comment *),Bash(gh pr edit *),Bash(gh api *)"
+            --disallowedTools "Bash(gh pr merge *),Bash(gh pr review *)"
+            --append-system-prompt "You run in GitHub Actions as this repository's agent app, started by the owner's comment. Nobody watches the run: at each Stop a skill names, post what you need on the issue or PR and end the run; the owner replies with @claude to continue. Never merge, approve or turn on auto-merge for a PR; the PR Risk workflow decides that (docs/arch/0048-only-the-green-lane-merges-without-the-owner.md)."
