@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -223,6 +224,65 @@ func TestStage_DebugReportOfRejectedCandidates(t *testing.T) {
 				if strings.Contains(buf.String(), title) {
 					t.Errorf("debug output names rejected %q:\n%s", title, buf.String())
 				}
+			}
+		})
+	}
+}
+
+func TestStage_KeepsCandidatesScoredInfOutsideMaxKeep(t *testing.T) {
+	s := stage.Stage{Name: "screen", Scorer: fixedScores(0.9, math.Inf(1), 0.8), Min: stage.FixedMin(0.5), MaxKeep: 1}
+	var buf bytes.Buffer
+
+	got, err := s.Apply(t.Context(), fakeFile{}, output.New(&buf, true), candidates("a", "b", "c"))
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if ids(got) != "a,b" {
+		t.Errorf("kept %s, want a (best scored) and b (not scored, outside MaxKeep)", ids(got))
+	}
+
+	if !strings.Contains(buf.String(), "Kept: ADR b (not scored by this stage)") {
+		t.Errorf("debug output %q does not mark b as not scored", buf.String())
+	}
+}
+
+func TestStage_ScorerErrorUnderPassThroughOnSkip(t *testing.T) {
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name        string
+		ctx         context.Context
+		passThrough bool
+		failOn      bool
+		skipped     bool
+	}{
+		{"passes every candidate on", t.Context(), true, false, true},
+		{"fails under on_error fail", t.Context(), true, true, false},
+		{"fails without PassThroughOnSkip", t.Context(), false, false, false},
+		{"fails once the run is cancelled", cancelled, true, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := stage.Stage{PassThroughOnSkip: tt.passThrough, FailOnError: tt.failOn, Scorer: scorerFunc(func(context.Context, stage.File, stage.Debug, []stage.Candidate) ([]float64, error) {
+				return nil, errors.New("down")
+			})}
+
+			got, err := s.Apply(tt.ctx, fakeFile{}, stage.NoDebug, candidates("a", "b"))
+
+			var skipped *stage.Skipped
+			if errors.As(err, &skipped) != tt.skipped || err == nil {
+				t.Fatalf("err = %v, want an error that is skipped: %v", err, tt.skipped)
+			}
+
+			if tt.skipped && ids(got) != "a,b" {
+				t.Errorf("got %s, want every candidate unchanged", ids(got))
+			}
+
+			if !tt.skipped && got != nil {
+				t.Errorf("got %s, want no candidates", ids(got))
 			}
 		})
 	}
