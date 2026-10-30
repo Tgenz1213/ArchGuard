@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
@@ -26,18 +27,10 @@ func New(projectRoot string) (*Cache, error) {
 }
 
 func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
-	path := filepath.Join(c.Dir, key+".json")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, false, nil
-	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-
 	var result inference.AnalysisResult
-	if err := json.Unmarshal(raw, &result); err != nil {
+
+	found, err := c.readEntry("", key, &result)
+	if err != nil || !found {
 		return nil, false, err
 	}
 
@@ -45,14 +38,7 @@ func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
 }
 
 func (c *Cache) Put(key string, result *inference.AnalysisResult) error {
-	path := filepath.Join(c.Dir, key+".json")
-
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, encoded, 0644)
+	return c.writeEntry("", key, result)
 }
 
 // hashParts length-prefixes each part before hashing so e.g. ("a||b","c")
@@ -136,15 +122,10 @@ func (c *Cache) readEntry(namespace, key string, value any) (bool, error) {
 }
 
 func (c *Cache) writeEntry(namespace, key string, value any) error {
-	dir := filepath.Join(c.Dir, namespace)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, key+".json"), encoded, 0644)
+	return atomicfile.Write(filepath.Join(c.Dir, namespace, key+".json"), encoded)
 }
