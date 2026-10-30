@@ -47,6 +47,8 @@ type Stage struct {
 	ListRejected bool
 	// Under on_error: skip, the stage passes its candidates on instead of the file being skipped.
 	PassThroughOnSkip bool
+	// Dropping every candidate means the stage found nothing worth judging, not that none were relevant.
+	Screens bool
 }
 
 // Skipped is a stage error the stage recovered from by passing its candidates on unchanged.

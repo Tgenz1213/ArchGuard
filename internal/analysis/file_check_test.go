@@ -284,6 +284,20 @@ func TestEngine_CountsEveryFileWhenEveryCandidateIsBelowTheThreshold(t *testing.
 	}
 }
 
+func TestEngine_CountsAScreenedOutFileApartFromOneBelowTheThreshold(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
+	h.engine.Stages = []stage.Stage{{Name: "screen", Screens: true, Scorer: scoresByID(map[string]float64{"0001": 0.1, "0002": 0.1}, nil), Min: stage.FixedMin(0.5)}}
+
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := output.Coverage{FilesWithoutADR: 1, FilesScreenedOut: 1}
+	if got := h.engine.Report().Coverage; got != want {
+		t.Fatalf("coverage = %+v, want %+v", got, want)
+	}
+}
+
 func TestEngine_CountsFilesWithNoScopeMatchAsWithoutADR(t *testing.T) {
 	adr := scorerADR("0001", 1)
 	adr.Scope = []string{"docs/**"}

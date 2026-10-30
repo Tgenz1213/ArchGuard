@@ -107,5 +107,6 @@ func NewJevStage(screener Screener, threshold float64, topK int) Stage {
 		Min:               FixedMin(threshold),
 		MaxKeep:           topK,
 		PassThroughOnSkip: true,
+		Screens:           true,
 	}
 }
