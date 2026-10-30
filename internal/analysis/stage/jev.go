@@ -23,27 +23,17 @@ type JevScreen struct {
 	Screener Screener
 }
 
-type ruleQuestion struct {
-	candidate int
-	text      string
-}
-
 func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
 	scores := make([]float64, len(candidates))
 	for i := range scores {
 		scores[i] = math.Inf(1)
 	}
 
-	questions := ruleQuestions(candidates)
+	asked, owner := ruleQuestions(candidates)
 	state := file.JudgedText()
 
-	if len(questions) == 0 || strings.TrimSpace(state) == "" {
+	if len(asked) == 0 || strings.TrimSpace(state) == "" {
 		return scores, nil
-	}
-
-	asked := make(map[string]string, len(questions))
-	for name, question := range questions {
-		asked[name] = question.text
 	}
 
 	answers, err := j.Screener.Screen(ctx, state, asked)
@@ -51,29 +41,34 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 		return nil, screeningError(err)
 	}
 
-	for name, question := range questions {
+	for name, candidate := range owner {
 		probability, ok := answers[name]
 		if !ok {
 			return nil, &Error{Action: screeningAction, Err: fmt.Errorf("no answer for question %s", name)}
 		}
 
-		if math.IsInf(scores[question.candidate], 1) || probability > scores[question.candidate] {
-			scores[question.candidate] = probability
+		if math.IsInf(scores[candidate], 1) || probability > scores[candidate] {
+			scores[candidate] = probability
 		}
 	}
 
 	return scores, nil
 }
 
-func ruleQuestions(candidates []Candidate) map[string]ruleQuestion {
-	questions := make(map[string]ruleQuestion)
+// ruleQuestions returns each question's text and the index of the candidate it asks about, both by question name.
+func ruleQuestions(candidates []Candidate) (map[string]string, map[string]int) {
+	texts := make(map[string]string)
+	owner := make(map[string]int)
+
 	for i, candidate := range candidates {
 		for j, rule := range candidate.ADR.Rules {
-			questions[fmt.Sprintf("adr%d_rule%d", i, j)] = ruleQuestion{candidate: i, text: questionText(rule)}
+			name := fmt.Sprintf("adr%d_rule%d", i, j)
+			texts[name] = questionText(rule)
+			owner[name] = i
 		}
 	}
 
-	return questions
+	return texts, owner
 }
 
 func questionText(rule index.Rule) string {
@@ -96,6 +91,10 @@ func screeningError(err error) error {
 	var jevErr *inference.JevError
 	if errors.As(err, &jevErr) && jevErr.TooLarge() {
 		return &Error{Action: screeningAction, Kind: KindPreconditionNotMet, Err: err}
+	}
+
+	if errors.As(err, &jevErr) && jevErr.Rejected() {
+		return &Error{Action: screeningAction, Err: err, Unrecoverable: true}
 	}
 
 	return &Error{Action: screeningAction, Err: err}

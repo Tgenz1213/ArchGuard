@@ -140,6 +140,7 @@ func TestJevStage_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 func TestJevStage_Errors(t *testing.T) {
 	tooLarge := &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded"}
 	unauthorized := &inference.JevError{Status: http.StatusUnauthorized}
+	outage := &inference.JevError{Status: http.StatusServiceUnavailable}
 
 	tests := []struct {
 		name     string
@@ -148,8 +149,9 @@ func TestJevStage_Errors(t *testing.T) {
 		wantKind stage.Kind
 		skipped  bool
 	}{
-		{"skip passes candidates through", unauthorized, false, stage.KindUnavailable, true},
-		{"fail reports an unavailable dependency", unauthorized, true, stage.KindUnavailable, false},
+		{"skip passes candidates through", outage, false, stage.KindUnavailable, true},
+		{"skip does not hide a rejected key", unauthorized, false, stage.KindUnavailable, false},
+		{"fail reports an unavailable dependency", outage, true, stage.KindUnavailable, false},
 		{"fail reports input over the size limit as a precondition", tooLarge, true, stage.KindPreconditionNotMet, false},
 	}
 

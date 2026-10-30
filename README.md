@@ -236,6 +236,8 @@ analysis:
 - **`threshold` is required.** Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`.
 - **`top_k` is optional.** Unset, `pre_judge` keeps every ADR that clears `threshold`.
 - **ADRs without rules pass through `pre_judge` unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this stage)`.
+- **A rejected API key** (`401` or `403`) is not treated as an outage: the file fails even under `on_error: skip`, so a revoked key shows up in the exit code instead of as silent LLM-for-all spend.
+- **`--dry-run` still calls Jev.** The stage runs before the judgments it screens, so file content is sent to Jev and billed (about $0.0003 per file); only the LLM judgments are counted instead of sent.
 - **When Jev fails** (an error response, a timeout, or a file over Jev's size limit), `on_error: skip`, the default, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
 - **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 

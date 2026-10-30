@@ -77,7 +77,7 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 		return nil, err
 	}
 
-	if options, ok := fields["options"]; ok {
+	if options, ok := fields["options"]; ok && resolveAlias(&options).Tag != "!!null" {
 		err = stage.decodeOptions(prefix, resolveAlias(&options))
 	} else if stage.Scorer == ScorerJev {
 		stage.Jev = &JevOptions{}

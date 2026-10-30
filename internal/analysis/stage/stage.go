@@ -31,6 +31,8 @@ type Error struct {
 	Action string
 	Kind   Kind
 	Err    error
+	// Unrecoverable is set for a failure, such as a rejected API key, that on_error: skip must not hide.
+	Unrecoverable bool
 }
 
 func (e *Error) Error() string { return e.Err.Error() }
@@ -66,7 +68,7 @@ type decision struct {
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
-		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil {
+		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || unrecoverable(err) {
 			return nil, err
 		}
 
@@ -78,6 +80,11 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	}
 
 	return slices.Concat(decided.kept, decided.passed), nil
+}
+
+func unrecoverable(err error) bool {
+	stageErr, ok := errors.AsType[*Error](err)
+	return ok && stageErr.Unrecoverable
 }
 
 func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
