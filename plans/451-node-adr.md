@@ -1,6 +1,6 @@
 # Plan for #451: ADRs for the node pipeline
 
-Status: **draft, waiting for Tim's approval.** Nothing is posted to the ticket or written to `docs/arch/` until Tim approves.
+Status: **waiting for Tim's approval.** The ADR texts are the drafts in `docs/arch/0049-0054` on `claude/project-thread-wa6yxp` (not pushed). Nothing is posted to the ticket or written to `docs/arch/` until Tim approves.
 
 Source: the approved design (https://claude.ai/artifact/EbpdXyA3RtYLSE2Pfc7Xfq) and the #443 decisions in the comment on #451.
 
@@ -12,10 +12,13 @@ Source: the approved design (https://claude.ai/artifact/EbpdXyA3RtYLSE2Pfc7Xfq) 
 - An `ask` node's `keep.top_k` ranks by the higher of its two sides' scores.
 - A first-node `ask` defaults to `on_error: fail`, and `on_error: skip` on it is rejected.
 
-## Still open (on decision cards)
+- The six ADRs merge as `Proposed`; the PR that implements each flips it to `Accepted`, and #452 flips 0022 to `Superseded`.
+- The LLM profile key naming is planned in #453. ADR 6's generic rule (a key goes only to the endpoint it's configured for) already covers a profile on another host.
+- No brittle detail in the ADRs (Tim's review of the drafts): no runner, job, provider or env var names, no retired config keys, no file-level scopes. ADRs speak of nodes, the judging node, choosing nodes, providers and keys; names live in the README.
 
-- Q3: status of the new ADRs until the code exists (see "Status" below).
-- Q4: where the LLM profile key rule lives (see ADR 6 below).
+## Open questions
+
+None.
 
 ## What changes
 
