@@ -1,6 +1,6 @@
 # Plan for #452: `analysis.pipeline` as a list of nodes
 
-Status: **draft, under review.** Not posted to the ticket; no code until Tim approves.
+Status: **waiting for Tim's approval.** No open questions.
 
 Stacked on PR #464 (#451's ADRs). Builds against ADRs 0049 to 0054.
 
@@ -71,8 +71,9 @@ Each commit builds and passes its own tests (review H1).
    - Existing file without a list pipeline: asks once, "Replace analysis.pipeline with the default pipeline? (y/n)". On yes it splices the default list into the file text in place of the old block: from the `pipeline:` line to the last line indented deeper than it, so the next key's head comment stays. No `pipeline:` key: appended at the end of the `analysis:` block; no `analysis:` key: appended at the end of the file. It matches the file's indent width and line endings, and refuses flow style or YAML aliases in `analysis` with a message (review M2). If the old block had a `pre_judge` stage, it prints that the screen was removed and points to the README's `ask` node.
    - EOF or "n" cancels with exit 0, as today. An existing list pipeline: says so, changes nothing, exits 0.
    - Tests: a config with a `pre_judge` mapping keeps every other byte; a comment just above the next key; the pipeline as the last block; no `analysis:` key; CRLF.
-   - Plain `init` without `--config`: see Q2.
+   - Plain `init` is `init --config archguard.yaml`: on an existing file it splices as above, and today's whole-file overwrite prompt goes.
 5. **Wording and docs.**
+   - The JSON report's `stages` key becomes `nodes`, and the README's JSON section follows.
    - User-facing "stage" text becomes "node": "node %s skipped", the rejected-key message, `stage/doc.go`, and the coverage line's "pre_judge screened out every candidate", which becomes "the <name> node dropped every candidate" (review H3).
    - README: the pipeline section for the list shape; "Screening with Jev" as an `ask` node; Jev sees both sides as plain text under `--since`, two Jev calls per file there, `--dry-run` included; `index` no longer needs the Jev key; a breaking-change migration note for CLI and Action users.
    - `.claude/rules/config.md`: drop the `scorerNames` bullet; the Jev key bullet says `check` reads it. `internal/config/doc.go` updated.
@@ -82,11 +83,15 @@ Each commit builds and passes its own tests (review H1).
 
 `go test -race ./...`, `go test -tags e2e ./test/e2e`, lint as CLAUDE.md says, `/code-review xhigh` on the branch before the PR.
 
+## Decided with Tim
+
+- The JSON report's `stages` key is renamed to `nodes` (2026-10-31).
+- Plain `archguard init` on an existing `archguard.yaml` splices the pipeline like `--config`; `init` never overwrites an existing config (2026-10-31).
+
 ## Review
 
 Reviewed on `plan/452-node-list` by a read-only agent. Fixed from it: commits that build on their own (H1); pipeline parsed before the store or index loads (H2); coverage text naming `pre_judge` (H3); diff detection and hunk boundaries (M1); the `init` splice's end line, comments, CRLF and flow style (M2); `init --config` plumbing (M3); existing Jev tests (M4); the engine's built-in fallback (M5). Twelve implementation choices it listed are decided above; two that change what users see are questions.
 
 ## Open questions
 
-- Q1: rename the JSON report's `stages` key to `nodes`? (card)
-- Q2: plain `archguard init` on an existing `archguard.yaml`: splice the pipeline like `--config`, or keep today's overwrite prompt? (card)
+None.
