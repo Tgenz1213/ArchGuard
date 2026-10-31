@@ -1,6 +1,6 @@
 # Plan for #451: ADRs for the node pipeline
 
-Status: **waiting for Tim's approval.** The ADR texts are the drafts in `docs/arch/0049-0054` on `claude/project-thread-wa6yxp` (not pushed). Nothing is posted to the ticket or written to `docs/arch/` until Tim approves.
+Status: **approved by Tim, 2026-10-31.**
 
 Source: the approved design (https://claude.ai/artifact/EbpdXyA3RtYLSE2Pfc7Xfq) and the #443 decisions in the comment on #451.
 
@@ -25,17 +25,17 @@ None.
 Six new ADRs, numbered from the next free number on `origin/main` (0049 today; re-checked before the PR). Nothing else:
 
 - **ADR 0020 is left alone.** Its rules say `analysis.max_relevant_adrs` is the default `top_k` "of a configured `rank` stage"; a `rank` node is that stage, so nothing in it goes stale. This departs from the issue's AC, which asked to supersede its `top_k` rule.
-- **ADR 0022 becomes `Superseded`** (status only). Its four Rules are restated in ADR 1. Its per-ADR `similarity_threshold` decision is already a rule of ADR 0011. Its "vector store returns an error, not an empty list" consequence isn't restated: ADR 0032 already fails a run left with nothing checked.
+- **ADR 0022 stays `Accepted` until #452 flips it to `Superseded`** (status only), when ADR 1 flips to `Accepted`. Its four Rules are restated in ADR 1. Its per-ADR `similarity_threshold` decision is already a rule of ADR 0011. Its "vector store returns an error, not an empty list" consequence isn't restated: ADR 0032 already fails a run left with nothing checked.
 - **ADRs 0030 and 0031 are not edited.** 0030's Rules govern the LLM's diff and quote, which still hold. 0031's amendment moves to #457 with ADR 7.
 - **`.claude/rules/config.md` is not touched;** #452 rewrites it.
 - **The issue's AC is updated** to match: six ADRs, 0020 kept, 0031's amendment in #457, presets and LLM profiles documented in the README with their tickets (they are features, not decisions).
 
-## The six ADRs (texts are the drafts)
+## The six ADRs 
 
 1. `0049-pipeline-nodes.md`: the pipeline is made of nodes; only the judging node reports; scorers only score; suppressed ADRs removed first; an ADR a node has no question for passes on. Supersedes 0022.
 2. `0050-nodes-run-in-order.md`: a list run top to bottom; the first node narrows; one judging node, only fix suggestions after it.
 3. `0051-the-pipeline-is-always-written-out.md`: missing or invalid pipeline exits 3; retired shapes rejected, never aliased; validated by `check`, not at config load.
-4. `0052-what-a-node-failure-does.md`: `on_error` skip/fail for choosing nodes; first node can't skip; skip passes ADRs on (a similarity ranker skips the file); fail picks the exit code by kind and outranks drift; judge/suggest failures take no `on_error`; a rejected key exits 3.
+4. `0052-what-a-node-failure-does.md`: `on_error` skip/fail for choosing nodes; a first node that would pass its ADRs on can't skip; skip passes ADRs on (a similarity ranker skips the file); fail picks the exit code by kind and outranks drift; judge/suggest failures take no `on_error`; a rejected key exits 3.
 5. `0053-quoteless-runners-read-both-sides-of-a-diff.md`: before and after sides asked separately as plain text; missing side not asked; keep on either side, rank by the higher score; a judge reports per rule what passes after and not before.
 6. `0054-provider-keys-stay-with-their-provider.md`: every key from the environment; a key goes only to the endpoint it's configured for.
 
