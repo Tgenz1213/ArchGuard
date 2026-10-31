@@ -52,7 +52,7 @@ New:
 11. An LLM profile whose provider differs from `llm.provider` MUST read `ARCHGUARD_<PROVIDER>_API_KEY` and MUST NOT fall back to `ARCHGUARD_API_KEY`.
 12. A Jev or Kev call rejected for its API key MUST fail the check with exit code 3, whatever `on_error` says.
 13. An `ask` node that fails under `on_error: skip`, the default for every `ask` but the first node, MUST pass its ADRs on unchanged, unless its key was rejected or the run was cancelled.
-14. An `ask` node with `for_each: rule` MUST pass on an ADR that has no rules without asking about it.
+14. An `ask` node with `for_each: rule` MUST pass on, without asking about it, an ADR that has no rules and no generated questions.
 15. Under `--since` without `--whole-file`, a Jev or Kev node MUST be asked about the before side and the after side of the hunks separately.
 16. Under `--since`, an `ask` node MUST keep an ADR that passes on either side.
 17. Under `--since`, a Jev or Kev `judge` MUST report an ADR only when it meets `report` after the change and not before.
