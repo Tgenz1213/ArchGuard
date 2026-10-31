@@ -30,6 +30,7 @@ type runState struct {
 	coverage      output.Coverage
 	projection    Projection
 	uncounted     bool
+	keyRejection  error
 }
 
 type fileResult struct {
@@ -39,6 +40,7 @@ type fileResult struct {
 	judged         bool
 	withoutADR     bool
 	belowThreshold bool
+	screenedOut    bool
 	failedChecks   []output.FailedCheck
 	recorded       []output.RecordedEntry
 	unrecorded     []output.UnrecordedViolation
@@ -82,6 +84,23 @@ func (r *runState) addStageFailure(failure StageFailure) {
 	r.stageFailures = append(r.stageFailures, failure)
 }
 
+// rejectKey keeps the first rejected-key error; files already in flight may report it again.
+func (r *runState) rejectKey(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.keyRejection == nil {
+		r.keyRejection = err
+	}
+}
+
+func (r *runState) rejectedKey() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.keyRejection
+}
+
 func (r *runState) merge(result *fileResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -92,6 +111,7 @@ func (r *runState) merge(result *fileResult) {
 	r.coverage.FilesJudged += boolToInt(result.judged)
 	r.coverage.FilesWithoutADR += boolToInt(result.withoutADR)
 	r.coverage.FilesBelowThreshold += boolToInt(result.belowThreshold)
+	r.coverage.FilesScreenedOut += boolToInt(result.screenedOut)
 	r.failedChecks = append(r.failedChecks, result.failedChecks...)
 	r.recorded = append(r.recorded, result.recorded...)
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)

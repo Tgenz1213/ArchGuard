@@ -13,6 +13,8 @@ type queryFile struct {
 
 func (f *queryFile) Path() string { return f.path }
 
+func (f *queryFile) JudgedText() string { return f.content }
+
 func (f *queryFile) QueryText(ctx context.Context) string {
 	if f.built {
 		return f.text

@@ -154,7 +154,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, r.log)
+	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, setup.screener, r.log)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason
@@ -211,6 +211,10 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 
 	if err := r.writeReport(engine, runErr); err != nil {
 		return ExitError, errors.Join(err, stageErr, analysisErr)
+	}
+
+	if isKeyRejected(runErr) {
+		return ExitConfig, analysisErr
 	}
 
 	if r.opts.DryRun {
@@ -383,7 +387,17 @@ func isDriftError(err error) bool {
 	return errors.As(err, &driftErr)
 }
 
+func isKeyRejected(err error) bool {
+	var rejected *analysis.KeyRejectedError
+
+	return errors.As(err, &rejected)
+}
+
 func exitCodeForAnalysisError(err error) ExitCode {
+	if isKeyRejected(err) {
+		return ExitConfig
+	}
+
 	if isDriftError(err) {
 		return ExitDriftDetected
 	}

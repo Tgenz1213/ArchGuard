@@ -25,6 +25,7 @@ type fileCheck struct {
 	fullContent string
 	mode        string
 	partial     bool
+	screenedOut bool
 	findings    fileResult
 }
 
@@ -61,7 +62,8 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
 	// Top-K alone never empties a stage, so scored candidates that all dropped fell below a threshold.
-	fc.findings.belowThreshold = fc.findings.withoutADR && scored
+	fc.findings.screenedOut = fc.findings.withoutADR && fc.screenedOut
+	fc.findings.belowThreshold = fc.findings.withoutADR && scored && !fc.screenedOut
 	fc.findings.judged = !fc.partial && fc.findings.checks > 0
 	run.merge(&fc.findings)
 }
@@ -126,15 +128,27 @@ func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage
 	for i, st := range fc.run.stages {
 		var err error
 
+		received := len(hits)
+
 		hits, err = fc.run.telemetry.Apply(ctx, i, query, fc.out, hits)
 		if skipped, ok := errors.AsType[*stage.Skipped](err); ok {
 			fc.out.Warn("stage %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
 			continue
 		}
 
+		if stage.KeyRejected(err) {
+			// The run reports this once and stops; a line per file would repeat it.
+			fc.run.rejectKey(newKeyRejectedError(st.Name, err))
+			return nil, false
+		}
+
 		if err != nil {
 			fc.failStage(st, err)
 			return nil, false
+		}
+
+		if received > 0 && len(hits) == 0 {
+			fc.screenedOut = st.Screens
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -217,7 +218,7 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
 	}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, output.Discard())
+	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, nil, output.Discard())
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -465,5 +466,128 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 
 	if len(h.engine.SkippedFiles) != 1 || len(h.judged) != 0 || h.embeds != 0 {
 		t.Fatalf("SkippedFiles = %d, judged = %v, embeds = %d; want the file reported as skipped with nothing judged", len(h.engine.SkippedFiles), h.judged, h.embeds)
+	}
+}
+
+type screenerFunc func(state string, questions map[string]string) (map[string]float64, error)
+
+func (f screenerFunc) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	return f(state, questions)
+}
+
+func ruledADR(id, statement string) index.ADR {
+	adr := scorerADR(id, 1)
+	adr.Rules = index.Rules{{Statement: statement}}
+	return adr
+}
+
+type preJudgeRun struct {
+	onError     string
+	content     string
+	judgeChange bool
+}
+
+func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*scorerHarness, string) {
+	t.Helper()
+
+	content := run.content
+	if content == "" {
+		content = "package svc"
+	}
+
+	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
+	h.engine.JudgeChange = run.judgeChange
+	var logged bytes.Buffer
+	h.engine.Out = output.New(&logged, false)
+	h.engine.JSONOutput = true
+	threshold := 0.3
+	cfg := &config.Config{Analysis: config.Analysis{Pipeline: &config.Pipeline{
+		PreJudge: &config.StageConfig{Scorer: config.ScorerJev, Threshold: &threshold, OnError: run.onError, Jev: &config.JevOptions{}},
+	}}}
+
+	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, h.engine.Embed, screener, output.Discard())
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	return h, logged.String()
+}
+
+func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
+	var states []string
+	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+		states = append(states, state)
+		answers := make(map[string]float64, len(questions))
+		for name, question := range questions {
+			answers[name] = 0.05
+			if strings.Contains(question, "no prints") {
+				answers[name] = 0.95
+			}
+		}
+
+		return answers, nil
+	})
+
+	h, _ := runPreJudge(t, preJudgeRun{}, screener)
+
+	slices.Sort(h.judged)
+
+	if strings.Join(h.judged, ",") != "0001,0003" {
+		t.Errorf("judged %v, want 0001 (rule likely broken) and 0003 (no rules), not 0002", h.judged)
+	}
+
+	if len(states) != 1 || states[0] != "package svc" {
+		t.Errorf("screener states = %q, want one call with the content the LLM judges", states)
+	}
+
+	if stats := h.engine.CollectedStages; len(stats) != 2 || stats[1].Name != "pre_judge" || stats[1].Received != 3 || stats[1].Kept != 2 {
+		t.Errorf("stage stats = %+v, want pre_judge receiving 3 and keeping 2", stats)
+	}
+}
+
+func TestPipeline_PreJudgeSkipPassesCandidatesToTheLLM(t *testing.T) {
+	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+		return nil, errors.New("jev down")
+	})
+
+	h, logged := runPreJudge(t, preJudgeRun{}, down)
+
+	if len(h.judged) != 3 || len(h.engine.SkippedFiles) != 0 {
+		t.Errorf("judged %v with %d skipped file(s), want all 3 ADRs judged and the file not skipped", h.judged, len(h.engine.SkippedFiles))
+	}
+
+	if !strings.Contains(logged, "pre_judge") || !strings.Contains(logged, "jev down") {
+		t.Errorf("log %q lacks a warning naming the stage and the error", logged)
+	}
+}
+
+func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
+	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+		return nil, errors.New("jev down")
+	})
+
+	h, _ := runPreJudge(t, preJudgeRun{onError: config.OnErrorFail}, down)
+
+	if len(h.judged) != 0 || len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "pre_judge" {
+		t.Errorf("judged %v, failures %+v; want nothing judged and one pre_judge failure", h.judged, h.engine.StageFailures)
+	}
+}
+
+func TestPipeline_PreJudgeScreensTheDiffWithItsMarkers(t *testing.T) {
+	var states []string
+	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+		states = append(states, state)
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = 0.9
+		}
+
+		return answers, nil
+	})
+
+	runPreJudge(t, preJudgeRun{content: "@@ -1 +1 @@\n-old()\n+fmt.Println(x)\n", judgeChange: true}, screener)
+
+	if len(states) != 1 || !strings.Contains(states[0], "-old()") || !strings.Contains(states[0], "+fmt.Println(x)") {
+		t.Errorf("screener states = %q, want the judged diff with its +/- markers", states)
 	}
 }

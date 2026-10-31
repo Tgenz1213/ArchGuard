@@ -37,6 +37,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 		{"clean", output.Coverage{FilesJudged: 3, ADRChecks: 5, FilesWithoutADR: 1}},
 		{"nothing judged", output.Coverage{FilesWithoutADR: 12}},
 		{"nothing above the threshold", output.Coverage{FilesWithoutADR: 4, FilesBelowThreshold: 4}},
+		{"nothing past pre_judge", output.Coverage{FilesWithoutADR: 2, FilesScreenedOut: 2}},
 		{"no files", output.Coverage{}},
 	}
 
@@ -53,6 +54,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 					ADRChecks       *int `json:"adr_checks"`
 					FilesWithoutADR *int `json:"files_without_relevant_adr"`
 					BelowThreshold  *int `json:"files_below_threshold"`
+					ScreenedOut     *int `json:"files_screened_out"`
 				} `json:"coverage"`
 			}
 			if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
@@ -60,13 +62,13 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 			}
 
 			got := report.Coverage
-			if got.FilesJudged == nil || got.ADRChecks == nil || got.FilesWithoutADR == nil || got.BelowThreshold == nil {
+			if got.FilesJudged == nil || got.ADRChecks == nil || got.FilesWithoutADR == nil || got.BelowThreshold == nil || got.ScreenedOut == nil {
 				t.Fatalf("coverage fields missing from %s", buf.String())
 			}
 
 			want := tt.coverage
-			if *got.FilesJudged != want.FilesJudged || *got.ADRChecks != want.ADRChecks || *got.FilesWithoutADR != want.FilesWithoutADR || *got.BelowThreshold != want.FilesBelowThreshold {
-				t.Fatalf("coverage = %d/%d/%d/%d, want %+v", *got.FilesJudged, *got.ADRChecks, *got.FilesWithoutADR, *got.BelowThreshold, want)
+			if *got.FilesJudged != want.FilesJudged || *got.ADRChecks != want.ADRChecks || *got.FilesWithoutADR != want.FilesWithoutADR || *got.BelowThreshold != want.FilesBelowThreshold || *got.ScreenedOut != want.FilesScreenedOut {
+				t.Fatalf("coverage = %d/%d/%d/%d/%d, want %+v", *got.FilesJudged, *got.ADRChecks, *got.FilesWithoutADR, *got.BelowThreshold, *got.ScreenedOut, want)
 			}
 		})
 	}

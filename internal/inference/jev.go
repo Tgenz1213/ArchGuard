@@ -18,6 +18,7 @@ const (
 	jevBaseURL           = "https://api.typesafe.ai"
 	jevMaxRetries        = 3
 	jevRetryWait         = time.Second
+	jevRequestTimeout    = 60 * time.Second
 	maxJevErrorBodyBytes = 4096
 	statusOverloaded     = 529
 )
@@ -40,6 +41,11 @@ func (e *JevError) Error() string {
 
 func (e *JevError) TooLarge() bool { return e.ErrorType == "max_tokens_exceeded" }
 
+// Rejected reports that Jev refused the API key, which no retry or pass-through fixes.
+func (e *JevError) Rejected() bool {
+	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+}
+
 func (e *JevError) retryable() bool {
 	return e.Status == http.StatusTooManyRequests || e.Status == statusOverloaded
 }
@@ -53,7 +59,7 @@ type JevProvider struct {
 }
 
 func NewJevProvider(apiKey, model string) *JevProvider {
-	return NewJevProviderWithBaseURL(apiKey, model, jevBaseURL, &http.Client{})
+	return NewJevProviderWithBaseURL(apiKey, model, jevBaseURL, &http.Client{Timeout: jevRequestTimeout})
 }
 
 func NewJevProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.Client) *JevProvider {

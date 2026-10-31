@@ -31,6 +31,8 @@ type Error struct {
 	Action string
 	Kind   Kind
 	Err    error
+	// KeyRejected is set when the screener refused its API key. No on_error value hides it: it fails the whole check.
+	KeyRejected bool
 }
 
 func (e *Error) Error() string { return e.Err.Error() }
@@ -45,6 +47,8 @@ type Stage struct {
 	ListRejected bool
 	// Under on_error: skip, the stage passes its candidates on instead of the file being skipped.
 	PassThroughOnSkip bool
+	// Dropping every candidate means the stage found nothing worth judging, not that none were relevant.
+	Screens bool
 }
 
 // Skipped is a stage error the stage recovered from by passing its candidates on unchanged.
@@ -66,7 +70,7 @@ type decision struct {
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
-		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil {
+		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
 			return nil, err
 		}
 
@@ -78,6 +82,12 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	}
 
 	return slices.Concat(decided.kept, decided.passed), nil
+}
+
+// KeyRejected reports whether err is a screener's refusal of its API key.
+func KeyRejected(err error) bool {
+	stageErr, ok := errors.AsType[*Error](err)
+	return ok && stageErr.KeyRejected
 }
 
 func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {

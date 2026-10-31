@@ -8,12 +8,22 @@ type Coverage struct {
 	ADRChecks           int `json:"adr_checks"`
 	FilesWithoutADR     int `json:"files_without_relevant_adr"`
 	FilesBelowThreshold int `json:"files_below_threshold"`
+	FilesScreenedOut    int `json:"files_screened_out"`
 }
 
 func (c Coverage) line() string {
 	line := fmt.Sprintf("Checked %d file(s) against %d ADR check(s); %d file(s) had no relevant ADR", c.FilesJudged, c.ADRChecks, c.FilesWithoutADR)
 	if c.FilesBelowThreshold > 0 {
 		line += fmt.Sprintf(", %d of them because every candidate scored below the threshold", c.FilesBelowThreshold)
+	}
+
+	if c.FilesScreenedOut > 0 {
+		lead := "%d because"
+		if c.FilesBelowThreshold == 0 {
+			lead = "%d of them because"
+		}
+
+		line += fmt.Sprintf(", "+lead+" pre_judge screened out every candidate", c.FilesScreenedOut)
 	}
 
 	return line + "."
@@ -23,6 +33,8 @@ func (c Coverage) cleanResult(baselined int) string {
 	switch {
 	case c.FilesJudged == 0 && c.FilesBelowThreshold > 0:
 		return "No new architectural violations found, but no file was checked against an ADR: every candidate scored below the threshold. The right threshold depends on the embedding model; run with --debug to see the scores."
+	case c.FilesJudged == 0 && c.FilesScreenedOut > 0:
+		return "No new architectural violations found, but no file was checked against an ADR: pre_judge screened out every candidate. Run with --debug to see its scores."
 	case c.FilesJudged == 0:
 		return "No new architectural violations found, but no file was checked against an ADR."
 	case baselined > 0:

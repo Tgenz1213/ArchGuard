@@ -10,7 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ScorerCosine = "cosine"
+const (
+	ScorerCosine = "cosine"
+	ScorerJev    = "jev"
+)
+
+const JevAPIKeyEnv = "ARCHGUARD_JEV_API_KEY"
 
 const (
 	OnErrorSkip = "skip"
@@ -18,8 +23,10 @@ const (
 )
 
 var (
-	scorerNames  = []string{ScorerCosine}
-	onErrorModes = []string{OnErrorSkip, OnErrorFail}
+	scorerNames      = []string{ScorerCosine, ScorerJev}
+	rankingScorers   = []string{ScorerCosine}
+	screeningScorers = []string{ScorerJev}
+	onErrorModes     = []string{OnErrorSkip, OnErrorFail}
 )
 
 type StageConfig struct {
@@ -27,18 +34,31 @@ type StageConfig struct {
 	Threshold *float64
 	TopK      *int
 	OnError   string
+	// Set only when Scorer is jev.
+	Jev *JevOptions
+}
+
+type JevOptions struct {
+	Model string
+	// Read from JevAPIKeyEnv when the config loads, never from archguard.yaml.
+	APIKey string
 }
 
 func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 	prefix := "analysis.pipeline." + name
 
+	stage := &StageConfig{}
+	if name != stagePreJudge {
+		stage.Scorer = ScorerCosine
+	}
+
 	node = resolveAlias(node)
 	if node.Tag == "!!null" {
-		return &StageConfig{Scorer: ScorerCosine}, nil
+		return stage, checkStage(name, stage)
 	}
 
 	if node.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s: must be a mapping with scorer, threshold, top_k and on_error keys", prefix)
+		return nil, fmt.Errorf("%s: must be a mapping with scorer, threshold, top_k, on_error and options keys", prefix)
 	}
 
 	fields, err := decodeFields(prefix, node)
@@ -46,29 +66,104 @@ func decodeStage(name string, node *yaml.Node) (*StageConfig, error) {
 		return nil, err
 	}
 
-	stage := &StageConfig{Scorer: ScorerCosine}
 	for _, key := range slices.Sorted(maps.Keys(fields)) {
 		field := fields[key]
-		value := resolveAlias(&field)
-		switch key {
-		case "scorer":
-			stage.Scorer, err = decodeScorer(prefix, value)
-		case "threshold":
-			stage.Threshold, err = decodeThreshold(prefix, value)
-		case "top_k":
-			stage.TopK, err = decodeTopK(prefix, value)
-		case "on_error":
-			stage.OnError, err = decodeOnError(prefix, value)
-		default:
-			err = fmt.Errorf("%s: unrecognized key %q (expected scorer, threshold, top_k or on_error)", prefix, key)
-		}
-
-		if err != nil {
+		if err := stage.decodeKey(prefix, key, resolveAlias(&field)); err != nil {
 			return nil, err
 		}
 	}
 
-	return stage, nil
+	if err := checkStage(name, stage); err != nil {
+		return nil, err
+	}
+
+	if options, ok := fields["options"]; ok && resolveAlias(&options).Tag != "!!null" {
+		err = stage.decodeOptions(prefix, resolveAlias(&options))
+	} else if stage.Scorer == ScorerJev {
+		stage.Jev = &JevOptions{}
+	}
+
+	return stage, err
+}
+
+func (s *StageConfig) decodeKey(prefix, key string, value *yaml.Node) error {
+	var err error
+
+	switch key {
+	case "scorer":
+		s.Scorer, err = decodeScorer(prefix, value)
+	case "threshold":
+		s.Threshold, err = decodeThreshold(prefix, value)
+	case "top_k":
+		s.TopK, err = decodeTopK(prefix, value)
+	case "on_error":
+		s.OnError, err = decodeOnError(prefix, value)
+	case "options":
+		// Decoded once the scorer is known, since each scorer takes its own options.
+	default:
+		err = fmt.Errorf("%s: unrecognized key %q (expected scorer, threshold, top_k, on_error or options)", prefix, key)
+	}
+
+	return err
+}
+
+func checkStage(name string, stage *StageConfig) error {
+	prefix := "analysis.pipeline." + name
+
+	if name != stagePreJudge {
+		if !slices.Contains(rankingScorers, stage.Scorer) {
+			return fmt.Errorf("%s.scorer: %q screens for violations and cannot rank; use it in pre_judge (ranking scorers: %s)", prefix, stage.Scorer, strings.Join(rankingScorers, ", "))
+		}
+
+		return nil
+	}
+
+	if stage.Scorer == "" {
+		return fmt.Errorf("%s.scorer: required (available: %s)", prefix, strings.Join(screeningScorers, ", "))
+	}
+
+	if !slices.Contains(screeningScorers, stage.Scorer) {
+		return fmt.Errorf("%s.scorer: %q cannot screen for violations (available: %s)", prefix, stage.Scorer, strings.Join(screeningScorers, ", "))
+	}
+
+	if stage.Threshold == nil {
+		return fmt.Errorf("%s.threshold: required for scorer %s", prefix, stage.Scorer)
+	}
+
+	return nil
+}
+
+func (s *StageConfig) decodeOptions(prefix string, node *yaml.Node) error {
+	prefix += ".options"
+
+	if s.Scorer != ScorerJev {
+		return fmt.Errorf("%s: scorer %s takes no options", prefix, s.Scorer)
+	}
+
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s: must be a mapping with a model key", prefix)
+	}
+
+	fields, err := decodeFields(prefix, node)
+	if err != nil {
+		return err
+	}
+
+	s.Jev = &JevOptions{}
+	for _, key := range slices.Sorted(maps.Keys(fields)) {
+		field := fields[key]
+		value := resolveAlias(&field)
+		switch key {
+		case "model":
+			if value.Tag != "!!str" || value.Decode(&s.Jev.Model) != nil || s.Jev.Model == "" {
+				return fmt.Errorf("%s.model: must be a non-empty string", prefix)
+			}
+		default:
+			return fmt.Errorf("%s: unrecognized key %q for scorer jev (expected model)", prefix, key)
+		}
+	}
+
+	return nil
 }
 
 func decodeScorer(prefix string, node *yaml.Node) (string, error) {

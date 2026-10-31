@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -16,7 +18,7 @@ import (
 func main() {
 	ctx, stop := cli.NotifyContext(context.Background())
 
-	factories := cli.ProviderFactories{Chat: chatProviderFactory(stop), Embed: embedProviderFactory(stop)}
+	factories := cli.ProviderFactories{Chat: chatProviderFactory(stop), Embed: embedProviderFactory(stop), Jev: jevFactory}
 	exitCode, err := cli.Execute(ctx, "e2e", factories)
 
 	stop()
@@ -54,6 +56,30 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 			EmbedUsage:   mockEmbedUsage,
 		}
 	}
+}
+
+type mockJev struct{}
+
+func jevFactory(*config.Config) stage.Screener { return mockJev{} }
+
+func (mockJev) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
+		return nil, &inference.JevError{Status: http.StatusUnauthorized}
+	}
+
+	if strings.Contains(state, testutil.MockJevFailureTrigger) {
+		return nil, fmt.Errorf("mock jev failure (E2E trigger)")
+	}
+
+	answers := make(map[string]float64, len(questions))
+	for name, question := range questions {
+		answers[name] = 0.05
+		if strings.Contains(question, testutil.MockJevBreaksTrigger) {
+			answers[name] = 0.95
+		}
+	}
+
+	return answers, nil
 }
 
 // Markers print on invocation, not construction, so tests can prove a

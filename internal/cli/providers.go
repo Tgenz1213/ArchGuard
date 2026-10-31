@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -130,4 +131,18 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	}
 
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
+}
+
+// Nil unless a stage uses Jev; config has already required its API key.
+func selectScreener(cfg *config.Config, factories ProviderFactories) stage.Screener {
+	pipeline := cfg.Analysis.Pipeline
+	if pipeline == nil || pipeline.PreJudge == nil || pipeline.PreJudge.Jev == nil {
+		return nil
+	}
+
+	if factories.Jev != nil {
+		return factories.Jev(cfg)
+	}
+
+	return inference.NewJevProvider(pipeline.PreJudge.Jev.APIKey, pipeline.PreJudge.Jev.Model)
 }

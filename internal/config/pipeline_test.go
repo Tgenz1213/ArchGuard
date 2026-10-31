@@ -192,14 +192,87 @@ func TestLoadConfig_PipelineOnError(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_JevPreJudge(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "test-key")
+
+	cfg, err := loadFromYAML(t, `analysis:
+  pipeline:
+    pre_judge:
+      scorer: jev
+      threshold: 0.3
+      options:
+        model: jev-1.13.0
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stage := cfg.Analysis.Pipeline.PreJudge
+	if stage == nil || stage.Scorer != ScorerJev || stage.Threshold == nil || *stage.Threshold != 0.3 {
+		t.Fatalf("PreJudge = %+v", stage)
+	}
+
+	if stage.Jev == nil || stage.Jev.Model != "jev-1.13.0" || stage.Jev.APIKey != "test-key" {
+		t.Errorf("Jev = %+v, want the model from options and the key from %s", stage.Jev, JevAPIKeyEnv)
+	}
+}
+
+func TestLoadConfig_JevPreJudgeWithoutOptions(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "test-key")
+
+	cfg, err := loadFromYAML(t, "analysis:\n  pipeline:\n    pre_judge:\n      scorer: jev\n      threshold: 0.3\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if jev := cfg.Analysis.Pipeline.PreJudge.Jev; jev == nil || jev.Model != "" || jev.APIKey != "test-key" {
+		t.Errorf("Jev = %+v, want no model and the key from %s", jev, JevAPIKeyEnv)
+	}
+}
+
+func TestLoadConfig_JevPreJudgeWithoutAPIKey(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "")
+
+	_, err := loadFromYAML(t, "analysis:\n  pipeline:\n    pre_judge:\n      scorer: jev\n      threshold: 0.3\n")
+	if err == nil {
+		t.Fatal("expected an error for a missing Jev API key, got nil")
+	}
+
+	for _, want := range []string{"analysis.pipeline.pre_judge", JevAPIKeyEnv} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+func TestLoadConfig_NoJevStageNeedsNoAPIKey(t *testing.T) {
+	t.Setenv(JevAPIKeyEnv, "")
+
+	if _, err := loadFromYAML(t, "analysis:\n  pipeline:\n    rank:\n      top_k: 2\n"); err != nil {
+		t.Fatalf("a pipeline without a Jev stage failed to load: %v", err)
+	}
+}
+
 func TestLoadConfig_PipelineInvalid(t *testing.T) {
 	tests := []struct {
 		name string
 		yaml string
 		want []string
 	}{
-		{"unknown scorer", "rank:\n      scorer: jev", []string{"analysis.pipeline.rank.scorer", `"jev"`, "cosine"}},
-		{"unrecognized stage", "pre_judge:\n      scorer: cosine", []string{"analysis.pipeline", `"pre_judge"`}},
+		{"unknown scorer", "rank:\n      scorer: bm25", []string{"analysis.pipeline.rank.scorer", `"bm25"`, "cosine, jev"}},
+		{"jev ranking", "rank:\n      scorer: jev", []string{"analysis.pipeline.rank.scorer", `"jev"`, "pre_judge"}},
+		{"jev reranking", "rerank:\n      scorer: jev\n      threshold: 0.3", []string{"analysis.pipeline.rerank.scorer", `"jev"`}},
+		{"cosine screening", "pre_judge:\n      scorer: cosine\n      threshold: 0.3", []string{"analysis.pipeline.pre_judge.scorer", `"cosine"`, "jev"}},
+		{"pre_judge without scorer", "pre_judge:\n      threshold: 0.3", []string{"analysis.pipeline.pre_judge.scorer", "required"}},
+		{"empty pre_judge", "pre_judge:", []string{"analysis.pipeline.pre_judge.scorer", "required"}},
+		{"jev without threshold", "pre_judge:\n      scorer: jev", []string{"analysis.pipeline.pre_judge.threshold", "required"}},
+		{"unknown jev option", "pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        temperature: 0", []string{"analysis.pipeline.pre_judge.options", `"temperature"`}},
+		{"jev api key option", "pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        api_key: secret", []string{"analysis.pipeline.pre_judge.options", `"api_key"`}},
+		{"empty jev model", "pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        model: \"\"", []string{"analysis.pipeline.pre_judge.options.model"}},
+		{"non-string jev model", "pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options:\n        model: [a]", []string{"analysis.pipeline.pre_judge.options.model"}},
+		{"options not a mapping", "pre_judge:\n      scorer: jev\n      threshold: 0.3\n      options: jev-latest", []string{"analysis.pipeline.pre_judge.options", "mapping"}},
+		{"cosine options", "rank:\n      options:\n        model: x", []string{"analysis.pipeline.rank.options", "no options"}},
+		{"unrecognized stage", "judge:\n      scorer: cosine", []string{"analysis.pipeline", `"judge"`, "pre_judge"}},
 		{"unrecognized stage key", "rerank:\n      retries: 2", []string{"analysis.pipeline.rerank", `"retries"`}},
 		{"unknown on_error", "rank:\n      on_error: warn", []string{"analysis.pipeline.rank.on_error", `"warn"`, "skip, fail"}},
 		{"non-string on_error", "rerank:\n      on_error: [skip]", []string{"analysis.pipeline.rerank.on_error", "skip, fail"}},
