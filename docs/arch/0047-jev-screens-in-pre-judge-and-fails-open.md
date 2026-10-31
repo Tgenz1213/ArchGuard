@@ -27,7 +27,7 @@ Every ADR that survives ranking costs a full LLM compliance call, and most concl
 - A screening stage MUST NOT report a violation; only LLM judgment reports one.
 - A screening stage MUST pass an ADR that has no rules through unchanged.
 - A screening stage MUST send the screener the same content the LLM judges, never a diff stripped of its markers.
-- A screening stage whose `on_error` is `skip` or unset MUST pass its candidates on unchanged when it fails; it MUST NOT drop them or skip the file. Failing the check under `on_error: fail` is allowed.
+- A screening stage whose `on_error` is `skip` or unset MUST pass its candidates on unchanged when it fails, unless the screener rejected its API key or the run was cancelled; it MUST NOT drop them or skip the file. Failing the check under `on_error: fail` is allowed.
 - A screening stage MUST fail the check as a config error when the screener rejects its API key, whatever `on_error` says.
 - Scorer credentials MUST be read from environment variables, never from `archguard.yaml`.
 
