@@ -30,78 +30,14 @@ Six new ADRs, numbered from the next free number on `origin/main` (0049 today; r
 - **`.claude/rules/config.md` is not touched;** #452 rewrites it.
 - **The issue's AC is updated** to match: six ADRs, 0020 kept, 0031's amendment in #457, presets and LLM profiles documented in the README with their tickets (they are features, not decisions).
 
-## The six ADRs
+## The six ADRs (texts are the drafts)
 
-Each is short: Context of one or two sentences, a few Decision bullets, Rules, Alternatives, Consequences. Scopes are kept narrow so the repo's own drift check, which keeps the top 6 ADRs per file, isn't crowded by four pipeline ADRs on every analysis file.
-
-### 1. The pipeline is made of nodes
-
-Scope: `internal/analysis/**`, `internal/config/**`. Supersedes 0022.
-
-Decision: a node has a `name`, a `job` and a runner (`with`). `rank` runs on cosine and keeps by `threshold`/`top_k`. `ask` runs on Jev or Kev, asks one question per ADR or per rule (`for_each`), and keeps by its `keep` setting. `judge` runs on an LLM, Jev or Kev and is the only node that reports violations; a Jev or Kev judge reports by its `report` setting. `suggest` runs on an LLM. A scorer scores; its node keeps or drops.
-
-Rules:
-- Pipeline collaborators such as scorers and nodes MUST be objects with methods, not bare functions.
-- A scorer MUST only score its candidates; it MUST NOT drop or reorder them.
-- A `rank` or `ask` node MUST NOT decide whether a file violates an ADR.
-- An ADR suppressed by an `archguard-ignore: <ADR_ID>` comment MUST be removed before the first node runs.
-- An `ask` node MUST pass on, without asking, an ADR it has no question for (a per-rule `ask` and an ADR with no rules).
-
-Alternatives: more slots; Jev and Kev only as filters.
-
-### 2. Nodes run in list order
-
-Scope: `internal/config/**`, `internal/analysis/file_check.go`. The one ADR a branching graph would supersede.
-
-Decision: `analysis.pipeline` is a list run top to bottom, each node on what the node above kept. The first node is a `rank`, or an `ask` per ADR with a `keep.top_k`. Exactly one `judge`; only one `suggest` may follow it.
-
-Rules: validation MUST reject a first node that is neither of those; validation MUST reject no `judge`, more than one, or any node after it other than one `suggest`.
-
-Alternatives: a graph where nodes name their inputs (routing, merging disagreeing judges, per-path reporting).
-
-### 3. The pipeline is always written out
-
-Scope: `internal/config/**`, `internal/cli/**`.
-
-Decision: `check` needs a list-shaped `analysis.pipeline`. A missing one, the old `rank`/`rerank`/`pre_judge` mapping, or any validation failure exits 3 and names the node or key. No aliases. The pipeline is validated when `check` builds it, not when the config loads, so `archguard index` works on a config only `check` rejects. (What the error message shows and how `init` helps are README behaviour for #452, not in the ADR.)
-
-Rules: the old mapping MUST be rejected, not converted; a `check` whose pipeline is missing, not a list or invalid MUST exit 3; loading the config MUST NOT validate the pipeline.
-
-Alternatives: aliases; a missing pipeline meaning the default.
-
-### 4. What a node failure does
-
-Scope: `internal/analysis/**`, `internal/cli/**`.
-
-Decision: `on_error` (`skip` or `fail`) applies to `rank` and `ask` nodes only. Default `skip`, except a first-node `ask`, which defaults to `fail` and rejects `skip`. Under `skip`, a failed `rank` skips the file and a failed `ask` passes its ADRs on unchanged. Under `fail`, the failure is recorded, that file's later nodes stop, other files still run, and the failure's kind (a dependency that didn't respond, or a precondition not met) picks the exit code, which outranks drift; `--update-baseline` then writes nothing. A failed `judge` or `suggest` call works as an LLM judge or suggestion call does today and takes no `on_error`. A rejected Jev or Kev key exits 3 whatever `on_error` says.
-
-Rules: one per point above, each a single MUST.
-
-Alternatives: pass on everything on any failure; fail on every failure.
-
-### 5. Jev and Kev read both sides of a diff
-
-Scope: `internal/analysis/stage/**`, `internal/inference/**`.
-
-Decision: when a file is judged by its diff, Jev and Kev get the before side (unchanged and removed lines) and the after side (unchanged and added lines) separately, as plain text, never the `+`/`-` diff. A side that doesn't exist isn't sent. An `ask` keeps an ADR that passes on either side and ranks it by the higher score. A Jev or Kev judge reports a rule (or the ADR, per ADR) that meets `report` after and not before.
-
-Rules: one per point above.
-
-Alternatives: send the marked diff (a removed guard reads as present code); after side only (a removal leaves nothing to find); compare per ADR (misses a newly broken second rule).
-
-Consequences: two calls per node per file on a diff; a worsened, already broken rule isn't reported by a Jev or Kev judge; a rule that depends on code outside the hunks can be missed.
-
-### 6. Runner keys come from the environment and go only to their runner
-
-Scope: `internal/config/**`, `internal/cli/**`, `internal/inference/**`.
-
-Decision: Jev reads `ARCHGUARD_JEV_API_KEY` and Kev `ARCHGUARD_KEV_API_KEY`; keys never come from `archguard.yaml`; a key is sent only to its own runner's endpoint; a key is required only when a node uses its runner, checked when `check` builds the pipeline. LLM profile keys: depends on Q4.
-
-Rules: keys MUST come from environment variables; a runner's key MUST NOT be sent to any other runner's endpoint.
-
-## Status (Q3)
-
-On main, the slot config and the `pre_judge` stage contradict ADRs 2, 3 and 5 until #452 lands, and the drift check reads `Accepted` ADRs only. Recommended: the six ADRs merge as `Proposed`, and the PR that implements each one flips it to `Accepted` (and #452 flips 0022 to `Superseded`). Then no PR in between is flagged for code that hasn't changed yet, and 0022 keeps guarding the stage code until it's replaced.
+1. `0049-pipeline-nodes.md`: the pipeline is made of nodes; only the judging node reports; scorers only score; suppressed ADRs removed first; an ADR a node has no question for passes on. Supersedes 0022.
+2. `0050-nodes-run-in-order.md`: a list run top to bottom; the first node narrows; one judging node, only fix suggestions after it.
+3. `0051-the-pipeline-is-always-written-out.md`: missing or invalid pipeline exits 3; retired shapes rejected, never aliased; validated by `check`, not at config load.
+4. `0052-what-a-node-failure-does.md`: `on_error` skip/fail for choosing nodes; first node can't skip; skip passes ADRs on (a similarity ranker skips the file); fail picks the exit code by kind and outranks drift; judge/suggest failures take no `on_error`; a rejected key exits 3.
+5. `0053-quoteless-runners-read-both-sides-of-a-diff.md`: before and after sides asked separately as plain text; missing side not asked; keep on either side, rank by the higher score; a judge reports per rule what passes after and not before.
+6. `0054-provider-keys-stay-with-their-provider.md`: every key from the environment; a key goes only to the endpoint it's configured for.
 
 ## Verification
 
