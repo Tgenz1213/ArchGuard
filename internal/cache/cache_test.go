@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -143,6 +145,23 @@ func TestCache_SuggestionRoundTrip(t *testing.T) {
 
 	if got != "move this to Go" {
 		t.Errorf("expected suggestion %q, got %q", "move this to Go", got)
+	}
+}
+
+func TestCache_GetCorruptEntryReturnsError(t *testing.T) {
+	c, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New failed: %v", err)
+	}
+
+	key := "corrupt-key"
+	if err := os.WriteFile(filepath.Join(c.Dir, key+".json"), []byte("{not json"), 0644); err != nil {
+		t.Fatalf("writing corrupt entry failed: %v", err)
+	}
+
+	res, found, err := c.Get(key)
+	if found || err == nil {
+		t.Fatalf("expected found=false and a non-nil error for a corrupt entry, got res=%+v found=%v err=%v", res, found, err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
@@ -26,18 +27,10 @@ func New(projectRoot string) (*Cache, error) {
 }
 
 func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
-	path := filepath.Join(c.Dir, key+".json")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, false, nil
-	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-
 	var result inference.AnalysisResult
-	if err := json.Unmarshal(raw, &result); err != nil {
+
+	found, err := c.readEntry("", key, &result)
+	if err != nil || !found {
 		return nil, false, err
 	}
 
@@ -45,14 +38,7 @@ func (c *Cache) Get(key string) (*inference.AnalysisResult, bool, error) {
 }
 
 func (c *Cache) Put(key string, result *inference.AnalysisResult) error {
-	path := filepath.Join(c.Dir, key+".json")
-
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, encoded, 0644)
+	return c.writeEntry("", key, result)
 }
 
 // hashParts length-prefixes each part before hashing so e.g. ("a||b","c")
@@ -107,38 +93,39 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	)
 }
 
-func (c *Cache) suggestionPath(key string) string {
-	return filepath.Join(c.Dir, "suggestions", key+".json")
-}
-
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {
-	raw, err := os.ReadFile(c.suggestionPath(key))
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-
-	if err != nil {
-		return "", false, err
-	}
-
 	var suggestion string
-	if err := json.Unmarshal(raw, &suggestion); err != nil {
-		return "", false, err
-	}
+	found, err := c.readEntry("suggestions", key, &suggestion)
 
-	return suggestion, true, nil
+	return suggestion, found, err
 }
 
 func (c *Cache) PutSuggestion(key, suggestion string) error {
-	dir := filepath.Join(c.Dir, "suggestions")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	return c.writeEntry("suggestions", key, suggestion)
+}
+
+func (c *Cache) readEntry(namespace, key string, value any) (bool, error) {
+	raw, err := os.ReadFile(filepath.Join(c.Dir, namespace, key+".json"))
+	if os.IsNotExist(err) {
+		return false, nil
 	}
 
-	encoded, err := json.Marshal(suggestion)
+	if err != nil {
+		return false, err
+	}
+
+	if err := json.Unmarshal(raw, value); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (c *Cache) writeEntry(namespace, key string, value any) error {
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, key+".json"), encoded, 0644)
+	return atomicfile.Write(filepath.Join(c.Dir, namespace, key+".json"), encoded)
 }
