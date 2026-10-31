@@ -34,39 +34,48 @@ Frontmatter: `status: Accepted`. `scope`: `internal/analysis/**`, `internal/conf
 - Errors, from #443: `ask` under `on_error: skip` passes its ADRs on unchanged (a first-node `ask` defaults to `fail`); a rejected key exits 3 whatever `on_error` says; credentials come only from environment variables.
 - A chain for v2. Branching (a node naming its inputs) comes after v2 (#459) and keeps every chain config valid.
 
-**Rules** (one MUST / MUST NOT each, checkable against one file):
+**Rules** (as committed, one MUST / MUST NOT each):
 
-Carried over from 0022 and 0020:
-1. Pipeline collaborators such as scorers, stages and nodes MUST be objects with methods, not bare functions.
-2. A scorer MUST only score its candidates; it MUST NOT drop or reorder them.
-3. A `rank` or `ask` node MUST NOT decide whether a file violates an ADR.
-4. An ADR suppressed by an `archguard-ignore: <ADR_ID>` comment MUST be removed before the first node runs.
-5. An unset or non-positive `analysis.max_relevant_adrs` MUST fall back to the default, so it MUST stay a plain `int`.
-6. A `rank` node's unset `threshold` and `top_k` MUST fall back to `vector_store.similarity_threshold` and `analysis.max_relevant_adrs`.
-
-New:
-7. Config loading MUST NOT turn the `rank`, `rerank` or `pre_judge` keys into nodes.
-8. A `check` whose `analysis.pipeline` is missing or not a list MUST exit 3.
-9. Pipeline validation MUST reject a pipeline with no `judge` node, more than one, or any node after the `judge` other than one `suggest` node.
-10. Jev, Kev and LLM profile credentials MUST come from environment variables, never from `archguard.yaml`.
-11. An LLM profile whose provider differs from `llm.provider` MUST read `ARCHGUARD_<PROVIDER>_API_KEY` and MUST NOT fall back to `ARCHGUARD_API_KEY`.
-12. A Jev or Kev call rejected for its API key MUST fail the check with exit code 3, whatever `on_error` says.
-13. An `ask` node that fails under `on_error: skip`, the default for every `ask` but the first node, MUST pass its ADRs on unchanged, unless its key was rejected or the run was cancelled.
-14. An `ask` node with `for_each: rule` MUST pass on, without asking about it, an ADR that has no rules and no generated questions.
-15. Under `--since` without `--whole-file`, a Jev or Kev node MUST be asked about the before side and the after side of the hunks separately.
-16. Under `--since`, an `ask` node MUST keep an ADR that passes on either side.
-17. Under `--since`, a Jev or Kev `judge` MUST report an ADR only when it meets `report` after the change and not before.
-18. A Jev or Kev `judge` finding MUST count as a violation and MUST NOT be marked unverified.
-
-Dropped after review: "each node receives only what the node above kept" (behaviour, and wrong for the first node) and "a Jev/Kev judge lists rule-less ADRs as not judged" (reporting behaviour; it moves to Consequences). That leaves 18 single-check rules; the count is high because 0020 and 0022 stop being checked and their surviving rules have to live somewhere.
+- Pipeline collaborators such as scorers, stages and nodes MUST be objects with methods, not bare functions.
+- A scorer MUST only score its candidates; it MUST NOT drop or reorder them.
+- A `rank` or `ask` node MUST NOT decide whether a file violates an ADR.
+- An ADR suppressed by an `archguard-ignore: <ADR_ID>` comment MUST be removed before the first node runs.
+- An unset or non-positive `analysis.max_relevant_adrs` MUST fall back to the default, so it MUST stay a plain `int`.
+- A `rank` node's unset `threshold` and `top_k` MUST fall back to `vector_store.similarity_threshold` and `analysis.max_relevant_adrs`.
+- A vector store whose backend fails MUST return an error, not an empty candidate list.
+- An `analysis.pipeline` given as a mapping with `rank`, `rerank` or `pre_judge` keys MUST be rejected, not converted into nodes.
+- A `check` whose `analysis.pipeline` is missing or not a list MUST exit 3.
+- Pipeline validation MUST reject a first node that is neither a `rank` nor an `ask` with `for_each: adr` and a `keep.top_k`.
+- Pipeline validation MUST reject a pipeline with no `judge` node, more than one, or any node after the `judge` other than one `suggest` node.
+- Jev, Kev and LLM profile credentials MUST come from environment variables, never from `archguard.yaml`.
+- A Kev request MUST NOT carry the Jev API key.
+- An LLM profile whose provider differs from `llm.provider` MUST read `ARCHGUARD_<PROVIDER>_API_KEY` and MUST NOT fall back to `ARCHGUARD_API_KEY`.
+- A Jev or Kev call rejected for its API key MUST fail the check with exit code 3, whatever `on_error` says.
+- An `ask` node that is the first node MUST default to `on_error: fail`; any other `ask` MUST default to `skip`.
+- An `ask` node that fails under `on_error: skip` MUST pass its ADRs on unchanged, unless its key was rejected or the run was cancelled.
+- A node failure under `on_error: fail` MUST take precedence over the drift exit code, and `--update-baseline` MUST NOT write the baseline after one.
+- An `ask` node with `for_each: rule` MUST pass on, without asking about it, an ADR that has no rules and no generated questions.
+- When a file is judged by its diff, a Jev or Kev node MUST be asked about the before side and the after side of the hunks separately, and MUST NOT be sent the diff with its `+`/`-` markers.
+- When a file is judged by its diff, an `ask` node MUST keep an ADR that passes on either side.
+- When a file is judged by its diff, a Jev or Kev `judge` MUST report a rule, or with `for_each: adr` an ADR, only when it meets `report` after the change and not before.
+- A Jev or Kev `judge` finding MUST count as a violation and MUST NOT be marked unverified.
 
 **Alternatives considered**: more slots; aliasing the old keys; branching in v2; an LLM-only judge with Jev/Kev only as filters; "partly superseded" statuses (above).
 
 **Consequences**: a Jev/Kev judge lists ADRs with no rules as "not judged: no rules" unless `generate_questions` covers them; breaking change for v2.0.0, users rerun `archguard init`; two Jev/Kev calls per node per file under `--since`; a Jev/Kev judge misses a change that worsens an existing violation, reports everything that breaks a rule in a new file, and nothing in a deleted file; a quote-less baseline entry suppresses that ADR for the whole file; until #452 lands, main's slot-based config code contradicts rules 7 and 9, so a PR touching it before #452 can be flagged by the drift check (no such PR is open; #452 is next and stacked on this).
 
+## Decisions from Tim (2026-10-31)
+
+- Under `--since`, a Jev or Kev judge compares before and after **per rule** (per ADR only with `for_each: adr`), so a newly broken rule is reported even when another rule of the same ADR was already broken.
+- Under `--since`, an `ask` node's `keep.top_k` ranks each ADR by **the higher of its two sides' scores**.
+
 ## Review
 
 Reviewed on `plan/451-node-adr` by a read-only agent. Fixed from it: rule 7 reworded so #452's "run archguard init" detection isn't flagged; #443's default, exceptions and rule-less pass-through added (rules 13, 14); 0031's empty-quote wording handled; first-node narrowing and the failed Jev/Kev judge added to the Decision; carried-over 0022 points named; `internal/output/**` added to scope; rule 9 rewritten.
+
+## Code review fixes (/code-review xhigh)
+
+13 findings fixed without changing the approved design: the before/after split covers every diff that's judged (ADR 0037 too) and never sends `+`/`-` markers; a missing side isn't asked; Kev never receives Jev's key; rules for the first node, `on_error` defaults, `on_error: fail` precedence and the vector store error rule from 0022; ADR 0016 still gates `suggest`; `generate_questions` defined; the slot-key rule reworded so a `rank` node isn't read as the old `rank` key; `init` described as adding the pipeline without touching other keys; Consequences say every existing config breaks, not only slot configs; `internal/index/**` added to scope. Two gaps went to Tim (above).
 
 ## Verification
 
