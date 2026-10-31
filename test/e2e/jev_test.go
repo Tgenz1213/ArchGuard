@@ -99,3 +99,34 @@ func TestE2E_JevPreJudgeWithoutAPIKeyIsAConfigError(t *testing.T) {
 		t.Errorf("stderr should name the stage and %s, got: %s", config.JevAPIKeyEnv, stderr)
 	}
 }
+
+func TestE2E_JevRejectedKeyFailsTheCheckAsAConfigError(t *testing.T) {
+	for _, onError := range []string{"", "      on_error: skip\n", "      on_error: fail\n"} {
+		t.Run("on_error "+strings.TrimSpace(onError), func(t *testing.T) {
+			tempDir, binaryPath := buildE2EBinary(t)
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPreJudge+onError))
+			writeRuledADRs(t, tempDir)
+
+			files := []string{"a.go", "b.go", "c.go"}
+			for _, name := range files {
+				fixture := violationFixtureContent() + "// " + testutil.MockJevRejectedKeyTrigger + "\n"
+				if err := os.WriteFile(filepath.Join(tempDir, name), []byte(fixture), 0644); err != nil {
+					t.Fatalf("Failed to create fixture: %v", err)
+				}
+			}
+
+			_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, []string{config.JevAPIKeyEnv + "=mock_key"}, files...)
+			if exitCode != int(cli.ExitConfig) {
+				t.Fatalf("expected config exit code %d, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
+			}
+
+			if got := strings.Count(stderr, config.JevAPIKeyEnv+" was rejected"); got != 1 {
+				t.Errorf("stderr names the rejected key %d times, want once: %s", got, stderr)
+			}
+
+			if strings.Contains(stderr, "skipped") {
+				t.Errorf("stderr should not warn per file, got: %s", stderr)
+			}
+		})
+	}
+}

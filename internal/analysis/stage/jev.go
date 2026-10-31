@@ -94,7 +94,7 @@ func screeningError(err error) error {
 	}
 
 	if errors.As(err, &jevErr) && jevErr.Rejected() {
-		return &Error{Action: screeningAction, Err: err, Unrecoverable: true}
+		return &Error{Action: screeningAction, Err: err, KeyRejected: true}
 	}
 
 	return &Error{Action: screeningAction, Err: err}

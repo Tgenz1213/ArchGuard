@@ -83,6 +83,22 @@ type StageFailure struct {
 	Error string     `json:"error"`
 }
 
+// KeyRejectedError stops a check whose screening stage was refused its API key, whatever on_error says.
+type KeyRejectedError struct {
+	Stage string
+	Err   error
+}
+
+func newKeyRejectedError(stageName string, err error) *KeyRejectedError {
+	return &KeyRejectedError{Stage: stageName, Err: err}
+}
+
+func (e *KeyRejectedError) Error() string {
+	return fmt.Sprintf("%s was rejected by the %s stage (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Stage, errors.Unwrap(e.Err))
+}
+
+func (e *KeyRejectedError) Unwrap() error { return e.Err }
+
 var ErrDriftDetected = errors.New("architectural drift detected")
 
 type DriftDetectedError struct {
@@ -125,6 +141,12 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	if err := e.checkFiles(ctx, run, files); err != nil {
+		return err
+	}
+
+	// Before the summary: a run that stopped early must never look complete.
+	if err := run.rejectedKey(); err != nil {
+		e.collectStageStats(run)
 		return err
 	}
 
@@ -201,7 +223,7 @@ func (e *Engine) checkFiles(ctx context.Context, run *runState, files []string) 
 		}
 
 		group.Go(func() error {
-			if ctx.Err() == nil {
+			if ctx.Err() == nil && run.rejectedKey() == nil {
 				e.checkFile(ctx, run, file)
 			}
 

@@ -30,6 +30,7 @@ type runState struct {
 	coverage      output.Coverage
 	projection    Projection
 	uncounted     bool
+	keyRejection  error
 }
 
 type fileResult struct {
@@ -81,6 +82,23 @@ func (r *runState) addStageFailure(failure StageFailure) {
 	defer r.mu.Unlock()
 
 	r.stageFailures = append(r.stageFailures, failure)
+}
+
+// rejectKey keeps the first rejected-key error; files already in flight may report it again.
+func (r *runState) rejectKey(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.keyRejection == nil {
+		r.keyRejection = err
+	}
+}
+
+func (r *runState) rejectedKey() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.keyRejection
 }
 
 func (r *runState) merge(result *fileResult) {

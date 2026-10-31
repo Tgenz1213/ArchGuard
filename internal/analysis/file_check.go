@@ -136,6 +136,12 @@ func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage
 			continue
 		}
 
+		if stage.KeyRejected(err) {
+			// The run reports this once and stops; a line per file would repeat it.
+			fc.run.rejectKey(newKeyRejectedError(st.Name, err))
+			return nil, false
+		}
+
 		if err != nil {
 			fc.failStage(st, err)
 			return nil, false

@@ -213,6 +213,10 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 		return ExitError, errors.Join(err, stageErr, analysisErr)
 	}
 
+	if isKeyRejected(runErr) {
+		return ExitConfig, analysisErr
+	}
+
 	if r.opts.DryRun {
 		return dryRunExit(analysisErr)
 	}
@@ -383,7 +387,17 @@ func isDriftError(err error) bool {
 	return errors.As(err, &driftErr)
 }
 
+func isKeyRejected(err error) bool {
+	var rejected *analysis.KeyRejectedError
+
+	return errors.As(err, &rejected)
+}
+
 func exitCodeForAnalysisError(err error) ExitCode {
+	if isKeyRejected(err) {
+		return ExitConfig
+	}
+
 	if isDriftError(err) {
 		return ExitDriftDetected
 	}

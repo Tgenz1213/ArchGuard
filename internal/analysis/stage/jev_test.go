@@ -151,6 +151,7 @@ func TestJevStage_Errors(t *testing.T) {
 	}{
 		{"skip passes candidates through", outage, false, stage.KindUnavailable, true},
 		{"skip does not hide a rejected key", unauthorized, false, stage.KindUnavailable, false},
+		{"fail reports a rejected key", unauthorized, true, stage.KindUnavailable, false},
 		{"fail reports an unavailable dependency", outage, true, stage.KindUnavailable, false},
 		{"fail reports input over the size limit as a precondition", tooLarge, true, stage.KindPreconditionNotMet, false},
 	}
@@ -170,6 +171,10 @@ func TestJevStage_Errors(t *testing.T) {
 
 			if tt.skipped && ids(got) != "a,b" {
 				t.Errorf("kept %s, want every candidate unchanged", ids(got))
+			}
+
+			if want := errors.Is(tt.err, unauthorized); stage.KeyRejected(err) != want {
+				t.Errorf("KeyRejected(%v) = %v, want %v", err, !want, want)
 			}
 
 			var stageErr *stage.Error

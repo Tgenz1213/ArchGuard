@@ -31,8 +31,8 @@ type Error struct {
 	Action string
 	Kind   Kind
 	Err    error
-	// Unrecoverable is set for a failure, such as a rejected API key, that on_error: skip must not hide.
-	Unrecoverable bool
+	// KeyRejected is set when the screener refused its API key. No on_error value hides it: it fails the whole check.
+	KeyRejected bool
 }
 
 func (e *Error) Error() string { return e.Err.Error() }
@@ -70,7 +70,7 @@ type decision struct {
 func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
-		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || unrecoverable(err) {
+		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
 			return nil, err
 		}
 
@@ -84,9 +84,10 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	return slices.Concat(decided.kept, decided.passed), nil
 }
 
-func unrecoverable(err error) bool {
+// KeyRejected reports whether err is a screener's refusal of its API key.
+func KeyRejected(err error) bool {
 	stageErr, ok := errors.AsType[*Error](err)
-	return ok && stageErr.Unrecoverable
+	return ok && stageErr.KeyRejected
 }
 
 func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
