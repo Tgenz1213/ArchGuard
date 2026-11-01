@@ -60,9 +60,9 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 
 type mockJev struct{}
 
-func jevFactory(string) node.Screener { return mockJev{} }
+func jevFactory(string) node.Asker { return mockJev{} }
 
-func (mockJev) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (mockJev) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
 		return nil, &inference.JevError{Status: http.StatusUnauthorized}
 	}

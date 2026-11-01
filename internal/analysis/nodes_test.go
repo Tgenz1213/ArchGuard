@@ -17,9 +17,9 @@ func buildPipeline(t *testing.T, settings ...config.Node) []node.Node {
 
 	var models []string
 
-	nodes := analysis.BuildPipeline(settings, index.NewLocalStore(1), &inference.MockProvider{}, fixedScreeners{models: &models})
+	nodes := analysis.BuildPipeline(settings, index.NewLocalStore(1), &inference.MockProvider{}, fixedAskers{models: &models})
 	if len(models) != countJob(settings, config.JobAsk) {
-		t.Errorf("built %d screeners, want one per ask node", len(models))
+		t.Errorf("built %d askers, want one per ask node", len(models))
 	}
 
 	return nodes
@@ -90,9 +90,9 @@ func TestBuildPipeline_AskNodeScreensWithItsInstructions(t *testing.T) {
 
 	built := nodes[1]
 
-	screen, ok := built.Scorer.(*node.JevScreen)
+	screen, ok := built.Scorer.(*node.RuleAsk)
 	if !ok {
-		t.Fatalf("scorer = %T, want *node.JevScreen", built.Scorer)
+		t.Fatalf("scorer = %T, want *node.RuleAsk", built.Scorer)
 	}
 
 	if built.Name != "screen" || screen.Instructions != "Broken? {rule}" || built.MaxKeep != 2 || !built.FailOnError || !built.PassThroughOnSkip {

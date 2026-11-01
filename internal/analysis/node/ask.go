@@ -13,34 +13,34 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-const screeningAction = "screening candidates"
+const askAction = "asking about candidates"
 
-// Screener asks yes/no questions about one text in a single call and returns each answer's probability of yes, by question name.
-type Screener interface {
-	Screen(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
+// Asker asks yes/no questions about one text in a single call and returns each answer's probability of yes, by question name.
+type Asker interface {
+	Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
 }
 
-// JevScreen scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
-type JevScreen struct {
-	Screener Screener
+// RuleAsk scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
+type RuleAsk struct {
+	Asker Asker
 	// Asked once per rule with {rule} replaced; empty asks the breaks-a-rule preset's question.
 	Instructions string
 }
 
-func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
+func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
 	scores := make([]float64, len(candidates))
 	for i := range scores {
 		scores[i] = math.Inf(1)
 	}
 
-	asked, owner := ruleQuestions(j.instructions(), candidates)
+	asked, owner := ruleQuestions(r.instructions(), candidates)
 	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
 
 	if len(asked) == 0 || len(sides) == 0 {
 		return scores, nil
 	}
 
-	answers, err := j.screenSides(ctx, sides, asked)
+	answers, err := r.askSides(ctx, sides, asked)
 	if err != nil {
 		return nil, err
 	}
@@ -55,9 +55,9 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 	return scores, nil
 }
 
-// screenSides asks every question about each side and keeps each question's higher answer, so a rule a change removes still counts.
+// askSides asks every question about each side and keeps each question's higher answer, so a rule a change removes still counts.
 // Every side must answer every question; one side never fills in for the other.
-func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[string]string) (map[string]float64, error) {
+func (r *RuleAsk) askSides(ctx context.Context, sides []string, asked map[string]string) (map[string]float64, error) {
 	highest := make(map[string]float64, len(asked))
 
 	for _, side := range sides {
@@ -65,15 +65,15 @@ func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[s
 			return nil, err
 		}
 
-		answers, err := j.Screener.Screen(ctx, side, asked)
+		answers, err := r.Asker.Ask(ctx, side, asked)
 		if err != nil {
-			return nil, screeningError(err)
+			return nil, askError(err)
 		}
 
 		for name := range asked {
 			probability, ok := answers[name]
 			if !ok {
-				return nil, &Error{Action: screeningAction, Err: fmt.Errorf("no answer for question %s", name)}
+				return nil, &Error{Action: askAction, Err: fmt.Errorf("no answer for question %s", name)}
 			}
 
 			if previous, seen := highest[name]; !seen || probability > previous {
@@ -85,12 +85,12 @@ func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[s
 	return highest, nil
 }
 
-func (j *JevScreen) instructions() string {
-	if j.Instructions == "" {
+func (r *RuleAsk) instructions() string {
+	if r.Instructions == "" {
 		return config.BreaksARuleInstructions
 	}
 
-	return j.Instructions
+	return r.Instructions
 }
 
 // ruleQuestions returns each question's text and the index of the candidate it asks about, both by question name.
@@ -125,23 +125,23 @@ func ruleText(rule index.Rule) string {
 	return text.String()
 }
 
-func screeningError(err error) error {
+func askError(err error) error {
 	var jevErr *inference.JevError
 	if errors.As(err, &jevErr) && jevErr.TooLarge() {
-		return &Error{Action: screeningAction, Kind: KindPreconditionNotMet, Err: err}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: err}
 	}
 
 	if errors.As(err, &jevErr) && jevErr.Rejected() {
-		return &Error{Action: screeningAction, Err: err, KeyRejected: true}
+		return &Error{Action: askAction, Err: err, KeyRejected: true}
 	}
 
-	return &Error{Action: screeningAction, Err: err}
+	return &Error{Action: askAction, Err: err}
 }
 
-func NewJevNode(screener Screener, instructions string, threshold float64, topK int) Node {
+func NewAskNode(asker Asker, instructions string, threshold float64, topK int) Node {
 	return Node{
 		Name:              "ask",
-		Scorer:            &JevScreen{Screener: screener, Instructions: instructions},
+		Scorer:            &RuleAsk{Asker: asker, Instructions: instructions},
 		Min:               FixedMin(threshold),
 		MaxKeep:           topK,
 		PassThroughOnSkip: true,

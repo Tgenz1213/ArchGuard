@@ -478,9 +478,9 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 	}
 }
 
-type screenerFunc func(state string, questions map[string]string) (map[string]float64, error)
+type askerFunc func(state string, questions map[string]string) (map[string]float64, error)
 
-func (f screenerFunc) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f askerFunc) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	return f(state, questions)
 }
 
@@ -496,7 +496,7 @@ type askRun struct {
 	judgeChange bool
 }
 
-func runAsk(t *testing.T, run askRun, screener node.Screener) (*scorerHarness, string) {
+func runAsk(t *testing.T, run askRun, asker node.Asker) (*scorerHarness, string) {
 	t.Helper()
 
 	content := run.content
@@ -520,7 +520,7 @@ func runAsk(t *testing.T, run askRun, screener node.Screener) (*scorerHarness, s
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
 
-	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
+	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -530,7 +530,7 @@ func runAsk(t *testing.T, run askRun, screener node.Screener) (*scorerHarness, s
 
 func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 	var states []string
-	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+	asker := askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 		states = append(states, state)
 		answers := make(map[string]float64, len(questions))
 		for name, question := range questions {
@@ -543,7 +543,7 @@ func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 		return answers, nil
 	})
 
-	h, _ := runAsk(t, askRun{}, screener)
+	h, _ := runAsk(t, askRun{}, asker)
 
 	slices.Sort(h.judged)
 
@@ -552,7 +552,7 @@ func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 	}
 
 	if len(states) != 1 || states[0] != "package svc" {
-		t.Errorf("screener states = %q, want one call with the content the LLM judges", states)
+		t.Errorf("asker states = %q, want one call with the content the LLM judges", states)
 	}
 
 	if stats := h.engine.CollectedNodes; len(stats) != 2 || stats[1].Name != "breaks-a-rule" || stats[1].Received != 3 || stats[1].Kept != 2 {
@@ -561,7 +561,7 @@ func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 }
 
 func TestPipeline_AskSkipPassesCandidatesToTheLLM(t *testing.T) {
-	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+	down := askerFunc(func(string, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
@@ -577,7 +577,7 @@ func TestPipeline_AskSkipPassesCandidatesToTheLLM(t *testing.T) {
 }
 
 func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
-	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
+	down := askerFunc(func(string, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
@@ -588,9 +588,9 @@ func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
 	}
 }
 
-// screenerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
-func screenerBreaking(code string, states *[]string) node.Screener {
-	return screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+// askerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
+func askerBreaking(code string, states *[]string) node.Asker {
+	return askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 		*states = append(*states, state)
 		answers := make(map[string]float64, len(questions))
 		for name := range questions {
@@ -645,10 +645,10 @@ func TestPipeline_AskReadsEachSideOfADiffAsPlainText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var states []string
 
-			h, _ := runAsk(t, askRun{content: tt.diff, judgeChange: true}, screenerBreaking(tt.breaking, &states))
+			h, _ := runAsk(t, askRun{content: tt.diff, judgeChange: true}, askerBreaking(tt.breaking, &states))
 
 			if !slices.Equal(states, tt.wantStates) {
-				t.Errorf("screener states = %q, want %q", states, tt.wantStates)
+				t.Errorf("asker states = %q, want %q", states, tt.wantStates)
 			}
 
 			slices.Sort(h.judged)
@@ -671,14 +671,14 @@ func TestPipeline_AskReadsBothSidesOfALargeFilesDiff(t *testing.T) {
 		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: config.OnErrorSkip},
 	}
-	screener := screenerBreaking("fmt.Println", &states)
-	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
+	asker := askerBreaking("fmt.Println", &states)
+	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if !slices.Equal(states, []string{"old()", "fmt.Println(x)"}) {
-		t.Errorf("screener states = %q, want the diff's two sides", states)
+		t.Errorf("asker states = %q, want the diff's two sides", states)
 	}
 }

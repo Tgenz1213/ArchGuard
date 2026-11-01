@@ -14,14 +14,14 @@ import (
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
-type fakeScreener struct {
+type fakeAsker struct {
 	answer func(instructions string) float64
 	err    error
 	calls  []map[string]string
 	states []string
 }
 
-func (f *fakeScreener) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f *fakeAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	f.calls = append(f.calls, questions)
 	f.states = append(f.states, state)
 
@@ -60,8 +60,8 @@ func ruledCandidate(id string, statements ...string) node.Candidate {
 }
 
 func TestJevNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
-	screener := &fakeScreener{answer: breaks("no prints")}
-	s := node.NewJevNode(screener, "", 0.3, 0)
+	asker := &fakeAsker{answer: breaks("no prints")}
+	s := node.NewAskNode(asker, "", 0.3, 0)
 	candidates := []node.Candidate{
 		ruledCandidate("a", "no globals", "no prints"),
 		ruledCandidate("b", "no globals"),
@@ -77,12 +77,12 @@ func TestJevNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 		t.Errorf("kept %s, want a (a rule scored 0.9) and c (no rules, passed through)", ids(got))
 	}
 
-	if len(screener.calls) != 1 || len(screener.calls[0]) != 3 {
-		t.Fatalf("calls = %v, want one call with a question per rule of a and b", screener.calls)
+	if len(asker.calls) != 1 || len(asker.calls[0]) != 3 {
+		t.Fatalf("calls = %v, want one call with a question per rule of a and b", asker.calls)
 	}
 
-	if screener.states[0] != "+fmt.Println(x)" {
-		t.Errorf("state = %q, want the judged text with its diff markers", screener.states[0])
+	if asker.states[0] != "+fmt.Println(x)" {
+		t.Errorf("state = %q, want the judged text with its diff markers", asker.states[0])
 	}
 
 	if got[0].Score != 0.9 || got[1].Score != 0.7 {
@@ -102,33 +102,33 @@ func TestJevNode_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			screener := &fakeScreener{answer: breaks()}
+			asker := &fakeAsker{answer: breaks()}
 
-			got, err := node.NewJevNode(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, node.NoDebug, tt.candidates)
+			got, err := node.NewAskNode(asker, "", 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, node.NoDebug, tt.candidates)
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}
 
-			if len(got) != len(tt.candidates) || len(screener.calls) != 0 {
-				t.Errorf("kept %s after %d call(s), want every candidate and no call", ids(got), len(screener.calls))
+			if len(got) != len(tt.candidates) || len(asker.calls) != 0 {
+				t.Errorf("kept %s after %d call(s), want every candidate and no call", ids(got), len(asker.calls))
 			}
 		})
 	}
 }
 
 func TestJevNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
-	screener := &fakeScreener{answer: breaks()}
+	asker := &fakeAsker{answer: breaks()}
 	candidate := node.Candidate{ADR: &index.ADR{ID: "a", Rules: index.Rules{{
 		Statement: "Code MUST NOT print to stdout.",
 		Violating: []string{"fmt.Println(x)"},
 		Compliant: []string{"log.Info(x)"},
 	}}}}
 
-	if _, err := node.NewJevNode(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{candidate}); err != nil {
+	if _, err := node.NewAskNode(asker, "", 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{candidate}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	for _, question := range screener.calls[0] {
+	for _, question := range asker.calls[0] {
 		for _, want := range []string{"Code MUST NOT print to stdout.", "fmt.Println(x)", "log.Info(x)"} {
 			if !strings.Contains(question, want) {
 				t.Errorf("question %q lacks %q", question, want)
@@ -158,7 +158,7 @@ func TestJevNode_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := node.NewJevNode(&fakeScreener{err: tt.err}, "", 0.3, 0)
+			s := node.NewAskNode(&fakeAsker{err: tt.err}, "", 0.3, 0)
 			s.FailOnError = tt.failOn
 			candidates := []node.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals")}
 
@@ -186,8 +186,8 @@ func TestJevNode_Errors(t *testing.T) {
 }
 
 func TestJevNode_MissingAnswerIsAnError(t *testing.T) {
-	screener := screenerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
-	s := node.NewJevNode(screener, "", 0.3, 0)
+	asker := askerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
+	s := node.NewAskNode(asker, "", 0.3, 0)
 	s.FailOnError = true
 
 	if _, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no prints")}); err == nil {
@@ -195,14 +195,14 @@ func TestJevNode_MissingAnswerIsAnError(t *testing.T) {
 	}
 }
 
-type screenerFunc func(questions map[string]string) map[string]float64
+type askerFunc func(questions map[string]string) map[string]float64
 
-func (f screenerFunc) Screen(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
+func (f askerFunc) Ask(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
 	return f(questions), nil
 }
 
 func TestJevNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
-	s := node.NewJevNode(&fakeScreener{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
+	s := node.NewAskNode(&fakeAsker{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
 	var buf bytes.Buffer
 	candidates := []node.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals"), ruledCandidate("c")}
 
@@ -226,8 +226,8 @@ func (sidedFile) Path() string                     { return "a.go" }
 func (sidedFile) QueryText(context.Context) string { return "" }
 func (f sidedFile) Sides() []string                { return f.sides }
 
-func TestJevScreen_ScoresEachCandidateByItsHigherSide(t *testing.T) {
-	screener := sideScreener(func(state string, questions map[string]string) (map[string]float64, error) {
+func TestRuleAsk_ScoresEachCandidateByItsHigherSide(t *testing.T) {
+	asker := sideAsker(func(state string, questions map[string]string) (map[string]float64, error) {
 		answers := make(map[string]float64, len(questions))
 		for name := range questions {
 			answers[name] = map[string]float64{"before": 0.8, "after": 0.2}[state]
@@ -236,7 +236,7 @@ func TestJevScreen_ScoresEachCandidateByItsHigherSide(t *testing.T) {
 		return answers, nil
 	})
 
-	scores, err := (&node.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", " ", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
+	scores, err := (&node.RuleAsk{Asker: asker}).Score(t.Context(), sidedFile{sides: []string{"before", " ", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if err != nil {
 		t.Fatalf("Score: %v", err)
 	}
@@ -246,10 +246,10 @@ func TestJevScreen_ScoresEachCandidateByItsHigherSide(t *testing.T) {
 	}
 }
 
-func TestJevScreen_StopsBetweenSidesWhenCancelled(t *testing.T) {
+func TestRuleAsk_StopsBetweenSidesWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	calls := 0
-	screener := sideScreener(func(_ string, questions map[string]string) (map[string]float64, error) {
+	asker := sideAsker(func(_ string, questions map[string]string) (map[string]float64, error) {
 		calls++
 		cancel()
 
@@ -261,20 +261,20 @@ func TestJevScreen_StopsBetweenSidesWhenCancelled(t *testing.T) {
 		return answers, nil
 	})
 
-	_, err := (&node.JevScreen{Screener: screener}).Score(ctx, sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
+	_, err := (&node.RuleAsk{Asker: asker}).Score(ctx, sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if !errors.Is(err, context.Canceled) || calls != 1 {
 		t.Errorf("err = %v after %d call(s), want context.Canceled after 1", err, calls)
 	}
 }
 
-type sideScreener func(state string, questions map[string]string) (map[string]float64, error)
+type sideAsker func(state string, questions map[string]string) (map[string]float64, error)
 
-func (f sideScreener) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f sideAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	return f(state, questions)
 }
 
-func TestJevScreen_ASideMissingAnAnswerFails(t *testing.T) {
-	screener := sideScreener(func(state string, questions map[string]string) (map[string]float64, error) {
+func TestRuleAsk_ASideMissingAnAnswerFails(t *testing.T) {
+	asker := sideAsker(func(state string, questions map[string]string) (map[string]float64, error) {
 		if state == "after" {
 			return map[string]float64{}, nil
 		}
@@ -287,7 +287,7 @@ func TestJevScreen_ASideMissingAnAnswerFails(t *testing.T) {
 		return answers, nil
 	})
 
-	_, err := (&node.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
+	_, err := (&node.RuleAsk{Asker: asker}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if err == nil || !strings.Contains(err.Error(), "no answer") {
 		t.Errorf("err = %v, want a missing-answer error for the after side", err)
 	}

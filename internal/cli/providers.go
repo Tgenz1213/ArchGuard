@@ -135,13 +135,13 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// jevScreeners builds a Jev client per model, or hands out the screener a test injected.
-type jevScreeners struct {
+// jevAskers builds a Jev client per model, or hands out the asker a test injected.
+type jevAskers struct {
 	apiKey   string
-	injected func(model string) node.Screener
+	injected func(model string) node.Asker
 }
 
-func (j jevScreeners) ForModel(model string) node.Screener {
+func (j jevAskers) ForModel(model string) node.Asker {
 	if j.injected != nil {
 		return j.injected(model)
 	}
@@ -149,8 +149,8 @@ func (j jevScreeners) ForModel(model string) node.Screener {
 	return inference.NewJevProvider(j.apiKey, model)
 }
 
-// newScreeners returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
-func newScreeners(nodes []config.Node, injected func(model string) node.Screener) (analysis.Screeners, error) {
+// newAskers returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the asker.
+func newAskers(nodes []config.Node, injected func(model string) node.Asker) (analysis.Askers, error) {
 	jevNode := slices.IndexFunc(nodes, func(n config.Node) bool { return n.With == config.RunnerJev })
 	if jevNode < 0 {
 		return nil, nil
@@ -161,5 +161,5 @@ func newScreeners(nodes []config.Node, injected func(model string) node.Screener
 		return nil, fmt.Errorf("analysis.pipeline node %q: runner jev needs the %s environment variable", nodes[jevNode].Name, config.JevAPIKeyEnv)
 	}
 
-	return jevScreeners{apiKey: apiKey, injected: injected}, nil
+	return jevAskers{apiKey: apiKey, injected: injected}, nil
 }

@@ -7,13 +7,13 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-// Screeners gives each ask node the screener for the Jev model it names.
-type Screeners interface {
-	ForModel(model string) node.Screener
+// Askers gives each ask node the asker for the Jev model it names.
+type Askers interface {
+	ForModel(model string) node.Asker
 }
 
 // BuildPipeline returns the nodes that choose candidates; the judge node is the engine's own judging step.
-func BuildPipeline(settings []config.Node, store index.VectorStore, embed inference.Embedder, screeners Screeners) []node.Node {
+func BuildPipeline(settings []config.Node, store index.VectorStore, embed inference.Embedder, askers Askers) []node.Node {
 	var nodes []node.Node
 
 	for _, s := range settings {
@@ -21,7 +21,7 @@ func BuildPipeline(settings []config.Node, store index.VectorStore, embed infere
 		case config.JobRank:
 			nodes = append(nodes, rankNode(s, store, embed))
 		case config.JobAsk:
-			nodes = append(nodes, askNode(s, screeners.ForModel(s.Model)))
+			nodes = append(nodes, askNode(s, askers.ForModel(s.Model)))
 		}
 	}
 
@@ -36,8 +36,8 @@ func rankNode(s config.Node, store index.VectorStore, embed inference.Embedder) 
 	return n
 }
 
-func askNode(s config.Node, screener node.Screener) node.Node {
-	n := node.NewJevNode(screener, s.Question.Instructions, s.Threshold, s.TopK)
+func askNode(s config.Node, asker node.Asker) node.Node {
+	n := node.NewAskNode(asker, s.Question.Instructions, s.Threshold, s.TopK)
 	n.Name = s.Name
 	n.FailOnError = s.OnError == config.OnErrorFail
 

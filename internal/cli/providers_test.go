@@ -303,16 +303,16 @@ func TestBuildProviders_UnknownNameFails(t *testing.T) {
 	}
 }
 
-func TestNewScreeners(t *testing.T) {
+func TestNewAskers(t *testing.T) {
 	rank := config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}
 	ask := config.Node{Name: "screen", Job: config.JobAsk, With: config.RunnerJev, Model: "jev-2"}
-	injected := func(string) node.Screener { return nil }
+	injected := func(string) node.Asker { return nil }
 
 	tests := []struct {
 		name         string
 		nodes        []config.Node
 		key          string
-		injected     func(string) node.Screener
+		injected     func(string) node.Asker
 		wantFactory  bool
 		wantErrNames string
 	}{
@@ -320,13 +320,13 @@ func TestNewScreeners(t *testing.T) {
 		{name: "jev node without a key", nodes: []config.Node{rank, ask}, wantErrNames: `"screen"`},
 		{name: "jev node without a key even when injected", nodes: []config.Node{rank, ask}, injected: injected, wantErrNames: `"screen"`},
 		{name: "jev node with a key", nodes: []config.Node{rank, ask}, key: "k", wantFactory: true},
-		{name: "jev node with a key and an injected screener", nodes: []config.Node{rank, ask}, key: "k", injected: injected, wantFactory: true},
+		{name: "jev node with a key and an injected asker", nodes: []config.Node{rank, ask}, key: "k", injected: injected, wantFactory: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(config.JevAPIKeyEnv, tt.key)
 
-			factory, err := newScreeners(tt.nodes, tt.injected)
+			factory, err := newAskers(tt.nodes, tt.injected)
 			if tt.wantErrNames != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrNames) || !strings.Contains(err.Error(), config.JevAPIKeyEnv) {
 					t.Fatalf("err = %v, want one naming %s and %s", err, tt.wantErrNames, config.JevAPIKeyEnv)

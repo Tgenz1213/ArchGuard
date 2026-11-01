@@ -71,7 +71,7 @@ func NewJevProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.C
 }
 
 // Screen asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
-func (p *JevProvider) Screen(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (p *JevProvider) Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	payload, err := p.requestBody(state, questions)
 	if err != nil {
 		return nil, err

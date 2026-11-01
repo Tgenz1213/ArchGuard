@@ -43,30 +43,30 @@ func newEngine(t *testing.T, cfg *config.Config, store index.VectorStore, p prov
 	}
 
 	engine := analysis.NewEngine(cfg, store, p.chat, p.embed, content)
-	engine.Nodes = analysis.BuildPipeline(settings, store, p.embed, fixedScreeners{screener: unexpectedScreener{t}})
+	engine.Nodes = analysis.BuildPipeline(settings, store, p.embed, fixedAskers{asker: unexpectedAsker{t}})
 
 	return engine
 }
 
-// unexpectedScreener fails a test whose pipeline asks Jev without giving the engine a screener.
-type unexpectedScreener struct{ t *testing.T }
+// unexpectedAsker fails a test whose pipeline asks Jev without giving the engine an asker.
+type unexpectedAsker struct{ t *testing.T }
 
-func (u unexpectedScreener) Screen(context.Context, string, map[string]string) (map[string]float64, error) {
-	u.t.Error("an ask node ran with no screener; build the nodes with one")
+func (u unexpectedAsker) Ask(context.Context, string, map[string]string) (map[string]float64, error) {
+	u.t.Error("an ask node ran with no asker; build the nodes with one")
 
-	return nil, errors.New("no screener in this test")
+	return nil, errors.New("no asker in this test")
 }
 
-// fixedScreeners gives every ask node the same screener and records the models asked for.
-type fixedScreeners struct {
-	screener node.Screener
-	models   *[]string
+// fixedAskers gives every ask node the same asker and records the models asked for.
+type fixedAskers struct {
+	asker  node.Asker
+	models *[]string
 }
 
-func (f fixedScreeners) ForModel(model string) node.Screener {
+func (f fixedAskers) ForModel(model string) node.Asker {
 	if f.models != nil {
 		*f.models = append(*f.models, model)
 	}
 
-	return f.screener
+	return f.asker
 }

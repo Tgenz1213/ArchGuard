@@ -31,7 +31,7 @@ type Error struct {
 	Action string
 	Kind   Kind
 	Err    error
-	// KeyRejected is set when the screener refused its API key. No on_error value hides it: it fails the whole check.
+	// KeyRejected is set when the asker refused its API key. No on_error value hides it: it fails the whole check.
 	KeyRejected bool
 }
 
@@ -84,7 +84,7 @@ func (s Node) Apply(ctx context.Context, file File, debug Debug, candidates []Ca
 	return slices.Concat(decided.kept, decided.passed), nil
 }
 
-// KeyRejected reports whether err is a screener's refusal of its API key.
+// KeyRejected reports whether err is an asker's refusal of its API key.
 func KeyRejected(err error) bool {
 	nodeErr, ok := errors.AsType[*Error](err)
 	return ok && nodeErr.KeyRejected

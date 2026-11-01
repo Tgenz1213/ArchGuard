@@ -26,7 +26,7 @@ var errNothingChecked = errors.New("nothing was checked against an ADR because o
 type checkRun struct {
 	setup        runSetup
 	nodes        []config.Node
-	screeners    analysis.Screeners
+	askers       analysis.Askers
 	opts         checkCmd
 	log          *output.Printer
 	report       *output.Printer
@@ -39,7 +39,7 @@ type checkRun struct {
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
-	nodes, screeners, err := parsePipeline(setup, opts.Config)
+	nodes, askers, err := parsePipeline(setup, opts.Config)
 	if err != nil {
 		return ExitConfig, err
 	}
@@ -49,7 +49,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitError, err
 	}
 
-	run.nodes, run.screeners = nodes, screeners
+	run.nodes, run.askers = nodes, askers
 
 	defer func() {
 		if werr := run.report.Err(); werr != nil && !opts.jsonOutput() && code != ExitInterrupted {
@@ -92,7 +92,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 // parsePipeline runs before the store or index loads, so a bad pipeline costs no database connection or rebuild.
-func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.Screeners, error) {
+func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.Askers, error) {
 	nodes, err := config.ParsePipeline(setup.cfg)
 	if errors.Is(err, config.ErrNeedsInit) && configFlag != "" {
 		return nil, nil, fmt.Errorf("%w\n\nFor this config, run `archguard init --config %s`", err, configFlag)
@@ -102,12 +102,12 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.S
 		return nil, nil, err
 	}
 
-	screeners, err := newScreeners(nodes, setup.jev)
+	askers, err := newAskers(nodes, setup.jev)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return nodes, screeners, nil
+	return nodes, askers, nil
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
@@ -183,7 +183,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Nodes = analysis.BuildPipeline(r.nodes, store, setup.embed, r.screeners)
+	engine.Nodes = analysis.BuildPipeline(r.nodes, store, setup.embed, r.askers)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason

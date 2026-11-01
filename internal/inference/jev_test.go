@@ -22,7 +22,7 @@ func jevServer(t *testing.T, handler http.HandlerFunc) *JevProvider {
 	return provider
 }
 
-func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
+func TestJevProvider_AskSendsOneNoulQuestionPerRule(t *testing.T) {
 	var got struct {
 		Model     string `json:"model"`
 		State     string `json:"state"`
@@ -44,7 +44,7 @@ func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
 		}
 	})
 
-	answers, err := provider.Screen(t.Context(), "+fmt.Println(x)", map[string]string{"a": "Does it print?", "b": "Does it panic?"})
+	answers, err := provider.Ask(t.Context(), "+fmt.Println(x)", map[string]string{"a": "Does it print?", "b": "Does it panic?"})
 	if err != nil {
 		t.Fatalf("Screen: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
+func TestJevProvider_AskRetriesRateLimitsAndOverload(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, statusOverloaded} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			var calls atomic.Int32
@@ -82,7 +82,7 @@ func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
 				}
 			})
 
-			answers, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+			answers, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 			if err != nil || answers["a"] != 0.5 {
 				t.Fatalf("Screen = %v, %v; want the third attempt's answer", answers, err)
 			}
@@ -94,7 +94,7 @@ func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
+func TestJevProvider_AskGivesUpAfterMaxRetries(t *testing.T) {
 	var calls atomic.Int32
 
 	provider := jevServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +102,7 @@ func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 
-	_, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+	_, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 
 	var jevErr *JevError
 	if !errors.As(err, &jevErr) || jevErr.Status != http.StatusTooManyRequests {
@@ -114,7 +114,7 @@ func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
+func TestJevProvider_AskDoesNotRetryOtherErrors(t *testing.T) {
 	tests := []struct {
 		name     string
 		status   int
@@ -140,7 +140,7 @@ func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
 				}
 			})
 
-			_, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+			_, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 
 			var jevErr *JevError
 			if !errors.As(err, &jevErr) || jevErr.Status != tt.status {
@@ -158,14 +158,14 @@ func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenRejectsAnAnswerWithoutAProbability(t *testing.T) {
+func TestJevProvider_AskRejectsAnAnswerWithoutAProbability(t *testing.T) {
 	provider := jevServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte(`{"answers":{"a":{"type":"noul"}}}`)); err != nil {
 			t.Errorf("writing response: %v", err)
 		}
 	})
 
-	if _, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"}); err == nil {
+	if _, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"}); err == nil {
 		t.Fatal("expected an error for an answer with no noul probability")
 	}
 }

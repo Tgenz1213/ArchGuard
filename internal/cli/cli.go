@@ -45,7 +45,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(model string) node.Screener
+	Jev      func(model string) node.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -201,7 +201,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
-	jev                 func(model string) node.Screener
+	jev                 func(model string) node.Asker
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp
