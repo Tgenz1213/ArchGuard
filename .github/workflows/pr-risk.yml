@@ -116,29 +116,32 @@ jobs:
           tier=unavailable
           confidence=0
           if [ -n "$TYPESAFE_API_KEY" ]; then
-            diff=$(gh pr diff "$PR" -R "$REPO")
-            diff=${diff:0:30000}
-            request=$(jq -n --arg title "$TITLE" --arg files "$stats" --arg diff "$diff" '{
-              model: "jev-latest",
-              state: {title: $title, changed_files: $files, diff: $diff},
-              questions: {risk: {
-                type: "choice",
-                instructions: "What risk tier is this pull request to ArchGuard, a Go CLI that also ships as a GitHub Action?",
-                criteria: {
-                  "very-low": "Docs, comments, formatting or a mechanical rename, with no change in behaviour",
-                  "low": "A local change covered by tests that changes no CLI flag, exit code, output format, config key or Action input",
-                  "medium": "Changes a CLI flag, exit code, output format, config key, Action input, cache key or a cross-package interface",
-                  "high": "Could lose data, leak a secret, weaken a CI gate or ADR check, or break a public contract"
-                }
-              }}
-            }')
-            if response=$(printf '%s' "$request" | curl -sS --fail-with-body --max-time 30 \
-              -H "Authorization: Bearer $TYPESAFE_API_KEY" -H 'Content-Type: application/json' \
-              --data @- https://api.typesafe.ai/v1/systemone); then
-              tier=$(jq -r '.answers.risk.choice // "unavailable"' <<< "$response")
-              confidence=$(jq -r '.answers.risk.confidence // 0' <<< "$response")
+            # Drain what head leaves so gh is not killed by SIGPIPE, which pipefail turns into a failed step.
+            if diff=$(gh pr diff "$PR" -R "$REPO" | { head -c 30000; cat > /dev/null; }); then
+              request=$(jq -n --arg title "$TITLE" --arg files "$stats" --arg diff "$diff" '{
+                model: "jev-latest",
+                state: {title: $title, changed_files: $files, diff: $diff},
+                questions: {risk: {
+                  type: "choice",
+                  instructions: "What risk tier is this pull request to ArchGuard, a Go CLI that also ships as a GitHub Action?",
+                  criteria: {
+                    "very-low": "Docs, comments, formatting or a mechanical rename, with no change in behaviour",
+                    "low": "A local change covered by tests that changes no CLI flag, exit code, output format, config key or Action input",
+                    "medium": "Changes a CLI flag, exit code, output format, config key, Action input, cache key or a cross-package interface",
+                    "high": "Could lose data, leak a secret, weaken a CI gate or ADR check, or break a public contract"
+                  }
+                }}
+              }')
+              if response=$(printf '%s' "$request" | curl -sS --fail-with-body --max-time 30 \
+                -H "Authorization: Bearer $TYPESAFE_API_KEY" -H 'Content-Type: application/json' \
+                --data @- https://api.typesafe.ai/v1/systemone); then
+                tier=$(jq -r '.answers.risk.choice // "unavailable"' <<< "$response")
+                confidence=$(jq -r '.answers.risk.confidence // 0' <<< "$response")
+              else
+                echo "::warning::Jev request failed: $response"
+              fi
             else
-              echo "::warning::Jev request failed: $response"
+              echo "::warning::Could not read the diff of PR $PR, so Jev was not asked"
             fi
           fi
 
@@ -177,7 +180,7 @@ jobs:
             # approval stale, and this workflow runs again for it.
             if [ -z "$GATE_TOKEN" ]; then
               echo "::warning::No gate app token, so green PR $PR is not approved"
-            elif gate_approvals | grep -q " $HEAD_SHA\$"; then
+            elif grep -q " $HEAD_SHA\$" <<< "$(gate_approvals)"; then
               approval=kept
             elif GH_TOKEN=$GATE_TOKEN gh api -X POST "repos/$REPO/pulls/$PR/reviews" \
               -f event=APPROVE -f commit_id="$HEAD_SHA" \
@@ -219,7 +222,8 @@ jobs:
           | Red paths touched | ${red_hits:-none} |"
 
           comment_id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id")
+          comment_id=${comment_id%%$'\n'*}
           if [ -n "$comment_id" ]; then
             gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$body" > /dev/null
           else
