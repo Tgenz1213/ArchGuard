@@ -14,8 +14,8 @@ type Candidate struct {
 type File interface {
 	Path() string
 	QueryText(ctx context.Context) string
-	// JudgedText is the content the LLM judges, a diff keeping its +/- markers included.
-	JudgedText() string
+	// Sides is what a runner that answers without a quote reads: the content the LLM judges, or each side of it when that is a diff.
+	Sides() []string
 }
 
 // A Scorer only scores, one value per candidate in order; dropping is a Stage's job.

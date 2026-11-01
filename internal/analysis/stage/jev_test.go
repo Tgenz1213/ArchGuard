@@ -219,3 +219,56 @@ func TestJevStage_TopKLeavesPassedThroughCandidates(t *testing.T) {
 		t.Errorf("debug output does not show c passing through:\n%s", buf.String())
 	}
 }
+
+type sidedFile struct{ sides []string }
+
+func (sidedFile) Path() string                     { return "a.go" }
+func (sidedFile) QueryText(context.Context) string { return "" }
+func (f sidedFile) Sides() []string                { return f.sides }
+
+func TestJevScreen_ScoresEachCandidateByItsHigherSide(t *testing.T) {
+	screener := sideScreener(func(state string, questions map[string]string) (map[string]float64, error) {
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = map[string]float64{"before": 0.8, "after": 0.2}[state]
+		}
+
+		return answers, nil
+	})
+
+	scores, err := (&stage.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", " ", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	if err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+
+	if len(scores) != 1 || scores[0] != 0.8 {
+		t.Errorf("scores = %v, want [0.8], the before side's answer", scores)
+	}
+}
+
+func TestJevScreen_StopsBetweenSidesWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	screener := sideScreener(func(_ string, questions map[string]string) (map[string]float64, error) {
+		calls++
+		cancel()
+
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = 0.1
+		}
+
+		return answers, nil
+	})
+
+	_, err := (&stage.JevScreen{Screener: screener}).Score(ctx, sidedFile{sides: []string{"before", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Errorf("err = %v after %d call(s), want context.Canceled after 1", err, calls)
+	}
+}
+
+type sideScreener func(state string, questions map[string]string) (map[string]float64, error)
+
+func (f sideScreener) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	return f(state, questions)
+}

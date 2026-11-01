@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/config"
@@ -33,15 +34,15 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 	}
 
 	asked, owner := ruleQuestions(j.instructions(), candidates)
-	state := file.JudgedText()
+	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
 
-	if len(asked) == 0 || strings.TrimSpace(state) == "" {
+	if len(asked) == 0 || len(sides) == 0 {
 		return scores, nil
 	}
 
-	answers, err := j.Screener.Screen(ctx, state, asked)
+	answers, err := j.screenSides(ctx, sides, asked)
 	if err != nil {
-		return nil, screeningError(err)
+		return nil, err
 	}
 
 	for name, candidate := range owner {
@@ -56,6 +57,30 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 	}
 
 	return scores, nil
+}
+
+// screenSides asks every question about each side and keeps each question's higher answer, so a rule a change removes still counts.
+func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[string]string) (map[string]float64, error) {
+	highest := make(map[string]float64, len(asked))
+
+	for _, side := range sides {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		answers, err := j.Screener.Screen(ctx, side, asked)
+		if err != nil {
+			return nil, screeningError(err)
+		}
+
+		for name, probability := range answers {
+			if previous, seen := highest[name]; !seen || probability > previous {
+				highest[name] = probability
+			}
+		}
+	}
+
+	return highest, nil
 }
 
 func (j *JevScreen) instructions() string {

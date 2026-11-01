@@ -576,21 +576,97 @@ func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
 	}
 }
 
-func TestPipeline_PreJudgeScreensTheDiffWithItsMarkers(t *testing.T) {
-	var states []string
-	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
-		states = append(states, state)
+// screenerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
+func screenerBreaking(code string, states *[]string) stage.Screener {
+	return screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+		*states = append(*states, state)
 		answers := make(map[string]float64, len(questions))
 		for name := range questions {
-			answers[name] = 0.9
+			answers[name] = 0.05
+			if strings.Contains(state, code) {
+				answers[name] = 0.9
+			}
 		}
 
 		return answers, nil
 	})
+}
 
-	runPreJudge(t, preJudgeRun{content: "@@ -1 +1 @@\n-old()\n+fmt.Println(x)\n", judgeChange: true}, screener)
+func TestPipeline_AskReadsEachSideOfADiffAsPlainText(t *testing.T) {
+	tests := []struct {
+		name       string
+		diff       string
+		breaking   string
+		wantStates []string
+		wantJudged string
+	}{
+		{
+			name:       "removing the code a rule needs is caught on the before side",
+			diff:       "@@ -1,2 +1,1 @@\n route()\n-withGate()\n",
+			breaking:   "withGate()",
+			wantStates: []string{"route()\nwithGate()", "route()"},
+			wantJudged: "0001,0002,0003",
+		},
+		{
+			name:       "a hunk that only removes lines is asked about once",
+			diff:       "@@ -1,1 +0,0 @@\n-withGate()\n",
+			breaking:   "nothing breaks",
+			wantStates: []string{"withGate()"},
+			wantJudged: "0003",
+		},
+		{
+			name:       "a hunk that only adds lines is asked about once",
+			diff:       "@@ -0,0 +1,1 @@\n+fmt.Println(x)\n",
+			breaking:   "fmt.Println",
+			wantStates: []string{"fmt.Println(x)"},
+			wantJudged: "0001,0002,0003",
+		},
+		{
+			name:       "a mixed hunk is asked about on both sides",
+			diff:       "@@ -1 +1 @@\n-old()\n+fmt.Println(x)\n",
+			breaking:   "fmt.Println",
+			wantStates: []string{"old()", "fmt.Println(x)"},
+			wantJudged: "0001,0002,0003",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var states []string
 
-	if len(states) != 1 || !strings.Contains(states[0], "-old()") || !strings.Contains(states[0], "+fmt.Println(x)") {
-		t.Errorf("screener states = %q, want the judged diff with its +/- markers", states)
+			h, _ := runPreJudge(t, preJudgeRun{content: tt.diff, judgeChange: true}, screenerBreaking(tt.breaking, &states))
+
+			if !slices.Equal(states, tt.wantStates) {
+				t.Errorf("screener states = %q, want %q", states, tt.wantStates)
+			}
+
+			slices.Sort(h.judged)
+
+			if strings.Join(h.judged, ",") != tt.wantJudged {
+				t.Errorf("judged %v, want %s", h.judged, tt.wantJudged)
+			}
+		})
+	}
+}
+
+func TestPipeline_AskReadsBothSidesOfALargeFilesDiff(t *testing.T) {
+	var states []string
+
+	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints")}, "svc.go", strings.Repeat("x ", 50))
+	h.engine.Config.LLM.MaxTokens = 1
+	h.engine.Content = &diffCapableContentProvider{content: strings.Repeat("x ", 50), diff: "@@ -1 +1 @@\n-old()\n+fmt.Println(x)\n"}
+
+	nodes := []config.Node{
+		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
+		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: config.OnErrorSkip},
+	}
+	screener := screenerBreaking("fmt.Println", &states)
+	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, func(string) stage.Screener { return screener })
+
+	if err := h.engine.Run(t.Context()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !slices.Equal(states, []string{"old()", "fmt.Println(x)"}) {
+		t.Errorf("screener states = %q, want the diff's two sides", states)
 	}
 }

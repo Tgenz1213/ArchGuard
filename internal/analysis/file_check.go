@@ -123,7 +123,13 @@ func (fc *fileCheck) candidates() ([]stage.Candidate, bool) {
 }
 
 func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage.Candidate, bool) {
-	query := &queryFile{path: fc.file, content: fc.content, provider: fc.engine.Content, updateBaseline: fc.engine.UpdateBaseline}
+	query := &queryFile{
+		path:           fc.file,
+		content:        fc.content,
+		isDiff:         fc.engine.JudgeChange || fc.mode == "diff",
+		provider:       fc.engine.Content,
+		updateBaseline: fc.engine.UpdateBaseline,
+	}
 
 	for i, st := range fc.run.stages {
 		var err error
