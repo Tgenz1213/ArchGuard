@@ -131,7 +131,13 @@ func (e *Engine) printer() *output.Printer {
 	return output.New(nil, e.Debug)
 }
 
+var errNoStages = errors.New("no pipeline nodes to choose which ADRs are judged")
+
 func (e *Engine) Run(ctx context.Context) error {
+	if len(e.Stages) == 0 {
+		return errNoStages
+	}
+
 	run := newRunState(e.printer(), e.scoringStages())
 
 	files, err := e.Content.GetFiles(ctx)
@@ -166,10 +172,6 @@ func (e *Engine) Run(ctx context.Context) error {
 
 func (e *Engine) scoringStages() []stage.Stage {
 	stages := slices.Clone(e.Stages)
-	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
-	}
-
 	for i := range stages {
 		stages[i].ListRejected = e.DebugRejected
 	}

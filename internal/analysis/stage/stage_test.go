@@ -288,3 +288,16 @@ func TestStage_ScorerErrorUnderPassThroughOnSkip(t *testing.T) {
 		})
 	}
 }
+
+func TestStage_TiesAtTheTopKCutKeepTheIncomingOrder(t *testing.T) {
+	s := stage.Stage{Scorer: fixedScores(0.5, 0.8, 0.5, 0.5), Min: stage.FixedMin(0.3), MaxKeep: 3}
+
+	got, err := s.Apply(t.Context(), fakeFile{}, stage.NoDebug, candidates("a", "b", "c", "d"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ids(got) != "b,a,c" {
+		t.Errorf("kept %s, want b,a,c: the tied a, c and d keep the order they arrived in", ids(got))
+	}
+}

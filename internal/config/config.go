@@ -14,6 +14,8 @@ type Config struct {
 	VectorStore VectorStore `yaml:"vector_store"`
 	Analysis    Analysis    `yaml:"analysis"`
 	IndexFile   string      `yaml:"index_file"`
+	// Kept raw, like Analysis.Pipeline, so only ParsePipeline can reject it.
+	Jev yaml.Node `yaml:"jev"`
 }
 
 type LLMConfig struct {
@@ -63,7 +65,8 @@ type Analysis struct {
 	RulesHeading        string            `yaml:"rules_heading"`
 	IncludedHeaders     []string          `yaml:"included_headers"`
 	ExcludedHeaders     []string          `yaml:"excluded_headers"`
-	Pipeline            *Pipeline         `yaml:"pipeline"`
+	// Kept raw so a pipeline only check rejects never stops another command; see ParsePipeline.
+	Pipeline yaml.Node `yaml:"pipeline"`
 }
 
 func (a Analysis) RelevantADRLimit() int {
@@ -83,10 +86,6 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	if err := cfg.Analysis.Pipeline.loadCredentials(os.Getenv); err != nil {
-		return nil, err
 	}
 
 	if envDBURL := os.Getenv("ARCHGUARD_DB_URL"); envDBURL != "" {

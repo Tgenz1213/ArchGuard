@@ -60,7 +60,7 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 
 type mockJev struct{}
 
-func jevFactory(*config.Config) stage.Screener { return mockJev{} }
+func jevFactory(string) stage.Screener { return mockJev{} }
 
 func (mockJev) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {

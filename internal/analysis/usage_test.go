@@ -43,7 +43,7 @@ func runMetered(t *testing.T, analysisCache *cache.Cache) meteredRun {
 
 	tally := &telemetry.Tally{}
 
-	engine := analysis.NewEngine(cfg, store, telemetry.NewChatter(provider, telemetry.Judgment, tally), provider, content)
+	engine := newEngine(cfg, store, telemetry.NewChatter(provider, telemetry.Judgment, tally), provider, content)
 	engine.Cache = analysisCache
 	engine.SuggestFixes = true
 	engine.SuggestChat = telemetry.NewChatter(provider, telemetry.Suggestion, tally)
@@ -129,7 +129,7 @@ func TestRun_RecordsEachFileItChecked(t *testing.T) {
 	content := &MockContentProvider{Files: map[string]string{"fast.go": "package fast\n", "slow.go": "package slow\n"}}
 	tally := &telemetry.Tally{}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(cfg, store, provider, provider, content)
 	engine.Recorder = tally
 	engine.Out = output.Discard()
 

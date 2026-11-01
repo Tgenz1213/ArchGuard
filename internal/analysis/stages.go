@@ -5,84 +5,39 @@ import (
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
-	"github.com/tgenz1213/archguard/internal/output"
 )
 
-const (
-	rerankDefaultThreshold = 0.0
-	rerankDefaultTopK      = 3
-)
+// NewScreener returns the screener an ask node calls, for the Jev model it names.
+type NewScreener func(model string) stage.Screener
 
-// BuildStages returns nil when no pipeline is configured, leaving Engine on its default stages.
-func BuildStages(cfg *config.Config, store index.VectorStore, embed inference.Embedder, screener stage.Screener, out *output.Printer) []stage.Stage {
-	pipeline := cfg.Analysis.Pipeline
-	if pipeline == nil {
-		return nil
-	}
+// BuildPipeline returns the stages that choose candidates; the judge node is the engine's own judging step.
+func BuildPipeline(nodes []config.Node, store index.VectorStore, embed inference.Embedder, newScreener NewScreener) []stage.Stage {
+	var stages []stage.Stage
 
-	stages := []stage.Stage{rankStage(cfg, pipeline.Rank, store, embed)}
-	if pipeline.Rerank != nil {
-		stages = append(stages, rerankStage(pipeline.Rerank, store, embed, out))
-	}
-
-	if pipeline.PreJudge != nil {
-		stages = append(stages, preJudgeStage(pipeline.PreJudge, screener))
+	for _, node := range nodes {
+		switch node.Job {
+		case config.JobRank:
+			stages = append(stages, rankStage(node, store, embed))
+		case config.JobAsk:
+			stages = append(stages, askStage(node, newScreener(node.Model)))
+		}
 	}
 
 	return stages
 }
 
-// config guarantees a pre_judge stage is jev with a threshold.
-func preJudgeStage(sc *config.StageConfig, screener stage.Screener) stage.Stage {
-	topK := 0
-	if sc.TopK != nil {
-		topK = *sc.TopK
-	}
-
-	st := stage.NewJevStage(screener, *sc.Threshold, topK)
-	st.FailOnError = sc.OnError == config.OnErrorFail
-	return st
-}
-
-func rankStage(cfg *config.Config, sc *config.StageConfig, store index.VectorStore, embed inference.Embedder) stage.Stage {
-	threshold := cfg.VectorStore.SimilarityThreshold
-	topK := cfg.Analysis.RelevantADRLimit()
-
-	if sc != nil {
-		if sc.Threshold != nil {
-			threshold = *sc.Threshold
-		}
-
-		if sc.TopK != nil {
-			topK = *sc.TopK
-		}
-	}
-
-	st := stage.NewCosineStage(store, embed, threshold, topK)
-	if sc != nil {
-		st.FailOnError = sc.OnError == config.OnErrorFail
-	}
+func rankStage(node config.Node, store index.VectorStore, embed inference.Embedder) stage.Stage {
+	st := stage.NewCosineStage(store, embed, node.Threshold, node.TopK)
+	st.Name = node.Name
+	st.FailOnError = node.OnError == config.OnErrorFail
 
 	return st
 }
 
-func rerankStage(sc *config.StageConfig, store index.VectorStore, embed inference.Embedder, out *output.Printer) stage.Stage {
-	threshold := rerankDefaultThreshold
-	if sc.Threshold != nil {
-		threshold = *sc.Threshold
-	} else {
-		out.Warn("analysis.pipeline.rerank.threshold not set, defaulting to %v", rerankDefaultThreshold)
-	}
+func askStage(node config.Node, screener stage.Screener) stage.Stage {
+	st := stage.NewJevStage(screener, node.Question.Instructions, node.Threshold, node.TopK)
+	st.Name = node.Name
+	st.FailOnError = node.OnError == config.OnErrorFail
 
-	topK := rerankDefaultTopK
-	if sc.TopK != nil {
-		topK = *sc.TopK
-	} else {
-		out.Warn("analysis.pipeline.rerank.top_k not set, defaulting to %d", rerankDefaultTopK)
-	}
-
-	st := stage.NewCosineStage(store, embed, threshold, topK)
-	st.Name = "rerank"
-	st.FailOnError = sc.OnError == config.OnErrorFail
 	return st
 }

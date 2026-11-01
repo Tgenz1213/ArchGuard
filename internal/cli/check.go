@@ -14,6 +14,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
+	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -24,6 +25,8 @@ var errNothingChecked = errors.New("nothing was checked against an ADR because o
 
 type checkRun struct {
 	setup        runSetup
+	nodes        []config.Node
+	newScreener  analysis.NewScreener
 	opts         checkCmd
 	log          *output.Printer
 	report       *output.Printer
@@ -36,10 +39,17 @@ type checkRun struct {
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
+	nodes, newScreener, err := parsePipeline(setup)
+	if err != nil {
+		return ExitConfig, err
+	}
+
 	run, err := newCheckRun(setup, opts, colors)
 	if err != nil {
 		return ExitError, err
 	}
+
+	run.nodes, run.newScreener = nodes, newScreener
 
 	defer func() {
 		if werr := run.report.Err(); werr != nil && !opts.jsonOutput() && code != ExitInterrupted {
@@ -79,6 +89,21 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 	}
 
 	return run.finishCheck(engine, runErr)
+}
+
+// parsePipeline runs before the store or index loads, so a bad pipeline costs no database connection or rebuild.
+func parsePipeline(setup runSetup) ([]config.Node, analysis.NewScreener, error) {
+	nodes, err := config.ParsePipeline(setup.cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	newScreener, err := screenerFactory(nodes, setup.jev)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return nodes, newScreener, nil
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
@@ -154,7 +179,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildStages(setup.cfg, store, setup.embed, setup.screener, r.log)
+	engine.Stages = analysis.BuildPipeline(r.nodes, store, setup.embed, r.newScreener)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason

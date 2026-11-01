@@ -82,7 +82,7 @@ func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) 
 	}
 	content := &MockContentProvider{Files: map[string]string{file: fileContent}}
 
-	h.engine = analysis.NewEngine(cfg, store, provider, provider, content)
+	h.engine = newEngine(cfg, store, provider, provider, content)
 	h.engine.Cache = nil
 	return h
 }
@@ -213,12 +213,9 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
 	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
 	h.engine.Out = output.Discard()
-	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0},
-		Analysis:    config.Analysis{Pipeline: &config.Pipeline{Rank: &config.StageConfig{Scorer: config.ScorerCosine, OnError: onError}}},
-	}
+	rank := config.Node{Name: "rank", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: onError}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, embed, nil, output.Discard())
+	h.engine.Stages = analysis.BuildPipeline([]config.Node{rank}, h.engine.Store, embed, nil)
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -436,17 +433,16 @@ func TestPipeline_DefaultCosineEmbedsOncePerFile(t *testing.T) {
 	}
 }
 
-func TestPipeline_EmptyStagesFallsBackToTheDefaultCosineStage(t *testing.T) {
-	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "package svc")
-	h.engine.Config.Analysis.MaxRelevantADRs = 2
-	h.engine.Stages = []stage.Stage{}
+func TestPipeline_NoStagesFailsInsteadOfJudgingEveryADR(t *testing.T) {
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9)}, "svc.go", "package svc")
+	h.engine.Stages = nil
 
-	if err := h.engine.Run(t.Context()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := h.engine.Run(t.Context()); err == nil {
+		t.Fatal("expected an error for an engine with no stages, got nil")
 	}
 
-	if h.embeds != 1 || len(h.judged) != 2 {
-		t.Fatalf("embeds = %d, judged = %v; want the default cosine stage (1 embed, top-2 judged), not every ADR", h.embeds, h.judged)
+	if len(h.judged) != 0 || h.embeds != 0 {
+		t.Fatalf("judged %v with %d embeds, want nothing done", h.judged, h.embeds)
 	}
 }
 
@@ -500,12 +496,19 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 	var logged bytes.Buffer
 	h.engine.Out = output.New(&logged, false)
 	h.engine.JSONOutput = true
-	threshold := 0.3
-	cfg := &config.Config{Analysis: config.Analysis{Pipeline: &config.Pipeline{
-		PreJudge: &config.StageConfig{Scorer: config.ScorerJev, Threshold: &threshold, OnError: run.onError, Jev: &config.JevOptions{}},
-	}}}
 
-	h.engine.Stages = analysis.BuildStages(cfg, h.engine.Store, h.engine.Embed, screener, output.Discard())
+	onError := run.onError
+	if onError == "" {
+		onError = config.OnErrorSkip
+	}
+
+	nodes := []config.Node{
+		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
+		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
+	}
+	newScreener := func(string) stage.Screener { return screener }
+
+	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, newScreener)
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -540,8 +543,8 @@ func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 		t.Errorf("screener states = %q, want one call with the content the LLM judges", states)
 	}
 
-	if stats := h.engine.CollectedStages; len(stats) != 2 || stats[1].Name != "pre_judge" || stats[1].Received != 3 || stats[1].Kept != 2 {
-		t.Errorf("stage stats = %+v, want pre_judge receiving 3 and keeping 2", stats)
+	if stats := h.engine.CollectedStages; len(stats) != 2 || stats[1].Name != "breaks-a-rule" || stats[1].Received != 3 || stats[1].Kept != 2 {
+		t.Errorf("stage stats = %+v, want breaks-a-rule receiving 3 and keeping 2", stats)
 	}
 }
 
@@ -556,7 +559,7 @@ func TestPipeline_PreJudgeSkipPassesCandidatesToTheLLM(t *testing.T) {
 		t.Errorf("judged %v with %d skipped file(s), want all 3 ADRs judged and the file not skipped", h.judged, len(h.engine.SkippedFiles))
 	}
 
-	if !strings.Contains(logged, "pre_judge") || !strings.Contains(logged, "jev down") {
+	if !strings.Contains(logged, "breaks-a-rule") || !strings.Contains(logged, "jev down") {
 		t.Errorf("log %q lacks a warning naming the stage and the error", logged)
 	}
 }
@@ -568,8 +571,8 @@ func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
 
 	h, _ := runPreJudge(t, preJudgeRun{onError: config.OnErrorFail}, down)
 
-	if len(h.judged) != 0 || len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "pre_judge" {
-		t.Errorf("judged %v, failures %+v; want nothing judged and one pre_judge failure", h.judged, h.engine.StageFailures)
+	if len(h.judged) != 0 || len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "breaks-a-rule" {
+		t.Errorf("judged %v, failures %+v; want nothing judged and one breaks-a-rule failure", h.judged, h.engine.StageFailures)
 	}
 }
 

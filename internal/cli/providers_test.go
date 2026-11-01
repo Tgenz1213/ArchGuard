@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -299,5 +301,48 @@ func TestBuildProviders_UnknownNameFails(t *testing.T) {
 		if _, _, err := buildProviders(output.Discard(), cfg, "k", "k"); err == nil {
 			t.Errorf("expected an error for llm.provider %q, vector_store.provider %q", cfg.LLM.Provider, cfg.VectorStore.Provider)
 		}
+	}
+}
+
+func TestScreenerFactory(t *testing.T) {
+	rank := config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}
+	ask := config.Node{Name: "screen", Job: config.JobAsk, With: config.RunnerJev, Model: "jev-2"}
+	injected := func(string) stage.Screener { return nil }
+
+	tests := []struct {
+		name         string
+		nodes        []config.Node
+		key          string
+		injected     analysis.NewScreener
+		wantFactory  bool
+		wantErrNames string
+	}{
+		{name: "no jev node needs no key", nodes: []config.Node{rank}},
+		{name: "jev node without a key", nodes: []config.Node{rank, ask}, wantErrNames: `"screen"`},
+		{name: "jev node without a key even when injected", nodes: []config.Node{rank, ask}, injected: injected, wantErrNames: `"screen"`},
+		{name: "jev node with a key", nodes: []config.Node{rank, ask}, key: "k", wantFactory: true},
+		{name: "jev node with a key and an injected screener", nodes: []config.Node{rank, ask}, key: "k", injected: injected, wantFactory: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(config.JevAPIKeyEnv, tt.key)
+
+			factory, err := screenerFactory(tt.nodes, tt.injected)
+			if tt.wantErrNames != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrNames) || !strings.Contains(err.Error(), config.JevAPIKeyEnv) {
+					t.Fatalf("err = %v, want one naming %s and %s", err, tt.wantErrNames, config.JevAPIKeyEnv)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if (factory != nil) != tt.wantFactory {
+				t.Errorf("factory present = %v, want %v", factory != nil, tt.wantFactory)
+			}
+		})
 	}
 }

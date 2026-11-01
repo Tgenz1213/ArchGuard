@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 
+	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -133,16 +135,21 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// Nil unless a stage uses Jev; config has already required its API key.
-func selectScreener(cfg *config.Config, factories ProviderFactories) stage.Screener {
-	pipeline := cfg.Analysis.Pipeline
-	if pipeline == nil || pipeline.PreJudge == nil || pipeline.PreJudge.Jev == nil {
-		return nil
+// screenerFactory returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
+func screenerFactory(nodes []config.Node, injected analysis.NewScreener) (analysis.NewScreener, error) {
+	jevNode := slices.IndexFunc(nodes, func(node config.Node) bool { return node.With == config.RunnerJev })
+	if jevNode < 0 {
+		return nil, nil
 	}
 
-	if factories.Jev != nil {
-		return factories.Jev(cfg)
+	apiKey := os.Getenv(config.JevAPIKeyEnv)
+	if apiKey == "" {
+		return nil, fmt.Errorf("analysis.pipeline node %q: runner jev needs the %s environment variable", nodes[jevNode].Name, config.JevAPIKeyEnv)
 	}
 
-	return inference.NewJevProvider(pipeline.PreJudge.Jev.APIKey, pipeline.PreJudge.Jev.Model)
+	if injected != nil {
+		return injected, nil
+	}
+
+	return func(model string) stage.Screener { return inference.NewJevProvider(apiKey, model) }, nil
 }

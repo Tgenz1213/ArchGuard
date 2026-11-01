@@ -31,7 +31,7 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n"
 	content := &fallbackOnlyContentProvider{files: map[string]string{"service.py": bigContent}}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(cfg, store, provider, provider, content)
 	engine.CI = true
 	engine.Cache = nil
 
@@ -63,7 +63,7 @@ func baselineEngine(t *testing.T, chatResponse string, content analysis.ContentP
 		LLM:         config.LLMConfig{MaxTokens: maxTokens},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 	engine.BaselineReason = "accepted-debt"
@@ -136,7 +136,7 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n"
 	content := &fallbackOnlyContentProvider{files: map[string]string{"service.py": bigContent}}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(cfg, store, provider, provider, content)
 	engine.Cache = nil
 
 	captureOutput(engine, func() { runEngine(t, engine, false) })

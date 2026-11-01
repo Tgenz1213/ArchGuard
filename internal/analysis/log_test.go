@@ -29,7 +29,7 @@ func TestLog_CompliantFileIsSilentUnlessDebug(t *testing.T) {
 		store := goLangStore()
 		content := &MockContentProvider{Files: map[string]string{"service.go": "package main\n"}}
 
-		engine := analysis.NewEngine(cfg, store, provider, provider, content)
+		engine := newEngine(cfg, store, provider, provider, content)
 		engine.Cache = nil
 		engine.Debug = debug
 
@@ -59,7 +59,7 @@ func TestLog_FileWithNoRelevantADRsIsSilentUnlessDebug(t *testing.T) {
 	}
 	content := &MockContentProvider{Files: map[string]string{"service.go": "package main\n"}}
 
-	engine := analysis.NewEngine(cfg, index.NewLocalStore(5), provider, provider, content)
+	engine := newEngine(cfg, index.NewLocalStore(5), provider, provider, content)
 	engine.Cache = nil
 
 	if got := captureOutput(engine, func() { runEngine(t, engine, false) }); got != "" {
@@ -79,7 +79,7 @@ func TestLog_DebugLogsOneOutcomeLinePerADRCheck(t *testing.T) {
 		}
 		content := &MockContentProvider{Files: map[string]string{"service.go": "package main\n"}}
 
-		engine := analysis.NewEngine(cfg, store, chat, &inference.MockProvider{}, content)
+		engine := newEngine(cfg, store, chat, &inference.MockProvider{}, content)
 		engine.Debug = true
 		engine.Cache = nil
 

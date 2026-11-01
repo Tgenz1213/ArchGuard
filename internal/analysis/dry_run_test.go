@@ -28,7 +28,7 @@ func dryRunEngine(t *testing.T, provider *inference.MockProvider, analysisCache 
 	cfg := &config.Config{Analysis: config.Analysis{ExcludePatterns: []string{}}}
 	content := &MockContentProvider{Files: map[string]string{"service.py": "import python_library\n"}}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(cfg, store, provider, provider, content)
 	engine.Cache = analysisCache
 	engine.DryRun = true
 	engine.Out = output.Discard()
