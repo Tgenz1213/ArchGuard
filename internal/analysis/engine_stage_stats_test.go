@@ -64,7 +64,7 @@ func TestEngine_ListsEveryStageWhenFileDiscoveryFails(t *testing.T) {
 	}
 }
 
-func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
+func TestEngine_DefaultPipelineReportsItsShortlistNode(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
 	h.engine.JSONOutput = true
 
@@ -73,8 +73,8 @@ func TestEngine_DefaultStageIsReportedAsRank(t *testing.T) {
 	}
 
 	got := h.engine.CollectedStages
-	if len(got) != 1 || got[0].Name != "rank" || got[0].Received != 2 || got[0].Kept != 2 {
-		t.Fatalf("stages = %+v, want the default stage as rank with 2 received and 2 kept", got)
+	if len(got) != 1 || got[0].Name != "shortlist" || got[0].Received != 2 || got[0].Kept != 2 {
+		t.Fatalf("stages = %+v, want the default pipeline's shortlist node with 2 received and 2 kept", got)
 	}
 }
 

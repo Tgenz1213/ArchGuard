@@ -404,9 +404,10 @@ func TestPipeline_PassThroughStageErrorJudgesEveryCandidate(t *testing.T) {
 	}
 }
 
-func TestPipeline_DefaultCosineSuppressedADRDoesNotConsumeTopKSlot(t *testing.T) {
+func TestPipeline_SuppressedADRDoesNotConsumeARankSlot(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "// archguard-ignore: 0001\npackage svc")
 	h.engine.Config.Analysis.MaxRelevantADRs = 2
+	h.engine.Stages = defaultStages(h.engine.Config, h.engine.Store, h.engine.Embed)
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -417,7 +418,7 @@ func TestPipeline_DefaultCosineSuppressedADRDoesNotConsumeTopKSlot(t *testing.T)
 	}
 }
 
-func TestPipeline_DefaultCosineEmbedsOncePerFile(t *testing.T) {
+func TestPipeline_RankEmbedsOncePerFile(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9)}, "svc.go", "package svc")
 
 	if err := h.engine.Run(t.Context()); err != nil {
@@ -477,13 +478,13 @@ func ruledADR(id, statement string) index.ADR {
 	return adr
 }
 
-type preJudgeRun struct {
+type askRun struct {
 	onError     string
 	content     string
 	judgeChange bool
 }
 
-func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*scorerHarness, string) {
+func runAsk(t *testing.T, run askRun, screener stage.Screener) (*scorerHarness, string) {
 	t.Helper()
 
 	content := run.content
@@ -515,7 +516,7 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 	return h, logged.String()
 }
 
-func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
+func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 	var states []string
 	screener := screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 		states = append(states, state)
@@ -530,7 +531,7 @@ func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 		return answers, nil
 	})
 
-	h, _ := runPreJudge(t, preJudgeRun{}, screener)
+	h, _ := runAsk(t, askRun{}, screener)
 
 	slices.Sort(h.judged)
 
@@ -543,32 +544,32 @@ func TestPipeline_PreJudgeSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 	}
 
 	if stats := h.engine.CollectedStages; len(stats) != 2 || stats[1].Name != "breaks-a-rule" || stats[1].Received != 3 || stats[1].Kept != 2 {
-		t.Errorf("stage stats = %+v, want breaks-a-rule receiving 3 and keeping 2", stats)
+		t.Errorf("node stats = %+v, want breaks-a-rule receiving 3 and keeping 2", stats)
 	}
 }
 
-func TestPipeline_PreJudgeSkipPassesCandidatesToTheLLM(t *testing.T) {
+func TestPipeline_AskSkipPassesCandidatesToTheLLM(t *testing.T) {
 	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
-	h, logged := runPreJudge(t, preJudgeRun{}, down)
+	h, logged := runAsk(t, askRun{}, down)
 
 	if len(h.judged) != 3 || len(h.engine.SkippedFiles) != 0 {
 		t.Errorf("judged %v with %d skipped file(s), want all 3 ADRs judged and the file not skipped", h.judged, len(h.engine.SkippedFiles))
 	}
 
 	if !strings.Contains(logged, "breaks-a-rule") || !strings.Contains(logged, "jev down") {
-		t.Errorf("log %q lacks a warning naming the stage and the error", logged)
+		t.Errorf("log %q lacks a warning naming the node and the error", logged)
 	}
 }
 
-func TestPipeline_PreJudgeFailRecordsAStageFailure(t *testing.T) {
+func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
 	down := screenerFunc(func(string, map[string]string) (map[string]float64, error) {
 		return nil, errors.New("jev down")
 	})
 
-	h, _ := runPreJudge(t, preJudgeRun{onError: config.OnErrorFail}, down)
+	h, _ := runAsk(t, askRun{onError: config.OnErrorFail}, down)
 
 	if len(h.judged) != 0 || len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "breaks-a-rule" {
 		t.Errorf("judged %v, failures %+v; want nothing judged and one breaks-a-rule failure", h.judged, h.engine.StageFailures)
@@ -632,7 +633,7 @@ func TestPipeline_AskReadsEachSideOfADiffAsPlainText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var states []string
 
-			h, _ := runPreJudge(t, preJudgeRun{content: tt.diff, judgeChange: true}, screenerBreaking(tt.breaking, &states))
+			h, _ := runAsk(t, askRun{content: tt.diff, judgeChange: true}, screenerBreaking(tt.breaking, &states))
 
 			if !slices.Equal(states, tt.wantStates) {
 				t.Errorf("screener states = %q, want %q", states, tt.wantStates)

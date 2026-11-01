@@ -64,7 +64,7 @@ func writePipelineADRs(t *testing.T, dir string) {
 	}
 }
 
-type stageTotals struct {
+type nodeTotals struct {
 	name           string
 	received, kept int
 }
@@ -74,13 +74,13 @@ func TestE2E_PipelineConfig(t *testing.T) {
 		name          string
 		pipeline      string
 		wantViolation int
-		wantStages    []stageTotals
+		wantNodes     []nodeTotals
 	}{
 		{
 			name:          "the default pipeline judges every candidate",
-			pipeline:      pipelineOf(rankNodeYAML("rank", "")),
+			pipeline:      defaultPipelineYAML,
 			wantViolation: 2,
-			wantStages:    []stageTotals{{"rank", 2, 2}},
+			wantNodes:     []nodeTotals{{"shortlist", 2, 2}},
 		},
 		{
 			name: "two rank nodes narrow the candidates in order",
@@ -89,7 +89,7 @@ func TestE2E_PipelineConfig(t *testing.T) {
 				rankNodeYAML("rerank", "      threshold: 0.5\n      top_k: 1\n"),
 			),
 			wantViolation: 1,
-			wantStages:    []stageTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
+			wantNodes:     []nodeTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
 		},
 	}
 
@@ -118,14 +118,14 @@ func TestE2E_PipelineConfig(t *testing.T) {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
 			}
 
-			if len(report.Stages) != len(tt.wantStages) {
-				t.Fatalf("stages = %+v, want %d entries", report.Stages, len(tt.wantStages))
+			if len(report.Stages) != len(tt.wantNodes) {
+				t.Fatalf("nodes = %+v, want %d entries", report.Stages, len(tt.wantNodes))
 			}
 
-			for i, want := range tt.wantStages {
+			for i, want := range tt.wantNodes {
 				got := report.Stages[i]
 				if got.Name != want.name || got.Received != want.received || got.Kept != want.kept || got.DurationMS == nil {
-					t.Errorf("stage %d = %+v, want %+v with a duration_ms", i, got, want)
+					t.Errorf("node %d = %+v, want %+v with a duration_ms", i, got, want)
 				}
 			}
 
@@ -261,7 +261,7 @@ func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T
 	}
 
 	if _, statErr := os.Stat(filepath.Join(tempDir, baseline.Path)); !os.IsNotExist(statErr) {
-		t.Errorf("baseline file must not be written when a stage failed, stat err: %v", statErr)
+		t.Errorf("baseline file must not be written when a node failed, stat err: %v", statErr)
 	}
 }
 
@@ -319,8 +319,8 @@ func TestE2E_PipelineIsCheckedBeforeTheVectorStoreConnects(t *testing.T) {
 	writePipelineADRs(t, tempDir)
 
 	_, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "")
-	if exitCode != int(cli.ExitConfig) {
-		t.Fatalf("expected config exit code %d before any database connection, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
+	if exitCode != int(cli.ExitConfig) || !strings.Contains(stderr, "archguard init") {
+		t.Fatalf("expected config exit code %d naming archguard init before any database connection, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
 	}
 }
 

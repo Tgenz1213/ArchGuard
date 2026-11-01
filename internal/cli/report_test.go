@@ -37,7 +37,7 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 		{"clean", output.Coverage{FilesJudged: 3, ADRChecks: 5, FilesWithoutADR: 1}},
 		{"nothing judged", output.Coverage{FilesWithoutADR: 12}},
 		{"nothing above the threshold", output.Coverage{FilesWithoutADR: 4, FilesBelowThreshold: 4}},
-		{"nothing past pre_judge", output.Coverage{FilesWithoutADR: 2, FilesScreenedOut: 2}},
+		{"nothing past an ask node", output.Coverage{FilesWithoutADR: 2, FilesScreenedOut: 2}},
 		{"no files", output.Coverage{}},
 	}
 
