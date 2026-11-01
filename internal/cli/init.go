@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 )
 
 type prompter struct{ scanner *bufio.Scanner }
@@ -76,14 +78,19 @@ func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
 	return nil
 }
 
-// writeInPlace keeps a symlinked config a link, and keeps the file's mode, which a write-and-rename would replace.
+// writeInPlace replaces a symlinked config's target, not the link, and keeps the file's mode; the write is all-or-nothing.
 func writeInPlace(configPath string, content []byte) error {
-	info, err := os.Stat(configPath)
+	target, err := filepath.EvalSymlinks(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %w", configPath, err)
 	}
 
-	if err := os.WriteFile(configPath, content, info.Mode().Perm()); err != nil {
+	info, err := os.Stat(target)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+
+	if err := atomicfile.WriteMode(target, content, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
 

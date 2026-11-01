@@ -95,7 +95,7 @@ func verifySplice(before, after []byte) error {
 }
 
 func valuesWithoutPipeline(content []byte) (map[string]any, error) {
-	var values map[string]any
+	values := map[string]any{}
 	if err := yaml.Unmarshal(content, &values); err != nil {
 		return nil, err
 	}

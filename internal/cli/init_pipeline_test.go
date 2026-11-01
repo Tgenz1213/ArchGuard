@@ -82,6 +82,16 @@ llm:
 			want: "llm:\n  provider: ollama\nanalysis:\n" + splicedPipeline,
 		},
 		{
+			name: "an empty config",
+			in:   "",
+			want: "analysis:\n" + splicedPipeline,
+		},
+		{
+			name: "a config holding only a comment",
+			in:   "# just a comment\n",
+			want: "# just a comment\nanalysis:\n" + splicedPipeline,
+		},
+		{
 			name: "matches a four-space indent",
 			in:   "analysis:\n    adr_path: docs\n    pipeline:\n        rank:\n            top_k: 2\n",
 			want: "analysis:\n    adr_path: docs\n    pipeline:\n        - name: shortlist\n          job: rank\n          with: cosine\n\n        - name: judge\n          job: judge\n          with: llm\n",

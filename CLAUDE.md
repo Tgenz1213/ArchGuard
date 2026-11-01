@@ -47,7 +47,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 
 Each package's `doc.go` says what the package is for, what it does not own and its key terms; `go doc ./internal/<pkg>` prints it.
 
-`internal/atomicfile` has no rules file: its `Write` is the one write-tmp-then-rename helper, used by the baseline, the local index and `check --output`. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
+`internal/atomicfile` has no rules file: its `Write` (and `WriteMode`, which sets the permission bits) is the one write-tmp-then-rename helper, used by the baseline, the local index, `check --output` and `init` rewriting a config. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
 
 ## Conventions
 
