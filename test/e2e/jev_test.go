@@ -15,11 +15,9 @@ import (
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
-const jevPreJudge = `  pipeline:
-    pre_judge:
-      scorer: jev
-      threshold: 0.3
-`
+func jevPipeline(onError string) string {
+	return pipelineOf(rankNodeYAML("rank", ""), "    - name: breaks-a-rule\n      job: ask\n      with: jev\n      preset: breaks-a-rule\n"+onError)
+}
 
 func writeRuledADRs(t *testing.T, dir string) {
 	t.Helper()
@@ -38,7 +36,7 @@ func writeRuledADRs(t *testing.T, dir string) {
 	}
 }
 
-func TestE2E_JevPreJudge(t *testing.T) {
+func TestE2E_JevAskNode(t *testing.T) {
 	tests := []struct {
 		name          string
 		fixture       string
@@ -47,13 +45,13 @@ func TestE2E_JevPreJudge(t *testing.T) {
 		wantStderr    string
 	}{
 		{"only ADRs with a likely-broken rule reach the LLM", violationFixtureContent(), 1, 1, ""},
-		{"a Jev failure passes every candidate to the LLM", violationFixtureContent() + "// " + testutil.MockJevFailureTrigger + "\n", 2, 2, "stage pre_judge skipped"},
+		{"a Jev failure passes every candidate to the LLM", violationFixtureContent() + "// " + testutil.MockJevFailureTrigger + "\n", 2, 2, "stage breaks-a-rule skipped"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tempDir, binaryPath := buildE2EBinary(t)
-			writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPreJudge))
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPipeline("")))
 			writeRuledADRs(t, tempDir)
 
 			if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(tt.fixture), 0644); err != nil {
@@ -74,8 +72,8 @@ func TestE2E_JevPreJudge(t *testing.T) {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
 			}
 
-			if len(report.Stages) != 2 || report.Stages[1].Name != "pre_judge" || report.Stages[1].Received != 2 || report.Stages[1].Kept != tt.wantKept {
-				t.Errorf("stages = %+v, want pre_judge receiving 2 and keeping %d", report.Stages, tt.wantKept)
+			if len(report.Stages) != 2 || report.Stages[1].Name != "breaks-a-rule" || report.Stages[1].Received != 2 || report.Stages[1].Kept != tt.wantKept {
+				t.Errorf("stages = %+v, want breaks-a-rule receiving 2 and keeping %d", report.Stages, tt.wantKept)
 			}
 
 			if !strings.Contains(stderr, tt.wantStderr) {
@@ -85,9 +83,9 @@ func TestE2E_JevPreJudge(t *testing.T) {
 	}
 }
 
-func TestE2E_JevPreJudgeWithoutAPIKeyIsAConfigError(t *testing.T) {
+func TestE2E_JevAskNodeWithoutAPIKeyIsAConfigError(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
-	writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPreJudge))
+	writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPipeline("")))
 	writeRuledADRs(t, tempDir)
 
 	_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, []string{config.JevAPIKeyEnv + "="}, "--all")
@@ -95,8 +93,8 @@ func TestE2E_JevPreJudgeWithoutAPIKeyIsAConfigError(t *testing.T) {
 		t.Fatalf("expected config exit code %d, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
 	}
 
-	if !strings.Contains(stderr, "analysis.pipeline.pre_judge") || !strings.Contains(stderr, config.JevAPIKeyEnv) {
-		t.Errorf("stderr should name the stage and %s, got: %s", config.JevAPIKeyEnv, stderr)
+	if !strings.Contains(stderr, `node "breaks-a-rule"`) || !strings.Contains(stderr, config.JevAPIKeyEnv) {
+		t.Errorf("stderr should name the node and %s, got: %s", config.JevAPIKeyEnv, stderr)
 	}
 }
 
@@ -104,7 +102,7 @@ func TestE2E_JevRejectedKeyFailsTheCheckAsAConfigError(t *testing.T) {
 	for _, onError := range []string{"", "      on_error: skip\n", "      on_error: fail\n"} {
 		t.Run("on_error "+strings.TrimSpace(onError), func(t *testing.T) {
 			tempDir, binaryPath := buildE2EBinary(t)
-			writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPreJudge+onError))
+			writeE2EConfig(t, tempDir, pipelineConfigYAML(jevPipeline(onError)))
 			writeRuledADRs(t, tempDir)
 
 			files := []string{"a.go", "b.go", "c.go"}

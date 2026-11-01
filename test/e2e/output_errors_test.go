@@ -24,6 +24,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 
 // unwritable returns a read-only handle: every write to it fails, on Windows and Unix alike.

@@ -19,6 +19,14 @@ analysis:
   max_concurrency: 2
   max_relevant_adrs: 6 # 3 missed the relevant ADR; 6 judged 78 checks in about 70s, no rate limit (#277)
   included_headers: ["Decision", "Rules"] # Embed what the code must do; Context, Alternatives and Consequences are narrative
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+
+    - name: judge
+      job: judge
+      with: llm
   exclude_patterns:
     - "**/*_test.go"
     - "vendor/**"

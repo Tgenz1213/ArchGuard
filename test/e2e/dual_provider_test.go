@@ -32,6 +32,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -85,6 +92,13 @@ llm:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 

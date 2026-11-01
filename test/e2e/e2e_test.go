@@ -159,6 +159,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -278,6 +285,13 @@ vector_store:
 analysis:
   adr_path: "./does_not_exist"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 
 		err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(badConfigContent), 0644)
@@ -441,6 +455,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -592,6 +613,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -705,6 +733,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
@@ -760,6 +795,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -796,6 +838,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -853,6 +902,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `)
 	writeNoSecretsADR(t, tempDir)
 
@@ -912,6 +968,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -953,6 +1016,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1021,6 +1091,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
   exclude_patterns: ["excluded.js"]
 `
 	writeE2EConfig(t, tempDir, configContent)
@@ -1129,6 +1206,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -1183,6 +1267,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1222,6 +1313,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1288,6 +1386,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1333,6 +1438,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
   adr_id_pattern: "^adr-(\\d+)-"
 `
 	writeE2EConfig(t, tempDir, configContent)
@@ -1378,6 +1490,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1411,6 +1530,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1439,6 +1565,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1507,6 +1640,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -1619,6 +1759,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -1680,6 +1827,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -1757,6 +1911,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
@@ -1837,6 +1998,13 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+    - name: judge
+      job: judge
+      with: llm
 `
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
