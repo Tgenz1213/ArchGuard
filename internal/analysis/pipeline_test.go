@@ -11,21 +11,21 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
-type scorerFunc func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error)
+type scorerFunc func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error)
 
-func (f scorerFunc) Score(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+func (f scorerFunc) Score(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 	return f(ctx, file, debug, candidates)
 }
 
-func scoresByID(scores map[string]float64, seen *[][]string) stage.Scorer {
-	return scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+func scoresByID(scores map[string]float64, seen *[][]string) node.Scorer {
+	return scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 		ids := make([]string, len(candidates))
 		out := make([]float64, len(candidates))
 		for i, c := range candidates {
@@ -98,7 +98,7 @@ func TestPipeline_ScoresAllCandidatesInOneCall(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1), scorerADR("0003", 1)}, "svc.go", "package svc")
 
 	var calls [][]string
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1, "0003": 1}, &calls)}}
+	h.engine.Nodes = []node.Node{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1, "0003": 1}, &calls)}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -113,12 +113,12 @@ func TestPipeline_ScoresAllCandidatesInOneCall(t *testing.T) {
 	}
 }
 
-func TestPipeline_OnlyWhatTheStageKeepsIsJudged(t *testing.T) {
+func TestPipeline_OnlyWhatTheNodeKeepsIsJudged(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1), scorerADR("0003", 1), scorerADR("0004", 1)}, "svc.go", "package svc")
 
-	h.engine.Stages = []stage.Stage{{
+	h.engine.Nodes = []node.Node{{
 		Scorer:  scoresByID(map[string]float64{"0001": 0.9, "0002": 0.2, "0003": 0.7, "0004": 0.8}, nil),
-		Min:     stage.FixedMin(0.5),
+		Min:     node.FixedMin(0.5),
 		MaxKeep: 2,
 	}}
 
@@ -131,13 +131,13 @@ func TestPipeline_OnlyWhatTheStageKeepsIsJudged(t *testing.T) {
 	}
 }
 
-func TestPipeline_StagesRunInOrderOverSurvivors(t *testing.T) {
+func TestPipeline_NodesRunInOrderOverSurvivors(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1), scorerADR("0003", 1)}, "svc.go", "package svc")
 
 	var calls [][]string
-	h.engine.Stages = []stage.Stage{
-		{Scorer: scoresByID(map[string]float64{"0001": 0.9, "0002": 0.8, "0003": 0.1}, &calls), Min: stage.FixedMin(0.5)},
-		{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 0}, &calls), Min: stage.FixedMin(0.5)},
+	h.engine.Nodes = []node.Node{
+		{Scorer: scoresByID(map[string]float64{"0001": 0.9, "0002": 0.8, "0003": 0.1}, &calls), Min: node.FixedMin(0.5)},
+		{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 0}, &calls), Min: node.FixedMin(0.5)},
 	}
 
 	if err := h.engine.Run(t.Context()); err != nil {
@@ -145,7 +145,7 @@ func TestPipeline_StagesRunInOrderOverSurvivors(t *testing.T) {
 	}
 
 	if len(calls) != 2 || len(calls[1]) != 2 {
-		t.Fatalf("scorer calls = %v, want the second stage to see only the first stage's 2 survivors", calls)
+		t.Fatalf("scorer calls = %v, want the second node to see only the first node's 2 survivors", calls)
 	}
 
 	if strings.Join(h.judged, ",") != "0001" {
@@ -155,7 +155,7 @@ func TestPipeline_StagesRunInOrderOverSurvivors(t *testing.T) {
 
 func TestPipeline_WithoutCosineMakesNoEmbeddingCalls(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1}, nil)}}
+	h.engine.Nodes = []node.Node{{Scorer: scoresByID(map[string]float64{"0001": 1}, nil)}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -178,7 +178,7 @@ func TestPipeline_OnlyScopeMatchedADRsAreCandidates(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{inScope, outOfScope}, "svc.go", "package svc")
 
 	var calls [][]string
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
+	h.engine.Nodes = []node.Node{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -193,7 +193,7 @@ func TestPipeline_SuppressedADRsNeverReachScorerOrLLM(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "svc.go", "// archguard-ignore: 0001\npackage svc")
 
 	var calls [][]string
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
+	h.engine.Nodes = []node.Node{{Scorer: scoresByID(map[string]float64{"0001": 1, "0002": 1}, &calls)}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -215,7 +215,7 @@ func runRankWithOnError(t *testing.T, onError string, embed inference.Embedder) 
 	h.engine.Out = output.Discard()
 	rank := config.Node{Name: "rank", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: onError}
 
-	h.engine.Stages = analysis.BuildPipeline([]config.Node{rank}, h.engine.Store, embed, nil)
+	h.engine.Nodes = analysis.BuildPipeline([]config.Node{rank}, h.engine.Store, embed, nil)
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,8 +239,8 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 	for _, onError := range []string{"", config.OnErrorSkip} {
 		t.Run("on_error="+onError, func(t *testing.T) {
 			h := runRankWithOnError(t, onError, embedFailingOnBAD())
-			if len(h.engine.SkippedFiles) != 1 || len(h.engine.StageFailures) != 0 {
-				t.Fatalf("SkippedFiles = %d, StageFailures = %v; want the file skipped and no failures", len(h.engine.SkippedFiles), h.engine.StageFailures)
+			if len(h.engine.SkippedFiles) != 1 || len(h.engine.NodeFailures) != 0 {
+				t.Fatalf("SkippedFiles = %d, NodeFailures = %v; want the file skipped and no failures", len(h.engine.SkippedFiles), h.engine.NodeFailures)
 			}
 
 			if skipped := h.engine.SkippedFiles[0]; skipped.File != "bad.go" || !strings.Contains(skipped.Reason, "embedding service down") {
@@ -256,12 +256,12 @@ func TestPipeline_OnErrorSkipAndDefaultSkipTheFile(t *testing.T) {
 
 func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 	harness := runRankWithOnError(t, config.OnErrorFail, embedFailingOnBAD())
-	if len(harness.engine.SkippedFiles) != 0 || len(harness.engine.StageFailures) != 1 {
-		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want one failure and no skips", len(harness.engine.SkippedFiles), harness.engine.StageFailures)
+	if len(harness.engine.SkippedFiles) != 0 || len(harness.engine.NodeFailures) != 1 {
+		t.Fatalf("SkippedFiles = %d, NodeFailures = %v; want one failure and no skips", len(harness.engine.SkippedFiles), harness.engine.NodeFailures)
 	}
 
-	failure := harness.engine.StageFailures[0]
-	if failure.Stage != "rank" || failure.File != "bad.go" || failure.Kind != stage.KindUnavailable || !strings.Contains(failure.Error, "embedding service down") {
+	failure := harness.engine.NodeFailures[0]
+	if failure.Node != "rank" || failure.File != "bad.go" || failure.Kind != node.KindUnavailable || !strings.Contains(failure.Error, "embedding service down") {
 		t.Errorf("failure = %+v", failure)
 	}
 
@@ -272,12 +272,12 @@ func TestPipeline_OnErrorFailUnavailable(t *testing.T) {
 
 func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
 	harness := runRankWithOnError(t, config.OnErrorFail, nil)
-	if len(harness.engine.StageFailures) != 2 || len(harness.judged) != 0 {
-		t.Fatalf("StageFailures = %v, judged = %v; want both files failed and nothing judged", harness.engine.StageFailures, harness.judged)
+	if len(harness.engine.NodeFailures) != 2 || len(harness.judged) != 0 {
+		t.Fatalf("NodeFailures = %v, judged = %v; want both files failed and nothing judged", harness.engine.NodeFailures, harness.judged)
 	}
 
-	for _, failure := range harness.engine.StageFailures {
-		if failure.Stage != "rank" || failure.Kind != stage.KindPreconditionNotMet {
+	for _, failure := range harness.engine.NodeFailures {
+		if failure.Node != "rank" || failure.Kind != node.KindPreconditionNotMet {
 			t.Errorf("failure = %+v, want a rank precondition failure", failure)
 		}
 	}
@@ -285,37 +285,37 @@ func TestPipeline_OnErrorFailPreconditionNotMet(t *testing.T) {
 
 func TestPipeline_OnErrorSkipPreconditionSkipsFiles(t *testing.T) {
 	h := runRankWithOnError(t, config.OnErrorSkip, nil)
-	if len(h.engine.SkippedFiles) != 2 || len(h.engine.StageFailures) != 0 {
-		t.Fatalf("SkippedFiles = %d, StageFailures = %v; want both files skipped", len(h.engine.SkippedFiles), h.engine.StageFailures)
+	if len(h.engine.SkippedFiles) != 2 || len(h.engine.NodeFailures) != 0 {
+		t.Fatalf("SkippedFiles = %d, NodeFailures = %v; want both files skipped", len(h.engine.SkippedFiles), h.engine.NodeFailures)
 	}
 }
 
-func failingScorer(kind stage.Kind) stage.Scorer {
-	return scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
-		return nil, &stage.Error{Action: "scoring candidates", Kind: kind, Err: errors.New("boom")}
+func failingScorer(kind node.Kind) node.Scorer {
+	return scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
+		return nil, &node.Error{Action: "scoring candidates", Kind: kind, Err: errors.New("boom")}
 	})
 }
 
-func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
+func TestPipeline_OnErrorFailStopsRemainingNodesForThatFileOnly(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "good.go", "package good")
 	h.engine.Content.(*MockContentProvider).Files["bad.go"] = "package BAD"
 
 	var mu sync.Mutex
-	var secondStageFiles []string
-	first := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	var secondNodeFiles []string
+	first := scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 		if file.Path() == "bad.go" {
 			return nil, errors.New("boom")
 		}
 
 		return make([]float64, len(candidates)), nil
 	})
-	second := scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	second := scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 		mu.Lock()
-		secondStageFiles = append(secondStageFiles, file.Path())
+		secondNodeFiles = append(secondNodeFiles, file.Path())
 		mu.Unlock()
 		return make([]float64, len(candidates)), nil
 	})
-	h.engine.Stages = []stage.Stage{
+	h.engine.Nodes = []node.Node{
 		{Name: "rank", Scorer: first, FailOnError: true},
 		{Name: "rerank", Scorer: second},
 	}
@@ -324,29 +324,29 @@ func TestPipeline_OnErrorFailStopsRemainingStagesForThatFileOnly(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].File != "bad.go" {
-		t.Fatalf("StageFailures = %v, want one failure for bad.go", h.engine.StageFailures)
+	if len(h.engine.NodeFailures) != 1 || h.engine.NodeFailures[0].File != "bad.go" {
+		t.Fatalf("NodeFailures = %v, want one failure for bad.go", h.engine.NodeFailures)
 	}
 
-	if strings.Join(secondStageFiles, ",") != "good.go" {
-		t.Errorf("second stage ran for %v, want only good.go", secondStageFiles)
+	if strings.Join(secondNodeFiles, ",") != "good.go" {
+		t.Errorf("second node ran for %v, want only good.go", secondNodeFiles)
 	}
 }
 
-func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
+func TestPipeline_NodeFailuresAreSortedByFile(t *testing.T) {
 	harness := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "m.go", "package m")
 	files := harness.engine.Content.(*MockContentProvider).Files
 	files["z.go"] = "package z"
 	files["a.go"] = "package a"
 	harness.engine.Config.Analysis.MaxConcurrency = 3
-	harness.engine.Stages = []stage.Stage{{Name: "rank", Scorer: failingScorer(stage.KindUnavailable), FailOnError: true}}
+	harness.engine.Nodes = []node.Node{{Name: "rank", Scorer: failingScorer(node.KindUnavailable), FailOnError: true}}
 
 	if err := harness.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	var got []string
-	for _, failure := range harness.engine.StageFailures {
+	for _, failure := range harness.engine.NodeFailures {
 		got = append(got, failure.File)
 	}
 
@@ -355,8 +355,8 @@ func TestPipeline_StageFailuresAreSortedByFile(t *testing.T) {
 	}
 }
 
-func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
-	b, err := json.Marshal(analysis.StageFailure{Stage: "rerank", File: "a.go", Kind: stage.KindPreconditionNotMet, Error: "boom"})
+func TestPipeline_NodeFailureJSONCarriesKind(t *testing.T) {
+	b, err := json.Marshal(analysis.NodeFailure{Node: "rerank", File: "a.go", Kind: node.KindPreconditionNotMet, Error: "boom"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
 
 func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
-	h.engine.Stages = []stage.Stage{{Scorer: scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	h.engine.Nodes = []node.Node{{Scorer: scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 		return nil, errors.New("scorer down")
 	})}}
 
@@ -382,12 +382,12 @@ func TestPipeline_ScorerErrorSkipsFile(t *testing.T) {
 	}
 }
 
-func TestPipeline_PassThroughStageErrorJudgesEveryCandidate(t *testing.T) {
+func TestPipeline_PassThroughNodeErrorJudgesEveryCandidate(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "svc.go", "package svc")
 	var logged bytes.Buffer
 	h.engine.Out = output.New(&logged, false)
 	h.engine.JSONOutput = true
-	h.engine.Stages = []stage.Stage{{Name: "screen", PassThroughOnSkip: true, Scorer: scorerFunc(func(ctx context.Context, file stage.File, debug stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	h.engine.Nodes = []node.Node{{Name: "screen", PassThroughOnSkip: true, Scorer: scorerFunc(func(ctx context.Context, file node.File, debug node.Debug, candidates []node.Candidate) ([]float64, error) {
 		return nil, errors.New("scorer down")
 	})}}
 
@@ -407,7 +407,7 @@ func TestPipeline_PassThroughStageErrorJudgesEveryCandidate(t *testing.T) {
 func TestPipeline_SuppressedADRDoesNotConsumeARankSlot(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "// archguard-ignore: 0001\npackage svc")
 	h.engine.Config.Analysis.MaxRelevantADRs = 2
-	h.engine.Stages = defaultStages(h.engine.Config, h.engine.Store, h.engine.Embed)
+	h.engine.Nodes = defaultNodes(h.engine.Config, h.engine.Store, h.engine.Embed)
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -434,12 +434,12 @@ func TestPipeline_RankEmbedsOncePerFile(t *testing.T) {
 	}
 }
 
-func TestPipeline_NoStagesFailsInsteadOfJudgingEveryADR(t *testing.T) {
+func TestPipeline_NoNodesFailsInsteadOfJudgingEveryADR(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9)}, "svc.go", "package svc")
-	h.engine.Stages = nil
+	h.engine.Nodes = nil
 
 	if err := h.engine.Run(t.Context()); err == nil {
-		t.Fatal("expected an error for an engine with no stages, got nil")
+		t.Fatal("expected an error for an engine with no nodes, got nil")
 	}
 
 	if len(h.judged) != 0 || h.embeds != 0 {
@@ -484,7 +484,7 @@ type askRun struct {
 	judgeChange bool
 }
 
-func runAsk(t *testing.T, run askRun, screener stage.Screener) (*scorerHarness, string) {
+func runAsk(t *testing.T, run askRun, screener node.Screener) (*scorerHarness, string) {
 	t.Helper()
 
 	content := run.content
@@ -508,7 +508,7 @@ func runAsk(t *testing.T, run askRun, screener stage.Screener) (*scorerHarness, 
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
 
-	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
+	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
 		t.Errorf("screener states = %q, want one call with the content the LLM judges", states)
 	}
 
-	if stats := h.engine.CollectedStages; len(stats) != 2 || stats[1].Name != "breaks-a-rule" || stats[1].Received != 3 || stats[1].Kept != 2 {
+	if stats := h.engine.CollectedNodes; len(stats) != 2 || stats[1].Name != "breaks-a-rule" || stats[1].Received != 3 || stats[1].Kept != 2 {
 		t.Errorf("node stats = %+v, want breaks-a-rule receiving 3 and keeping 2", stats)
 	}
 }
@@ -571,13 +571,13 @@ func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
 
 	h, _ := runAsk(t, askRun{onError: config.OnErrorFail}, down)
 
-	if len(h.judged) != 0 || len(h.engine.StageFailures) != 1 || h.engine.StageFailures[0].Stage != "breaks-a-rule" {
-		t.Errorf("judged %v, failures %+v; want nothing judged and one breaks-a-rule failure", h.judged, h.engine.StageFailures)
+	if len(h.judged) != 0 || len(h.engine.NodeFailures) != 1 || h.engine.NodeFailures[0].Node != "breaks-a-rule" {
+		t.Errorf("judged %v, failures %+v; want nothing judged and one breaks-a-rule failure", h.judged, h.engine.NodeFailures)
 	}
 }
 
 // screenerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
-func screenerBreaking(code string, states *[]string) stage.Screener {
+func screenerBreaking(code string, states *[]string) node.Screener {
 	return screenerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 		*states = append(*states, state)
 		answers := make(map[string]float64, len(questions))
@@ -660,7 +660,7 @@ func TestPipeline_AskReadsBothSidesOfALargeFilesDiff(t *testing.T) {
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: config.OnErrorSkip},
 	}
 	screener := screenerBreaking("fmt.Println", &states)
-	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
+	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)

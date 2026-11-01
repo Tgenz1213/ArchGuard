@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -14,14 +14,14 @@ import (
 // newEngine builds an engine that runs the pipeline archguard init writes, parsed and built as check does.
 func newEngine(cfg *config.Config, store index.VectorStore, chat inference.Chatter, embed inference.Embedder, content analysis.ContentProvider) *analysis.Engine {
 	engine := analysis.NewEngine(cfg, store, chat, embed, content)
-	engine.Stages = defaultStages(cfg, store, embed)
+	engine.Nodes = defaultNodes(cfg, store, embed)
 
 	return engine
 }
 
-// defaultStages reads max_relevant_adrs and similarity_threshold from cfg when called, as check does once at startup.
+// defaultNodes reads max_relevant_adrs and similarity_threshold from cfg when called, as check does once at startup.
 // It panics on a config the default pipeline can't run on, which fails the calling test.
-func defaultStages(cfg *config.Config, store index.VectorStore, embed inference.Embedder) []stage.Stage {
+func defaultNodes(cfg *config.Config, store index.VectorStore, embed inference.Embedder) []node.Node {
 	var analysisBlock struct {
 		Pipeline yaml.Node `yaml:"pipeline"`
 	}
@@ -41,11 +41,11 @@ func defaultStages(cfg *config.Config, store index.VectorStore, embed inference.
 
 // fixedScreeners gives every ask node the same screener and records the models asked for.
 type fixedScreeners struct {
-	screener stage.Screener
+	screener node.Screener
 	models   *[]string
 }
 
-func (f fixedScreeners) ForModel(model string) stage.Screener {
+func (f fixedScreeners) ForModel(model string) node.Screener {
 	if f.models != nil {
 		*f.models = append(*f.models, model)
 	}

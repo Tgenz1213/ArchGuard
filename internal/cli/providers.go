@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -138,10 +138,10 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 // jevScreeners builds a Jev client per model, or hands out the screener a test injected.
 type jevScreeners struct {
 	apiKey   string
-	injected func(model string) stage.Screener
+	injected func(model string) node.Screener
 }
 
-func (j jevScreeners) ForModel(model string) stage.Screener {
+func (j jevScreeners) ForModel(model string) node.Screener {
 	if j.injected != nil {
 		return j.injected(model)
 	}
@@ -150,7 +150,7 @@ func (j jevScreeners) ForModel(model string) stage.Screener {
 }
 
 // newScreeners returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
-func newScreeners(nodes []config.Node, injected func(model string) stage.Screener) (analysis.Screeners, error) {
+func newScreeners(nodes []config.Node, injected func(model string) node.Screener) (analysis.Screeners, error) {
 	jevNode := slices.IndexFunc(nodes, func(node config.Node) bool { return node.With == config.RunnerJev })
 	if jevNode < 0 {
 		return nil, nil

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -21,15 +21,15 @@ import (
 type ExitCode int
 
 const (
-	ExitSuccess           ExitCode = 0
-	ExitError             ExitCode = 1
-	ExitUsage             ExitCode = 2
-	ExitConfig            ExitCode = 3
-	ExitDriftDetected     ExitCode = 4
-	ExitIndexError        ExitCode = 5
-	ExitStageUnavailable  ExitCode = 6
-	ExitStagePrecondition ExitCode = 7
-	ExitNothingChecked    ExitCode = 8
+	ExitSuccess          ExitCode = 0
+	ExitError            ExitCode = 1
+	ExitUsage            ExitCode = 2
+	ExitConfig           ExitCode = 3
+	ExitDriftDetected    ExitCode = 4
+	ExitIndexError       ExitCode = 5
+	ExitNodeUnavailable  ExitCode = 6
+	ExitNodePrecondition ExitCode = 7
+	ExitNothingChecked   ExitCode = 8
 	// 128 + SIGINT, the shell convention for a run stopped by a signal.
 	ExitInterrupted ExitCode = 130
 )
@@ -45,7 +45,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(model string) stage.Screener
+	Jev      func(model string) node.Screener
 	Recorder telemetry.Recorder
 }
 
@@ -201,7 +201,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
-	jev                 func(model string) stage.Screener
+	jev                 func(model string) node.Screener
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

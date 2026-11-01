@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -34,24 +34,24 @@ func TestExitCodeForAnalysisError(t *testing.T) {
 	}
 }
 
-func TestStageFailureExit(t *testing.T) {
-	unavailable := analysis.StageFailure{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable}
-	precondition := analysis.StageFailure{Stage: "rank", File: "b.go", Kind: stage.KindPreconditionNotMet}
+func TestNodeFailureExit(t *testing.T) {
+	unavailable := analysis.NodeFailure{Node: "rank", File: "a.go", Kind: node.KindUnavailable}
+	precondition := analysis.NodeFailure{Node: "rank", File: "b.go", Kind: node.KindPreconditionNotMet}
 	tests := []struct {
 		name     string
-		failures []analysis.StageFailure
+		failures []analysis.NodeFailure
 		want     ExitCode
 	}{
 		{"none", nil, ExitSuccess},
-		{"unavailable only", []analysis.StageFailure{unavailable}, ExitStageUnavailable},
-		{"precondition only", []analysis.StageFailure{precondition}, ExitStagePrecondition},
-		{"both kinds", []analysis.StageFailure{unavailable, precondition, unavailable}, ExitStagePrecondition},
+		{"unavailable only", []analysis.NodeFailure{unavailable}, ExitNodeUnavailable},
+		{"precondition only", []analysis.NodeFailure{precondition}, ExitNodePrecondition},
+		{"both kinds", []analysis.NodeFailure{unavailable, precondition, unavailable}, ExitNodePrecondition},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, err := stageFailureExit(tt.failures)
+			code, err := nodeFailureExit(tt.failures)
 			if code != tt.want || (err != nil) != (tt.want != ExitSuccess) {
-				t.Fatalf("stageFailureExit = (%d, %v), want code %d", code, err, tt.want)
+				t.Fatalf("nodeFailureExit = (%d, %v), want code %d", code, err, tt.want)
 			}
 		})
 	}
@@ -71,8 +71,8 @@ func TestWriteCheckReport_FailuresOmittedWhenNone(t *testing.T) {
 func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 	var buf bytes.Buffer
 
-	failures := []analysis.StageFailure{{Stage: "rank", File: "a.go", Kind: stage.KindUnavailable, Error: "down"}}
-	if err := writeCheckReport(&buf, &analysis.Engine{StageFailures: failures}, nil); err != nil {
+	failures := []analysis.NodeFailure{{Node: "rank", File: "a.go", Kind: node.KindUnavailable, Error: "down"}}
+	if err := writeCheckReport(&buf, &analysis.Engine{NodeFailures: failures}, nil); err != nil {
 		t.Fatal(err)
 	}
 

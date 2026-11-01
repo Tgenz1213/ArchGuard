@@ -72,8 +72,8 @@ func TestE2E_JevAskNode(t *testing.T) {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
 			}
 
-			if len(report.Stages) != 2 || report.Stages[1].Name != "breaks-a-rule" || report.Stages[1].Received != 2 || report.Stages[1].Kept != tt.wantKept {
-				t.Errorf("stages = %+v, want breaks-a-rule receiving 2 and keeping %d", report.Stages, tt.wantKept)
+			if len(report.Nodes) != 2 || report.Nodes[1].Name != "breaks-a-rule" || report.Nodes[1].Received != 2 || report.Nodes[1].Kept != tt.wantKept {
+				t.Errorf("nodes = %+v, want breaks-a-rule receiving 2 and keeping %d", report.Nodes, tt.wantKept)
 			}
 
 			if !strings.Contains(stderr, tt.wantStderr) {

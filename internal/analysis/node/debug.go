@@ -1,4 +1,4 @@
-package stage
+package node
 
 // Debug is satisfied by *output.Printer; each call prints one line.
 type Debug interface {

@@ -1,4 +1,4 @@
-package stage_test
+package node_test
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -50,25 +50,25 @@ func breaks(statements ...string) func(string) float64 {
 	}
 }
 
-func ruledCandidate(id string, statements ...string) stage.Candidate {
+func ruledCandidate(id string, statements ...string) node.Candidate {
 	rules := make(index.Rules, len(statements))
 	for i, statement := range statements {
 		rules[i] = index.Rule{Statement: statement}
 	}
 
-	return stage.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id, Rules: rules}, Score: 0.7}
+	return node.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id, Rules: rules}, Score: 0.7}
 }
 
-func TestJevStage_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
+func TestJevNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 	screener := &fakeScreener{answer: breaks("no prints")}
-	s := stage.NewJevStage(screener, "", 0.3, 0)
-	candidates := []stage.Candidate{
+	s := node.NewJevNode(screener, "", 0.3, 0)
+	candidates := []node.Candidate{
 		ruledCandidate("a", "no globals", "no prints"),
 		ruledCandidate("b", "no globals"),
 		ruledCandidate("c"),
 	}
 
-	got, err := s.Apply(t.Context(), fakeFile{text: "+fmt.Println(x)"}, stage.NoDebug, candidates)
+	got, err := s.Apply(t.Context(), fakeFile{text: "+fmt.Println(x)"}, node.NoDebug, candidates)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -90,21 +90,21 @@ func TestJevStage_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 	}
 }
 
-func TestJevStage_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
+func TestJevNode_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 	tests := []struct {
 		name       string
-		candidates []stage.Candidate
+		candidates []node.Candidate
 		text       string
 	}{
-		{"no candidate has rules", []stage.Candidate{ruledCandidate("a"), ruledCandidate("b")}, "code"},
-		{"empty content", []stage.Candidate{ruledCandidate("a", "no prints")}, "  \n"},
+		{"no candidate has rules", []node.Candidate{ruledCandidate("a"), ruledCandidate("b")}, "code"},
+		{"empty content", []node.Candidate{ruledCandidate("a", "no prints")}, "  \n"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			screener := &fakeScreener{answer: breaks()}
 
-			got, err := stage.NewJevStage(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, stage.NoDebug, tt.candidates)
+			got, err := node.NewJevNode(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: tt.text}, node.NoDebug, tt.candidates)
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}
@@ -116,15 +116,15 @@ func TestJevStage_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 	}
 }
 
-func TestJevStage_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
+func TestJevNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 	screener := &fakeScreener{answer: breaks()}
-	candidate := stage.Candidate{ADR: &index.ADR{ID: "a", Rules: index.Rules{{
+	candidate := node.Candidate{ADR: &index.ADR{ID: "a", Rules: index.Rules{{
 		Statement: "Code MUST NOT print to stdout.",
 		Violating: []string{"fmt.Println(x)"},
 		Compliant: []string{"log.Info(x)"},
 	}}}}
 
-	if _, err := stage.NewJevStage(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{candidate}); err != nil {
+	if _, err := node.NewJevNode(screener, "", 0.3, 0).Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{candidate}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestJevStage_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 	}
 }
 
-func TestJevStage_Errors(t *testing.T) {
+func TestJevNode_Errors(t *testing.T) {
 	tooLarge := &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded"}
 	unauthorized := &inference.JevError{Status: http.StatusUnauthorized}
 	outage := &inference.JevError{Status: http.StatusServiceUnavailable}
@@ -146,25 +146,25 @@ func TestJevStage_Errors(t *testing.T) {
 		name     string
 		err      error
 		failOn   bool
-		wantKind stage.Kind
+		wantKind node.Kind
 		skipped  bool
 	}{
-		{"skip passes candidates through", outage, false, stage.KindUnavailable, true},
-		{"skip does not hide a rejected key", unauthorized, false, stage.KindUnavailable, false},
-		{"fail reports a rejected key", unauthorized, true, stage.KindUnavailable, false},
-		{"fail reports an unavailable dependency", outage, true, stage.KindUnavailable, false},
-		{"fail reports input over the size limit as a precondition", tooLarge, true, stage.KindPreconditionNotMet, false},
+		{"skip passes candidates through", outage, false, node.KindUnavailable, true},
+		{"skip does not hide a rejected key", unauthorized, false, node.KindUnavailable, false},
+		{"fail reports a rejected key", unauthorized, true, node.KindUnavailable, false},
+		{"fail reports an unavailable dependency", outage, true, node.KindUnavailable, false},
+		{"fail reports input over the size limit as a precondition", tooLarge, true, node.KindPreconditionNotMet, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := stage.NewJevStage(&fakeScreener{err: tt.err}, "", 0.3, 0)
+			s := node.NewJevNode(&fakeScreener{err: tt.err}, "", 0.3, 0)
 			s.FailOnError = tt.failOn
-			candidates := []stage.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals")}
+			candidates := []node.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals")}
 
-			got, err := s.Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, candidates)
+			got, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, candidates)
 
-			var skipped *stage.Skipped
+			var skipped *node.Skipped
 			if errors.As(err, &skipped) != tt.skipped {
 				t.Fatalf("err = %v, want skipped %v", err, tt.skipped)
 			}
@@ -173,24 +173,24 @@ func TestJevStage_Errors(t *testing.T) {
 				t.Errorf("kept %s, want every candidate unchanged", ids(got))
 			}
 
-			if want := errors.Is(tt.err, unauthorized); stage.KeyRejected(err) != want {
+			if want := errors.Is(tt.err, unauthorized); node.KeyRejected(err) != want {
 				t.Errorf("KeyRejected(%v) = %v, want %v", err, !want, want)
 			}
 
-			var stageErr *stage.Error
-			if !errors.As(err, &stageErr) || stageErr.Kind != tt.wantKind {
-				t.Errorf("err = %v, want a stage error of kind %v", err, tt.wantKind)
+			var nodeErr *node.Error
+			if !errors.As(err, &nodeErr) || nodeErr.Kind != tt.wantKind {
+				t.Errorf("err = %v, want a node error of kind %v", err, tt.wantKind)
 			}
 		})
 	}
 }
 
-func TestJevStage_MissingAnswerIsAnError(t *testing.T) {
+func TestJevNode_MissingAnswerIsAnError(t *testing.T) {
 	screener := screenerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
-	s := stage.NewJevStage(screener, "", 0.3, 0)
+	s := node.NewJevNode(screener, "", 0.3, 0)
 	s.FailOnError = true
 
-	if _, err := s.Apply(t.Context(), fakeFile{text: "code"}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no prints")}); err == nil {
+	if _, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no prints")}); err == nil {
 		t.Fatal("expected an error when a question gets no answer")
 	}
 }
@@ -201,10 +201,10 @@ func (f screenerFunc) Screen(_ context.Context, _ string, questions map[string]s
 	return f(questions), nil
 }
 
-func TestJevStage_TopKLeavesPassedThroughCandidates(t *testing.T) {
-	s := stage.NewJevStage(&fakeScreener{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
+func TestJevNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
+	s := node.NewJevNode(&fakeScreener{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
 	var buf bytes.Buffer
-	candidates := []stage.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals"), ruledCandidate("c")}
+	candidates := []node.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals"), ruledCandidate("c")}
 
 	got, err := s.Apply(t.Context(), fakeFile{text: "code"}, output.New(&buf, true), candidates)
 	if err != nil {
@@ -236,7 +236,7 @@ func TestJevScreen_ScoresEachCandidateByItsHigherSide(t *testing.T) {
 		return answers, nil
 	})
 
-	scores, err := (&stage.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", " ", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	scores, err := (&node.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", " ", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if err != nil {
 		t.Fatalf("Score: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestJevScreen_StopsBetweenSidesWhenCancelled(t *testing.T) {
 		return answers, nil
 	})
 
-	_, err := (&stage.JevScreen{Screener: screener}).Score(ctx, sidedFile{sides: []string{"before", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	_, err := (&node.JevScreen{Screener: screener}).Score(ctx, sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if !errors.Is(err, context.Canceled) || calls != 1 {
 		t.Errorf("err = %v after %d call(s), want context.Canceled after 1", err, calls)
 	}
@@ -287,7 +287,7 @@ func TestJevScreen_ASideMissingAnAnswerFails(t *testing.T) {
 		return answers, nil
 	})
 
-	_, err := (&stage.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	_, err := (&node.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no globals")})
 	if err == nil || !strings.Contains(err.Error(), "no answer") {
 		t.Errorf("err = %v, want a missing-answer error for the after side", err)
 	}

@@ -118,12 +118,12 @@ func TestE2E_PipelineConfig(t *testing.T) {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
 			}
 
-			if len(report.Stages) != len(tt.wantNodes) {
-				t.Fatalf("nodes = %+v, want %d entries", report.Stages, len(tt.wantNodes))
+			if len(report.Nodes) != len(tt.wantNodes) {
+				t.Fatalf("nodes = %+v, want %d entries", report.Nodes, len(tt.wantNodes))
 			}
 
 			for i, want := range tt.wantNodes {
-				got := report.Stages[i]
+				got := report.Nodes[i]
 				if got.Name != want.name || got.Received != want.received || got.Kept != want.kept || got.DurationMS == nil {
 					t.Errorf("node %d = %+v, want %+v with a duration_ms", i, got, want)
 				}
@@ -145,7 +145,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 	}{
 		{"unset on_error skips the file, leaving nothing checked", pipelineOf(rankNodeYAML("rank", "")), cli.ExitNothingChecked, 0},
 		{"on_error skip skips the file, leaving nothing checked", pipelineOf(rankNodeYAML("rank", "      on_error: skip\n")), cli.ExitNothingChecked, 0},
-		{"on_error fail fails the check", pipelineOf(rankNodeYAML("rank", "      on_error: fail\n")), cli.ExitStageUnavailable, 1},
+		{"on_error fail fails the check", pipelineOf(rankNodeYAML("rank", "      on_error: fail\n")), cli.ExitNodeUnavailable, 1},
 	}
 
 	for _, tt := range tests {

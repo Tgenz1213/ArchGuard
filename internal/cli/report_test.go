@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -74,17 +74,17 @@ func TestWriteCheckReport_CoverageDistinguishesACleanRunFromOneThatJudgedNothing
 	}
 }
 
-func TestWriteCheckReport_StagesKeepTheirJSONFields(t *testing.T) {
+func TestWriteCheckReport_NodesKeepTheirJSONFields(t *testing.T) {
 	var buf bytes.Buffer
 
-	stages := []stage.Stats{{Name: "rank", Received: 6, Kept: 4, DurationMS: 812}, {Name: "rerank"}}
-	if err := writeCheckReport(&buf, &analysis.Engine{CollectedStages: stages}, nil); err != nil {
+	nodes := []node.Stats{{Name: "rank", Received: 6, Kept: 4, DurationMS: 812}, {Name: "rerank"}}
+	if err := writeCheckReport(&buf, &analysis.Engine{CollectedNodes: nodes}, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	var report struct {
-		Count  int `json:"count"`
-		Stages []struct {
+		Count int `json:"count"`
+		Nodes []struct {
 			Name       string `json:"name"`
 			Received   int    `json:"received"`
 			Kept       int    `json:"kept"`
@@ -95,7 +95,7 @@ func TestWriteCheckReport_StagesKeepTheirJSONFields(t *testing.T) {
 		t.Fatalf("report is not valid JSON: %v\n%s", err, buf.String())
 	}
 
-	if len(report.Stages) != 2 || report.Stages[0].Name != "rank" || report.Stages[0].Received != 6 || report.Stages[0].Kept != 4 || report.Stages[0].DurationMS != 812 || report.Stages[1].Name != "rerank" {
-		t.Fatalf("stages = %+v, want rank 6/4/812ms then rerank with zeros", report.Stages)
+	if len(report.Nodes) != 2 || report.Nodes[0].Name != "rank" || report.Nodes[0].Received != 6 || report.Nodes[0].Kept != 4 || report.Nodes[0].DurationMS != 812 || report.Nodes[1].Name != "rerank" {
+		t.Fatalf("nodes = %+v, want rank 6/4/812ms then rerank with zeros", report.Nodes)
 	}
 }

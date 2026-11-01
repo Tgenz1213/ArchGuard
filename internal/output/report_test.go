@@ -29,7 +29,7 @@ func TestReportLayout(t *testing.T) {
 		},
 		SkippedFiles:  []output.FileGap{{File: "c.go", Reason: "reading file: boom"}},
 		FailedChecks:  []output.FailedCheck{{File: "a.go", ADRID: "0004", Title: "Flaky", Reason: "LLM down"}},
-		FailedStages:  []output.FailedStage{{Stage: "rerank", File: "d.go", Reason: "unavailable"}},
+		FailedNodes:   []output.FailedNode{{Node: "rerank", File: "d.go", Reason: "unavailable"}},
 		UnindexedADRs: []output.ADRGap{{ADR: "0007-long.md", Reason: "failed to embed: boom"}},
 		Baselined:     2,
 		Coverage:      output.Coverage{FilesJudged: 2, ADRChecks: 5, FilesWithoutADR: 1},

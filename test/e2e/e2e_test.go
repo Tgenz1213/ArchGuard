@@ -383,8 +383,8 @@ type checkReport struct {
 		ADRChecks       int `json:"adr_checks"`
 		FilesWithoutADR int `json:"files_without_relevant_adr"`
 	} `json:"coverage"`
-	Count  int `json:"count"`
-	Stages []struct {
+	Count int `json:"count"`
+	Nodes []struct {
 		Name       string `json:"name"`
 		Received   int    `json:"received"`
 		Kept       int    `json:"kept"`

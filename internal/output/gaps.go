@@ -24,8 +24,8 @@ type FailedCheck struct {
 	Reason string
 }
 
-type FailedStage struct {
-	Stage  string
+type FailedNode struct {
+	Node   string
 	File   string
 	Reason string
 }
@@ -34,7 +34,7 @@ type FailedStage struct {
 type Gaps struct {
 	SkippedFiles  []FileGap
 	FailedChecks  []FailedCheck
-	FailedStages  []FailedStage
+	FailedNodes   []FailedNode
 	PartialFiles  []FileGap
 	UnindexedADRs []ADRGap
 }
@@ -44,20 +44,20 @@ func (g Gaps) sortedGaps() Gaps {
 	g.FailedChecks = sortedByFileAndADR(g.FailedChecks, func(c FailedCheck) (string, string) {
 		return c.File, c.ADRID
 	})
-	g.FailedStages = append([]FailedStage(nil), g.FailedStages...)
+	g.FailedNodes = append([]FailedNode(nil), g.FailedNodes...)
 	g.PartialFiles = append([]FileGap(nil), g.PartialFiles...)
 	g.UnindexedADRs = append([]ADRGap(nil), g.UnindexedADRs...)
 
 	sort.SliceStable(g.SkippedFiles, func(i, j int) bool { return g.SkippedFiles[i].File < g.SkippedFiles[j].File })
 	sort.SliceStable(g.PartialFiles, func(i, j int) bool { return g.PartialFiles[i].File < g.PartialFiles[j].File })
 	sort.SliceStable(g.UnindexedADRs, func(i, j int) bool { return g.UnindexedADRs[i].ADR < g.UnindexedADRs[j].ADR })
-	sort.SliceStable(g.FailedStages, func(i, j int) bool {
-		left, right := g.FailedStages[i], g.FailedStages[j]
+	sort.SliceStable(g.FailedNodes, func(i, j int) bool {
+		left, right := g.FailedNodes[i], g.FailedNodes[j]
 		if left.File != right.File {
 			return left.File < right.File
 		}
 
-		return left.Stage < right.Stage
+		return left.Node < right.Node
 	})
 
 	return g
@@ -78,7 +78,7 @@ func (g Gaps) gapSummary() []string {
 		parts = append(parts, fmt.Sprintf("%d ADR check(s) failed", count))
 	}
 
-	if count := len(g.FailedStages); count > 0 {
+	if count := len(g.FailedNodes); count > 0 {
 		parts = append(parts, fmt.Sprintf("%d node failure(s)", count))
 	}
 
@@ -95,8 +95,8 @@ func (p *Printer) reportGaps(g Gaps) {
 	p.section("Failed ADR checks:", formatEach(g.FailedChecks, func(c FailedCheck) string {
 		return fmt.Sprintf("%s: ADR %s %s: %s", c.File, c.ADRID, c.Title, c.Reason)
 	}))
-	p.section("Failed nodes:", formatEach(g.FailedStages, func(f FailedStage) string {
-		return fmt.Sprintf("%s: node %s: %s", f.File, f.Stage, f.Reason)
+	p.section("Failed nodes:", formatEach(g.FailedNodes, func(f FailedNode) string {
+		return fmt.Sprintf("%s: node %s: %s", f.File, f.Node, f.Reason)
 	}))
 	p.section(
 		"ADRs not in the index (no file was checked against them):",

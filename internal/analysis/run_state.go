@@ -3,7 +3,7 @@ package analysis
 import (
 	"sync"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/output"
 )
@@ -11,26 +11,26 @@ import (
 // runState holds what a run collects across files; the fields after mu are guarded by it.
 type runState struct {
 	out       *output.Printer
-	stages    []stage.Stage
-	telemetry *stage.Telemetry
+	nodes     []node.Node
+	telemetry *node.Telemetry
 
-	mu            sync.Mutex
-	failedFiles   int
-	violations    int
-	baselined     int
-	skipped       []output.FileGap
-	partial       []output.FileGap
-	failedChecks  []output.FailedCheck
-	recorded      []output.RecordedEntry
-	unrecorded    []output.UnrecordedViolation
-	entries       []baseline.Entry
-	collected     []Violation
-	unverified    []Violation
-	stageFailures []StageFailure
-	coverage      output.Coverage
-	projection    Projection
-	uncounted     bool
-	keyRejection  error
+	mu           sync.Mutex
+	failedFiles  int
+	violations   int
+	baselined    int
+	skipped      []output.FileGap
+	partial      []output.FileGap
+	failedChecks []output.FailedCheck
+	recorded     []output.RecordedEntry
+	unrecorded   []output.UnrecordedViolation
+	entries      []baseline.Entry
+	collected    []Violation
+	unverified   []Violation
+	nodeFailures []NodeFailure
+	coverage     output.Coverage
+	projection   Projection
+	uncounted    bool
+	keyRejection error
 }
 
 type fileResult struct {
@@ -51,8 +51,8 @@ type fileResult struct {
 	uncounted      bool
 }
 
-func newRunState(out *output.Printer, stages []stage.Stage) *runState {
-	return &runState{out: out, stages: stages, telemetry: stage.NewTelemetry(stages)}
+func newRunState(out *output.Printer, nodes []node.Node) *runState {
+	return &runState{out: out, nodes: nodes, telemetry: node.NewTelemetry(nodes)}
 }
 
 func (r *runState) addSkipped(file, reason string) {
@@ -77,11 +77,11 @@ func (r *runState) addPartial(file, reason string) {
 	r.partial = append(r.partial, output.FileGap{File: file, Reason: reason})
 }
 
-func (r *runState) addStageFailure(failure StageFailure) {
+func (r *runState) addNodeFailure(failure NodeFailure) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.stageFailures = append(r.stageFailures, failure)
+	r.nodeFailures = append(r.nodeFailures, failure)
 }
 
 // rejectKey keeps the first rejected-key error; files already in flight may report it again.

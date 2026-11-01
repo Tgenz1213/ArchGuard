@@ -1,4 +1,4 @@
-package stage
+package node
 
 import (
 	"context"
@@ -138,8 +138,8 @@ func screeningError(err error) error {
 	return &Error{Action: screeningAction, Err: err}
 }
 
-func NewJevStage(screener Screener, instructions string, threshold float64, topK int) Stage {
-	return Stage{
+func NewJevNode(screener Screener, instructions string, threshold float64, topK int) Node {
+	return Node{
 		Name:              "ask",
 		Scorer:            &JevScreen{Screener: screener, Instructions: instructions},
 		Min:               FixedMin(threshold),

@@ -11,7 +11,7 @@ import (
 	"slices"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -183,7 +183,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildPipeline(r.nodes, store, setup.embed, r.screeners)
+	engine.Nodes = analysis.BuildPipeline(r.nodes, store, setup.embed, r.screeners)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason
@@ -203,8 +203,8 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %w", runErr)
 	}
 
-	if stageCode, stageErr := stageFailureExit(engine.StageFailures); stageErr != nil {
-		return stageCode, fmt.Errorf("%w; baseline not written", stageErr)
+	if nodeCode, nodeErr := nodeFailureExit(engine.NodeFailures); nodeErr != nil {
+		return nodeCode, fmt.Errorf("%w; baseline not written", nodeErr)
 	}
 
 	if engine.CheckedNothing {
@@ -225,7 +225,7 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 }
 
 func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode, error) {
-	stageCode, stageErr := stageFailureExit(engine.StageFailures)
+	nodeCode, nodeErr := nodeFailureExit(engine.NodeFailures)
 
 	if !r.opts.jsonOutput() && output.InGitHubActions() {
 		for _, v := range slices.Concat(engine.CollectedViolations, engine.UnverifiedFindings) {
@@ -239,7 +239,7 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 	}
 
 	if err := r.writeReport(engine, runErr); err != nil {
-		return ExitError, errors.Join(err, stageErr, analysisErr)
+		return ExitError, errors.Join(err, nodeErr, analysisErr)
 	}
 
 	if isKeyRejected(runErr) {
@@ -250,8 +250,8 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 		return dryRunExit(analysisErr)
 	}
 
-	if stageErr != nil {
-		return stageCode, stageErr
+	if nodeErr != nil {
+		return nodeCode, nodeErr
 	}
 
 	if engine.CheckedNothing {
@@ -269,7 +269,7 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 	return ExitSuccess, nil
 }
 
-// A dry run judged nothing, so stage failures and an unchecked run don't fail it; an analysis error still does.
+// A dry run judged nothing, so node failures and an unchecked run don't fail it; an analysis error still does.
 func dryRunExit(analysisErr error) (ExitCode, error) {
 	if analysisErr != nil {
 		return ExitError, analysisErr
@@ -335,14 +335,14 @@ func (r *checkRun) saveReportFile() error {
 }
 
 type checkReport struct {
-	Violations []analysis.Violation    `json:"violations"`
-	Count      int                     `json:"count"`
-	Unverified []analysis.Violation    `json:"unverified"`
-	Stages     []stage.Stats           `json:"nodes"`
-	Coverage   output.Coverage         `json:"coverage"`
-	Failures   []analysis.StageFailure `json:"failures,omitempty"`
-	Usage      *output.Usage           `json:"usage"`
-	DryRun     *output.DryRun          `json:"dry_run,omitempty"`
+	Violations []analysis.Violation   `json:"violations"`
+	Count      int                    `json:"count"`
+	Unverified []analysis.Violation   `json:"unverified"`
+	Nodes      []node.Stats           `json:"nodes"`
+	Coverage   output.Coverage        `json:"coverage"`
+	Failures   []analysis.NodeFailure `json:"failures,omitempty"`
+	Usage      *output.Usage          `json:"usage"`
+	DryRun     *output.DryRun         `json:"dry_run,omitempty"`
 }
 
 func writeCheckReport(w io.Writer, engine *analysis.Engine, usage *output.Usage) error {
@@ -350,9 +350,9 @@ func writeCheckReport(w io.Writer, engine *analysis.Engine, usage *output.Usage)
 		Violations: nonNil(engine.CollectedViolations),
 		Count:      len(engine.CollectedViolations),
 		Unverified: nonNil(engine.UnverifiedFindings),
-		Stages:     nonNil(engine.CollectedStages),
+		Nodes:      nonNil(engine.CollectedNodes),
 		Coverage:   engine.Coverage,
-		Failures:   engine.StageFailures,
+		Failures:   engine.NodeFailures,
 		Usage:      usage,
 		DryRun:     engine.DryRunSummary(),
 	}
@@ -372,15 +372,15 @@ func nonNil[T any](items []T) []T {
 }
 
 // A precondition failure outranks an unavailable dependency when a run has both.
-func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
+func nodeFailureExit(failures []analysis.NodeFailure) (ExitCode, error) {
 	if len(failures) == 0 {
 		return ExitSuccess, nil
 	}
 
-	code := ExitStageUnavailable
+	code := ExitNodeUnavailable
 	for _, f := range failures {
-		if f.Kind == stage.KindPreconditionNotMet {
-			code = ExitStagePrecondition
+		if f.Kind == node.KindPreconditionNotMet {
+			code = ExitNodePrecondition
 		}
 	}
 
