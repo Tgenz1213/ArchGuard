@@ -257,6 +257,8 @@ func TestParsePipeline_Invalid(t *testing.T) {
 		{"wrong runner for the job", pipelineWith("\n    - name: x\n      job: rank\n      with: jev\n"), []string{`node "x".with`, `"jev"`, "cosine"}},
 		{"key not allowed on rank", pipelineWith("\n    - name: x\n      job: rank\n      with: cosine\n      preset: breaks-a-rule\n"), []string{`node "x"`, `"preset"`, "not allowed"}},
 		{"key not allowed on judge", "  pipeline:" + shortlistNode + judgeNode + "      on_error: skip\n", []string{`node "judge"`, `"on_error"`, "not allowed"}},
+		{"threshold on an ask node outside keep", pipelineWith(ask + "      preset: breaks-a-rule\n      threshold: 0.5\n"), []string{`node "screen"`, `"threshold"`, "not allowed"}},
+		{"top_k on an ask node outside keep", pipelineWith(ask + "      preset: breaks-a-rule\n      top_k: 2\n"), []string{`node "screen"`, `"top_k"`, "not allowed"}},
 		{"criteria on ask", pipelineWith(ask + "      preset: breaks-a-rule\n      criteria: [a, b]\n"), []string{`node "screen"`, `"criteria"`, "not allowed"}},
 		{"threshold above range", pipelineWith("\n    - name: x\n      job: rank\n      with: cosine\n      threshold: 1.5\n"), []string{`node "x".threshold`, "1.5", "between 0 and 1"}},
 		{"null threshold", pipelineWith("\n    - name: x\n      job: rank\n      with: cosine\n      threshold:\n"), []string{`node "x".threshold`, "number"}},

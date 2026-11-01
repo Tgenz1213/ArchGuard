@@ -78,6 +78,10 @@ func TestE2E_InitConfigReplacesARetiredPipeline(t *testing.T) {
 		t.Errorf("output should say the screen was removed, got: %s", stdout)
 	}
 
+	if !strings.Contains(stdout, "set any of these again") || !strings.Contains(stdout, "      threshold: 0.3") {
+		t.Errorf("output should list the removed lines so their settings can be set again, got: %s", stdout)
+	}
+
 	if _, err := os.Stat(filepath.Join(tempDir, "archguard.yaml")); !os.IsNotExist(err) {
 		t.Errorf("init wrote archguard.yaml at the repo root instead of --config's path, stat err: %v", err)
 	}
@@ -122,5 +126,30 @@ func TestE2E_InitWritesTheDefaultPipelineOnce(t *testing.T) {
 	stdout, exitCode = runInit(t, tempDir, binaryPath, "")
 	if exitCode != 0 || !strings.Contains(stdout, "already has a pipeline list") {
 		t.Errorf("second init: exit code %d, output %s; want it to leave the list pipeline alone", exitCode, stdout)
+	}
+}
+
+func TestE2E_InitConfigCreatesAMissingConfigAtThatPath(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+
+	stdout, exitCode := runInit(t, tempDir, binaryPath, "\nn\n", "--config", "ci.yaml")
+	if exitCode != 0 {
+		t.Fatalf("exit code %d, output: %s", exitCode, stdout)
+	}
+
+	got, err := os.ReadFile(filepath.Join(tempDir, "ci.yaml"))
+	if err != nil || !strings.Contains(string(got), "  pipeline:\n    - name: shortlist\n") {
+		t.Errorf("ci.yaml = %q (err %v), want a config with the default pipeline", got, err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tempDir, "archguard.yaml")); !os.IsNotExist(err) {
+		t.Errorf("init wrote archguard.yaml instead of ci.yaml, stat err: %v", err)
+	}
+
+	// The path is printed resolved, which can differ from tempDir's spelling on macOS and Windows.
+	for _, step := range []string{"archguard index --config ", "archguard check --config "} {
+		if !strings.Contains(stdout, step) || !strings.Contains(stdout, string(filepath.Separator)+"ci.yaml\n") {
+			t.Errorf("next steps should pass --config with ci.yaml's path, got: %s", stdout)
+		}
 	}
 }

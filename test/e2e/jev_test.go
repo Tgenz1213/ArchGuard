@@ -128,3 +128,39 @@ func TestE2E_JevRejectedKeyFailsTheCheckAsAConfigError(t *testing.T) {
 		})
 	}
 }
+
+func TestE2E_JevAskNodeReadsBothSidesOfAChange(t *testing.T) {
+	const gate = "\tgate() // " + testutil.MockJevStateTrigger + "\n"
+
+	tests := []struct {
+		name     string
+		before   string
+		after    string
+		wantKept int
+	}{
+		{"a removed line is asked about", "package app\n\nfunc a() {\n" + gate + "\troute()\n}\n", "package app\n\nfunc a() {\n\troute()\n}\n", 2},
+		{"an added line is asked about", "package app\n\nfunc a() {\n\troute()\n}\n", "package app\n\nfunc a() {\n" + gate + "\troute()\n}\n", 2},
+		{"a change that touches neither side's trigger keeps only the broken rule", "package app\n\nfunc a() {\n\troute()\n}\n", "package app\n\nfunc a() {\n\troute()\n\tlog()\n}\n", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir, binary := buildE2EBinary(t)
+			writeE2EConfig(t, dir, pipelineConfigYAML(jevPipeline("")))
+			writeRuledADRs(t, dir)
+			commitFile(t, dir, "app.go", tt.before, "base")
+			commitFile(t, dir, "app.go", tt.after, "change")
+
+			stdout, stderr, _ := runCheckWithEnv(t, dir, binary, []string{config.JevAPIKeyEnv + "=mock_key"}, "--format", "json", "--since", "HEAD~1")
+
+			var report checkReport
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatalf("stdout is not valid JSON: %v\nstdout: %q\nstderr: %s", err, stdout, stderr)
+			}
+
+			if len(report.Nodes) != 2 || report.Nodes[1].Name != "breaks-a-rule" || report.Nodes[1].Received != 2 || report.Nodes[1].Kept != tt.wantKept {
+				t.Errorf("nodes = %+v, want breaks-a-rule receiving 2 and keeping %d", report.Nodes, tt.wantKept)
+			}
+		})
+	}
+}

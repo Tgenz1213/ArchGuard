@@ -74,7 +74,7 @@ func (mockJev) Screen(_ context.Context, state string, questions map[string]stri
 	answers := make(map[string]float64, len(questions))
 	for name, question := range questions {
 		answers[name] = 0.05
-		if strings.Contains(question, testutil.MockJevBreaksTrigger) {
+		if strings.Contains(question, testutil.MockJevBreaksTrigger) || strings.Contains(state, testutil.MockJevStateTrigger) {
 			answers[name] = 0.95
 		}
 	}
