@@ -14,7 +14,7 @@ import (
 type commandLine struct {
 	Version versionFlag `short:"v" help:"Print version information."`
 
-	Init  struct{} `cmd:"" help:"Initialize ArchGuard in the current repository (local setup)."`
+	Init  initCmd  `cmd:"" help:"Initialize ArchGuard in the current repository (local setup). On an existing config, offers to replace analysis.pipeline with the default pipeline and changes nothing else."`
 	Check checkCmd `cmd:"" help:"Check for architectural violations."`
 	Index indexCmd `cmd:"" help:"Rebuild the ADR index from the configured ADR source(s)."`
 }
@@ -25,6 +25,10 @@ type colorOption struct {
 
 type configOption struct {
 	Config string `placeholder:"PATH" help:"Read the config from PATH instead of archguard.yaml at the repository root. A relative PATH is taken from the directory the command was started in."`
+}
+
+type initCmd struct {
+	configOption `embed:""`
 }
 
 type indexCmd struct {
@@ -132,6 +136,7 @@ func (versionFlag) BeforeReset(app *kong.Kong, vars kong.Vars) error {
 
 type invocation struct {
 	command string
+	init    initCmd
 	check   checkCmd
 	index   indexCmd
 }
@@ -140,6 +145,8 @@ func (iv *invocation) configPath() string {
 	var config configOption
 
 	switch iv.command {
+	case "init":
+		config = iv.init.configOption
 	case "check":
 		config = iv.check.configOption
 	case "index":
@@ -207,7 +214,7 @@ func parseCommandLine(args []string, stdout, stderr io.Writer, version string) (
 		return nil, ExitUsage, err
 	}
 
-	return &invocation{command: strings.Fields(kctx.Command())[0], check: cl.Check, index: cl.Index}, ExitSuccess, nil
+	return &invocation{command: strings.Fields(kctx.Command())[0], init: cl.Init, check: cl.Check, index: cl.Index}, ExitSuccess, nil
 }
 
 type writeRecorder struct {
@@ -232,6 +239,10 @@ func (c *checkCmd) resolvePaths(cwd, repoRoot string) {
 }
 
 func (c *indexCmd) resolvePaths(cwd string) {
+	c.Config = fromStartingDir(c.Config, cwd)
+}
+
+func (c *initCmd) resolvePaths(cwd string) {
 	c.Config = fromStartingDir(c.Config, cwd)
 }
 

@@ -80,7 +80,7 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	}
 
 	if inv.command == "init" {
-		if err := runInit(); err != nil {
+		if err := runInit(inv.configPath()); err != nil {
 			return ExitError, err
 		}
 
@@ -135,6 +135,7 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 
 	inv.check.resolvePaths(cwd, repoRoot)
 	inv.index.resolvePaths(cwd)
+	inv.init.resolvePaths(cwd)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {

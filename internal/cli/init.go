@@ -6,28 +6,69 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 )
 
 type prompter struct{ scanner *bufio.Scanner }
 
-func runInit() error {
+func runInit(configPath string) error {
 	in := prompter{scanner: bufio.NewScanner(os.Stdin)}
+
+	existing, err := os.ReadFile(configPath)
+	if err == nil {
+		return in.addDefaultPipeline(configPath, existing)
+	}
+
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
 
 	adrPath, err := in.chooseADRDir()
 	if err != nil {
 		return err
 	}
 
-	proceed, err := in.confirmConfigOverwrite()
-	if err != nil || !proceed {
-		return err
-	}
-
-	if err := writeInitFiles(adrPath); err != nil {
+	if err := writeInitFiles(configPath, adrPath); err != nil {
 		return err
 	}
 
 	printNextSteps(adrPath)
+
+	return nil
+}
+
+// addDefaultPipeline never overwrites a config: it only replaces analysis.pipeline, and only after asking.
+func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
+	splice, err := spliceDefaultPipeline(existing)
+	if err != nil {
+		return fmt.Errorf("%s: %w", configPath, err)
+	}
+
+	if splice.alreadyList {
+		fmt.Printf("%s already has a pipeline list; nothing changed.\n", configPath)
+		return nil
+	}
+
+	replace, err := p.confirm("Replace analysis.pipeline with the default pipeline? (y/n): ")
+	if err != nil {
+		return err
+	}
+
+	if !replace {
+		fmt.Println("Initialization cancelled.")
+		return nil
+	}
+
+	if err := atomicfile.Write(configPath, splice.result); err != nil {
+		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	fmt.Printf("Wrote the default pipeline to %s\n", configPath)
+
+	if splice.hadPreJudge {
+		fmt.Println("The pre_judge screen was removed. To screen with Jev again, add an ask node (see \"Screening with Jev\" in the README).")
+	}
 
 	return nil
 }
@@ -116,30 +157,12 @@ func (p prompter) offerTemplate(adrPath string) error {
 	return nil
 }
 
-func (p prompter) confirmConfigOverwrite() (bool, error) {
-	if _, err := os.Stat(configFilename); err != nil {
-		return true, nil
-	}
-
-	overwrite, err := p.confirm(fmt.Sprintf("%s already exists. Overwrite with defaults? (y/n): ", configFilename))
-	if err != nil {
-		return false, err
-	}
-
-	if !overwrite {
-		fmt.Println("Initialization cancelled.")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func writeInitFiles(adrPath string) error {
-	if err := os.WriteFile(configFilename, []byte(generateConfig(adrPath)), 0644); err != nil {
+func writeInitFiles(configPath, adrPath string) error {
+	if err := os.WriteFile(configPath, []byte(generateConfig(adrPath)), 0644); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Printf("Created config: %s\n", configFilename)
+	fmt.Printf("Created config: %s\n", configPath)
 
 	if err := os.MkdirAll(".archguard/cache", 0755); err != nil {
 		return fmt.Errorf("failed to create .archguard directory: %w", err)
@@ -189,7 +212,7 @@ analysis:
     - "go.sum"
     - "README.md"
     - "bin/**"
-`, adrPath)
+%s`, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
 }
 
 func ensureGitignore() (err error) {
