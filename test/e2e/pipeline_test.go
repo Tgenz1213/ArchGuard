@@ -38,6 +38,11 @@ func rankNodeYAML(name, settings string) string {
 	return "    - name: " + name + "\n      job: rank\n      with: cosine\n" + settings
 }
 
+// defaultPipelineYAML is the pipeline archguard init writes, as e2e configs put it under analysis.
+const defaultPipelineYAML = "  pipeline:\n" + shortlistNodeYAML + judgeNodeYAML
+
+const shortlistNodeYAML = "    - name: shortlist\n      job: rank\n      with: cosine\n"
+
 // pipelineOf ends the given nodes with the judge node.
 func pipelineOf(nodes ...string) string {
 	return "  pipeline:\n" + strings.Join(nodes, "") + judgeNodeYAML
@@ -316,5 +321,21 @@ func TestE2E_PipelineIsCheckedBeforeTheVectorStoreConnects(t *testing.T) {
 	_, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "")
 	if exitCode != int(cli.ExitConfig) {
 		t.Fatalf("expected config exit code %d before any database connection, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
+	}
+}
+
+func TestE2E_MissingPipelineNamesTheConfigToInit(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writePipelineADRs(t, tempDir)
+
+	configPath := filepath.Join(tempDir, "ci.yaml")
+	if err := os.WriteFile(configPath, []byte(pipelineConfigYAML("")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The path is printed resolved, which can differ from tempDir's spelling on macOS and Windows.
+	stderr, exitCode := runArchguard(t, tempDir, binaryPath, "check", "--config", "ci.yaml", "--all")
+	if exitCode != int(cli.ExitConfig) || !strings.Contains(stderr, "archguard init --config ") || !strings.Contains(stderr, "ci.yaml`") {
+		t.Errorf("exit code %d, stderr %s; want 3 and the init command for ci.yaml", exitCode, stderr)
 	}
 }

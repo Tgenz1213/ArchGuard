@@ -57,14 +57,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`)
+`+defaultPipelineYAML)
 	writeNoSecretsADR(t, dir)
 
 	if err := os.WriteFile(filepath.Join(dir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {

@@ -159,14 +159,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
@@ -285,14 +278,7 @@ vector_store:
 analysis:
   adr_path: "./does_not_exist"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 
 		err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(badConfigContent), 0644)
 		if err != nil {
@@ -455,14 +441,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -613,14 +592,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -733,14 +705,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
 	writeNoSecretsADR(t, tempDir)
@@ -795,14 +760,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -838,14 +796,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -902,14 +853,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`)
+`+defaultPipelineYAML)
 	writeNoSecretsADR(t, tempDir)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -968,14 +912,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1016,14 +953,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	fileA := filepath.Join(tempDir, "a.js")
@@ -1091,14 +1021,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-  exclude_patterns: ["excluded.js"]
+` + defaultPipelineYAML + `  exclude_patterns: ["excluded.js"]
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1206,14 +1129,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1267,14 +1183,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1313,14 +1222,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1386,14 +1288,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1438,14 +1333,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-  adr_id_pattern: "^adr-(\\d+)-"
+` + defaultPipelineYAML + `  adr_id_pattern: "^adr-(\\d+)-"
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1490,14 +1378,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1530,14 +1411,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1565,14 +1439,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1640,14 +1507,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1759,14 +1619,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1827,14 +1680,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1911,14 +1757,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1998,14 +1837,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 

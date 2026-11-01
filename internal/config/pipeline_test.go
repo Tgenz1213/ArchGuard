@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -216,6 +217,10 @@ func TestParsePipeline_NeedsInit(t *testing.T) {
 			_, err := parseFromYAML(t, "", tt.yaml)
 			if err == nil {
 				t.Fatal("expected an error, got nil")
+			}
+
+			if !errors.Is(err, ErrNeedsInit) {
+				t.Errorf("error %q is not ErrNeedsInit", err)
 			}
 
 			for _, want := range []string{"archguard init", "- name: shortlist"} {

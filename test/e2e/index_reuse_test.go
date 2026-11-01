@@ -25,14 +25,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`, model, dim)
+`+defaultPipelineYAML, model, dim)
 }
 
 func writeReuseTestADR(t *testing.T, dir, name, decision string) {

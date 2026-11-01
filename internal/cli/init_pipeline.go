@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/config"
@@ -16,6 +18,9 @@ const defaultIndent = 2
 type pipelineSplice struct {
 	result      []byte
 	alreadyList bool
+	// Set when the config already has a list that check rejects.
+	listErr     error
+	removed     []string
 	hadPreJudge bool
 }
 
@@ -30,7 +35,7 @@ func spliceDefaultPipeline(content []byte) (pipelineSplice, error) {
 	pipelineKey, pipeline := mappingEntry(analysis, "pipeline")
 
 	if pipeline != nil && pipeline.Kind == yaml.SequenceNode {
-		return pipelineSplice{alreadyList: true}, nil
+		return pipelineSplice{alreadyList: true, listErr: checkPipeline(content)}, nil
 	}
 
 	if err := checkSpliceable(analysis, pipeline); err != nil {
@@ -42,7 +47,7 @@ func spliceDefaultPipeline(content []byte) (pipelineSplice, error) {
 
 	switch {
 	case pipelineKey != nil:
-		text.replaceBlock(pipelineKey.Line, pipelineKey.Column-1, defaultPipelineLines(pipelineKey.Column-1, indentUnit(analysis)))
+		splice.removed = text.replaceBlock(pipelineKey.Line, pipelineKey.Column-1, defaultPipelineLines(pipelineKey.Column-1, indentUnit(analysis)))
 	case analysisKey != nil:
 		end := text.blockEnd(analysisKey.Line, analysisKey.Column-1)
 		text.insertAfter(end, defaultPipelineLines(indentUnit(analysis), indentUnit(analysis)))
@@ -52,7 +57,61 @@ func spliceDefaultPipeline(content []byte) (pipelineSplice, error) {
 
 	splice.result = text.bytes()
 
-	return splice, nil
+	return splice, verifySplice(content, splice.result)
+}
+
+func checkPipeline(content []byte) error {
+	var cfg config.Config
+	if err := yaml.Unmarshal(content, &cfg); err != nil {
+		return err
+	}
+
+	_, err := config.ParsePipeline(&cfg)
+
+	return err
+}
+
+// verifySplice refuses an edit the line-based splice got wrong: the result must have a valid pipeline and nothing else changed.
+func verifySplice(before, after []byte) error {
+	if err := checkPipeline(after); err != nil {
+		return fmt.Errorf("%w: %w", errNotSpliceable, err)
+	}
+
+	beforeValues, err := valuesWithoutPipeline(before)
+	if err != nil {
+		return err
+	}
+
+	afterValues, err := valuesWithoutPipeline(after)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errNotSpliceable, err)
+	}
+
+	if !reflect.DeepEqual(beforeValues, afterValues) {
+		return fmt.Errorf("%w: the edit would change more than analysis.pipeline", errNotSpliceable)
+	}
+
+	return nil
+}
+
+func valuesWithoutPipeline(content []byte) (map[string]any, error) {
+	var values map[string]any
+	if err := yaml.Unmarshal(content, &values); err != nil {
+		return nil, err
+	}
+
+	analysis, ok := values["analysis"].(map[string]any)
+	if !ok {
+		return values, nil
+	}
+
+	delete(analysis, "pipeline")
+
+	if len(analysis) == 0 {
+		delete(values, "analysis")
+	}
+
+	return values, nil
 }
 
 func documentRoot(doc *yaml.Node) *yaml.Node {
@@ -77,7 +136,7 @@ func mappingEntry(mapping *yaml.Node, key string) (keyNode, value *yaml.Node) {
 	return nil, nil
 }
 
-var errNotSpliceable = errors.New("analysis is written in a way init can't edit safely (flow style, an anchor, an alias or a merge key); replace analysis.pipeline by hand with the default pipeline from the README")
+var errNotSpliceable = errors.New("init can't safely edit how analysis is written (for example flow style, anchors, aliases or merge keys); replace analysis.pipeline by hand with the default pipeline from the README")
 
 // Line-based editing is only safe when analysis and its pipeline are plain block YAML that nothing else refers to.
 func checkSpliceable(analysis, pipeline *yaml.Node) error {
@@ -152,7 +211,8 @@ func newlineOf(content []byte) string {
 	return "\n"
 }
 
-// blockEnd returns the last line, 1-based, of the block whose key is on line start at indent: the last line after it indented deeper, blank lines aside.
+// blockEnd returns the last line, 1-based, of the block whose key is on line start at indent: the last line after it indented deeper.
+// Blank and comment lines never end a block, so a commented-out line inside it goes with it and the next key's head comment stays.
 func (t *configText) blockEnd(start, indent int) int {
 	end := start
 
@@ -160,7 +220,7 @@ func (t *configText) blockEnd(start, indent int) int {
 		line := t.lines[i]
 		trimmed := strings.TrimLeft(line, " ")
 
-		if trimmed == "" {
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
@@ -174,9 +234,13 @@ func (t *configText) blockEnd(start, indent int) int {
 	return end
 }
 
-func (t *configText) replaceBlock(start, indent int, replacement []string) {
+// replaceBlock returns the lines it replaced.
+func (t *configText) replaceBlock(start, indent int, replacement []string) []string {
 	end := t.blockEnd(start, indent)
+	removed := slices.Clone(t.lines[start-1 : end])
 	t.lines = append(t.lines[:start-1], append(replacement, t.lines[end:]...)...)
+
+	return removed
 }
 
 func (t *configText) insertAfter(line int, inserted []string) {

@@ -39,7 +39,7 @@ type checkRun struct {
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
-	nodes, screeners, err := parsePipeline(setup)
+	nodes, screeners, err := parsePipeline(setup, opts.Config)
 	if err != nil {
 		return ExitConfig, err
 	}
@@ -92,8 +92,12 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 // parsePipeline runs before the store or index loads, so a bad pipeline costs no database connection or rebuild.
-func parsePipeline(setup runSetup) ([]config.Node, analysis.Screeners, error) {
+func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.Screeners, error) {
 	nodes, err := config.ParsePipeline(setup.cfg)
+	if errors.Is(err, config.ErrNeedsInit) && configFlag != "" {
+		return nil, nil, fmt.Errorf("%w\n\nFor this config, run `archguard init --config %s`", err, configFlag)
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}

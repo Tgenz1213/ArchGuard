@@ -46,11 +46,7 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 	}
 
 	for name, candidate := range owner {
-		probability, ok := answers[name]
-		if !ok {
-			return nil, &Error{Action: screeningAction, Err: fmt.Errorf("no answer for question %s", name)}
-		}
-
+		probability := answers[name]
 		if math.IsInf(scores[candidate], 1) || probability > scores[candidate] {
 			scores[candidate] = probability
 		}
@@ -60,6 +56,7 @@ func (j *JevScreen) Score(ctx context.Context, file File, _ Debug, candidates []
 }
 
 // screenSides asks every question about each side and keeps each question's higher answer, so a rule a change removes still counts.
+// Every side must answer every question; one side never fills in for the other.
 func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[string]string) (map[string]float64, error) {
 	highest := make(map[string]float64, len(asked))
 
@@ -73,7 +70,12 @@ func (j *JevScreen) screenSides(ctx context.Context, sides []string, asked map[s
 			return nil, screeningError(err)
 		}
 
-		for name, probability := range answers {
+		for name := range asked {
+			probability, ok := answers[name]
+			if !ok {
+				return nil, &Error{Action: screeningAction, Err: fmt.Errorf("no answer for question %s", name)}
+			}
+
 			if previous, seen := highest[name]; !seen || probability > previous {
 				highest[name] = probability
 			}

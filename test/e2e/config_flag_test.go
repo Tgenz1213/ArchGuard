@@ -24,14 +24,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 
 func runArchguard(t *testing.T, dir, binaryPath string, args ...string) (stderr string, exitCode int) {
 	t.Helper()

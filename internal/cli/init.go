@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/tgenz1213/archguard/internal/atomicfile"
 )
 
 type prompter struct{ scanner *bufio.Scanner }
@@ -33,7 +31,7 @@ func runInit(configPath string) error {
 		return err
 	}
 
-	printNextSteps(adrPath)
+	printNextSteps(adrPath, configPath)
 
 	return nil
 }
@@ -43,6 +41,10 @@ func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
 	splice, err := spliceDefaultPipeline(existing)
 	if err != nil {
 		return fmt.Errorf("%s: %w", configPath, err)
+	}
+
+	if splice.alreadyList && splice.listErr != nil {
+		return fmt.Errorf("%s already has a pipeline list, which init leaves alone, but check rejects it: %w", configPath, splice.listErr)
 	}
 
 	if splice.alreadyList {
@@ -60,17 +62,45 @@ func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
 		return nil
 	}
 
-	if err := atomicfile.Write(configPath, splice.result); err != nil {
-		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	if err := writeInPlace(configPath, splice.result); err != nil {
+		return err
 	}
 
 	fmt.Printf("Wrote the default pipeline to %s\n", configPath)
+	printRemoved(splice.removed)
 
 	if splice.hadPreJudge {
 		fmt.Println("The pre_judge screen was removed. To screen with Jev again, add an ask node (see \"Screening with Jev\" in the README).")
 	}
 
 	return nil
+}
+
+// writeInPlace keeps a symlinked config a link, and keeps the file's mode, which a write-and-rename would replace.
+func writeInPlace(configPath string, content []byte) error {
+	info, err := os.Stat(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+
+	if err := os.WriteFile(configPath, content, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	return nil
+}
+
+// printRemoved shows the old pipeline, so settings it tuned can be set again on the new nodes.
+func printRemoved(removed []string) {
+	if len(removed) == 0 {
+		return
+	}
+
+	fmt.Println("Removed from the config; set any of these again on the new nodes if you need them:")
+
+	for _, line := range removed {
+		fmt.Println("  " + line)
+	}
 }
 
 func (p prompter) ask(question string) (string, error) {
@@ -177,12 +207,17 @@ func writeInitFiles(configPath, adrPath string) error {
 	return nil
 }
 
-func printNextSteps(adrPath string) {
+func printNextSteps(adrPath, configPath string) {
+	configFlag := ""
+	if configPath != configFilename {
+		configFlag = " --config " + configPath
+	}
+
 	fmt.Println("\nArchGuard initialized successfully!")
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Add your ADR files to", adrPath)
-	fmt.Println("  2. Run: archguard index")
-	fmt.Println("  3. Run: archguard check")
+	fmt.Println("  2. Run: archguard index" + configFlag)
+	fmt.Println("  3. Run: archguard check" + configFlag)
 }
 
 func generateConfig(adrPath string) string {

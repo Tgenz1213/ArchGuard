@@ -92,16 +92,19 @@ func ParsePipeline(cfg *Config) ([]Node, error) {
 	return nodes, checkOrder(nodes)
 }
 
+// ErrNeedsInit marks a config with no pipeline list, which archguard init can write.
+var ErrNeedsInit = errors.New("run `archguard init` to write the default pipeline")
+
 func needsInitError(retired bool) error {
 	problem := "analysis.pipeline: missing"
 	if retired {
-		problem = "analysis.pipeline: the rank, rerank and pre_judge mapping is no longer supported"
+		problem = "analysis.pipeline: the rank, rerank and pre_judge mapping is not a pipeline list"
 	}
 
 	indented := "  " + strings.ReplaceAll(strings.TrimSuffix(DefaultPipeline, "\n"), "\n", "\n  ")
 	indented = strings.ReplaceAll(indented, "\n  \n", "\n\n")
 
-	return fmt.Errorf("%s; run `archguard init` to write the default pipeline, or add it under analysis:\n\nanalysis:\n%s", problem, indented)
+	return fmt.Errorf("%s; %w, or add it under analysis:\n\nanalysis:\n%s", problem, ErrNeedsInit, indented)
 }
 
 func checkOrder(nodes []Node) error {

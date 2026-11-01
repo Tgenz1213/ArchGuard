@@ -13,7 +13,7 @@ type Coverage struct {
 	FilesWithoutADR     int `json:"files_without_relevant_adr"`
 	FilesBelowThreshold int `json:"files_below_threshold"`
 	FilesScreenedOut    int `json:"files_screened_out"`
-	// The nodes that dropped those files' every candidate, in the order first seen.
+	// The nodes that dropped those files' every candidate, sorted so a report doesn't change with the order files finish.
 	ScreenedOutBy []string `json:"-"`
 }
 
@@ -26,6 +26,7 @@ func (c *Coverage) AddScreenedOut(node string) {
 	c.FilesScreenedOut++
 	if !slices.Contains(c.ScreenedOutBy, node) {
 		c.ScreenedOutBy = append(c.ScreenedOutBy, node)
+		slices.Sort(c.ScreenedOutBy)
 	}
 }
 

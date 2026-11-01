@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,12 @@ analysis:
 llm:
   provider: "ollama"
 `,
+			wantPreJudge: true,
+		},
+		{
+			name:         "a commented-out line inside the old block goes with it",
+			in:           "analysis:\n  pipeline:\n    rank:\n      top_k: 2\n#    rerank:\n#      top_k: 1\n    pre_judge:\n      scorer: jev\n  # Head comment.\n  adr_path: docs\n",
+			want:         "analysis:\n" + splicedPipeline + "  # Head comment.\n  adr_path: docs\n",
 			wantPreJudge: true,
 		},
 		{
@@ -132,6 +139,8 @@ func TestSpliceDefaultPipeline_RefusesWhatItCantEditSafely(t *testing.T) {
 		{"aliased analysis", "base: &base\n  adr_path: docs\nanalysis: *base\n"},
 		{"merge key in analysis", "base: &base\n  adr_path: docs\nanalysis:\n  <<: *base\n  pipeline:\n    rank: {}\n"},
 		{"anchored pipeline", "analysis:\n  pipeline: &p\n    rank:\n      top_k: 2\nother: *p\n"},
+		{"anchor nested in the pipeline", "analysis:\n  pipeline:\n    rank: &r\n      top_k: 2\n  extra: *r\n"},
+		{"analysis as an inline null", "version: 1\nanalysis: ~\nllm:\n  model: x\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,4 +153,23 @@ func TestSpliceDefaultPipeline_RefusesWhatItCantEditSafely(t *testing.T) {
 
 func TestGenerateConfig_HasAValidPipeline(t *testing.T) {
 	assertPipelineParses(t, []byte(generateConfig("./docs/arch")))
+}
+
+func TestSpliceDefaultPipeline_ReturnsTheRemovedLines(t *testing.T) {
+	splice, err := spliceDefaultPipeline([]byte("analysis:\n  pipeline:\n    rank:\n      threshold: 0.7\n  adr_path: docs\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"  pipeline:", "    rank:", "      threshold: 0.7"}
+	if !slices.Equal(splice.removed, want) {
+		t.Errorf("removed = %q, want %q", splice.removed, want)
+	}
+}
+
+func TestSpliceDefaultPipeline_ReportsAListCheckRejects(t *testing.T) {
+	splice, err := spliceDefaultPipeline([]byte("analysis:\n  pipeline: []\n"))
+	if err != nil || !splice.alreadyList || splice.listErr == nil {
+		t.Errorf("splice = %+v, err %v; want alreadyList with the pipeline's error", splice, err)
+	}
 }

@@ -272,3 +272,23 @@ type sideScreener func(state string, questions map[string]string) (map[string]fl
 func (f sideScreener) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	return f(state, questions)
 }
+
+func TestJevScreen_ASideMissingAnAnswerFails(t *testing.T) {
+	screener := sideScreener(func(state string, questions map[string]string) (map[string]float64, error) {
+		if state == "after" {
+			return map[string]float64{}, nil
+		}
+
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = 0.1
+		}
+
+		return answers, nil
+	})
+
+	_, err := (&stage.JevScreen{Screener: screener}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, stage.NoDebug, []stage.Candidate{ruledCandidate("a", "no globals")})
+	if err == nil || !strings.Contains(err.Error(), "no answer") {
+		t.Errorf("err = %v, want a missing-answer error for the after side", err)
+	}
+}

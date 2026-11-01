@@ -23,14 +23,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  pipeline:
-    - name: shortlist
-      job: rank
-      with: cosine
-    - name: judge
-      job: judge
-      with: llm
-`
+` + defaultPipelineYAML
 
 func TestE2E_CheckEndsWithReportOnStdout(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)

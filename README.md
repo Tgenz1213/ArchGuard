@@ -228,7 +228,7 @@ A second `rank` node takes the same settings and fallbacks. Every `rank` node re
 
 #### Upgrading from the `rank`, `rerank` and `pre_judge` mapping
 
-A config written for an older release has `analysis.pipeline` as a mapping of `rank`, `rerank` and `pre_judge` keys. `check` rejects that shape with exit code 3 and shows the default pipeline to paste. Run `archguard init` (or `archguard init --config <path>` for another config file) to fix it: it asks once, then replaces `analysis.pipeline` with the default list and leaves every other line of the file as it was. A `pre_judge` screen is removed; add it back as an `ask` node (see [Screening with Jev](#screening-with-jev)). The GitHub Action reads the same config, so update it before the Action's next run.
+A config written for an older release has `analysis.pipeline` as a mapping of `rank`, `rerank` and `pre_judge` keys. `check` rejects that shape with exit code 3 and shows the default pipeline to paste. Run `archguard init` (or `archguard init --config <path>` for another config file) to fix it: it asks once, then replaces `analysis.pipeline` with the default list and leaves every other line of the file as it was. It prints the lines it removed, so a tuned `threshold`, `top_k` or `on_error` can be set again on the new `shortlist` node, and a `pre_judge` screen added back as an `ask` node (see [Screening with Jev](#screening-with-jev)). If it can't make the edit safely, for example because `analysis` is written in flow style or uses anchors, it changes nothing and says so. The GitHub Action reads the same config, so update it before the Action's next run.
 
 #### Screening with Jev
 
