@@ -116,7 +116,8 @@ jobs:
           tier=unavailable
           confidence=0
           if [ -n "$TYPESAFE_API_KEY" ]; then
-            diff=$(gh pr diff "$PR" -R "$REPO" | head -c 30000)
+            diff=$(gh pr diff "$PR" -R "$REPO")
+            diff=${diff:0:30000}
             request=$(jq -n --arg title "$TITLE" --arg files "$stats" --arg diff "$diff" '{
               model: "jev-latest",
               state: {title: $title, changed_files: $files, diff: $diff},
