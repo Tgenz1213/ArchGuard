@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -304,7 +303,7 @@ func TestBuildProviders_UnknownNameFails(t *testing.T) {
 	}
 }
 
-func TestScreenerFactory(t *testing.T) {
+func TestNewScreeners(t *testing.T) {
 	rank := config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}
 	ask := config.Node{Name: "screen", Job: config.JobAsk, With: config.RunnerJev, Model: "jev-2"}
 	injected := func(string) stage.Screener { return nil }
@@ -313,7 +312,7 @@ func TestScreenerFactory(t *testing.T) {
 		name         string
 		nodes        []config.Node
 		key          string
-		injected     analysis.NewScreener
+		injected     func(string) stage.Screener
 		wantFactory  bool
 		wantErrNames string
 	}{
@@ -327,7 +326,7 @@ func TestScreenerFactory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(config.JevAPIKeyEnv, tt.key)
 
-			factory, err := screenerFactory(tt.nodes, tt.injected)
+			factory, err := newScreeners(tt.nodes, tt.injected)
 			if tt.wantErrNames != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrNames) || !strings.Contains(err.Error(), config.JevAPIKeyEnv) {
 					t.Fatalf("err = %v, want one naming %s and %s", err, tt.wantErrNames, config.JevAPIKeyEnv)

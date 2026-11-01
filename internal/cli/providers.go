@@ -135,8 +135,22 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// screenerFactory returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
-func screenerFactory(nodes []config.Node, injected analysis.NewScreener) (analysis.NewScreener, error) {
+// jevScreeners builds a Jev client per model, or hands out the screener a test injected.
+type jevScreeners struct {
+	apiKey   string
+	injected func(model string) stage.Screener
+}
+
+func (j jevScreeners) ForModel(model string) stage.Screener {
+	if j.injected != nil {
+		return j.injected(model)
+	}
+
+	return inference.NewJevProvider(j.apiKey, model)
+}
+
+// newScreeners returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
+func newScreeners(nodes []config.Node, injected func(model string) stage.Screener) (analysis.Screeners, error) {
 	jevNode := slices.IndexFunc(nodes, func(node config.Node) bool { return node.With == config.RunnerJev })
 	if jevNode < 0 {
 		return nil, nil
@@ -147,9 +161,5 @@ func screenerFactory(nodes []config.Node, injected analysis.NewScreener) (analys
 		return nil, fmt.Errorf("analysis.pipeline node %q: runner jev needs the %s environment variable", nodes[jevNode].Name, config.JevAPIKeyEnv)
 	}
 
-	if injected != nil {
-		return injected, nil
-	}
-
-	return func(model string) stage.Screener { return inference.NewJevProvider(apiKey, model) }, nil
+	return jevScreeners{apiKey: apiKey, injected: injected}, nil
 }

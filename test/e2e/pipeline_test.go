@@ -173,7 +173,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 			wantStderr := "generating embedding"
 			if tt.wantFailures == 1 {
-				wantStderr = fixtureFilename + "\n  Error: stage rank failed"
+				wantStderr = fixtureFilename + "\n  Error: node rank failed"
 			}
 
 			if !strings.Contains(stderr, wantStderr) || !strings.Contains(stderr, "mock embed failure") {
@@ -182,7 +182,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 			if tt.wantFailures == 1 {
 				f := report.Failures[0]
-				if f["stage"] != "rank" || f["kind"] != "unavailable" || f["file"] != fixtureFilename {
+				if f["node"] != "rank" || f["kind"] != "unavailable" || f["file"] != fixtureFilename {
 					t.Errorf("failure = %v", f)
 				}
 			}

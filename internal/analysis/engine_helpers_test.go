@@ -15,3 +15,17 @@ func newEngine(cfg *config.Config, store index.VectorStore, chat inference.Chatt
 
 	return engine
 }
+
+// fixedScreeners gives every ask node the same screener and records the models asked for.
+type fixedScreeners struct {
+	screener stage.Screener
+	models   *[]string
+}
+
+func (f fixedScreeners) ForModel(model string) stage.Screener {
+	if f.models != nil {
+		*f.models = append(*f.models, model)
+	}
+
+	return f.screener
+}

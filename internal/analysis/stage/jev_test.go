@@ -215,7 +215,7 @@ func TestJevStage_TopKLeavesPassedThroughCandidates(t *testing.T) {
 		t.Errorf("kept %s, want the top screened ADR and the one without rules", ids(got))
 	}
 
-	if !strings.Contains(buf.String(), "Kept: ADR c (not scored by this stage)") {
+	if !strings.Contains(buf.String(), "Kept: ADR c (not scored by this node)") {
 		t.Errorf("debug output does not show c passing through:\n%s", buf.String())
 	}
 }

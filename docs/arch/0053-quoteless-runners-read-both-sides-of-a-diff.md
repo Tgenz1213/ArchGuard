@@ -1,6 +1,6 @@
 ---
 title: Runners that answer without a quote read both sides of a diff
-status: Proposed
+status: Accepted
 scope:
   - "internal/analysis/**"
   - "internal/inference/**"

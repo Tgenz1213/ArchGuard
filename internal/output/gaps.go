@@ -79,7 +79,7 @@ func (g Gaps) gapSummary() []string {
 	}
 
 	if count := len(g.FailedStages); count > 0 {
-		parts = append(parts, fmt.Sprintf("%d stage failure(s)", count))
+		parts = append(parts, fmt.Sprintf("%d node failure(s)", count))
 	}
 
 	if count := len(g.UnindexedADRs); count > 0 {
@@ -95,8 +95,8 @@ func (p *Printer) reportGaps(g Gaps) {
 	p.section("Failed ADR checks:", formatEach(g.FailedChecks, func(c FailedCheck) string {
 		return fmt.Sprintf("%s: ADR %s %s: %s", c.File, c.ADRID, c.Title, c.Reason)
 	}))
-	p.section("Failed stages:", formatEach(g.FailedStages, func(f FailedStage) string {
-		return fmt.Sprintf("%s: stage %s: %s", f.File, f.Stage, f.Reason)
+	p.section("Failed nodes:", formatEach(g.FailedStages, func(f FailedStage) string {
+		return fmt.Sprintf("%s: node %s: %s", f.File, f.Stage, f.Reason)
 	}))
 	p.section(
 		"ADRs not in the index (no file was checked against them):",

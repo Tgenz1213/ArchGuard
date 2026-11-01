@@ -1,6 +1,6 @@
 ---
 title: What a node failure does
-status: Proposed
+status: Accepted
 scope:
   - "internal/analysis/**"
   - "internal/cli/**"

@@ -3,9 +3,9 @@ Package stage narrows a file's candidate ADRs before the model is asked about
 them.
 
 A Scorer gives each candidate a score, and a Stage keeps the candidates that
-clear its threshold, best first, up to its limit. The configured stages run
-one after another, rank, rerank, then pre_judge, and each sees only what the
-one before it kept.
+clear its threshold, best first, up to its limit. Each pipeline node that
+chooses candidates is one Stage, named after its node; the stages run in
+pipeline order, and each sees only what the one before it kept.
 
 It never finds violations; package analysis asks the model about the
 candidates that survive, and a screening stage only decides which of them it
@@ -14,10 +14,12 @@ talks to Jev.
 
 Terms:
 
-  - Cosine stage: scores each candidate by how similar its embedding is to the
-    file's.
-  - Jev stage: screens candidates by asking Jev whether the file breaks each
-    of their rules, scoring an ADR by its likeliest-broken rule.
+  - Cosine stage: a rank node. It scores each candidate by how similar its
+    embedding is to the file's.
+  - Jev stage: an ask node. It screens candidates by asking Jev a question
+    about each of their rules, scoring an ADR by its likeliest-broken rule.
+  - Sides: what a scorer that answers without a quote reads, the whole file or
+    each side of a diff, so a rule broken by removing code is still seen.
   - Pass-through: a candidate a scorer does not judge, such as an ADR with no
     rules in a Jev stage. The stage keeps it whatever its threshold or limit.
   - Skipped: a stage that failed under on_error: skip and passed its

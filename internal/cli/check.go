@@ -26,7 +26,7 @@ var errNothingChecked = errors.New("nothing was checked against an ADR because o
 type checkRun struct {
 	setup        runSetup
 	nodes        []config.Node
-	newScreener  analysis.NewScreener
+	screeners    analysis.Screeners
 	opts         checkCmd
 	log          *output.Printer
 	report       *output.Printer
@@ -39,7 +39,7 @@ type checkRun struct {
 }
 
 func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamColors) (code ExitCode, err error) {
-	nodes, newScreener, err := parsePipeline(setup)
+	nodes, screeners, err := parsePipeline(setup)
 	if err != nil {
 		return ExitConfig, err
 	}
@@ -49,7 +49,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitError, err
 	}
 
-	run.nodes, run.newScreener = nodes, newScreener
+	run.nodes, run.screeners = nodes, screeners
 
 	defer func() {
 		if werr := run.report.Err(); werr != nil && !opts.jsonOutput() && code != ExitInterrupted {
@@ -92,18 +92,18 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 // parsePipeline runs before the store or index loads, so a bad pipeline costs no database connection or rebuild.
-func parsePipeline(setup runSetup) ([]config.Node, analysis.NewScreener, error) {
+func parsePipeline(setup runSetup) ([]config.Node, analysis.Screeners, error) {
 	nodes, err := config.ParsePipeline(setup.cfg)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	newScreener, err := screenerFactory(nodes, setup.jev)
+	screeners, err := newScreeners(nodes, setup.jev)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return nodes, newScreener, nil
+	return nodes, screeners, nil
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
@@ -179,7 +179,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 	engine.Cache = analysisCache
 
-	engine.Stages = analysis.BuildPipeline(r.nodes, store, setup.embed, r.newScreener)
+	engine.Stages = analysis.BuildPipeline(r.nodes, store, setup.embed, r.screeners)
 	engine.Baseline = loaded
 	engine.UpdateBaseline = opts.UpdateBaseline
 	engine.BaselineReason = opts.BaselineReason
@@ -334,7 +334,7 @@ type checkReport struct {
 	Violations []analysis.Violation    `json:"violations"`
 	Count      int                     `json:"count"`
 	Unverified []analysis.Violation    `json:"unverified"`
-	Stages     []stage.Stats           `json:"stages"`
+	Stages     []stage.Stats           `json:"nodes"`
 	Coverage   output.Coverage         `json:"coverage"`
 	Failures   []analysis.StageFailure `json:"failures,omitempty"`
 	Usage      *output.Usage           `json:"usage"`
@@ -380,7 +380,7 @@ func stageFailureExit(failures []analysis.StageFailure) (ExitCode, error) {
 		}
 	}
 
-	return code, fmt.Errorf("%d stage failure(s) with on_error: fail; compliance was not verified", len(failures))
+	return code, fmt.Errorf("%d node failure(s) with on_error: fail; compliance was not verified", len(failures))
 }
 
 func (c checkCmd) contentProvider(out *output.Printer) analysis.ContentProvider {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -264,7 +265,7 @@ func TestEngine_CountsJudgedFilesAndADRChecks(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesJudged: 1, ADRChecks: 2}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -279,7 +280,7 @@ func TestEngine_CountsEveryFileWhenEveryCandidateIsBelowTheThreshold(t *testing.
 	}
 
 	want := output.Coverage{FilesWithoutADR: 2, FilesBelowThreshold: 2}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -292,8 +293,8 @@ func TestEngine_CountsAScreenedOutFileApartFromOneBelowTheThreshold(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := output.Coverage{FilesWithoutADR: 1, FilesScreenedOut: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	want := output.Coverage{FilesWithoutADR: 1, FilesScreenedOut: 1, ScreenedOutBy: []string{"screen"}}
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -308,7 +309,7 @@ func TestEngine_CountsFilesWithNoScopeMatchAsWithoutADR(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesWithoutADR: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -324,7 +325,7 @@ func TestEngine_DoesNotCountASkippedFileAsJudged(t *testing.T) {
 	}
 
 	report := h.engine.Report()
-	if len(report.SkippedFiles) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.SkippedFiles) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("skipped = %+v, coverage = %+v; want the file skipped and nothing counted", report.SkippedFiles, report.Coverage)
 	}
 }
@@ -351,7 +352,7 @@ func TestEngine_CountsFilesAcrossARun(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesJudged: 2, ADRChecks: 2, FilesWithoutADR: 1, FilesBelowThreshold: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -367,7 +368,7 @@ func TestEngine_DoesNotCountAFileWhoseEveryCheckFailedAsJudged(t *testing.T) {
 	}
 
 	report := h.engine.Report()
-	if len(report.FailedChecks) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.FailedChecks) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("failed checks = %+v, coverage = %+v; want one failed check and nothing counted", report.FailedChecks, report.Coverage)
 	}
 }
@@ -384,7 +385,7 @@ func TestEngine_DoesNotCountAPartlyCheckedFileWithNoCandidateAsWithoutADR(t *tes
 	}
 
 	report := h.engine.Report()
-	if len(report.PartialFiles) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.PartialFiles) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("partial = %+v, coverage = %+v; want the file partly checked and nothing counted", report.PartialFiles, report.Coverage)
 	}
 }

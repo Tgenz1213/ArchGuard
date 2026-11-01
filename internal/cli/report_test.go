@@ -24,7 +24,7 @@ func TestWriteCheckReport_EmptyListsEncodeAsArraysNotNull(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if out := buf.String(); strings.Contains(out, "null") || !strings.Contains(out, `"stages": []`) || !strings.Contains(out, `"violations": []`) || !strings.Contains(out, `"unverified": []`) {
+	if out := buf.String(); strings.Contains(out, "null") || !strings.Contains(out, `"nodes": []`) || !strings.Contains(out, `"violations": []`) || !strings.Contains(out, `"unverified": []`) {
 		t.Fatalf("report = %s, want empty arrays and no null", out)
 	}
 }
@@ -89,7 +89,7 @@ func TestWriteCheckReport_StagesKeepTheirJSONFields(t *testing.T) {
 			Received   int    `json:"received"`
 			Kept       int    `json:"kept"`
 			DurationMS int64  `json:"duration_ms"`
-		} `json:"stages"`
+		} `json:"nodes"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
 		t.Fatalf("report is not valid JSON: %v\n%s", err, buf.String())

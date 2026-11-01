@@ -77,7 +77,7 @@ func (v Violation) Annotation() output.Annotation {
 }
 
 type StageFailure struct {
-	Stage string     `json:"stage"`
+	Stage string     `json:"node"`
 	File  string     `json:"file"`
 	Kind  stage.Kind `json:"kind"`
 	Error string     `json:"error"`
@@ -94,7 +94,7 @@ func newKeyRejectedError(stageName string, err error) *KeyRejectedError {
 }
 
 func (e *KeyRejectedError) Error() string {
-	return fmt.Sprintf("%s was rejected by the %s stage (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Stage, errors.Unwrap(e.Err))
+	return fmt.Sprintf("%s was rejected by the %s node (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Stage, errors.Unwrap(e.Err))
 }
 
 func (e *KeyRejectedError) Unwrap() error { return e.Err }
@@ -505,7 +505,7 @@ func newStageFailure(name, file string, err error) StageFailure {
 }
 
 func failureMessage(f StageFailure) string {
-	return fmt.Sprintf("stage %s failed (%s): %s", f.Stage, f.Kind, f.Error)
+	return fmt.Sprintf("node %s failed (%s): %s", f.Stage, f.Kind, f.Error)
 }
 
 func scoringErrorMessage(err error) string {

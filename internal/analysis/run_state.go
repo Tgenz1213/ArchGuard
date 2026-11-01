@@ -40,7 +40,7 @@ type fileResult struct {
 	judged         bool
 	withoutADR     bool
 	belowThreshold bool
-	screenedOut    bool
+	screenedOutBy  string
 	failedChecks   []output.FailedCheck
 	recorded       []output.RecordedEntry
 	unrecorded     []output.UnrecordedViolation
@@ -111,7 +111,7 @@ func (r *runState) merge(result *fileResult) {
 	r.coverage.FilesJudged += boolToInt(result.judged)
 	r.coverage.FilesWithoutADR += boolToInt(result.withoutADR)
 	r.coverage.FilesBelowThreshold += boolToInt(result.belowThreshold)
-	r.coverage.FilesScreenedOut += boolToInt(result.screenedOut)
+	r.coverage.AddScreenedOut(result.screenedOutBy)
 	r.failedChecks = append(r.failedChecks, result.failedChecks...)
 	r.recorded = append(r.recorded, result.recorded...)
 	r.unrecorded = append(r.unrecorded, result.unrecorded...)

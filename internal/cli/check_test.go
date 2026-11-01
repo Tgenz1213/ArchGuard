@@ -83,7 +83,7 @@ func TestWriteCheckReport_IncludesFailureKind(t *testing.T) {
 		t.Fatalf("report is not valid JSON: %v", err)
 	}
 
-	if len(got.Failures) != 1 || got.Failures[0]["kind"] != "unavailable" || got.Failures[0]["stage"] != "rank" || got.Failures[0]["file"] != "a.go" || got.Failures[0]["error"] != "down" {
+	if len(got.Failures) != 1 || got.Failures[0]["kind"] != "unavailable" || got.Failures[0]["node"] != "rank" || got.Failures[0]["file"] != "a.go" || got.Failures[0]["error"] != "down" {
 		t.Errorf("failures = %v", got.Failures)
 	}
 }

@@ -156,13 +156,13 @@ func partition(candidates []Candidate, scores []float64, floor Threshold) decisi
 func (d decision) cut() []Candidate { return d.qualifying[len(d.kept):] }
 
 func (s Stage) report(debug Debug, d decision) {
-	debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept)+len(d.passed))
+	debug.Debug("Node %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept)+len(d.passed))
 	for _, candidate := range d.kept {
 		debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
 	}
 
 	for _, candidate := range d.passed {
-		debug.Debug("Kept: %s (not scored by this stage)", candidate.ADR.Title)
+		debug.Debug("Kept: %s (not scored by this node)", candidate.ADR.Title)
 	}
 
 	if s.ListRejected {

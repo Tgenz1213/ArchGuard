@@ -361,7 +361,7 @@ func TestPipeline_StageFailureJSONCarriesKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := `{"stage":"rerank","file":"a.go","kind":"precondition_not_met","error":"boom"}`
+	want := `{"node":"rerank","file":"a.go","kind":"precondition_not_met","error":"boom"}`
 	if string(b) != want {
 		t.Errorf("json = %s, want %s", b, want)
 	}
@@ -399,8 +399,8 @@ func TestPipeline_PassThroughStageErrorJudgesEveryCandidate(t *testing.T) {
 		t.Errorf("SkippedFiles = %d, judged = %v; want both ADRs judged and the file not skipped", len(h.engine.SkippedFiles), h.judged)
 	}
 
-	if !strings.Contains(logged.String(), "stage screen skipped, 2 candidate(s) pass through unchanged") || !strings.Contains(logged.String(), "scorer down") {
-		t.Errorf("log %q lacks a warning naming the stage and the error", logged.String())
+	if !strings.Contains(logged.String(), "node screen skipped, 2 candidate(s) pass through unchanged") || !strings.Contains(logged.String(), "scorer down") {
+		t.Errorf("log %q lacks a warning naming the node and the error", logged.String())
 	}
 }
 
@@ -506,9 +506,8 @@ func runPreJudge(t *testing.T, run preJudgeRun, screener stage.Screener) (*score
 		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
-	newScreener := func(string) stage.Screener { return screener }
 
-	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, newScreener)
+	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -660,7 +659,7 @@ func TestPipeline_AskReadsBothSidesOfALargeFilesDiff(t *testing.T) {
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: config.OnErrorSkip},
 	}
 	screener := screenerBreaking("fmt.Println", &states)
-	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, func(string) stage.Screener { return screener })
+	h.engine.Stages = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedScreeners{screener: screener})
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)

@@ -61,14 +61,14 @@ Skipped files:
 Failed ADR checks:
   a.go: ADR 0004 Flaky: LLM down
 
-Failed stages:
-  d.go: stage rerank: unavailable
+Failed nodes:
+  d.go: node rerank: unavailable
 
 ADRs not in the index (no file was checked against them):
   0007-long.md: failed to embed: boom
 
 Checked 2 file(s) against 5 ADR check(s); 1 file(s) had no relevant ADR.
-2 new violation(s) in 2 file(s), 2 baselined, 2 unverified. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 stage failure(s), 1 ADR(s) not indexed.
+2 new violation(s) in 2 file(s), 2 baselined, 2 unverified. Not fully checked: 1 file(s) skipped, 1 ADR check(s) failed, 1 node failure(s), 1 ADR(s) not indexed.
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -85,8 +85,9 @@ func TestReportWithNothingToReportStatesCoverageThenTheResult(t *testing.T) {
 		{"only baselined", output.Report{Baselined: 3, Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1}}, "Checked 1 file(s) against 1 ADR check(s); 0 file(s) had no relevant ADR.\nNo new architectural violations found (3 baselined).\n"},
 		{"nothing judged", output.Report{Coverage: output.Coverage{FilesWithoutADR: 12}}, "Checked 0 file(s) against 0 ADR check(s); 12 file(s) had no relevant ADR.\nNo new architectural violations found, but no file was checked against an ADR.\n"},
 		{"some below the threshold", output.Report{Coverage: output.Coverage{FilesJudged: 2, ADRChecks: 3, FilesWithoutADR: 5, FilesBelowThreshold: 4}}, "Checked 2 file(s) against 3 ADR check(s); 5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.\nNo new architectural violations found.\n"},
-		{"nothing judged because pre_judge screened everything out", output.Report{Coverage: output.Coverage{FilesWithoutADR: 3, FilesScreenedOut: 3}}, "Checked 0 file(s) against 0 ADR check(s); 3 file(s) had no relevant ADR, 3 of them because pre_judge screened out every candidate.\nNo new architectural violations found, but no file was checked against an ADR: pre_judge screened out every candidate. Run with --debug to see its scores.\n"},
-		{"some below the threshold and some screened out", output.Report{Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1, FilesWithoutADR: 3, FilesBelowThreshold: 2, FilesScreenedOut: 1}}, "Checked 1 file(s) against 1 ADR check(s); 3 file(s) had no relevant ADR, 2 of them because every candidate scored below the threshold, 1 because pre_judge screened out every candidate.\nNo new architectural violations found.\n"},
+		{"nothing judged because a node dropped everything", output.Report{Coverage: output.Coverage{FilesWithoutADR: 3, FilesScreenedOut: 3, ScreenedOutBy: []string{"breaks-a-rule"}}}, "Checked 0 file(s) against 0 ADR check(s); 3 file(s) had no relevant ADR, 3 of them because the breaks-a-rule node dropped every candidate.\nNo new architectural violations found, but no file was checked against an ADR: the breaks-a-rule node dropped every candidate. Run with --debug to see the scores.\n"},
+		{"some below the threshold and some screened out", output.Report{Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1, FilesWithoutADR: 3, FilesBelowThreshold: 2, FilesScreenedOut: 1, ScreenedOutBy: []string{"breaks-a-rule"}}}, "Checked 1 file(s) against 1 ADR check(s); 3 file(s) had no relevant ADR, 2 of them because every candidate scored below the threshold, 1 because the breaks-a-rule node dropped every candidate.\nNo new architectural violations found.\n"},
+		{"files screened out by two nodes", output.Report{Coverage: output.Coverage{FilesJudged: 1, ADRChecks: 1, FilesWithoutADR: 2, FilesScreenedOut: 2, ScreenedOutBy: []string{"screen", "strict"}}}, "Checked 1 file(s) against 1 ADR check(s); 2 file(s) had no relevant ADR, 2 of them because a node (screen, strict) dropped every candidate.\nNo new architectural violations found.\n"},
 		{"nothing judged because of the threshold", output.Report{Coverage: output.Coverage{FilesWithoutADR: 3, FilesBelowThreshold: 2}}, "Checked 0 file(s) against 0 ADR check(s); 3 file(s) had no relevant ADR, 2 of them because every candidate scored below the threshold.\nNo new architectural violations found, but no file was checked against an ADR: every candidate scored below the threshold. The right threshold depends on the embedding model; run with --debug to see the scores.\n"},
 	}
 

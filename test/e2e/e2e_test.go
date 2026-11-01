@@ -403,7 +403,7 @@ type checkReport struct {
 		Received   int    `json:"received"`
 		Kept       int    `json:"kept"`
 		DurationMS *int64 `json:"duration_ms"`
-	} `json:"stages"`
+	} `json:"nodes"`
 }
 
 func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {

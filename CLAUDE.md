@@ -34,7 +34,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | Area | Paths | Guidance |
 |---|---|---|
 | CLI: command line, startup, providers, `check` output, exit codes | `internal/cli/`, `cmd/archguard/` | `.claude/rules/cli.md` |
-| Config: `archguard.yaml`, pipeline stages, env overrides | `internal/config/`, `archguard.yaml` | `.claude/rules/config.md` |
+| Config: `archguard.yaml`, pipeline nodes, env overrides | `internal/config/`, `archguard.yaml` | `.claude/rules/config.md` |
 | Index: ADR providers, vector stores, Postgres | `internal/index/`, `docker-compose.yml` | `.claude/rules/index.md` |
 | Analysis: the engine, scoring stages, context sizing, cache | `internal/analysis/`, `internal/cache/` | `.claude/rules/analysis.md` |
 | Inference: chat and embedding providers | `internal/inference/` | `.claude/rules/inference.md` |

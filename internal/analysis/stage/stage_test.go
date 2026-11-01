@@ -243,7 +243,7 @@ func TestStage_KeepsCandidatesScoredInfOutsideMaxKeep(t *testing.T) {
 		t.Errorf("kept %s, want a (best scored) and b (not scored, outside MaxKeep)", ids(got))
 	}
 
-	if !strings.Contains(buf.String(), "Kept: ADR b (not scored by this stage)") {
+	if !strings.Contains(buf.String(), "Kept: ADR b (not scored by this node)") {
 		t.Errorf("debug output %q does not mark b as not scored", buf.String())
 	}
 }

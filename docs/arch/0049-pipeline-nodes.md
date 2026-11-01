@@ -1,6 +1,6 @@
 ---
 title: The pipeline is made of nodes
-status: Proposed
+status: Accepted
 scope:
   - "internal/analysis/**"
   - "internal/config/**"

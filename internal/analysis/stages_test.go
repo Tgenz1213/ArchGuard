@@ -16,12 +16,8 @@ func buildPipeline(t *testing.T, nodes ...config.Node) []stage.Stage {
 	t.Helper()
 
 	var models []string
-	newScreener := func(model string) stage.Screener {
-		models = append(models, model)
-		return nil
-	}
 
-	stages := analysis.BuildPipeline(nodes, index.NewLocalStore(1), &inference.MockProvider{}, newScreener)
+	stages := analysis.BuildPipeline(nodes, index.NewLocalStore(1), &inference.MockProvider{}, fixedScreeners{models: &models})
 	if len(models) != countJob(nodes, config.JobAsk) {
 		t.Errorf("built %d screeners, want one per ask node", len(models))
 	}

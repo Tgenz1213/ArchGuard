@@ -7,11 +7,13 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-// NewScreener returns the screener an ask node calls, for the Jev model it names.
-type NewScreener func(model string) stage.Screener
+// Screeners gives each ask node the screener for the Jev model it names.
+type Screeners interface {
+	ForModel(model string) stage.Screener
+}
 
 // BuildPipeline returns the stages that choose candidates; the judge node is the engine's own judging step.
-func BuildPipeline(nodes []config.Node, store index.VectorStore, embed inference.Embedder, newScreener NewScreener) []stage.Stage {
+func BuildPipeline(nodes []config.Node, store index.VectorStore, embed inference.Embedder, screeners Screeners) []stage.Stage {
 	var stages []stage.Stage
 
 	for _, node := range nodes {
@@ -19,7 +21,7 @@ func BuildPipeline(nodes []config.Node, store index.VectorStore, embed inference
 		case config.JobRank:
 			stages = append(stages, rankStage(node, store, embed))
 		case config.JobAsk:
-			stages = append(stages, askStage(node, newScreener(node.Model)))
+			stages = append(stages, askStage(node, screeners.ForModel(node.Model)))
 		}
 	}
 

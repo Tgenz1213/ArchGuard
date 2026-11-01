@@ -1,6 +1,10 @@
 package output
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 // Coverage is how much of a run reached the model. Skipped and partly checked files are in Gaps, not here.
 type Coverage struct {
@@ -9,6 +13,28 @@ type Coverage struct {
 	FilesWithoutADR     int `json:"files_without_relevant_adr"`
 	FilesBelowThreshold int `json:"files_below_threshold"`
 	FilesScreenedOut    int `json:"files_screened_out"`
+	// The nodes that dropped those files' every candidate, in the order first seen.
+	ScreenedOutBy []string `json:"-"`
+}
+
+// AddScreenedOut counts a file whose every candidate the named node dropped; an empty name counts nothing.
+func (c *Coverage) AddScreenedOut(node string) {
+	if node == "" {
+		return
+	}
+
+	c.FilesScreenedOut++
+	if !slices.Contains(c.ScreenedOutBy, node) {
+		c.ScreenedOutBy = append(c.ScreenedOutBy, node)
+	}
+}
+
+func (c Coverage) screeningNodes() string {
+	if len(c.ScreenedOutBy) == 1 {
+		return "the " + c.ScreenedOutBy[0] + " node"
+	}
+
+	return "a node (" + strings.Join(c.ScreenedOutBy, ", ") + ")"
 }
 
 func (c Coverage) line() string {
@@ -23,7 +49,7 @@ func (c Coverage) line() string {
 			lead = "%d of them because"
 		}
 
-		line += fmt.Sprintf(", "+lead+" pre_judge screened out every candidate", c.FilesScreenedOut)
+		line += fmt.Sprintf(", "+lead+" %s dropped every candidate", c.FilesScreenedOut, c.screeningNodes())
 	}
 
 	return line + "."
@@ -34,7 +60,7 @@ func (c Coverage) cleanResult(baselined int) string {
 	case c.FilesJudged == 0 && c.FilesBelowThreshold > 0:
 		return "No new architectural violations found, but no file was checked against an ADR: every candidate scored below the threshold. The right threshold depends on the embedding model; run with --debug to see the scores."
 	case c.FilesJudged == 0 && c.FilesScreenedOut > 0:
-		return "No new architectural violations found, but no file was checked against an ADR: pre_judge screened out every candidate. Run with --debug to see its scores."
+		return "No new architectural violations found, but no file was checked against an ADR: " + c.screeningNodes() + " dropped every candidate. Run with --debug to see the scores."
 	case c.FilesJudged == 0:
 		return "No new architectural violations found, but no file was checked against an ADR."
 	case baselined > 0:

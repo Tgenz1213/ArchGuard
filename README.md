@@ -124,15 +124,22 @@ analysis:
   rules_heading: "Rules" # Optional: the ADR body section whose bullets are read as screening rules; this is the default
   # included_headers: ["Decision", "Rules"] # Optional: embed only these ADR sections; see Embedded Sections
   # excluded_headers: ["Context"] # Optional: embed every ADR section but these; ignored when included_headers is set
-  pipeline: # Optional: how candidate ADRs are ranked and screened before the LLM judges them; this rank stage matches the default
-    rank:
-      scorer: "cosine"
-      threshold: 0.6 # Minimum score; defaults to vector_store.similarity_threshold
-      top_k: 3 # Maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
-      on_error: "skip" # "skip" (default) skips the file when the stage fails; "fail" fails the check
-    # pre_judge: # Optional: screen candidates with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY
-    #   scorer: "jev"
-    #   threshold: 0.3 # Required
+  pipeline: # Required by check: the nodes that choose which ADRs the LLM judges, in order; see The Pipeline
+    - name: shortlist
+      job: rank
+      with: cosine
+      threshold: 0.6 # Optional: minimum score; defaults to vector_store.similarity_threshold
+      top_k: 3 # Optional: maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
+      on_error: skip # Optional: "skip" (default) skips the file when the node fails; "fail" fails the check
+
+    # - name: breaks-a-rule # Optional: screen with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY
+    #   job: ask
+    #   with: jev
+    #   preset: breaks-a-rule
+
+    - name: judge
+      job: judge
+      with: llm
   accepted_statuses: ["Accepted", "Active"] # Use ["*"] to include all statuses
   exclude_patterns:
     - "**/*_test.go"
@@ -150,7 +157,7 @@ analysis:
   max_concurrency: 5 # Number of files analyzed in parallel
 ```
 
-The optional `analysis` settings above are explained in their own sections below: [Ranking Stages](#ranking-stages), [ADR IDs](#adr-format) (`adr_id_pattern`), [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`), [Screening Rules](#screening-rules) (`rules_heading`), and [Embedded Sections](#embedded-sections) (`included_headers`, `excluded_headers`).
+The optional `analysis` settings above are explained in their own sections below: [The Pipeline](#the-pipeline), [ADR IDs](#adr-format) (`adr_id_pattern`), [Frontmatter Field Mappings](#adr-format) (`frontmatter_mappings`), [Screening Rules](#screening-rules) (`rules_heading`), and [Embedded Sections](#embedded-sections) (`included_headers`, `excluded_headers`).
 
 ### Supported Statuses
 You can filter ADRs by their status (e.g. `["Accepted"]`). If you want ArchGuard to evaluate against *all* ADRs regardless of status, use `["*"]`.
@@ -183,83 +190,105 @@ To find a value, run `archguard check --debug --debug-rejected` on a few typical
 
 An ADR can set its own `similarity_threshold` in frontmatter (see [ADR Format](#adr-format)).
 
-### Ranking Stages
+### The Pipeline
 
-For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. With no `analysis.pipeline` block it ranks them by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and judges the top `analysis.max_relevant_adrs` (default 3). `analysis.pipeline` lets you define that ranking as stages instead. Three stages are available, `rank`, `rerank` and `pre_judge`, all optional, always run in that order and followed by LLM judgment. `rank` and `rerank` rank candidates by relevance; `pre_judge` screens them for likely violations (see [Screening with Jev](#screening-with-jev)). Each stage scores all of a file's candidates together and takes:
-
-- `scorer`: how candidates are scored. `cosine` (embedding similarity) ranks, and is the default for `rank` and `rerank` when omitted. `jev` screens for violations and is the only scorer `pre_judge` accepts; `pre_judge` has no default.
-- `threshold`: the minimum score, from 0 to 1. Candidates scoring below it are dropped.
-- `top_k`: the maximum number of candidates kept, a positive integer.
-- `on_error`: what happens when the stage fails, `skip` or `fail` (see [When a stage fails](#when-a-stage-fails)). Unset behaves as `skip`.
-- `options`: settings for the stage's scorer. Only `jev` takes any.
-
-| | `rank` | `rerank` |
-|---|---|---|
-| Stage omitted | cosine, using `vector_store.similarity_threshold` and `analysis.max_relevant_adrs` | not run |
-| `threshold` unset | `vector_store.similarity_threshold` | `0`, with a printed warning |
-| `top_k` unset | `analysis.max_relevant_adrs` (3 when unset) | `3`, with a printed warning |
+For each changed file, ArchGuard picks which of the ADRs whose `scope` matches it the LLM judges. `analysis.pipeline` lists the steps that do that, called nodes, in the order they run; each node gets only the ADRs the node above it kept. `archguard init` writes this default:
 
 ```yaml
 analysis:
   pipeline:
-    rank:
-      scorer: cosine
-      threshold: 0.6
-      top_k: 5
-    rerank:
-      threshold: 0.65
-      top_k: 2
+    - name: shortlist
+      job: rank
+      with: cosine
+
+    - name: judge
+      job: judge
+      with: llm
 ```
 
-A `rerank` configured without a `rank` runs after the default `rank`. An ADR's own `similarity_threshold` frontmatter overrides a cosine stage's `threshold` for that ADR, so the stage `threshold` is a default for ADRs that don't set their own, not a hard floor.
+It ranks the candidates by cosine similarity, keeps those at or above `vector_store.similarity_threshold`, and the LLM judges the top `analysis.max_relevant_adrs` (default 3).
 
-Every cosine stage re-scores the same candidates, so a cosine `rerank` after a cosine `rank` can only tighten `threshold` or `top_k` and costs one extra embedding call per file. It becomes useful once other scorers can fill a stage.
+Each node has a `name`, a `job` and a runner in `with`. The name is what `--debug`, warnings and the JSON report call the node: letters, digits, `-` and `_`, at most 64 characters, and unique in the pipeline.
 
-An unknown scorer, a scorer in a stage it can't fill (`jev` in `rank`, `cosine` in `pre_judge`), an unrecognized stage, stage key or option, a missing `pre_judge` `scorer` or `threshold`, a non-numeric or out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, or a missing scorer API key stops `archguard` at startup with exit code 3 and a message naming the stage and key.
+| `job` | `with` | What it does | Settings |
+|---|---|---|---|
+| `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
+| `ask` | `jev` | Asks Jev a question about each rule of each ADR and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
+| `judge` | `llm` | The `llm` block judges each ADR that is left and reports the violations. | none |
+
+The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node. On a `rank` node:
+
+- `threshold`: the minimum score, from 0 to 1. Unset, it is `vector_store.similarity_threshold`. An ADR's own `similarity_threshold` frontmatter overrides it for that ADR, so it is a default for ADRs that don't set their own, not a hard floor.
+- `top_k`: the maximum number of ADRs kept, a positive integer. Unset, it is `analysis.max_relevant_adrs` (3 when unset).
+- `on_error`: what happens when the node fails, `skip` or `fail` (see [When a node fails](#when-a-node-fails)). Unset behaves as `skip`.
+
+A second `rank` node takes the same settings and fallbacks. Every `rank` node re-scores the same candidates, so a second one can only tighten `threshold` or `top_k`, and costs one extra embedding call per file.
+
+`check` needs the pipeline. A config without one, a node with a setting its job doesn't take, an unknown `job`, runner or preset, an out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, a missing Jev API key, or a pipeline in the wrong order stops `archguard check` at startup with exit code 3 and a message naming the node and the setting. Other commands, such as `index`, don't read the pipeline.
+
+#### Upgrading from the `rank`, `rerank` and `pre_judge` mapping
+
+A config written for an older release has `analysis.pipeline` as a mapping of `rank`, `rerank` and `pre_judge` keys. `check` rejects that shape with exit code 3 and shows the default pipeline to paste. Run `archguard init` (or `archguard init --config <path>` for another config file) to fix it: it asks once, then replaces `analysis.pipeline` with the default list and leaves every other line of the file as it was. A `pre_judge` screen is removed; add it back as an `ask` node (see [Screening with Jev](#screening-with-jev)). The GitHub Action reads the same config, so update it before the Action's next run.
 
 #### Screening with Jev
 
-A `pre_judge` stage with `scorer: jev` sends each file to [TypeSafe's Jev](https://docs.typesafe.ai/api), a hosted model that answers yes/no questions with a probability, before any LLM judgment. For each file, Jev is called once, with one question per [screening rule](#screening-rules) of every candidate ADR that has rules: does this code break the rule? An ADR whose likeliest-broken rule scores at or above `threshold` goes on to LLM judgment; the rest are dropped without an LLM call. Jev gives no reasoning, so every reported violation still comes from the LLM, with its reasoning and quoted code.
+An `ask` node with `with: jev` sends each file to [TypeSafe's Jev](https://docs.typesafe.ai/api), a hosted model that answers yes/no questions with a probability, before any LLM judgment. For each file, Jev is asked one question per [screening rule](#screening-rules) of every candidate ADR that has rules: does this code break the rule? An ADR whose likeliest-broken rule scores at or above `keep.threshold` goes on to LLM judgment; the rest are dropped without an LLM call. Jev gives no reasoning, so every reported violation still comes from the LLM, with its reasoning and quoted code.
 
 ```yaml
+jev:
+  model: jev-latest # Optional; this is the default. A node's own model overrides it
+
 analysis:
   pipeline:
-    pre_judge:
-      scorer: jev
-      threshold: 0.3
-      options:
-        model: jev-latest # Optional; this is the default
+    - name: shortlist
+      job: rank
+      with: cosine
+
+    - name: breaks-a-rule
+      job: ask
+      with: jev
+      preset: breaks-a-rule
+
+    - name: judge
+      job: judge
+      with: llm
 ```
 
-- **File content goes to TypeSafe.** Jev receives what the LLM would judge: the file, or under `--since` and for an oversized file, the diff with its `+`/`-` markers.
-- **The API key** is read from the `ARCHGUARD_JEV_API_KEY` environment variable, never from `archguard.yaml`. It is required only when a Jev stage is configured, and a missing key stops `archguard index` and `archguard check` at startup with exit code 3.
-- **`threshold` is required.** Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`.
-- **`top_k` is optional.** Unset, `pre_judge` keeps every ADR that clears `threshold`.
-- **ADRs without rules pass through `pre_judge` unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this stage)`.
+- **The question.** `preset: breaks-a-rule` asks `Does this code break the following rule? {rule}` with a `keep.threshold` of `0.3`. Without a preset, set all of `type: noul` (a yes/no question), `for_each: rule` and `instructions`, which must contain `{rule}`; `{rule}` is replaced by the rule and its examples. Setting `type`, `for_each` or `instructions` beside a preset is an error. Other question types and `for_each: adr` aren't supported yet.
+- **`keep`** takes `threshold`, the lowest probability of yes that keeps an ADR, and an optional `top_k`. `keep.threshold` is required without a preset. Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`. Unset, `top_k` keeps every ADR that clears the threshold.
+- **File content goes to TypeSafe.** Jev receives what the LLM would judge. When that is a diff, under `--since` or for an oversized file, Jev is asked about the code before the change (its unchanged and removed lines) and after it (its unchanged and added lines), each as plain text without `+`/`-` markers, in two calls. An ADR that clears the threshold on either side is kept, so removing code a rule requires is still caught. A side that doesn't exist, such as the before side of a new file, isn't sent.
+- **The API key** is read from the `ARCHGUARD_JEV_API_KEY` environment variable, never from `archguard.yaml`; the `jev` block takes only `model`. It is required only when a node uses Jev, and a missing key stops `archguard check` at startup with exit code 3. `archguard index` doesn't need it.
+- **ADRs without rules pass through an `ask` node unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this node)`.
 - **A rejected API key** (`401` or `403`) is not treated as an outage. Whatever `on_error` says (unset, `skip` or `fail`), the first rejection stops the whole check with exit code 3 and one message naming `ARCHGUARD_JEV_API_KEY`, so a revoked key shows up in the exit code instead of as silent LLM-for-all spend.
-- **`--dry-run` still calls Jev.** The stage runs before the judgments it screens, so file content is sent to Jev and billed (about $0.0003 per file); only the LLM judgments are counted instead of sent.
+- **`--dry-run` still calls Jev.** The node runs before the judgments it screens, so file content is sent to Jev and billed (about $0.0003 per call, so two calls per file under `--since`); only the LLM judgments are counted instead of sent.
 - **When Jev fails** (an error response, a timeout, or a file over Jev's size limit), `on_error: skip`, the default, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
 - **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 
-#### When a stage fails
+#### When a node fails
 
-By default, if a `rank` or `rerank` stage fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a stage to fail the check instead:
+By default, if a `rank` node fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a node to fail the check instead:
 
 ```yaml
 analysis:
   pipeline:
-    rank:
+    - name: shortlist
+      job: rank
+      with: cosine
       on_error: fail
+
+    - name: judge
+      job: judge
+      with: llm
 ```
 
-Under `fail`, a failed stage stops that file's remaining stages, other files still run, and every failure is printed with its stage, file and error. The run then exits non-zero:
+Under `fail`, a failed node stops that file's remaining nodes, other files still run, and every failure is printed with its node, file and error. The run then exits non-zero:
 
 | Failure kind | Meaning | Exit code |
 |---|---|---|
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
-| `precondition_not_met` | The stage could not run at all, such as no embedding provider being configured | `7` |
+| `precondition_not_met` | The node could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. A `pre_judge` stage under `skip` passes the file's candidates on instead of skipping the file (see [Screening with Jev](#screening-with-jev)). With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. An `ask` node under `skip` passes the file's candidates on instead of skipping the file (see [Screening with Jev](#screening-with-jev)). The `judge` node takes no `on_error`. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -314,7 +343,7 @@ scope:
 
 #### Screening Rules
 
-An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers, which a [`pre_judge` stage](#screening-with-jev) uses to decide which ADRs reach the LLM; without one, rules don't change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
+An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers, which an [`ask` node](#screening-with-jev) uses to decide which ADRs reach the LLM; without one, rules don't change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
 
 ```markdown
 ## Rules
@@ -392,7 +421,7 @@ This will automatically create the `archguard_adrs` table and safely scope all A
   - `--since <ref>`: Scan the files that differ between `<ref>` and `HEAD`, judging only the lines the change added or removed; a finding that quotes only code the change left alone is dropped (see [ADR 0030](docs/arch/0030-judge-the-change-under-since.md)). For a pull request, use its base commit; if `<ref>` has moved on since the branch started, use `$(git merge-base <ref> HEAD)`. Cannot be combined with paths, `--staged`, `--all` or `--update-baseline`.
   - `--whole-file`: With `--since`, judge each changed file in full instead of only the lines the change touched, so touching a file means leaving it compliant: a violation on a line the change did not touch is reported too. Needs `--since`.
   - `--debug`: Enable verbose logging.
-  - `--debug-rejected`: With `--debug`, list every ADR a stage rejected on its own line, with its score, instead of one summary line per reason. Needs `--debug`.
+  - `--debug-rejected`: With `--debug`, list every ADR a node rejected on its own line, with its score, instead of one summary line per reason. Needs `--debug`.
   - `--ci`: Enable CI-safe mode. It needs a scope (`--since`, `--all`, `--staged` or paths): a CI checkout has no uncommitted changes, so a bare `--ci` would check nothing and is rejected.
   - `--update-baseline`: Scan the full repository (regardless of other flags/args) and overwrite `archguard-baseline.json` with every currently-detected violation. The run ends with a report of what it recorded (see [Reading a Check Run](#reading-a-check-run)).
   - `--baseline-reason <text>`: With `--update-baseline`, records `<text>` (e.g. `"accepted-debt"` or `"false-positive"`) as the reason on every entry collected this run, applying to all entries rather than just newly baselined ones. Has no effect without `--update-baseline`.
@@ -411,12 +440,12 @@ This will automatically create the `archguard_adrs` table and safely scope all A
 - **3**: Config error (failed to load or validate `archguard.yaml`).
 - **4**: Architectural drift detected. The report is the result, so no `Error:` line repeats it.
 - **5**: Index error (failed to build, load, or fetch ADRs for the vector store), or the index holds no ADRs for the project. `check` never builds a Postgres index itself, so a new or emptied one fails until you run `archguard index`. See [ADR 0046](docs/arch/0046-an-empty-index-fails-check.md).
-- **6**: A ranking stage with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [Ranking Stages](#ranking-stages)).
-- **7**: A ranking stage with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
+- **6**: A node with `on_error: fail` could not reach a dependency it needs, such as the embedding provider (see [When a node fails](#when-a-node-fails)).
+- **7**: A node with `on_error: fail` could not run because a precondition was not met, such as no embedding provider being configured. If a run has both kinds of failure, it exits `7`.
 - **8**: Errors left the run with no ADR check: files were skipped or ADR checks failed (for example the database, the embedding provider or the LLM was unreachable) and no ADR check returned a verdict. The report still lists what failed. A run where at least one ADR check returned a verdict exits as usual, with the failures listed in the report. A file skipped as too large under `--ci` does not count. See [ADR 0032](docs/arch/0032-a-run-that-checked-nothing-fails.md).
 - **130**: Interrupted by SIGINT or SIGTERM (Ctrl-C, or a cancelled or timed-out CI job). In-flight git and LLM calls are cancelled, no report is printed, and `--update-baseline` leaves the existing baseline file untouched. A second signal kills the process immediately; CI runners typically send SIGINT, then SIGTERM a few seconds later, which is that second signal.
 
-Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a stage sets `on_error: fail`; by default a failed ranking stage skips its file, and the run exits `0` unless that left it with no ADR check (`8`) (see [Ranking Stages](#ranking-stages)). Codes `6` and `7` also take precedence over `8`.
+Codes `6` and `7` take precedence over `4`: a run that also found drift still exits `6` or `7`, because the check was incomplete. They are only returned when a node sets `on_error: fail`; by default a failed `rank` node skips its file, and the run exits `0` unless that left it with no ADR check (`8`) (see [When a node fails](#when-a-node-fails)). Codes `6` and `7` also take precedence over `8`.
 
 ### Reading a Check Run
 
@@ -460,9 +489,9 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Skipped files**: nothing in the file was checked. This includes a file too large to analyze in `--ci` mode.
 - **Partly checked files**: the file was too large for the LLM, so only a truncated view of it was checked. In `--ci` mode such a file is skipped instead.
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
-- **Failed stages**: a ranking stage with `on_error: fail` failed (see [Ranking Stages](#ranking-stages)).
+- **Failed nodes**: a node with `on_error: fail` failed (see [When a node fails](#when-a-node-fails)).
 
-The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Files whose candidates a [`pre_judge` stage](#screening-with-jev) dropped are counted apart, as `1 because pre_judge screened out every candidate`, since that is not an embedding threshold problem. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold, or that `pre_judge` screened out every candidate, when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Files whose candidates an [`ask` node](#screening-with-jev) dropped are counted apart, as `1 because the breaks-a-rule node dropped every candidate`, since that is not an embedding threshold problem. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold, or which node dropped every candidate, when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 
@@ -471,12 +500,12 @@ src/auth.js
   src/auth.js: violates ADR 0007 (No Secrets in Logs), line 2
 ```
 
-With `--debug`, each stage logs how many candidate ADRs it received and kept, each kept ADR with its score, and one line per reason for the ones it rejected: their count, their score range, and the threshold or the `top_k` limit. Each ADR check then logs its outcome on one line, with the ADR's score from the last stage that scored it: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
+With `--debug`, each node logs how many candidate ADRs it received and kept, each kept ADR with its score, and one line per reason for the ones it rejected: their count, their score range, and the threshold or the `top_k` limit. Each ADR check then logs its outcome on one line, with the ADR's score from the last node that scored it: `compliant`, `violation`, `failed`, or `cached` added to either of the first two. Without `--debug`, a file with no finding that was not skipped logs nothing.
 
 ```
 src/auth.js
   [DEBUG] Context mode: full
-  [DEBUG] Stage rank: 20 candidate(s) received, 3 kept
+  [DEBUG] Node shortlist: 20 candidate(s) received, 3 kept
   [DEBUG] Kept: No Secrets in Logs (score 0.82)
   [DEBUG] Kept: Structured Logging (score 0.79)
   [DEBUG] Kept: Error Wrapping (score 0.74)
@@ -543,9 +572,9 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
   "count": 1,
   "unverified": [],
   "coverage": { "files_judged": 2, "adr_checks": 3, "files_without_relevant_adr": 4, "files_below_threshold": 3, "files_screened_out": 1 },
-  "stages": [
-    { "name": "rank", "received": 6, "kept": 4, "duration_ms": 812 },
-    { "name": "rerank", "received": 4, "kept": 2, "duration_ms": 640 }
+  "nodes": [
+    { "name": "shortlist", "received": 6, "kept": 4, "duration_ms": 812 },
+    { "name": "breaks-a-rule", "received": 4, "kept": 2, "duration_ms": 640 }
   ],
   "usage": {
     "judgment": { "input_tokens": 48210, "output_tokens": 1630, "estimated_cost": 0.16908, "calls": 10, "cache_hits": 3, "cache_misses": 9, "retries": 1 },
@@ -559,11 +588,11 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
 }
 ```
 
-`coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against, `files_below_threshold` how many of those had candidate ADRs that all scored below the threshold, and `files_screened_out` how many had candidates that a `pre_judge` stage dropped.
+`coverage` holds the same counts as the text report's coverage line. `files_judged: 0` means no file reached the model, which is not the same as a clean run; `files_without_relevant_adr` shows how many files had no ADR to be checked against, `files_below_threshold` how many of those had candidate ADRs that all scored below the threshold, and `files_screened_out` how many had candidates that an `ask` node dropped.
 
-`stages` lists every stage in the pipeline, in order, including the default `rank` stage when no `analysis.pipeline` is configured. For each stage, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the stage (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A stage that received no candidates reports zeros. Use it to see how much each stage narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each stage received, the ones it kept with their scores, and a summary of the ones it dropped (see [Reading a Check Run](#reading-a-check-run)).
+`nodes` lists every node that chooses candidates, in pipeline order; the `judge` node's work is in `usage` instead. For each node, `received` and `kept` are the candidate ADRs it was handed and passed on, and `duration_ms` is the total time spent applying the node (scoring, thresholding and, under `--debug`, writing its debug output), each summed across every file that reaches scoring (a file skipped earlier, such as a truncated file in `--ci` mode, adds nothing). Because files are checked concurrently, `duration_ms` can exceed the run's wall-clock time. A node that received no candidates reports zeros. Use it to see how much each node narrows the candidates and what that costs. `archguard check --debug` shows the same per file: the candidates each node received, the ones it kept with their scores, and a summary of the ones it dropped (see [Reading a Check Run](#reading-a-check-run)).
 
-When a stage with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `stage`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
+When a node with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `node`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
 `usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`, and never under `--dry-run`. Under `--dry-run`, `judgment.output_tokens` is `null`, `judgment.estimated_cost` prices the input alone, and the document also carries `"dry_run": { "judgment_calls": 12, "cached": 3 }`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
 

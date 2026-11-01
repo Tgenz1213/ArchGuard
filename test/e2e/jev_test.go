@@ -45,7 +45,7 @@ func TestE2E_JevAskNode(t *testing.T) {
 		wantStderr    string
 	}{
 		{"only ADRs with a likely-broken rule reach the LLM", violationFixtureContent(), 1, 1, ""},
-		{"a Jev failure passes every candidate to the LLM", violationFixtureContent() + "// " + testutil.MockJevFailureTrigger + "\n", 2, 2, "stage breaks-a-rule skipped"},
+		{"a Jev failure passes every candidate to the LLM", violationFixtureContent() + "// " + testutil.MockJevFailureTrigger + "\n", 2, 2, "node breaks-a-rule skipped"},
 	}
 
 	for _, tt := range tests {

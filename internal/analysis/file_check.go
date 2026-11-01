@@ -25,8 +25,9 @@ type fileCheck struct {
 	fullContent string
 	mode        string
 	partial     bool
-	screenedOut bool
-	findings    fileResult
+	// The node that dropped this file's last candidates, when it was one that screens for violations.
+	screenedOutBy string
+	findings      fileResult
 }
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
@@ -62,8 +63,11 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
 	// Top-K alone never empties a stage, so scored candidates that all dropped fell below a threshold.
-	fc.findings.screenedOut = fc.findings.withoutADR && fc.screenedOut
-	fc.findings.belowThreshold = fc.findings.withoutADR && scored && !fc.screenedOut
+	if fc.findings.withoutADR {
+		fc.findings.screenedOutBy = fc.screenedOutBy
+	}
+
+	fc.findings.belowThreshold = fc.findings.withoutADR && scored && fc.screenedOutBy == ""
 	fc.findings.judged = !fc.partial && fc.findings.checks > 0
 	run.merge(&fc.findings)
 }
@@ -138,7 +142,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage
 
 		hits, err = fc.run.telemetry.Apply(ctx, i, query, fc.out, hits)
 		if skipped, ok := errors.AsType[*stage.Skipped](err); ok {
-			fc.out.Warn("stage %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
+			fc.out.Warn("node %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
 			continue
 		}
 
@@ -153,8 +157,8 @@ func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage
 			return nil, false
 		}
 
-		if received > 0 && len(hits) == 0 {
-			fc.screenedOut = st.Screens
+		if received > 0 && len(hits) == 0 && st.Screens {
+			fc.screenedOutBy = st.Name
 		}
 	}
 
