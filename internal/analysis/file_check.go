@@ -135,43 +135,43 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		updateBaseline: fc.engine.UpdateBaseline,
 	}
 
-	for i, st := range fc.run.nodes {
+	for i, pipelineNode := range fc.run.nodes {
 		var err error
 
 		received := len(hits)
 
 		hits, err = fc.run.telemetry.Apply(ctx, i, query, fc.out, hits)
 		if skipped, ok := errors.AsType[*node.Skipped](err); ok {
-			fc.out.Warn("node %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
+			fc.out.Warn("node %s skipped, %d candidate(s) pass through unchanged: %s", pipelineNode.Name, len(hits), scoringErrorMessage(skipped.Err))
 			continue
 		}
 
 		if node.KeyRejected(err) {
 			// The run reports this once and stops; a line per file would repeat it.
-			fc.run.rejectKey(newKeyRejectedError(st.Name, err))
+			fc.run.rejectKey(newKeyRejectedError(pipelineNode.Name, err))
 			return nil, false
 		}
 
 		if err != nil {
-			fc.failNode(st, err)
+			fc.failNode(pipelineNode, err)
 			return nil, false
 		}
 
-		if received > 0 && len(hits) == 0 && st.Screens {
-			fc.screenedOutBy = st.Name
+		if received > 0 && len(hits) == 0 && pipelineNode.Screens {
+			fc.screenedOutBy = pipelineNode.Name
 		}
 	}
 
 	return hits, true
 }
 
-func (fc *fileCheck) failNode(st node.Node, err error) {
-	if !st.FailOnError {
+func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {
+	if !pipelineNode.FailOnError {
 		fc.skip(scoringErrorMessage(err))
 		return
 	}
 
-	failure := newNodeFailure(st.Name, fc.file, err)
+	failure := newNodeFailure(pipelineNode.Name, fc.file, err)
 	fc.out.Error("%s", failureMessage(failure))
 	fc.run.addNodeFailure(failure)
 }

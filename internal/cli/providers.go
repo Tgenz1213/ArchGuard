@@ -151,7 +151,7 @@ func (j jevScreeners) ForModel(model string) node.Screener {
 
 // newScreeners returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the screener.
 func newScreeners(nodes []config.Node, injected func(model string) node.Screener) (analysis.Screeners, error) {
-	jevNode := slices.IndexFunc(nodes, func(node config.Node) bool { return node.With == config.RunnerJev })
+	jevNode := slices.IndexFunc(nodes, func(n config.Node) bool { return n.With == config.RunnerJev })
 	if jevNode < 0 {
 		return nil, nil
 	}

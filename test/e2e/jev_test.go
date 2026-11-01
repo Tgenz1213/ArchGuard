@@ -151,7 +151,10 @@ func TestE2E_JevAskNodeReadsBothSidesOfAChange(t *testing.T) {
 			commitFile(t, dir, "app.go", tt.before, "base")
 			commitFile(t, dir, "app.go", tt.after, "change")
 
-			stdout, stderr, _ := runCheckWithEnv(t, dir, binary, []string{config.JevAPIKeyEnv + "=mock_key"}, "--format", "json", "--since", "HEAD~1")
+			stdout, stderr, exitCode := runCheckWithEnv(t, dir, binary, []string{config.JevAPIKeyEnv + "=mock_key"}, "--format", "json", "--since", "HEAD~1")
+			if exitCode != int(cli.ExitSuccess) {
+				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitSuccess, stderr)
+			}
 
 			var report checkReport
 			if err := json.Unmarshal([]byte(stdout), &report); err != nil {

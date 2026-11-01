@@ -66,7 +66,7 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 		LLM:         config.LLMConfig{MaxTokens: opts.maxTokens},
 	}
 
-	engine := newEngine(cfg, store, provider, provider, &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
+	engine := newEngine(t, cfg, store, both(provider), &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
 	engine.Cache = opts.cache
 	engine.JudgeChange = opts.judgeChange
 	engine.UpdateBaseline = opts.updateBaseline

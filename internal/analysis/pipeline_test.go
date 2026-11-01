@@ -48,7 +48,13 @@ type scorerHarness struct {
 	embeds int
 }
 
-func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) *scorerHarness {
+// harnessSetup is what a harness option may change before the engine and its nodes are built from it.
+type harnessSetup struct {
+	cfg   *config.Config
+	store index.VectorStore
+}
+
+func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string, options ...func(*harnessSetup)) *scorerHarness {
 	t.Helper()
 	h := &scorerHarness{}
 	provider := &inference.MockProvider{
@@ -76,13 +82,20 @@ func newScorerHarness(t *testing.T, adrs []index.ADR, file, fileContent string) 
 	store := index.NewLocalStore(1)
 	store.ADRs = adrs
 
-	cfg := &config.Config{
-		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
-		Analysis:    config.Analysis{MaxRelevantADRs: 3},
+	setup := harnessSetup{
+		cfg: &config.Config{
+			VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+			Analysis:    config.Analysis{MaxRelevantADRs: 3},
+		},
+		store: store,
 	}
+	for _, option := range options {
+		option(&setup)
+	}
+
 	content := &MockContentProvider{Files: map[string]string{file: fileContent}}
 
-	h.engine = newEngine(cfg, store, provider, provider, content)
+	h.engine = newEngine(t, setup.cfg, setup.store, both(provider), content)
 	h.engine.Cache = nil
 	return h
 }
@@ -405,9 +418,8 @@ func TestPipeline_PassThroughNodeErrorJudgesEveryCandidate(t *testing.T) {
 }
 
 func TestPipeline_SuppressedADRDoesNotConsumeARankSlot(t *testing.T) {
-	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "// archguard-ignore: 0001\npackage svc")
-	h.engine.Config.Analysis.MaxRelevantADRs = 2
-	h.engine.Nodes = defaultNodes(h.engine.Config, h.engine.Store, h.engine.Embed)
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 0.9), scorerADR("0003", 0.8)}, "svc.go", "// archguard-ignore: 0001\npackage svc",
+		func(setup *harnessSetup) { setup.cfg.Analysis.MaxRelevantADRs = 2 })
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -454,8 +466,8 @@ func (failingScopedStore) ScopedADRs(string) ([]index.SearchResult, error) {
 }
 
 func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.T) {
-	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc")
-	h.engine.Store = failingScopedStore{VectorStore: h.engine.Store}
+	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "svc.go", "package svc",
+		func(setup *harnessSetup) { setup.store = failingScopedStore{VectorStore: setup.store} })
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)

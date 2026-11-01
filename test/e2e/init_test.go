@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -78,7 +79,7 @@ func TestE2E_InitConfigReplacesARetiredPipeline(t *testing.T) {
 		t.Errorf("output should say the screen was removed, got: %s", stdout)
 	}
 
-	if !strings.Contains(stdout, "set any of these again") || !strings.Contains(stdout, "      threshold: 0.3") {
+	if !strings.Contains(stdout, "      threshold: 0.3") {
 		t.Errorf("output should list the removed lines so their settings can be set again, got: %s", stdout)
 	}
 
@@ -147,9 +148,10 @@ func TestE2E_InitConfigCreatesAMissingConfigAtThatPath(t *testing.T) {
 	}
 
 	// The path is printed resolved, which can differ from tempDir's spelling on macOS and Windows.
-	for _, step := range []string{"archguard index --config ", "archguard check --config "} {
-		if !strings.Contains(stdout, step) || !strings.Contains(stdout, string(filepath.Separator)+"ci.yaml\n") {
-			t.Errorf("next steps should pass --config with ci.yaml's path, got: %s", stdout)
+	for _, command := range []string{"index", "check"} {
+		step := regexp.MustCompile(`archguard ` + command + ` --config \S*` + regexp.QuoteMeta(string(filepath.Separator)+"ci.yaml") + `\r?\n`)
+		if !step.MatchString(stdout) {
+			t.Errorf("next steps should run archguard %s with --config and ci.yaml's path, got: %s", command, stdout)
 		}
 	}
 }

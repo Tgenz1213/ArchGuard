@@ -36,20 +36,20 @@ func countJob(settings []config.Node, job string) int {
 	return count
 }
 
-func cosineSettings(t *testing.T, st node.Node) (threshold float64, topK int) {
+func cosineSettings(t *testing.T, rank node.Node) (threshold float64, topK int) {
 	t.Helper()
 
-	ranker, ok := st.Scorer.(*node.CosineRanker)
+	ranker, ok := rank.Scorer.(*node.CosineRanker)
 	if !ok {
-		t.Fatalf("scorer = %T, want *node.CosineRanker", st.Scorer)
+		t.Fatalf("scorer = %T, want *node.CosineRanker", rank.Scorer)
 	}
 
-	minimum, ok := st.Min.(node.ADRThreshold)
+	minimum, ok := rank.Min.(node.ADRThreshold)
 	if !ok || minimum.Global != ranker.Threshold {
-		t.Fatalf("Min = %#v, want ADRThreshold matching the ranker threshold %v", st.Min, ranker.Threshold)
+		t.Fatalf("Min = %#v, want ADRThreshold matching the ranker threshold %v", rank.Min, ranker.Threshold)
 	}
 
-	return ranker.Threshold, st.MaxKeep
+	return ranker.Threshold, rank.MaxKeep
 }
 
 var judgeNode = config.Node{Name: "judge", Job: config.JobJudge, With: config.RunnerLLM}
@@ -88,18 +88,18 @@ func TestBuildPipeline_AskNodeScreensWithItsInstructions(t *testing.T) {
 	}
 	nodes := buildPipeline(t, config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 5}, ask, judgeNode)
 
-	st := nodes[1]
+	built := nodes[1]
 
-	screen, ok := st.Scorer.(*node.JevScreen)
+	screen, ok := built.Scorer.(*node.JevScreen)
 	if !ok {
-		t.Fatalf("scorer = %T, want *node.JevScreen", st.Scorer)
+		t.Fatalf("scorer = %T, want *node.JevScreen", built.Scorer)
 	}
 
-	if st.Name != "screen" || screen.Instructions != "Broken? {rule}" || st.MaxKeep != 2 || !st.FailOnError || !st.PassThroughOnSkip {
-		t.Errorf("ask node = %+v, scorer %+v", st, screen)
+	if built.Name != "screen" || screen.Instructions != "Broken? {rule}" || built.MaxKeep != 2 || !built.FailOnError || !built.PassThroughOnSkip {
+		t.Errorf("ask node = %+v, scorer %+v", built, screen)
 	}
 
-	if got := st.Min.For(&index.ADR{}); got != 0.4 {
+	if got := built.Min.For(&index.ADR{}); got != 0.4 {
 		t.Errorf("threshold = %v, want 0.4", got)
 	}
 }

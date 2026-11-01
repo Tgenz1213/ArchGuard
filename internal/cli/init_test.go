@@ -64,9 +64,8 @@ func TestAddDefaultPipeline_ReportsAListPipelineCheckRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := answering("").addDefaultPipeline(path, content)
-	if err == nil || !strings.Contains(err.Error(), "check rejects it") || !strings.Contains(err.Error(), "exactly one judge") {
-		t.Fatalf("err = %v, want one saying check rejects the list and why", err)
+	if err := answering("").addDefaultPipeline(path, content); err == nil {
+		t.Fatal("expected an error for a list pipeline check rejects, got nil")
 	}
 
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(content) {

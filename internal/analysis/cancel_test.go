@@ -51,7 +51,7 @@ func TestRun_CancelKillsInFlightGit(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 	t.Setenv(fakeGitStartedEnv, marker)
 
-	engine := newEngine(&config.Config{}, index.NewLocalStore(5), &inference.MockProvider{}, &inference.MockProvider{}, &analysis.StagedProvider{})
+	engine := newEngine(t, &config.Config{}, index.NewLocalStore(5), both(&inference.MockProvider{}), &analysis.StagedProvider{})
 	engine.Cache = nil
 	engine.Out = output.Discard()
 
@@ -97,7 +97,7 @@ func TestRun_CancelStopsSchedulingAndSkipsBaseline(t *testing.T) {
 
 	cfg := &config.Config{Analysis: config.Analysis{MaxConcurrency: 1}}
 
-	engine := newEngine(cfg, index.NewLocalStore(5), &inference.MockProvider{}, &inference.MockProvider{}, content)
+	engine := newEngine(t, cfg, index.NewLocalStore(5), both(&inference.MockProvider{}), content)
 	engine.Cache = nil
 	engine.Out = output.Discard()
 	engine.UpdateBaseline = true

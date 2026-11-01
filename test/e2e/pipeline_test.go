@@ -10,12 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cli"
+	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/testutil"
+	"gopkg.in/yaml.v3"
 )
 
 func pipelineConfigYAML(pipeline string) string {
@@ -46,6 +49,23 @@ const shortlistNodeYAML = "    - name: shortlist\n      job: rank\n      with: c
 // pipelineOf ends the given nodes with the judge node.
 func pipelineOf(nodes ...string) string {
 	return "  pipeline:\n" + strings.Join(nodes, "") + judgeNodeYAML
+}
+
+func TestE2E_DefaultPipelineYAMLMatchesWhatInitWrites(t *testing.T) {
+	var written, copied struct {
+		Pipeline []map[string]any `yaml:"pipeline"`
+	}
+	if err := yaml.Unmarshal([]byte(config.DefaultPipeline), &written); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(defaultPipelineYAML, "\n  ", "\n")[2:]), &copied); err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(written, copied) {
+		t.Errorf("defaultPipelineYAML = %v, want config.DefaultPipeline's nodes %v", copied.Pipeline, written.Pipeline)
+	}
 }
 
 func writePipelineADRs(t *testing.T, dir string) {
@@ -319,8 +339,8 @@ func TestE2E_PipelineIsCheckedBeforeTheVectorStoreConnects(t *testing.T) {
 	writePipelineADRs(t, tempDir)
 
 	_, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "")
-	if exitCode != int(cli.ExitConfig) || !strings.Contains(stderr, "archguard init") {
-		t.Fatalf("expected config exit code %d naming archguard init before any database connection, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
+	if exitCode != int(cli.ExitConfig) {
+		t.Fatalf("expected config exit code %d before any database connection (a failed connection exits %d), got %d. stderr: %s", cli.ExitConfig, cli.ExitIndexError, exitCode, stderr)
 	}
 }
 
