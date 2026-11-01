@@ -46,7 +46,7 @@ func TestJevProvider_AskSendsOneNoulQuestionPerRule(t *testing.T) {
 
 	answers, err := provider.Ask(t.Context(), "+fmt.Println(x)", map[string]string{"a": "Does it print?", "b": "Does it panic?"})
 	if err != nil {
-		t.Fatalf("Screen: %v", err)
+		t.Fatalf("Ask: %v", err)
 	}
 
 	if answers["a"] != 0.91 || answers["b"] != 0.04 || len(answers) != 2 {
@@ -84,7 +84,7 @@ func TestJevProvider_AskRetriesRateLimitsAndOverload(t *testing.T) {
 
 			answers, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 			if err != nil || answers["a"] != 0.5 {
-				t.Fatalf("Screen = %v, %v; want the third attempt's answer", answers, err)
+				t.Fatalf("Ask = %v, %v; want the third attempt's answer", answers, err)
 			}
 
 			if calls.Load() != 3 {

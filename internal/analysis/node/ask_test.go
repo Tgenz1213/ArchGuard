@@ -59,7 +59,7 @@ func ruledCandidate(id string, statements ...string) node.Candidate {
 	return node.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id, Rules: rules}, Score: 0.7}
 }
 
-func TestJevNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
+func TestAskNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 	asker := &fakeAsker{answer: breaks("no prints")}
 	s := node.NewAskNode(asker, "", 0.3, 0)
 	candidates := []node.Candidate{
@@ -90,7 +90,7 @@ func TestJevNode_KeepsADRsWithABrokenRuleInOneCall(t *testing.T) {
 	}
 }
 
-func TestJevNode_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
+func TestAskNode_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 	tests := []struct {
 		name       string
 		candidates []node.Candidate
@@ -116,7 +116,7 @@ func TestJevNode_MakesNoCallWithoutQuestionsOrContent(t *testing.T) {
 	}
 }
 
-func TestJevNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
+func TestAskNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 	asker := &fakeAsker{answer: breaks()}
 	candidate := node.Candidate{ADR: &index.ADR{ID: "a", Rules: index.Rules{{
 		Statement: "Code MUST NOT print to stdout.",
@@ -137,7 +137,7 @@ func TestJevNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 	}
 }
 
-func TestJevNode_Errors(t *testing.T) {
+func TestAskNode_Errors(t *testing.T) {
 	tooLarge := &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded"}
 	unauthorized := &inference.JevError{Status: http.StatusUnauthorized}
 	outage := &inference.JevError{Status: http.StatusServiceUnavailable}
@@ -185,7 +185,7 @@ func TestJevNode_Errors(t *testing.T) {
 	}
 }
 
-func TestJevNode_MissingAnswerIsAnError(t *testing.T) {
+func TestAskNode_MissingAnswerIsAnError(t *testing.T) {
 	asker := askerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
 	s := node.NewAskNode(asker, "", 0.3, 0)
 	s.FailOnError = true
@@ -201,7 +201,7 @@ func (f askerFunc) Ask(_ context.Context, _ string, questions map[string]string)
 	return f(questions), nil
 }
 
-func TestJevNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
+func TestAskNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
 	s := node.NewAskNode(&fakeAsker{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
 	var buf bytes.Buffer
 	candidates := []node.Candidate{ruledCandidate("a", "no prints"), ruledCandidate("b", "no globals"), ruledCandidate("c")}

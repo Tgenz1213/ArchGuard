@@ -70,7 +70,7 @@ func NewJevProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.C
 	return &JevProvider{apiKey: apiKey, model: model, baseURL: baseURL, client: httpClient, retryWait: jevRetryWait}
 }
 
-// Screen asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
+// Ask asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
 func (p *JevProvider) Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	payload, err := p.requestBody(state, questions)
 	if err != nil {
@@ -78,7 +78,7 @@ func (p *JevProvider) Ask(ctx context.Context, state string, questions map[strin
 	}
 
 	for attempt := 0; ; attempt++ {
-		answers, err := p.ask(ctx, payload)
+		answers, err := p.post(ctx, payload)
 
 		var jevErr *JevError
 		if err == nil || !errors.As(err, &jevErr) || !jevErr.retryable() || attempt == jevMaxRetries {
@@ -117,7 +117,7 @@ func (p *JevProvider) requestBody(state string, questions map[string]string) ([]
 	return payload, nil
 }
 
-func (p *JevProvider) ask(ctx context.Context, payload []byte) (map[string]float64, error) {
+func (p *JevProvider) post(ctx context.Context, payload []byte) (map[string]float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/systemone", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build jev request: %w", err)

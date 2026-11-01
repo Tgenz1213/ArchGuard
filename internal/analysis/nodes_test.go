@@ -90,13 +90,13 @@ func TestBuildPipeline_AskNodeScreensWithItsInstructions(t *testing.T) {
 
 	built := nodes[1]
 
-	screen, ok := built.Scorer.(*node.RuleAsk)
+	scorer, ok := built.Scorer.(*node.RuleAsk)
 	if !ok {
 		t.Fatalf("scorer = %T, want *node.RuleAsk", built.Scorer)
 	}
 
-	if built.Name != "screen" || screen.Instructions != "Broken? {rule}" || built.MaxKeep != 2 || !built.FailOnError || !built.PassThroughOnSkip {
-		t.Errorf("ask node = %+v, scorer %+v", built, screen)
+	if built.Name != "screen" || scorer.Instructions != "Broken? {rule}" || built.MaxKeep != 2 || !built.FailOnError || !built.PassThroughOnSkip {
+		t.Errorf("ask node = %+v, scorer %+v", built, scorer)
 	}
 
 	if got := built.Min.For(&index.ADR{}); got != 0.4 {
