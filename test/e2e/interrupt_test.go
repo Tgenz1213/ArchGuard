@@ -26,7 +26,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 
 func setupInterruptRepo(t *testing.T) (dir, binaryPath string) {
 	t.Helper()

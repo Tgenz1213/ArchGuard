@@ -1,6 +1,6 @@
 ---
 title: Candidate scoring pipeline
-status: Accepted
+status: Superseded
 scope: "internal/**"
 ---
 

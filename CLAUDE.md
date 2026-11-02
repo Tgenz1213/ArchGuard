@@ -34,9 +34,9 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | Area | Paths | Guidance |
 |---|---|---|
 | CLI: command line, startup, providers, `check` output, exit codes | `internal/cli/`, `cmd/archguard/` | `.claude/rules/cli.md` |
-| Config: `archguard.yaml`, pipeline stages, env overrides | `internal/config/`, `archguard.yaml` | `.claude/rules/config.md` |
+| Config: `archguard.yaml`, pipeline nodes, env overrides | `internal/config/`, `archguard.yaml` | `.claude/rules/config.md` |
 | Index: ADR providers, vector stores, Postgres | `internal/index/`, `docker-compose.yml` | `.claude/rules/index.md` |
-| Analysis: the engine, scoring stages, context sizing, cache | `internal/analysis/`, `internal/cache/` | `.claude/rules/analysis.md` |
+| Analysis: the engine, pipeline nodes, context sizing, cache | `internal/analysis/`, `internal/cache/` | `.claude/rules/analysis.md` |
 | Inference: chat and embedding providers | `internal/inference/` | `.claude/rules/inference.md` |
 | Output: the `Printer`, reports, color | `internal/output/` | none; see its `doc.go` |
 | Baseline: `archguard-baseline.json` | `internal/baseline/` | none; see its `doc.go` |
@@ -47,7 +47,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 
 Each package's `doc.go` says what the package is for, what it does not own and its key terms; `go doc ./internal/<pkg>` prints it.
 
-`internal/atomicfile` has no rules file: its `Write` is the one write-tmp-then-rename helper, used by the baseline, the local index and `check --output`. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
+`internal/atomicfile` has no rules file: its `Write` (and `WriteMode`, which sets the permission bits) is the one write-tmp-then-rename helper, used by the baseline, the local index, `check --output` and `init` rewriting a config. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
 
 ## Conventions
 
@@ -76,5 +76,5 @@ Each package's `doc.go` says what the package is for, what it does not own and i
 
 - Where each kind of fact goes, and what guidance may not contain, is in `docs/standards/guidance.md`.
 - Each rules file's `paths` frontmatter lists the files that load it; a new package or area gets a row in the Architecture table and either its own rules file or a path added to an existing one.
-- Update this file or the matching rules file when you change build/test/lint commands, add or rename a top-level package, change a cross-package interface (e.g. `inference.Chatter`, `inference.Embedder`, `index.VectorStore`, `analysis.ContentProvider`), or discover a footgun while debugging.
+- Update this file or the matching rules file when you change build/test/lint commands, add or rename a top-level package, change a cross-package interface (e.g. `inference.Chatter`, `inference.Embedder`, `inference.Asker`, `index.VectorStore`, `analysis.ContentProvider`), or discover a footgun while debugging.
 - A real decision gets an ADR in `docs/arch/` (see `docs/ADR_TEMPLATE.md`). This repo checks its own changes against `docs/arch/`, so a convention with no ADR can't be enforced by the tool.

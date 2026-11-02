@@ -3,8 +3,8 @@ Package analysis is the engine behind archguard check. For each file it decides
 which ADRs to ask about, asks the model whether the file breaks them, and
 collects what the run found into a report.
 
-The model is the only source of violations. The scoring stages in package
-stage only choose which ADRs reach it, and a finding counts only when its quote
+The model is the only source of violations. The scoring nodes in package
+node only choose which ADRs reach it, and a finding counts only when its quote
 is found in the text the model read.
 
 It does not choose which files are checked: a ContentProvider supplies them,
@@ -15,7 +15,7 @@ baseline, and earlier answers from package cache.
 
 Terms:
 
-  - Candidate: an ADR whose scope covers the file, before the scoring stages
+  - Candidate: an ADR whose scope covers the file, before the scoring nodes
     decide whether the model sees it.
   - Suppression: an archguard-ignore comment in a file, which removes an ADR
     from that file's candidates.

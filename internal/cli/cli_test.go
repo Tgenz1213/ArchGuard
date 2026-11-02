@@ -12,18 +12,18 @@ import (
 	"testing"
 )
 
-func TestStageExitCodeValues(t *testing.T) {
-	if ExitStageUnavailable != 6 || ExitStagePrecondition != 7 {
-		t.Fatalf("stage exit codes = %d and %d, want 6 and 7", ExitStageUnavailable, ExitStagePrecondition)
+func TestNodeExitCodeValues(t *testing.T) {
+	if ExitNodeUnavailable != 6 || ExitNodePrecondition != 7 {
+		t.Fatalf("node exit codes = %d and %d, want 6 and 7", ExitNodeUnavailable, ExitNodePrecondition)
 	}
 }
 
-func TestStageExitCodesAreDistinctFromExistingCodes(t *testing.T) {
+func TestNodeExitCodesAreDistinctFromExistingCodes(t *testing.T) {
 	seen := map[ExitCode]string{}
 	for name, code := range map[string]ExitCode{
 		"success": ExitSuccess, "error": ExitError, "usage": ExitUsage, "config": ExitConfig,
 		"drift": ExitDriftDetected, "index": ExitIndexError,
-		"unavailable": ExitStageUnavailable, "precondition": ExitStagePrecondition,
+		"unavailable": ExitNodeUnavailable, "precondition": ExitNodePrecondition,
 		"interrupted": ExitInterrupted,
 	} {
 		if other, dup := seen[code]; dup {

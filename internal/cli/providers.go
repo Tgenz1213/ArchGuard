@@ -3,8 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -133,16 +134,31 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// Nil unless a stage uses Jev; config has already required its API key.
-func selectScreener(cfg *config.Config, factories ProviderFactories) stage.Screener {
-	pipeline := cfg.Analysis.Pipeline
-	if pipeline == nil || pipeline.PreJudge == nil || pipeline.PreJudge.Jev == nil {
-		return nil
+// jevAskers builds a Jev client per model, or hands out the asker a test injected.
+type jevAskers struct {
+	apiKey   string
+	injected func(model string) inference.Asker
+}
+
+func (j jevAskers) ForModel(model string) inference.Asker {
+	if j.injected != nil {
+		return j.injected(model)
 	}
 
-	if factories.Jev != nil {
-		return factories.Jev(cfg)
+	return inference.NewJevProvider(j.apiKey, model)
+}
+
+// newAskers returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the asker.
+func newAskers(nodes []config.Node, injected func(model string) inference.Asker) (analysis.Askers, error) {
+	jevNode := slices.IndexFunc(nodes, func(n config.Node) bool { return n.With == config.RunnerJev })
+	if jevNode < 0 {
+		return nil, nil
 	}
 
-	return inference.NewJevProvider(pipeline.PreJudge.Jev.APIKey, pipeline.PreJudge.Jev.Model)
+	apiKey := os.Getenv(config.JevAPIKeyEnv)
+	if apiKey == "" {
+		return nil, fmt.Errorf("analysis.pipeline node %q: runner jev needs the %s environment variable", nodes[jevNode].Name, config.JevAPIKeyEnv)
+	}
+
+	return jevAskers{apiKey: apiKey, injected: injected}, nil
 }

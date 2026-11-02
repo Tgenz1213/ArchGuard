@@ -10,12 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cli"
+	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/testutil"
+	"gopkg.in/yaml.v3"
 )
 
 func pipelineConfigYAML(pipeline string) string {
@@ -30,6 +33,39 @@ analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
 ` + pipeline
+}
+
+const judgeNodeYAML = "    - name: judge\n      job: judge\n      with: llm\n"
+
+func rankNodeYAML(name, settings string) string {
+	return "    - name: " + name + "\n      job: rank\n      with: cosine\n" + settings
+}
+
+// defaultPipelineYAML is the pipeline archguard init writes, as e2e configs put it under analysis.
+const defaultPipelineYAML = "  pipeline:\n" + shortlistNodeYAML + judgeNodeYAML
+
+const shortlistNodeYAML = "    - name: shortlist\n      job: rank\n      with: cosine\n"
+
+// pipelineOf ends the given nodes with the judge node.
+func pipelineOf(nodes ...string) string {
+	return "  pipeline:\n" + strings.Join(nodes, "") + judgeNodeYAML
+}
+
+func TestE2E_DefaultPipelineYAMLMatchesWhatInitWrites(t *testing.T) {
+	var written, copied struct {
+		Pipeline []map[string]any `yaml:"pipeline"`
+	}
+	if err := yaml.Unmarshal([]byte(config.DefaultPipeline), &written); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := yaml.Unmarshal([]byte(strings.ReplaceAll(defaultPipelineYAML, "\n  ", "\n")[2:]), &copied); err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(written, copied) {
+		t.Errorf("defaultPipelineYAML = %v, want config.DefaultPipeline's nodes %v", copied.Pipeline, written.Pipeline)
+	}
 }
 
 func writePipelineADRs(t *testing.T, dir string) {
@@ -48,7 +84,7 @@ func writePipelineADRs(t *testing.T, dir string) {
 	}
 }
 
-type stageTotals struct {
+type nodeTotals struct {
 	name           string
 	received, kept int
 }
@@ -58,39 +94,22 @@ func TestE2E_PipelineConfig(t *testing.T) {
 		name          string
 		pipeline      string
 		wantViolation int
-		wantWarnings  []string
-		wantStages    []stageTotals
+		wantNodes     []nodeTotals
 	}{
 		{
-			name:          "no pipeline judges every candidate",
-			pipeline:      "",
+			name:          "the default pipeline judges every candidate",
+			pipeline:      defaultPipelineYAML,
 			wantViolation: 2,
-			wantStages:    []stageTotals{{"rank", 2, 2}},
+			wantNodes:     []nodeTotals{{"shortlist", 2, 2}},
 		},
 		{
-			name: "rank and rerank narrow the candidates in order",
-			pipeline: `  pipeline:
-    rank:
-      scorer: cosine
-      threshold: 0.5
-      top_k: 2
-    rerank:
-      scorer: cosine
-      threshold: 0.5
-      top_k: 1
-`,
+			name: "two rank nodes narrow the candidates in order",
+			pipeline: pipelineOf(
+				rankNodeYAML("rank", "      threshold: 0.5\n      top_k: 2\n"),
+				rankNodeYAML("rerank", "      threshold: 0.5\n      top_k: 1\n"),
+			),
 			wantViolation: 1,
-			wantStages:    []stageTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
-		},
-		{
-			name: "rerank alone runs after the default rank and warns for unset keys",
-			pipeline: `  pipeline:
-    rerank:
-      top_k: 1
-`,
-			wantViolation: 1,
-			wantWarnings:  []string{"analysis.pipeline.rerank.threshold not set, defaulting to 0"},
-			wantStages:    []stageTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
+			wantNodes:     []nodeTotals{{"rank", 2, 2}, {"rerank", 2, 1}},
 		},
 	}
 
@@ -119,20 +138,14 @@ func TestE2E_PipelineConfig(t *testing.T) {
 				t.Errorf("violation count = %d, want %d", report.Count, tt.wantViolation)
 			}
 
-			if len(report.Stages) != len(tt.wantStages) {
-				t.Fatalf("stages = %+v, want %d entries", report.Stages, len(tt.wantStages))
+			if len(report.Nodes) != len(tt.wantNodes) {
+				t.Fatalf("nodes = %+v, want %d entries", report.Nodes, len(tt.wantNodes))
 			}
 
-			for i, want := range tt.wantStages {
-				got := report.Stages[i]
+			for i, want := range tt.wantNodes {
+				got := report.Nodes[i]
 				if got.Name != want.name || got.Received != want.received || got.Kept != want.kept || got.DurationMS == nil {
-					t.Errorf("stage %d = %+v, want %+v with a duration_ms", i, got, want)
-				}
-			}
-
-			for _, want := range tt.wantWarnings {
-				if !strings.Contains(stderr, want) {
-					t.Errorf("stderr missing %q, got: %s", want, stderr)
+					t.Errorf("node %d = %+v, want %+v with a duration_ms", i, got, want)
 				}
 			}
 
@@ -150,9 +163,9 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 		wantExit     cli.ExitCode
 		wantFailures int
 	}{
-		{"no pipeline skips the file, leaving nothing checked", "", cli.ExitNothingChecked, 0},
-		{"on_error skip skips the file, leaving nothing checked", "  pipeline:\n    rank:\n      on_error: skip\n", cli.ExitNothingChecked, 0},
-		{"on_error fail fails the check", "  pipeline:\n    rank:\n      on_error: fail\n", cli.ExitStageUnavailable, 1},
+		{"unset on_error skips the file, leaving nothing checked", pipelineOf(rankNodeYAML("rank", "")), cli.ExitNothingChecked, 0},
+		{"on_error skip skips the file, leaving nothing checked", pipelineOf(rankNodeYAML("rank", "      on_error: skip\n")), cli.ExitNothingChecked, 0},
+		{"on_error fail fails the check", pipelineOf(rankNodeYAML("rank", "      on_error: fail\n")), cli.ExitNodeUnavailable, 1},
 	}
 
 	for _, tt := range tests {
@@ -185,7 +198,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 			wantStderr := "generating embedding"
 			if tt.wantFailures == 1 {
-				wantStderr = fixtureFilename + "\n  Error: stage rank failed"
+				wantStderr = fixtureFilename + "\n  Error: node rank failed"
 			}
 
 			if !strings.Contains(stderr, wantStderr) || !strings.Contains(stderr, "mock embed failure") {
@@ -194,7 +207,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 			if tt.wantFailures == 1 {
 				f := report.Failures[0]
-				if f["stage"] != "rank" || f["kind"] != "unavailable" || f["file"] != fixtureFilename {
+				if f["node"] != "rank" || f["kind"] != "unavailable" || f["file"] != fixtureFilename {
 					t.Errorf("failure = %v", f)
 				}
 			}
@@ -204,7 +217,7 @@ func TestE2E_PipelineOnError_EmbeddingFailure(t *testing.T) {
 
 func TestE2E_PipelineOnErrorFail_TakesPrecedenceOverDrift(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
-	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rank:\n      on_error: fail\n"))
+	writeE2EConfig(t, tempDir, pipelineConfigYAML(pipelineOf(rankNodeYAML("rank", "      on_error: fail\n"))))
 	writePipelineADRs(t, tempDir)
 
 	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
@@ -245,7 +258,7 @@ func TestE2E_PipelineOnErrorFail_TakesPrecedenceOverDrift(t *testing.T) {
 
 func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T) {
 	tempDir, binaryPath := buildE2EBinary(t)
-	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rank:\n      on_error: fail\n"))
+	writeE2EConfig(t, tempDir, pipelineConfigYAML(pipelineOf(rankNodeYAML("rank", "      on_error: fail\n"))))
 	writePipelineADRs(t, tempDir)
 
 	failing := "embed-fails.js"
@@ -268,7 +281,7 @@ func TestE2E_PipelineOnErrorFail_UpdateBaselineDoesNotWriteBaseline(t *testing.T
 	}
 
 	if _, statErr := os.Stat(filepath.Join(tempDir, baseline.Path)); !os.IsNotExist(statErr) {
-		t.Errorf("baseline file must not be written when a stage failed, stat err: %v", statErr)
+		t.Errorf("baseline file must not be written when a node failed, stat err: %v", statErr)
 	}
 }
 
@@ -278,13 +291,14 @@ func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 		pipeline string
 		want     string
 	}{
-		{"unknown scorer", "  pipeline:\n    rank:\n      scorer: bm25\n", "analysis.pipeline.rank.scorer"},
-		{"scorer that cannot rank", "  pipeline:\n    rank:\n      scorer: jev\n", "analysis.pipeline.rank.scorer"},
-		{"scorer that cannot screen", "  pipeline:\n    pre_judge:\n      scorer: cosine\n      threshold: 0.3\n", "analysis.pipeline.pre_judge.scorer"},
-		{"unrecognized stage", "  pipeline:\n    judge:\n      scorer: cosine\n", "analysis.pipeline: unrecognized stage \"judge\""},
-		{"out-of-range threshold", "  pipeline:\n    rerank:\n      threshold: 2\n", "analysis.pipeline.rerank.threshold"},
-		{"non-positive top_k", "  pipeline:\n    rank:\n      top_k: 0\n", "analysis.pipeline.rank.top_k"},
-		{"unknown on_error", "  pipeline:\n    rerank:\n      on_error: warn\n", "analysis.pipeline.rerank.on_error"},
+		{"missing pipeline", "", "archguard init"},
+		{"retired mapping", "  pipeline:\n    rank:\n      top_k: 2\n", "archguard init"},
+		{"unknown runner", pipelineOf("    - name: rank\n      job: rank\n      with: bm25\n"), `node "rank".with`},
+		{"no judge", "  pipeline:\n" + rankNodeYAML("rank", ""), "exactly one judge"},
+		{"ask first", "  pipeline:\n    - name: screen\n      job: ask\n      with: jev\n      preset: breaks-a-rule\n" + judgeNodeYAML, `"screen", must be a rank node`},
+		{"out-of-range threshold", pipelineOf(rankNodeYAML("rank", "      threshold: 2\n")), `node "rank".threshold`},
+		{"non-positive top_k", pipelineOf(rankNodeYAML("rank", "      top_k: 0\n")), `node "rank".top_k`},
+		{"unknown on_error", pipelineOf(rankNodeYAML("rank", "      on_error: warn\n")), `node "rank".on_error`},
 	}
 
 	for _, tt := range tests {
@@ -307,5 +321,41 @@ func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 				t.Errorf("stdout should be empty on config failure, got: %q", stdout)
 			}
 		})
+	}
+}
+
+func TestE2E_IndexRunsOnAPipelineCheckRejects(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, pipelineConfigYAML("  pipeline:\n    rank:\n      top_k: 2\n"))
+	writePipelineADRs(t, tempDir)
+
+	runIndexCmd(t, tempDir, binaryPath, 0)
+}
+
+func TestE2E_PipelineIsCheckedBeforeTheVectorStoreConnects(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	unreachable := strings.Replace(pipelineConfigYAML(""), "  embedding_dim: 768\n", "  embedding_dim: 768\n  connection_string: \"postgres://archguard@127.0.0.1:1/none\"\n", 1)
+	writeE2EConfig(t, tempDir, unreachable)
+	writePipelineADRs(t, tempDir)
+
+	_, stderr, exitCode := runCheckJSON(t, tempDir, binaryPath, "")
+	if exitCode != int(cli.ExitConfig) {
+		t.Fatalf("expected config exit code %d before any database connection (a failed connection exits %d), got %d. stderr: %s", cli.ExitConfig, cli.ExitIndexError, exitCode, stderr)
+	}
+}
+
+func TestE2E_MissingPipelineNamesTheConfigToInit(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writePipelineADRs(t, tempDir)
+
+	configPath := filepath.Join(tempDir, "ci.yaml")
+	if err := os.WriteFile(configPath, []byte(pipelineConfigYAML("")), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The path is printed resolved, which can differ from tempDir's spelling on macOS and Windows.
+	stderr, exitCode := runArchguard(t, tempDir, binaryPath, "check", "--config", "ci.yaml", "--all")
+	if exitCode != int(cli.ExitConfig) || !strings.Contains(stderr, "archguard init --config ") || !strings.Contains(stderr, "ci.yaml`") {
+		t.Errorf("exit code %d, stderr %s; want 3 and the init command for ci.yaml", exitCode, stderr)
 	}
 }

@@ -1,4 +1,4 @@
-package stage
+package node
 
 import (
 	"context"
@@ -31,33 +31,33 @@ type Error struct {
 	Action string
 	Kind   Kind
 	Err    error
-	// KeyRejected is set when the screener refused its API key. No on_error value hides it: it fails the whole check.
+	// KeyRejected is set when the asker refused its API key. No on_error value hides it: it fails the whole check.
 	KeyRejected bool
 }
 
 func (e *Error) Error() string { return e.Err.Error() }
 func (e *Error) Unwrap() error { return e.Err }
 
-type Stage struct {
+type Node struct {
 	Name         string
 	Scorer       Scorer
 	Min          Threshold
 	MaxKeep      int
 	FailOnError  bool
 	ListRejected bool
-	// Under on_error: skip, the stage passes its candidates on instead of the file being skipped.
+	// Under on_error: skip, the node passes its candidates on instead of the file being skipped.
 	PassThroughOnSkip bool
-	// Dropping every candidate means the stage found nothing worth judging, not that none were relevant.
+	// Dropping every candidate means the node found nothing worth judging, not that none were relevant.
 	Screens bool
 }
 
-// Skipped is a stage error the stage recovered from by passing its candidates on unchanged.
+// Skipped is a node error the node recovered from by passing its candidates on unchanged.
 type Skipped struct{ Err error }
 
 func (e *Skipped) Error() string { return e.Err.Error() }
 func (e *Skipped) Unwrap() error { return e.Err }
 
-// decision is what a stage did with one file's candidates, kept as data so the debug report is a separate step.
+// decision is what a node did with one file's candidates, kept as data so the debug report is a separate step.
 type decision struct {
 	received   int
 	kept       []Candidate
@@ -67,7 +67,7 @@ type decision struct {
 	floor      Threshold
 }
 
-func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
+func (s Node) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
 	if err != nil {
 		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
@@ -84,21 +84,21 @@ func (s Stage) Apply(ctx context.Context, file File, debug Debug, candidates []C
 	return slices.Concat(decided.kept, decided.passed), nil
 }
 
-// KeyRejected reports whether err is a screener's refusal of its API key.
+// KeyRejected reports whether err is an asker's refusal of its API key.
 func KeyRejected(err error) bool {
-	stageErr, ok := errors.AsType[*Error](err)
-	return ok && stageErr.KeyRejected
+	nodeErr, ok := errors.AsType[*Error](err)
+	return ok && nodeErr.KeyRejected
 }
 
-func (s Stage) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
+func (s Node) decide(ctx context.Context, file File, debug Debug, candidates []Candidate) (decision, error) {
 	if len(candidates) == 0 {
 		return decision{}, nil
 	}
 
 	scores, err := s.Scorer.Score(ctx, file, debug, candidates)
 	if err != nil {
-		var stageErr *Error
-		if errors.As(err, &stageErr) {
+		var nodeErr *Error
+		if errors.As(err, &nodeErr) {
 			return decision{}, err
 		}
 
@@ -155,14 +155,14 @@ func partition(candidates []Candidate, scores []float64, floor Threshold) decisi
 
 func (d decision) cut() []Candidate { return d.qualifying[len(d.kept):] }
 
-func (s Stage) report(debug Debug, d decision) {
-	debug.Debug("Stage %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept)+len(d.passed))
+func (s Node) report(debug Debug, d decision) {
+	debug.Debug("Node %s: %d candidate(s) received, %d kept", s.Name, d.received, len(d.kept)+len(d.passed))
 	for _, candidate := range d.kept {
 		debug.Debug("Kept: %s (score %.2f)", candidate.ADR.Title, candidate.Score)
 	}
 
 	for _, candidate := range d.passed {
-		debug.Debug("Kept: %s (not scored by this stage)", candidate.ADR.Title)
+		debug.Debug("Kept: %s (not scored by this node)", candidate.ADR.Title)
 	}
 
 	if s.ListRejected {

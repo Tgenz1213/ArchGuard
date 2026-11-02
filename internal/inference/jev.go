@@ -39,11 +39,15 @@ func (e *JevError) Error() string {
 	return fmt.Sprintf("jev api error: %d %s: %s", e.Status, http.StatusText(e.Status), e.Body)
 }
 
-func (e *JevError) TooLarge() bool { return e.ErrorType == "max_tokens_exceeded" }
-
-// Rejected reports that Jev refused the API key, which no retry or pass-through fixes.
-func (e *JevError) Rejected() bool {
-	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+func (e *JevError) Is(target error) bool {
+	switch target {
+	case ErrKeyRejected:
+		return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+	case ErrInputTooLarge:
+		return e.ErrorType == "max_tokens_exceeded"
+	default:
+		return false
+	}
 }
 
 func (e *JevError) retryable() bool {
@@ -70,15 +74,15 @@ func NewJevProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.C
 	return &JevProvider{apiKey: apiKey, model: model, baseURL: baseURL, client: httpClient, retryWait: jevRetryWait}
 }
 
-// Screen asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
-func (p *JevProvider) Screen(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
+// Ask asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
+func (p *JevProvider) Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	payload, err := p.requestBody(state, questions)
 	if err != nil {
 		return nil, err
 	}
 
 	for attempt := 0; ; attempt++ {
-		answers, err := p.ask(ctx, payload)
+		answers, err := p.post(ctx, payload)
 
 		var jevErr *JevError
 		if err == nil || !errors.As(err, &jevErr) || !jevErr.retryable() || attempt == jevMaxRetries {
@@ -117,7 +121,7 @@ func (p *JevProvider) requestBody(state string, questions map[string]string) ([]
 	return payload, nil
 }
 
-func (p *JevProvider) ask(ctx context.Context, payload []byte) (map[string]float64, error) {
+func (p *JevProvider) post(ctx context.Context, payload []byte) (map[string]float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/systemone", bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build jev request: %w", err)

@@ -16,6 +16,8 @@ const (
 	// archguard-e2e's mock Jev answers yes to a rule naming MockJevBreaksTrigger and fails on content holding MockJevFailureTrigger.
 	MockJevBreaksTrigger  = "TRIGGER_JEV_BREAKS"
 	MockJevFailureTrigger = "TRIGGER_JEV_FAILURE"
+	// MockJevStateTrigger makes the mock Jev answer yes to every question about a side of the code holding it.
+	MockJevStateTrigger = "TRIGGER_JEV_STATE"
 	// MockJevRejectedKeyTrigger makes the mock Jev answer as Jev does to a rejected API key (401).
 	MockJevRejectedKeyTrigger = "TRIGGER_JEV_REJECTED_KEY"
 

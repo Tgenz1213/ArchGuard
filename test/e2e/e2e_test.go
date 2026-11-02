@@ -159,7 +159,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	fixturePath := filepath.Join(tempDir, fixtureFilename)
@@ -278,7 +278,7 @@ vector_store:
 analysis:
   adr_path: "./does_not_exist"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 
 		err := os.WriteFile(filepath.Join(tempDir, "archguard.yaml"), []byte(badConfigContent), 0644)
 		if err != nil {
@@ -383,13 +383,13 @@ type checkReport struct {
 		ADRChecks       int `json:"adr_checks"`
 		FilesWithoutADR int `json:"files_without_relevant_adr"`
 	} `json:"coverage"`
-	Count  int `json:"count"`
-	Stages []struct {
+	Count int `json:"count"`
+	Nodes []struct {
 		Name       string `json:"name"`
 		Received   int    `json:"received"`
 		Kept       int    `json:"kept"`
 		DurationMS *int64 `json:"duration_ms"`
-	} `json:"stages"`
+	} `json:"nodes"`
 }
 
 func runCheckJSON(t *testing.T, dir, binaryPath, target string) (stdout, stderr string, exitCode int) {
@@ -441,7 +441,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -592,7 +592,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -705,7 +705,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	adrPath := filepath.Join(tempDir, "docs", "arch", "0000-no-secrets-in-log.md")
 	writeNoSecretsADR(t, tempDir)
@@ -760,7 +760,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -796,7 +796,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -853,7 +853,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`)
+`+defaultPipelineYAML)
 	writeNoSecretsADR(t, tempDir)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -912,7 +912,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -953,7 +953,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	fileA := filepath.Join(tempDir, "a.js")
@@ -1021,7 +1021,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-  exclude_patterns: ["excluded.js"]
+` + defaultPipelineYAML + `  exclude_patterns: ["excluded.js"]
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1129,7 +1129,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1183,7 +1183,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1222,7 +1222,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1288,7 +1288,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1333,7 +1333,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  adr_id_pattern: "^adr-(\\d+)-"
+` + defaultPipelineYAML + `  adr_id_pattern: "^adr-(\\d+)-"
 `
 	writeE2EConfig(t, tempDir, configContent)
 
@@ -1378,7 +1378,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1411,7 +1411,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1439,7 +1439,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	adrDir := filepath.Join(tempDir, "docs", "arch")
@@ -1507,7 +1507,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1619,7 +1619,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1680,7 +1680,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1757,7 +1757,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -1837,7 +1837,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -47,15 +47,15 @@ type Engine struct {
 	Out                  *output.Printer
 	CollectedViolations  []Violation
 	UnverifiedFindings   []Violation
-	CollectedStages      []stage.Stats
-	StageFailures        []StageFailure
+	CollectedNodes       []node.Stats
+	NodeFailures         []NodeFailure
 	Coverage             output.Coverage
 	CheckedNothing       bool
 	// Off by default: adds one LLM call per reported violation.
 	SuggestFixes bool
 	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
 	SuggestChat inference.Chatter
-	Stages      []stage.Stage
+	Nodes       []node.Node
 	DryRun      bool
 	Projection  Projection
 	Recorder    telemetry.Recorder
@@ -76,25 +76,25 @@ func (v Violation) Annotation() output.Annotation {
 	return output.Annotation{File: v.File, Line: v.Line, ADRID: v.ADRID, ADRTitle: v.ADRTitle, Message: v.Reasoning, Warning: v.unverified}
 }
 
-type StageFailure struct {
-	Stage string     `json:"stage"`
-	File  string     `json:"file"`
-	Kind  stage.Kind `json:"kind"`
-	Error string     `json:"error"`
+type NodeFailure struct {
+	Node  string    `json:"node"`
+	File  string    `json:"file"`
+	Kind  node.Kind `json:"kind"`
+	Error string    `json:"error"`
 }
 
-// KeyRejectedError stops a check whose screening stage was refused its API key, whatever on_error says.
+// KeyRejectedError stops a check whose screening node was refused its API key, whatever on_error says.
 type KeyRejectedError struct {
-	Stage string
-	Err   error
+	Node string
+	Err  error
 }
 
-func newKeyRejectedError(stageName string, err error) *KeyRejectedError {
-	return &KeyRejectedError{Stage: stageName, Err: err}
+func newKeyRejectedError(nodeName string, err error) *KeyRejectedError {
+	return &KeyRejectedError{Node: nodeName, Err: err}
 }
 
 func (e *KeyRejectedError) Error() string {
-	return fmt.Sprintf("%s was rejected by the %s stage (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Stage, errors.Unwrap(e.Err))
+	return fmt.Sprintf("%s was rejected by the %s node (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Node, errors.Unwrap(e.Err))
 }
 
 func (e *KeyRejectedError) Unwrap() error { return e.Err }
@@ -131,12 +131,18 @@ func (e *Engine) printer() *output.Printer {
 	return output.New(nil, e.Debug)
 }
 
+var errNoNodes = errors.New("no pipeline nodes to choose which ADRs are judged")
+
 func (e *Engine) Run(ctx context.Context) error {
-	run := newRunState(e.printer(), e.scoringStages())
+	if len(e.Nodes) == 0 {
+		return errNoNodes
+	}
+
+	run := newRunState(e.printer(), e.scoringNodes())
 
 	files, err := e.Content.GetFiles(ctx)
 	if err != nil {
-		e.collectStageStats(run)
+		e.collectNodeStats(run)
 		return err
 	}
 
@@ -146,7 +152,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	// Before the summary: a run that stopped early must never look complete.
 	if err := run.rejectedKey(); err != nil {
-		e.collectStageStats(run)
+		e.collectNodeStats(run)
 		return err
 	}
 
@@ -164,17 +170,13 @@ func (e *Engine) Run(ctx context.Context) error {
 	return nil
 }
 
-func (e *Engine) scoringStages() []stage.Stage {
-	stages := slices.Clone(e.Stages)
-	if len(stages) == 0 {
-		stages = []stage.Stage{stage.NewCosineStage(e.Store, e.Embed, e.Config.VectorStore.SimilarityThreshold, e.Config.Analysis.RelevantADRLimit())}
+func (e *Engine) scoringNodes() []node.Node {
+	nodes := slices.Clone(e.Nodes)
+	for i := range nodes {
+		nodes[i].ListRejected = e.DebugRejected
 	}
 
-	for i := range stages {
-		stages[i].ListRejected = e.DebugRejected
-	}
-
-	return stages
+	return nodes
 }
 
 func (e *Engine) systemPrompt() string {
@@ -234,9 +236,9 @@ func (e *Engine) checkFiles(ctx context.Context, run *runState, files []string) 
 	return group.Wait()
 }
 
-func (e *Engine) collectStageStats(run *runState) {
+func (e *Engine) collectNodeStats(run *runState) {
 	if e.JSONOutput {
-		e.CollectedStages = run.telemetry.Stats()
+		e.CollectedNodes = run.telemetry.Stats()
 	}
 }
 
@@ -249,11 +251,11 @@ func (e *Engine) publish(run *runState) {
 	e.PartialFiles = run.partial
 	e.Coverage = run.coverage
 	e.CheckedNothing = run.checkedNothing()
-	e.StageFailures = sortedStageFailures(run.stageFailures)
+	e.NodeFailures = sortedNodeFailures(run.nodeFailures)
 	e.CollectedViolations = run.collected
 	e.UnverifiedFindings = run.unverified
 	e.Projection = run.projected()
-	e.collectStageStats(run)
+	e.collectNodeStats(run)
 
 	if e.UpdateBaseline {
 		snapshot := baseline.New()
@@ -265,13 +267,13 @@ func (e *Engine) publish(run *runState) {
 	}
 }
 
-func sortedStageFailures(failures []StageFailure) []StageFailure {
+func sortedNodeFailures(failures []NodeFailure) []NodeFailure {
 	sort.Slice(failures, func(i, j int) bool {
 		if failures[i].File != failures[j].File {
 			return failures[i].File < failures[j].File
 		}
 
-		return failures[i].Stage < failures[j].Stage
+		return failures[i].Node < failures[j].Node
 	})
 
 	return failures
@@ -491,25 +493,25 @@ func (e *Engine) findLineNumber(content, quote string) int {
 	return len(lines)
 }
 
-func newStageFailure(name, file string, err error) StageFailure {
-	failure := StageFailure{Stage: name, File: file, Error: err.Error()}
+func newNodeFailure(name, file string, err error) NodeFailure {
+	failure := NodeFailure{Node: name, File: file, Error: err.Error()}
 
-	var stageErr *stage.Error
-	if errors.As(err, &stageErr) {
-		failure.Kind = stageErr.Kind
+	var nodeErr *node.Error
+	if errors.As(err, &nodeErr) {
+		failure.Kind = nodeErr.Kind
 	}
 
 	return failure
 }
 
-func failureMessage(f StageFailure) string {
-	return fmt.Sprintf("stage %s failed (%s): %s", f.Stage, f.Kind, f.Error)
+func failureMessage(f NodeFailure) string {
+	return fmt.Sprintf("node %s failed (%s): %s", f.Node, f.Kind, f.Error)
 }
 
 func scoringErrorMessage(err error) string {
-	var stageErr *stage.Error
-	if errors.As(err, &stageErr) {
-		return fmt.Sprintf("%s: %v", stageErr.Action, stageErr.Err)
+	var nodeErr *node.Error
+	if errors.As(err, &nodeErr) {
+		return fmt.Sprintf("%s: %v", nodeErr.Action, nodeErr.Err)
 	}
 
 	return fmt.Sprintf("scoring candidates: %v", err)

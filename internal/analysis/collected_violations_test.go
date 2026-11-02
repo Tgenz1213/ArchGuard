@@ -78,7 +78,7 @@ func TestRun_AnnotatesNewFindings(t *testing.T) {
 			}}
 			cfg := &config.Config{LLM: config.LLMConfig{MaxTokens: tt.maxTokens}}
 
-			engine := analysis.NewEngine(cfg, store, provider, provider, tt.content)
+			engine := newEngine(t, cfg, store, both(provider), tt.content)
 			engine.Out = output.Discard()
 
 			if tt.baselined {

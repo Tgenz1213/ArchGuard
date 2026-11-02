@@ -14,7 +14,7 @@ import (
 type commandLine struct {
 	Version versionFlag `short:"v" help:"Print version information."`
 
-	Init  struct{} `cmd:"" help:"Initialize ArchGuard in the current repository (local setup)."`
+	Init  initCmd  `cmd:"" help:"Initialize ArchGuard in the current repository (local setup). On an existing config, offers to replace analysis.pipeline with the default pipeline and changes nothing else."`
 	Check checkCmd `cmd:"" help:"Check for architectural violations."`
 	Index indexCmd `cmd:"" help:"Rebuild the ADR index from the configured ADR source(s)."`
 }
@@ -25,6 +25,10 @@ type colorOption struct {
 
 type configOption struct {
 	Config string `placeholder:"PATH" help:"Read the config from PATH instead of archguard.yaml at the repository root. A relative PATH is taken from the directory the command was started in."`
+}
+
+type initCmd struct {
+	configOption `embed:""`
 }
 
 type indexCmd struct {
@@ -55,7 +59,7 @@ type checkCmd struct {
 	Since          baseRef  `placeholder:"REF" help:"Scan the files that differ between REF and HEAD, judging only the lines the change added or removed; a finding that quotes only code it left alone is dropped (--whole-file judges each changed file in full instead). For a pull request, REF is its base commit; if REF has moved on since the branch started, use $(git merge-base REF HEAD). Not combinable with paths, --staged, --all or --update-baseline."`
 	WholeFile      bool     `help:"With --since, judge each changed file in full, so a violation on a line the change did not touch is reported too."`
 	Debug          bool     `help:"Enable debug logging."`
-	DebugRejected  bool     `help:"With --debug, list every ADR a stage rejected, with its score, instead of one summary line per reason."`
+	DebugRejected  bool     `help:"With --debug, list every ADR a node rejected, with its score, instead of one summary line per reason."`
 	CI             bool     `name:"ci" help:"Enable CI-safe mode (Warn-Open behavior). Needs a scope: --since, --all, --staged or paths, because a CI checkout has no uncommitted changes."`
 	UpdateBaseline bool     `help:"Scan the full repository and (re)write the baseline file, replacing any existing baseline."`
 	BaselineReason string   `placeholder:"TEXT" help:"Reason recorded on every entry --update-baseline writes (e.g. \"accepted-debt\"), overwriting reasons carried forward from the previous baseline. When omitted, a re-run keeps each matching (ADR ID, file) entry's existing reason."`
@@ -132,6 +136,7 @@ func (versionFlag) BeforeReset(app *kong.Kong, vars kong.Vars) error {
 
 type invocation struct {
 	command string
+	init    initCmd
 	check   checkCmd
 	index   indexCmd
 }
@@ -140,6 +145,8 @@ func (iv *invocation) configPath() string {
 	var config configOption
 
 	switch iv.command {
+	case "init":
+		config = iv.init.configOption
 	case "check":
 		config = iv.check.configOption
 	case "index":
@@ -207,7 +214,7 @@ func parseCommandLine(args []string, stdout, stderr io.Writer, version string) (
 		return nil, ExitUsage, err
 	}
 
-	return &invocation{command: strings.Fields(kctx.Command())[0], check: cl.Check, index: cl.Index}, ExitSuccess, nil
+	return &invocation{command: strings.Fields(kctx.Command())[0], init: cl.Init, check: cl.Check, index: cl.Index}, ExitSuccess, nil
 }
 
 type writeRecorder struct {
@@ -232,6 +239,10 @@ func (c *checkCmd) resolvePaths(cwd, repoRoot string) {
 }
 
 func (c *indexCmd) resolvePaths(cwd string) {
+	c.Config = fromStartingDir(c.Config, cwd)
+}
+
+func (c *initCmd) resolvePaths(cwd string) {
 	c.Config = fromStartingDir(c.Config, cwd)
 }
 

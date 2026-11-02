@@ -21,6 +21,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/tgenz1213/archguard/internal/analysis"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -1245,6 +1246,7 @@ func buildTwoADREngineFixture(ctx context.Context, t *testing.T, connStr, projec
 	}
 
 	engine := analysis.NewEngine(cfg, store, mockProvider, mockProvider, content)
+	engine.Nodes = []node.Node{node.NewCosineNode(store, mockProvider, cfg.VectorStore.SimilarityThreshold, cfg.Analysis.RelevantADRLimit())}
 	engine.Cache = nil
 	return engine, store
 }

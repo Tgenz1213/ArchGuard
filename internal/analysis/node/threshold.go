@@ -1,4 +1,4 @@
-package stage
+package node
 
 import "github.com/tgenz1213/archguard/internal/index"
 

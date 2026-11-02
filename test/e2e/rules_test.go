@@ -25,7 +25,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted"]
-  rules_heading: "Detection"
+`+defaultPipelineYAML+`  rules_heading: "Detection"
 `)
 
 	adr := strings.Replace(noSecretsADRContent, "## Context", "## Detection\n\n- Never log secrets\n\n## Rules\n\n- Not the configured heading\n\n## Context", 1)

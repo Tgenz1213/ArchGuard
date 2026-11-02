@@ -8,7 +8,7 @@ store: a JSON file on disk, or Postgres with pgvector. A store answers which
 ADRs a file could break: those whose scope covers the file, ranked by how
 similar each is to the change.
 
-It does not judge code. The scoring stages that choose which candidates reach
+It does not judge code. The scoring nodes that choose which candidates reach
 the model, and the question of whether a file breaks an ADR, belong to package
 analysis. Models are reached through package inference. A store reports why a
 saved index is stale, and package cli decides when to rebuild it.
