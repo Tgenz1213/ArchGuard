@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: Get the agent app's token
         id: bot
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.ARCHGUARD_BOT_APP_ID }}
           private-key: ${{ secrets.ARCHGUARD_BOT_PRIVATE_KEY }}
