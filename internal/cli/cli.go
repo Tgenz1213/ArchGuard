@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -45,7 +44,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(model string) node.Asker
+	Jev      func(model string) inference.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -201,7 +200,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
-	jev                 func(model string) node.Asker
+	jev                 func(model string) inference.Asker
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -138,10 +137,10 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 // jevAskers builds a Jev client per model, or hands out the asker a test injected.
 type jevAskers struct {
 	apiKey   string
-	injected func(model string) node.Asker
+	injected func(model string) inference.Asker
 }
 
-func (j jevAskers) ForModel(model string) node.Asker {
+func (j jevAskers) ForModel(model string) inference.Asker {
 	if j.injected != nil {
 		return j.injected(model)
 	}
@@ -150,7 +149,7 @@ func (j jevAskers) ForModel(model string) node.Asker {
 }
 
 // newAskers returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the asker.
-func newAskers(nodes []config.Node, injected func(model string) node.Asker) (analysis.Askers, error) {
+func newAskers(nodes []config.Node, injected func(model string) inference.Asker) (analysis.Askers, error) {
 	jevNode := slices.IndexFunc(nodes, func(n config.Node) bool { return n.With == config.RunnerJev })
 	if jevNode < 0 {
 		return nil, nil

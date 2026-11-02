@@ -9,7 +9,7 @@ import (
 
 // Askers gives each ask node the asker for the Jev model it names.
 type Askers interface {
-	ForModel(model string) node.Asker
+	ForModel(model string) inference.Asker
 }
 
 // BuildPipeline returns the nodes that choose candidates; the judge node is the engine's own judging step.
@@ -36,7 +36,7 @@ func rankNode(s config.Node, store index.VectorStore, embed inference.Embedder) 
 	return n
 }
 
-func askNode(s config.Node, asker node.Asker) node.Node {
+func askNode(s config.Node, asker inference.Asker) node.Node {
 	n := node.NewAskNode(asker, s.Question.Instructions, s.Threshold, s.TopK)
 	n.Name = s.Name
 	n.FailOnError = s.OnError == config.OnErrorFail

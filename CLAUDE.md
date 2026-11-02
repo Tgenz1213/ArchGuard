@@ -76,5 +76,5 @@ Each package's `doc.go` says what the package is for, what it does not own and i
 
 - Where each kind of fact goes, and what guidance may not contain, is in `docs/standards/guidance.md`.
 - Each rules file's `paths` frontmatter lists the files that load it; a new package or area gets a row in the Architecture table and either its own rules file or a path added to an existing one.
-- Update this file or the matching rules file when you change build/test/lint commands, add or rename a top-level package, change a cross-package interface (e.g. `inference.Chatter`, `inference.Embedder`, `index.VectorStore`, `analysis.ContentProvider`), or discover a footgun while debugging.
+- Update this file or the matching rules file when you change build/test/lint commands, add or rename a top-level package, change a cross-package interface (e.g. `inference.Chatter`, `inference.Embedder`, `inference.Asker`, `index.VectorStore`, `analysis.ContentProvider`), or discover a footgun while debugging.
 - A real decision gets an ADR in `docs/arch/` (see `docs/ADR_TEMPLATE.md`). This repo checks its own changes against `docs/arch/`, so a convention with no ADR can't be enforced by the tool.

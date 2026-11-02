@@ -15,14 +15,9 @@ import (
 
 const askAction = "asking about candidates"
 
-// Asker asks yes/no questions about one text in a single call and returns each answer's probability of yes, by question name.
-type Asker interface {
-	Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
-}
-
 // RuleAsk scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
 type RuleAsk struct {
-	Asker Asker
+	Asker inference.Asker
 	// Asked once per rule with {rule} replaced; empty asks the breaks-a-rule preset's question.
 	Instructions string
 }
@@ -126,19 +121,18 @@ func ruleText(rule index.Rule) string {
 }
 
 func askError(err error) error {
-	var jevErr *inference.JevError
-	if errors.As(err, &jevErr) && jevErr.TooLarge() {
+	if errors.Is(err, inference.ErrInputTooLarge) {
 		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: err}
 	}
 
-	if errors.As(err, &jevErr) && jevErr.Rejected() {
+	if errors.Is(err, inference.ErrKeyRejected) {
 		return &Error{Action: askAction, Err: err, KeyRejected: true}
 	}
 
 	return &Error{Action: askAction, Err: err}
 }
 
-func NewAskNode(asker Asker, instructions string, threshold float64, topK int) Node {
+func NewAskNode(asker inference.Asker, instructions string, threshold float64, topK int) Node {
 	return Node{
 		Name:              "ask",
 		Scorer:            &RuleAsk{Asker: asker, Instructions: instructions},

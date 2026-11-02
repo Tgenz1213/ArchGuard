@@ -116,15 +116,17 @@ func TestJevProvider_AskGivesUpAfterMaxRetries(t *testing.T) {
 
 func TestJevProvider_AskDoesNotRetryOtherErrors(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		body     string
-		tooLarge bool
+		name        string
+		status      int
+		body        string
+		tooLarge    bool
+		keyRejected bool
 	}{
-		{"input too large", http.StatusBadRequest, `{"detail":{"error_type":"max_tokens_exceeded"}}`, true},
-		{"invalid key", http.StatusUnauthorized, `{"detail":{"error_type":"authentication_error","message":"bad key"}}`, false},
-		{"validation list", http.StatusUnprocessableEntity, `{"detail":[{"loc":["body","state"],"msg":"Field required"}]}`, false},
-		{"plain string detail", http.StatusBadRequest, `{"detail":"unknown model"}`, false},
+		{"input too large", http.StatusBadRequest, `{"detail":{"error_type":"max_tokens_exceeded"}}`, true, false},
+		{"invalid key", http.StatusUnauthorized, `{"detail":{"error_type":"authentication_error","message":"bad key"}}`, false, true},
+		{"forbidden key", http.StatusForbidden, `{"detail":"forbidden"}`, false, true},
+		{"validation list", http.StatusUnprocessableEntity, `{"detail":[{"loc":["body","state"],"msg":"Field required"}]}`, false, false},
+		{"plain string detail", http.StatusBadRequest, `{"detail":"unknown model"}`, false, false},
 	}
 
 	for _, tt := range tests {
@@ -147,8 +149,12 @@ func TestJevProvider_AskDoesNotRetryOtherErrors(t *testing.T) {
 				t.Fatalf("err = %v, want a %d JevError", err, tt.status)
 			}
 
-			if jevErr.TooLarge() != tt.tooLarge {
-				t.Errorf("TooLarge() = %v, want %v", jevErr.TooLarge(), tt.tooLarge)
+			if got := errors.Is(err, ErrInputTooLarge); got != tt.tooLarge {
+				t.Errorf("errors.Is(err, ErrInputTooLarge) = %v, want %v", got, tt.tooLarge)
+			}
+
+			if got := errors.Is(err, ErrKeyRejected); got != tt.keyRejected {
+				t.Errorf("errors.Is(err, ErrKeyRejected) = %v, want %v", got, tt.keyRejected)
 			}
 
 			if calls.Load() != 1 {

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -306,13 +305,13 @@ func TestBuildProviders_UnknownNameFails(t *testing.T) {
 func TestNewAskers(t *testing.T) {
 	rank := config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}
 	ask := config.Node{Name: "screen", Job: config.JobAsk, With: config.RunnerJev, Model: "jev-2"}
-	injected := func(string) node.Asker { return nil }
+	injected := func(string) inference.Asker { return nil }
 
 	tests := []struct {
 		name         string
 		nodes        []config.Node
 		key          string
-		injected     func(string) node.Asker
+		injected     func(string) inference.Asker
 		wantFactory  bool
 		wantErrNames string
 	}{

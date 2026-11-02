@@ -39,11 +39,15 @@ func (e *JevError) Error() string {
 	return fmt.Sprintf("jev api error: %d %s: %s", e.Status, http.StatusText(e.Status), e.Body)
 }
 
-func (e *JevError) TooLarge() bool { return e.ErrorType == "max_tokens_exceeded" }
-
-// Rejected reports that Jev refused the API key, which no retry or pass-through fixes.
-func (e *JevError) Rejected() bool {
-	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+func (e *JevError) Is(target error) bool {
+	switch target {
+	case ErrKeyRejected:
+		return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+	case ErrInputTooLarge:
+		return e.ErrorType == "max_tokens_exceeded"
+	default:
+		return false
+	}
 }
 
 func (e *JevError) retryable() bool {

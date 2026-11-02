@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -59,11 +58,11 @@ func (u unexpectedAsker) Ask(context.Context, string, map[string]string) (map[st
 
 // fixedAskers gives every ask node the same asker and records the models asked for.
 type fixedAskers struct {
-	asker  node.Asker
+	asker  inference.Asker
 	models *[]string
 }
 
-func (f fixedAskers) ForModel(model string) node.Asker {
+func (f fixedAskers) ForModel(model string) inference.Asker {
 	if f.models != nil {
 		*f.models = append(*f.models, model)
 	}

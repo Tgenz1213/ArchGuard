@@ -496,7 +496,7 @@ type askRun struct {
 	judgeChange bool
 }
 
-func runAsk(t *testing.T, run askRun, asker node.Asker) (*scorerHarness, string) {
+func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
 	t.Helper()
 
 	content := run.content
@@ -589,7 +589,7 @@ func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
 }
 
 // askerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
-func askerBreaking(code string, states *[]string) node.Asker {
+func askerBreaking(code string, states *[]string) inference.Asker {
 	return askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 		*states = append(*states, state)
 		answers := make(map[string]float64, len(questions))
