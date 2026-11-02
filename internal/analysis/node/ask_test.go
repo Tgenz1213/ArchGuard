@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net/http"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -138,9 +138,9 @@ func TestAskNode_QuestionCarriesTheRuleAndItsExamples(t *testing.T) {
 }
 
 func TestAskNode_Errors(t *testing.T) {
-	tooLarge := &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded"}
-	unauthorized := &inference.JevError{Status: http.StatusUnauthorized}
-	outage := &inference.JevError{Status: http.StatusServiceUnavailable}
+	tooLarge := fmt.Errorf("asking: %w", inference.ErrInputTooLarge)
+	unauthorized := fmt.Errorf("asking: %w", inference.ErrKeyRejected)
+	outage := errors.New("connection refused")
 
 	tests := []struct {
 		name     string
@@ -173,7 +173,7 @@ func TestAskNode_Errors(t *testing.T) {
 				t.Errorf("kept %s, want every candidate unchanged", ids(got))
 			}
 
-			if want := errors.Is(tt.err, unauthorized); node.KeyRejected(err) != want {
+			if want := errors.Is(tt.err, inference.ErrKeyRejected); node.KeyRejected(err) != want {
 				t.Errorf("KeyRejected(%v) = %v, want %v", err, !want, want)
 			}
 
