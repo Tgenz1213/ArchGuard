@@ -1,8 +1,12 @@
 package index
 
 import (
+	"bytes"
+	"errors"
 	"slices"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 func boolPtr(b bool) *bool {
@@ -184,6 +188,36 @@ func TestClassifyADRs_ReembedsRowsSavedInAnotherFormat(t *testing.T) {
 
 			if len(toSync) != 0 {
 				t.Errorf("toSync = %v, want none", toSync)
+			}
+		})
+	}
+}
+
+func TestIterativeScanDecision(t *testing.T) {
+	tests := []struct {
+		name     string
+		probe    extensionProbe
+		wanted   bool
+		want     bool
+		wantWarn bool
+	}{
+		{"supported and wanted", extensionProbe{version: "0.8.0"}, true, true, false},
+		{"supported but not wanted", extensionProbe{version: "0.8.0"}, false, false, false},
+		{"too old and wanted", extensionProbe{version: "0.7.4"}, true, false, true},
+		{"too old and not wanted", extensionProbe{version: "0.7.4"}, false, false, false},
+		{"version unknown and wanted", extensionProbe{versionErr: errors.New("no extension")}, true, false, true},
+		{"version unknown and not wanted", extensionProbe{versionErr: errors.New("no extension")}, false, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var log bytes.Buffer
+			if got := iterativeScanDecision(tt.probe, tt.wanted, output.New(&log, false)); got != tt.want {
+				t.Errorf("iterativeScanDecision() = %v, want %v", got, tt.want)
+			}
+
+			if warned := log.Len() > 0; warned != tt.wantWarn {
+				t.Errorf("warned = %v, want %v (log %q)", warned, tt.wantWarn, log.String())
 			}
 		})
 	}

@@ -151,3 +151,41 @@ func TestScopePatterns_Parse_LiteralJSONScalarIsNotMisreadAsArray(t *testing.T) 
 		}
 	}
 }
+
+func TestScopePatterns_ValueScanRoundTrip(t *testing.T) {
+	for _, original := range []ScopePatterns{nil, {"internal/**"}, {"internal/**", "cmd/**"}} {
+		value, err := original.Value()
+		if err != nil {
+			t.Fatalf("Value(%v) failed: %v", original, err)
+		}
+
+		var fromString, fromBytes ScopePatterns
+		if err := fromString.Scan(value); err != nil {
+			t.Fatalf("Scan(%q) failed: %v", value, err)
+		}
+
+		text, ok := value.(string)
+		if !ok {
+			t.Fatalf("Value(%v) = %T, want a string", original, value)
+		}
+
+		if err := fromBytes.Scan([]byte(text)); err != nil {
+			t.Fatalf("Scan([]byte %q) failed: %v", value, err)
+		}
+
+		if !slices.Equal(fromString, original) || !slices.Equal(fromBytes, original) {
+			t.Errorf("round trip of %v gave %v from a string and %v from bytes", original, fromString, fromBytes)
+		}
+	}
+}
+
+func TestScopePatterns_ScanNilAndUnsupported(t *testing.T) {
+	sp := ScopePatterns{"stale/**"}
+	if err := sp.Scan(nil); err != nil || sp != nil {
+		t.Errorf("Scan(nil) = %v, %v; want no patterns and no error", sp, err)
+	}
+
+	if err := sp.Scan(42); err == nil {
+		t.Error("Scan(42) succeeded, want an unsupported type error")
+	}
+}
