@@ -12,10 +12,13 @@ go test -race -coverprofile="$profile" ./...
 # Neither is shipped code: one is the mock binary the e2e tests run, the other holds test helpers.
 grep -v -e '/cmd/archguard-e2e/' -e '/internal/testutil/' "$profile" > "$filtered"
 
-total=$(go tool cover -func="$filtered" | awk '/^total:/ { sub(/%/, "", $NF); print $NF }')
-echo "Unit test coverage: ${total}% (minimum ${threshold}%)"
+# Counts come from the profile, not go tool cover's total, which is rounded and would let 79.96% pass as 80.0%.
+read -r covered statements < <(awk 'NR > 1 { statements += $2; if ($3 > 0) covered += $2 } END { print covered + 0, statements + 0 }' "$filtered")
 
-if awk -v total="$total" -v min="$threshold" 'BEGIN { exit !(total < min) }'; then
+total=$(awk -v c="$covered" -v s="$statements" 'BEGIN { printf "%.1f", 100 * c / s }')
+echo "Unit test coverage: ${total}% (${covered} of ${statements} statements; minimum ${threshold}%)"
+
+if awk -v c="$covered" -v s="$statements" -v min="$threshold" 'BEGIN { exit !(100 * c < min * s) }'; then
   echo "::error::Unit test coverage ${total}% is under ${threshold}%"
   exit 1
 fi
