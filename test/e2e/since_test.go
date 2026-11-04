@@ -21,7 +21,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 
 func commitAll(t *testing.T, dir, message string) {
 	t.Helper()

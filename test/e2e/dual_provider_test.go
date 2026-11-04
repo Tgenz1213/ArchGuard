@@ -32,7 +32,7 @@ vector_store:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 	writeNoSecretsADR(t, tempDir)
 
@@ -85,7 +85,7 @@ llm:
 analysis:
   adr_path: "./docs/arch"
   accepted_statuses: ["Accepted", "Active"]
-`
+` + defaultPipelineYAML
 	writeE2EConfig(t, tempDir, configContent)
 
 	output := runIndexCmdCapture(t, tempDir, binaryPath, int(cli.ExitConfig))

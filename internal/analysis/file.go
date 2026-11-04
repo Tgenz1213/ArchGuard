@@ -5,6 +5,7 @@ import "context"
 type queryFile struct {
 	path           string
 	content        string
+	isDiff         bool
 	provider       ContentProvider
 	updateBaseline bool
 	text           string
@@ -13,7 +14,15 @@ type queryFile struct {
 
 func (f *queryFile) Path() string { return f.path }
 
-func (f *queryFile) JudgedText() string { return f.content }
+func (f *queryFile) Sides() []string {
+	if !f.isDiff {
+		return []string{f.content}
+	}
+
+	before, after := diffSides(f.content)
+
+	return []string{before, after}
+}
 
 func (f *queryFile) QueryText(ctx context.Context) string {
 	if f.built {

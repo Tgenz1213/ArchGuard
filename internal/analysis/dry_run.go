@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
 	"github.com/tgenz1213/archguard/internal/telemetry"
@@ -18,7 +18,7 @@ type Projection struct {
 }
 
 // project counts the prompt instead of sending it; a cached verdict would cost nothing.
-func (fc *fileCheck) project(ctx context.Context, hit stage.Candidate, input inference.DriftInput) {
+func (fc *fileCheck) project(ctx context.Context, hit node.Candidate, input inference.DriftInput) {
 	e := fc.engine
 
 	_, found := fc.cachedVerdict(fc.analysisKey(hit))

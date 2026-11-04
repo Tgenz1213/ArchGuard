@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/output"
 )
@@ -21,7 +21,7 @@ func candidateStore() *index.LocalStore {
 	return store
 }
 
-func mustFor(t *testing.T, src candidateSource, file, content string, debug stage.Debug) []stage.Candidate {
+func mustFor(t *testing.T, src candidateSource, file, content string, debug node.Debug) []node.Candidate {
 	t.Helper()
 
 	got, err := src.For(file, content, debug)
@@ -32,7 +32,7 @@ func mustFor(t *testing.T, src candidateSource, file, content string, debug stag
 	return got
 }
 
-func candidateIDs(cs []stage.Candidate) string {
+func candidateIDs(cs []node.Candidate) string {
 	ids := make([]string, len(cs))
 	for i, c := range cs {
 		ids[i] = c.ADR.ID
@@ -42,7 +42,7 @@ func candidateIDs(cs []stage.Candidate) string {
 }
 
 func TestCandidateSource_KeepsOnlyScopeMatchedADRs(t *testing.T) {
-	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", "package svc", stage.NoDebug)
+	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", "package svc", node.NoDebug)
 
 	if candidateIDs(got) != "0001,0003" {
 		t.Fatalf("got %s, want 0001,0003", candidateIDs(got))
@@ -72,7 +72,7 @@ func TestCandidateSource_DropsSuppressedADRsAndSaysSo(t *testing.T) {
 func TestCandidateSource_OnlyReadsTheHeaderForSuppressions(t *testing.T) {
 	content := strings.Repeat("x", 2500) + "\n// archguard-ignore: 0001\n"
 
-	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", content, stage.NoDebug)
+	got := mustFor(t, candidateSource{store: candidateStore()}, "svc.go", content, node.NoDebug)
 
 	if candidateIDs(got) != "0001,0003" {
 		t.Fatalf("got %s, want a directive past the 2000-byte header to be ignored", candidateIDs(got))
@@ -86,7 +86,7 @@ func (failingScopedStore) ScopedADRs(string) ([]index.SearchResult, error) {
 }
 
 func TestCandidateSource_ReturnsStoreErrorsInsteadOfAnEmptyList(t *testing.T) {
-	got, err := candidateSource{store: failingScopedStore{}}.For("svc.go", "package svc", stage.NoDebug)
+	got, err := candidateSource{store: failingScopedStore{}}.For("svc.go", "package svc", node.NoDebug)
 
 	if err == nil || got != nil {
 		t.Fatalf("got %v, %v; want a nil list and the store's error, so a backend failure isn't mistaken for no matching ADRs", got, err)

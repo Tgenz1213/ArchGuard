@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/git"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -21,15 +20,15 @@ import (
 type ExitCode int
 
 const (
-	ExitSuccess           ExitCode = 0
-	ExitError             ExitCode = 1
-	ExitUsage             ExitCode = 2
-	ExitConfig            ExitCode = 3
-	ExitDriftDetected     ExitCode = 4
-	ExitIndexError        ExitCode = 5
-	ExitStageUnavailable  ExitCode = 6
-	ExitStagePrecondition ExitCode = 7
-	ExitNothingChecked    ExitCode = 8
+	ExitSuccess          ExitCode = 0
+	ExitError            ExitCode = 1
+	ExitUsage            ExitCode = 2
+	ExitConfig           ExitCode = 3
+	ExitDriftDetected    ExitCode = 4
+	ExitIndexError       ExitCode = 5
+	ExitNodeUnavailable  ExitCode = 6
+	ExitNodePrecondition ExitCode = 7
+	ExitNothingChecked   ExitCode = 8
 	// 128 + SIGINT, the shell convention for a run stopped by a signal.
 	ExitInterrupted ExitCode = 130
 )
@@ -45,7 +44,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(*config.Config) stage.Screener
+	Jev      func(model string) inference.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -79,7 +78,7 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	}
 
 	if inv.command == "init" {
-		if err := runInit(); err != nil {
+		if err := runInit(inv.configPath()); err != nil {
 			return ExitError, err
 		}
 
@@ -134,6 +133,7 @@ func enterRepoRoot(ctx context.Context, inv *invocation) (string, error) {
 
 	inv.check.resolvePaths(cwd, repoRoot)
 	inv.index.resolvePaths(cwd)
+	inv.init.resolvePaths(cwd)
 
 	if !strings.EqualFold(cwd, repoRoot) {
 		if err := os.Chdir(repoRoot); err != nil {
@@ -188,7 +188,7 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		cfg:                 cfg,
 		chat:                chat,
 		embed:               embed,
-		screener:            selectScreener(cfg, factories),
+		jev:                 factories.Jev,
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
@@ -200,7 +200,7 @@ type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
 	embed               inference.Embedder
-	screener            stage.Screener
+	jev                 func(model string) inference.Asker
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

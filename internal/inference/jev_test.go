@@ -22,7 +22,7 @@ func jevServer(t *testing.T, handler http.HandlerFunc) *JevProvider {
 	return provider
 }
 
-func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
+func TestJevProvider_AskSendsOneNoulQuestionPerRule(t *testing.T) {
 	var got struct {
 		Model     string `json:"model"`
 		State     string `json:"state"`
@@ -44,9 +44,9 @@ func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
 		}
 	})
 
-	answers, err := provider.Screen(t.Context(), "+fmt.Println(x)", map[string]string{"a": "Does it print?", "b": "Does it panic?"})
+	answers, err := provider.Ask(t.Context(), "+fmt.Println(x)", map[string]string{"a": "Does it print?", "b": "Does it panic?"})
 	if err != nil {
-		t.Fatalf("Screen: %v", err)
+		t.Fatalf("Ask: %v", err)
 	}
 
 	if answers["a"] != 0.91 || answers["b"] != 0.04 || len(answers) != 2 {
@@ -66,7 +66,7 @@ func TestJevProvider_ScreenSendsOneNoulQuestionPerRule(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
+func TestJevProvider_AskRetriesRateLimitsAndOverload(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, statusOverloaded} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			var calls atomic.Int32
@@ -82,9 +82,9 @@ func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
 				}
 			})
 
-			answers, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+			answers, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 			if err != nil || answers["a"] != 0.5 {
-				t.Fatalf("Screen = %v, %v; want the third attempt's answer", answers, err)
+				t.Fatalf("Ask = %v, %v; want the third attempt's answer", answers, err)
 			}
 
 			if calls.Load() != 3 {
@@ -94,7 +94,7 @@ func TestJevProvider_ScreenRetriesRateLimitsAndOverload(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
+func TestJevProvider_AskGivesUpAfterMaxRetries(t *testing.T) {
 	var calls atomic.Int32
 
 	provider := jevServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +102,7 @@ func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	})
 
-	_, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+	_, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 
 	var jevErr *JevError
 	if !errors.As(err, &jevErr) || jevErr.Status != http.StatusTooManyRequests {
@@ -114,17 +114,19 @@ func TestJevProvider_ScreenGivesUpAfterMaxRetries(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
+func TestJevProvider_AskDoesNotRetryOtherErrors(t *testing.T) {
 	tests := []struct {
-		name     string
-		status   int
-		body     string
-		tooLarge bool
+		name        string
+		status      int
+		body        string
+		tooLarge    bool
+		keyRejected bool
 	}{
-		{"input too large", http.StatusBadRequest, `{"detail":{"error_type":"max_tokens_exceeded"}}`, true},
-		{"invalid key", http.StatusUnauthorized, `{"detail":{"error_type":"authentication_error","message":"bad key"}}`, false},
-		{"validation list", http.StatusUnprocessableEntity, `{"detail":[{"loc":["body","state"],"msg":"Field required"}]}`, false},
-		{"plain string detail", http.StatusBadRequest, `{"detail":"unknown model"}`, false},
+		{"input too large", http.StatusBadRequest, `{"detail":{"error_type":"max_tokens_exceeded"}}`, true, false},
+		{"invalid key", http.StatusUnauthorized, `{"detail":{"error_type":"authentication_error","message":"bad key"}}`, false, true},
+		{"forbidden key", http.StatusForbidden, `{"detail":"forbidden"}`, false, true},
+		{"validation list", http.StatusUnprocessableEntity, `{"detail":[{"loc":["body","state"],"msg":"Field required"}]}`, false, false},
+		{"plain string detail", http.StatusBadRequest, `{"detail":"unknown model"}`, false, false},
 	}
 
 	for _, tt := range tests {
@@ -140,15 +142,19 @@ func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
 				}
 			})
 
-			_, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"})
+			_, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 
 			var jevErr *JevError
 			if !errors.As(err, &jevErr) || jevErr.Status != tt.status {
 				t.Fatalf("err = %v, want a %d JevError", err, tt.status)
 			}
 
-			if jevErr.TooLarge() != tt.tooLarge {
-				t.Errorf("TooLarge() = %v, want %v", jevErr.TooLarge(), tt.tooLarge)
+			if got := errors.Is(err, ErrInputTooLarge); got != tt.tooLarge {
+				t.Errorf("errors.Is(err, ErrInputTooLarge) = %v, want %v", got, tt.tooLarge)
+			}
+
+			if got := errors.Is(err, ErrKeyRejected); got != tt.keyRejected {
+				t.Errorf("errors.Is(err, ErrKeyRejected) = %v, want %v", got, tt.keyRejected)
 			}
 
 			if calls.Load() != 1 {
@@ -158,14 +164,14 @@ func TestJevProvider_ScreenDoesNotRetryOtherErrors(t *testing.T) {
 	}
 }
 
-func TestJevProvider_ScreenRejectsAnAnswerWithoutAProbability(t *testing.T) {
+func TestJevProvider_AskRejectsAnAnswerWithoutAProbability(t *testing.T) {
 	provider := jevServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte(`{"answers":{"a":{"type":"noul"}}}`)); err != nil {
 			t.Errorf("writing response: %v", err)
 		}
 	})
 
-	if _, err := provider.Screen(t.Context(), "code", map[string]string{"a": "q"}); err == nil {
+	if _, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"}); err == nil {
 		t.Fatal("expected an error for an answer with no noul probability")
 	}
 }

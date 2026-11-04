@@ -1,6 +1,6 @@
 ---
 title: Pipeline nodes run in list order
-status: Proposed
+status: Accepted
 scope:
   - "internal/config/**"
   - "internal/analysis/**"

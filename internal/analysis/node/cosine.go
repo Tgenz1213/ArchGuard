@@ -1,4 +1,4 @@
-package stage
+package node
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/inference"
 )
 
-// The store omits candidates below their own effective threshold; this score lets any stage minimum drop them.
+// The store omits candidates below their own effective threshold; this score lets any node minimum drop them.
 const unscored = -1
 
 type CosineRanker struct {
@@ -29,7 +29,7 @@ func (c *CosineRanker) Score(ctx context.Context, file File, debug Debug, candid
 		return nil, &Error{Action: "generating embedding", Err: err}
 	}
 
-	// Unbounded topK: the Stage applies the top-K cut.
+	// Unbounded topK: the Node applies the top-K cut.
 	var found []index.SearchResult
 
 	if debug.DebugEnabled() {
@@ -61,8 +61,8 @@ func adrKey(adr *index.ADR) string {
 	return adr.RelPath + "\x00" + adr.ID + "\x00" + adr.Title
 }
 
-func NewCosineStage(store index.VectorStore, embed inference.Embedder, threshold float64, topK int) Stage {
-	return Stage{
+func NewCosineNode(store index.VectorStore, embed inference.Embedder, threshold float64, topK int) Node {
+	return Node{
 		Name:    "rank",
 		Scorer:  &CosineRanker{Store: store, Embed: embed, Threshold: threshold},
 		Min:     ADRThreshold{Global: threshold},

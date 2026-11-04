@@ -32,9 +32,18 @@ analysis:
   included_headers: ["Decision", "Rules"] # Embed what the code must do; Context, Alternatives and Consequences are narrative
   accepted_statuses: ["Accepted", "Active"]
   pipeline:
-    pre_judge: # Screens with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY (README: Screening with Jev)
-      scorer: jev
-      threshold: 0.3
+    - name: shortlist
+      job: rank
+      with: cosine
+
+    - name: breaks-a-rule # Screens with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY (README: Screening with Jev)
+      job: ask
+      with: jev
+      preset: breaks-a-rule
+
+    - name: judge
+      job: judge
+      with: llm
   exclude_patterns:
     - "**/*_test.go"
     - "vendor/**"

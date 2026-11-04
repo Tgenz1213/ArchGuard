@@ -1,6 +1,6 @@
 ---
 title: The pipeline is always written out
-status: Proposed
+status: Accepted
 scope:
   - "internal/analysis/**"
   - "internal/cli/**"

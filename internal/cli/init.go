@@ -6,30 +6,108 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/atomicfile"
 )
 
 type prompter struct{ scanner *bufio.Scanner }
 
-func runInit() error {
+func runInit(configPath string) error {
 	in := prompter{scanner: bufio.NewScanner(os.Stdin)}
+
+	existing, err := os.ReadFile(configPath)
+	if err == nil {
+		return in.addDefaultPipeline(configPath, existing)
+	}
+
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
 
 	adrPath, err := in.chooseADRDir()
 	if err != nil {
 		return err
 	}
 
-	proceed, err := in.confirmConfigOverwrite()
-	if err != nil || !proceed {
+	if err := writeInitFiles(configPath, adrPath); err != nil {
 		return err
 	}
 
-	if err := writeInitFiles(adrPath); err != nil {
-		return err
-	}
-
-	printNextSteps(adrPath)
+	printNextSteps(adrPath, configPath)
 
 	return nil
+}
+
+// addDefaultPipeline never overwrites a config: it only replaces analysis.pipeline, and only after asking.
+func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
+	splice, err := spliceDefaultPipeline(existing)
+	if err != nil {
+		return fmt.Errorf("%s: %w", configPath, err)
+	}
+
+	if splice.alreadyList && splice.listErr != nil {
+		return fmt.Errorf("%s already has a pipeline list, which init leaves alone, but check rejects it: %w", configPath, splice.listErr)
+	}
+
+	if splice.alreadyList {
+		fmt.Printf("%s already has a pipeline list; nothing changed.\n", configPath)
+		return nil
+	}
+
+	replace, err := p.confirm("Replace analysis.pipeline with the default pipeline? (y/n): ")
+	if err != nil {
+		return err
+	}
+
+	if !replace {
+		fmt.Println("Initialization cancelled.")
+		return nil
+	}
+
+	if err := writeInPlace(configPath, splice.result); err != nil {
+		return err
+	}
+
+	fmt.Printf("Wrote the default pipeline to %s\n", configPath)
+	printRemoved(splice.removed)
+
+	if splice.hadPreJudge {
+		fmt.Println("The pre_judge screen was removed. To screen with Jev again, add an ask node (see \"Screening with Jev\" in the README).")
+	}
+
+	return nil
+}
+
+// writeInPlace replaces a symlinked config's target, not the link, and keeps the file's mode; the write is all-or-nothing.
+func writeInPlace(configPath string, content []byte) error {
+	target, err := filepath.EvalSymlinks(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+
+	if err := atomicfile.WriteMode(target, content, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	return nil
+}
+
+// printRemoved shows the old pipeline, so settings it tuned can be set again on the new nodes.
+func printRemoved(removed []string) {
+	if len(removed) == 0 {
+		return
+	}
+
+	fmt.Println("Removed from the config; set any of these again on the new nodes if you need them:")
+
+	for _, line := range removed {
+		fmt.Println("  " + line)
+	}
 }
 
 func (p prompter) ask(question string) (string, error) {
@@ -116,30 +194,12 @@ func (p prompter) offerTemplate(adrPath string) error {
 	return nil
 }
 
-func (p prompter) confirmConfigOverwrite() (bool, error) {
-	if _, err := os.Stat(configFilename); err != nil {
-		return true, nil
-	}
-
-	overwrite, err := p.confirm(fmt.Sprintf("%s already exists. Overwrite with defaults? (y/n): ", configFilename))
-	if err != nil {
-		return false, err
-	}
-
-	if !overwrite {
-		fmt.Println("Initialization cancelled.")
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func writeInitFiles(adrPath string) error {
-	if err := os.WriteFile(configFilename, []byte(generateConfig(adrPath)), 0644); err != nil {
+func writeInitFiles(configPath, adrPath string) error {
+	if err := os.WriteFile(configPath, []byte(generateConfig(adrPath)), 0644); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Printf("Created config: %s\n", configFilename)
+	fmt.Printf("Created config: %s\n", configPath)
 
 	if err := os.MkdirAll(".archguard/cache", 0755); err != nil {
 		return fmt.Errorf("failed to create .archguard directory: %w", err)
@@ -154,12 +214,17 @@ func writeInitFiles(adrPath string) error {
 	return nil
 }
 
-func printNextSteps(adrPath string) {
+func printNextSteps(adrPath, configPath string) {
+	configFlag := ""
+	if configPath != configFilename {
+		configFlag = " --config " + configPath
+	}
+
 	fmt.Println("\nArchGuard initialized successfully!")
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Add your ADR files to", adrPath)
-	fmt.Println("  2. Run: archguard index")
-	fmt.Println("  3. Run: archguard check")
+	fmt.Println("  2. Run: archguard index" + configFlag)
+	fmt.Println("  3. Run: archguard check" + configFlag)
 }
 
 func generateConfig(adrPath string) string {
@@ -189,7 +254,7 @@ analysis:
     - "go.sum"
     - "README.md"
     - "bin/**"
-`, adrPath)
+%s`, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
 }
 
 func ensureGitignore() (err error) {

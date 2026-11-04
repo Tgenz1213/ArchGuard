@@ -1,6 +1,6 @@
 ---
 title: Model provider keys come from the environment and go only to their host
-status: Proposed
+status: Accepted
 scope:
   - "internal/cli/**"
   - "internal/config/**"

@@ -32,7 +32,7 @@ type BuildIndexResult struct {
 }
 
 type VectorStore interface {
-	// ScopedADRs needs no embedding, so pipelines without a cosine stage never embed.
+	// ScopedADRs needs no embedding, so pipelines without a cosine node never embed.
 	ScopedADRs(filePath string) ([]SearchResult, error)
 	IndexedPaths() ([]string, error)
 	CalculateHash(adrs []ADR, modelName string) (string, error)

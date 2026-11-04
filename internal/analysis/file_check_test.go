@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/tgenz1213/archguard/internal/analysis"
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/index"
@@ -65,7 +66,7 @@ func runChange(t *testing.T, opts changeRunOptions) *changeRun {
 		LLM:         config.LLMConfig{MaxTokens: opts.maxTokens},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
+	engine := newEngine(t, cfg, store, both(provider), &diffCapableContentProvider{content: opts.whole, diff: opts.diff})
 	engine.Cache = opts.cache
 	engine.JudgeChange = opts.judgeChange
 	engine.UpdateBaseline = opts.updateBaseline
@@ -264,7 +265,7 @@ func TestEngine_CountsJudgedFilesAndADRChecks(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesJudged: 1, ADRChecks: 2}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -272,28 +273,28 @@ func TestEngine_CountsJudgedFilesAndADRChecks(t *testing.T) {
 func TestEngine_CountsEveryFileWhenEveryCandidateIsBelowTheThreshold(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
 	h.engine.Content.(*MockContentProvider).Files = map[string]string{"a.go": "package a", "b.go": "package b"}
-	h.engine.Stages = []stage.Stage{{Scorer: scoresByID(map[string]float64{"0001": 0.4, "0002": 0.3}, nil), Min: stage.FixedMin(0.5), MaxKeep: 3}}
+	h.engine.Nodes = []node.Node{{Scorer: scoresByID(map[string]float64{"0001": 0.4, "0002": 0.3}, nil), Min: node.FixedMin(0.5), MaxKeep: 3}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	want := output.Coverage{FilesWithoutADR: 2, FilesBelowThreshold: 2}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
 
 func TestEngine_CountsAScreenedOutFileApartFromOneBelowTheThreshold(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1), scorerADR("0002", 1)}, "a.go", "package a")
-	h.engine.Stages = []stage.Stage{{Name: "screen", Screens: true, Scorer: scoresByID(map[string]float64{"0001": 0.1, "0002": 0.1}, nil), Min: stage.FixedMin(0.5)}}
+	h.engine.Nodes = []node.Node{{Name: "screen", Screens: true, Scorer: scoresByID(map[string]float64{"0001": 0.1, "0002": 0.1}, nil), Min: node.FixedMin(0.5)}}
 
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := output.Coverage{FilesWithoutADR: 1, FilesScreenedOut: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	want := output.Coverage{FilesWithoutADR: 1, FilesScreenedOut: 1, ScreenedOutBy: []string{"screen"}}
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -308,14 +309,14 @@ func TestEngine_CountsFilesWithNoScopeMatchAsWithoutADR(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesWithoutADR: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
 
 func TestEngine_DoesNotCountASkippedFileAsJudged(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
-	h.engine.Stages = []stage.Stage{{Scorer: scorerFunc(func(context.Context, stage.File, stage.Debug, []stage.Candidate) ([]float64, error) {
+	h.engine.Nodes = []node.Node{{Scorer: scorerFunc(func(context.Context, node.File, node.Debug, []node.Candidate) ([]float64, error) {
 		return nil, errors.New("down")
 	})}}
 
@@ -324,7 +325,7 @@ func TestEngine_DoesNotCountASkippedFileAsJudged(t *testing.T) {
 	}
 
 	report := h.engine.Report()
-	if len(report.SkippedFiles) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.SkippedFiles) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("skipped = %+v, coverage = %+v; want the file skipped and nothing counted", report.SkippedFiles, report.Coverage)
 	}
 }
@@ -332,7 +333,7 @@ func TestEngine_DoesNotCountASkippedFileAsJudged(t *testing.T) {
 func TestEngine_CountsFilesAcrossARun(t *testing.T) {
 	h := newScorerHarness(t, []index.ADR{scorerADR("0001", 1)}, "a.go", "package a")
 	h.engine.Content.(*MockContentProvider).Files = map[string]string{"a.go": "package a", "b.go": "package b", "c.go": "package c"}
-	h.engine.Stages = []stage.Stage{{Min: stage.FixedMin(0.5), Scorer: scorerFunc(func(_ context.Context, file stage.File, _ stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	h.engine.Nodes = []node.Node{{Min: node.FixedMin(0.5), Scorer: scorerFunc(func(_ context.Context, file node.File, _ node.Debug, candidates []node.Candidate) ([]float64, error) {
 		score := 1.0
 		if file.Path() == "c.go" {
 			score = 0.1
@@ -351,7 +352,7 @@ func TestEngine_CountsFilesAcrossARun(t *testing.T) {
 	}
 
 	want := output.Coverage{FilesJudged: 2, ADRChecks: 2, FilesWithoutADR: 1, FilesBelowThreshold: 1}
-	if got := h.engine.Report().Coverage; got != want {
+	if got := h.engine.Report().Coverage; !reflect.DeepEqual(got, want) {
 		t.Fatalf("coverage = %+v, want %+v", got, want)
 	}
 }
@@ -367,7 +368,7 @@ func TestEngine_DoesNotCountAFileWhoseEveryCheckFailedAsJudged(t *testing.T) {
 	}
 
 	report := h.engine.Report()
-	if len(report.FailedChecks) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.FailedChecks) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("failed checks = %+v, coverage = %+v; want one failed check and nothing counted", report.FailedChecks, report.Coverage)
 	}
 }
@@ -384,14 +385,14 @@ func TestEngine_DoesNotCountAPartlyCheckedFileWithNoCandidateAsWithoutADR(t *tes
 	}
 
 	report := h.engine.Report()
-	if len(report.PartialFiles) != 1 || report.Coverage != (output.Coverage{}) {
+	if len(report.PartialFiles) != 1 || !reflect.DeepEqual(report.Coverage, output.Coverage{}) {
 		t.Fatalf("partial = %+v, coverage = %+v; want the file partly checked and nothing counted", report.PartialFiles, report.Coverage)
 	}
 }
 
 func TestEngine_CheckedNothing(t *testing.T) {
-	failFor := func(files ...string) stage.Scorer {
-		return scorerFunc(func(_ context.Context, file stage.File, _ stage.Debug, candidates []stage.Candidate) ([]float64, error) {
+	failFor := func(files ...string) node.Scorer {
+		return scorerFunc(func(_ context.Context, file node.File, _ node.Debug, candidates []node.Candidate) ([]float64, error) {
 			if slices.Contains(files, file.Path()) {
 				return nil, errors.New("down")
 			}
@@ -409,12 +410,12 @@ func TestEngine_CheckedNothing(t *testing.T) {
 		wantSkipped int
 		want        bool
 	}{
-		{"every file's scoring failed", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("a.go", "b.go")}} }, 2, true},
-		{"one file judged beside a failed one", func(h *scorerHarness) { h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}} }, 1, false},
+		{"every file's scoring failed", func(h *scorerHarness) { h.engine.Nodes = []node.Node{{Scorer: failFor("a.go", "b.go")}} }, 2, true},
+		{"one file judged beside a failed one", func(h *scorerHarness) { h.engine.Nodes = []node.Node{{Scorer: failFor("b.go")}} }, 1, false},
 		{"every ADR check failed", func(h *scorerHarness) { h.engine.Chat = failingChat }, 0, true},
 		{"a file with no relevant ADR beside a failed one", func(h *scorerHarness) {
 			h.engine.Store.(*index.LocalStore).ADRs[0].Scope = []string{"b.go"}
-			h.engine.Stages = []stage.Stage{{Scorer: failFor("b.go")}}
+			h.engine.Nodes = []node.Node{{Scorer: failFor("b.go")}}
 		}, 1, true},
 		{"files too large in CI mode are not errors", func(h *scorerHarness) {
 			h.engine.Content = &fallbackOnlyContentProvider{files: map[string]string{"a.go": "package a", "b.go": "package b"}}

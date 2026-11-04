@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n"
 	content := &fallbackOnlyContentProvider{files: map[string]string{"service.py": bigContent}}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(t, cfg, store, both(provider), content)
 	engine.CI = true
 	engine.Cache = nil
 
@@ -45,7 +46,7 @@ func TestReport_CITruncatedFileIsListedAsSkipped(t *testing.T) {
 		t.Errorf("expected service.py listed as skipped, got %+v", skipped)
 	}
 
-	if coverage := engine.Report().Coverage; coverage != (output.Coverage{}) {
+	if coverage := engine.Report().Coverage; !reflect.DeepEqual(coverage, output.Coverage{}) {
 		t.Errorf("coverage = %+v, want nothing counted for a skipped file", coverage)
 	}
 }
@@ -63,7 +64,7 @@ func baselineEngine(t *testing.T, chatResponse string, content analysis.ContentP
 		LLM:         config.LLMConfig{MaxTokens: maxTokens},
 	}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(t, cfg, store, both(provider), content)
 	engine.Cache = nil
 	engine.UpdateBaseline = true
 	engine.BaselineReason = "accepted-debt"
@@ -136,7 +137,7 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 	bigContent := strings.Repeat("x", 200) + "\nimport python_library\n"
 	content := &fallbackOnlyContentProvider{files: map[string]string{"service.py": bigContent}}
 
-	engine := analysis.NewEngine(cfg, store, provider, provider, content)
+	engine := newEngine(t, cfg, store, both(provider), content)
 	engine.Cache = nil
 
 	captureOutput(engine, func() { runEngine(t, engine, false) })
@@ -154,7 +155,7 @@ func TestReport_NonCITruncatedFileIsAnalyzedAndListedAsPartlyChecked(t *testing.
 		t.Errorf("a file that was analyzed was also listed as skipped: %+v", report.SkippedFiles)
 	}
 
-	if want := (output.Coverage{ADRChecks: 1}); report.Coverage != want {
+	if want := (output.Coverage{ADRChecks: 1}); !reflect.DeepEqual(report.Coverage, want) {
 		t.Errorf("coverage = %+v, want %+v: the check ran but the file was only partly judged", report.Coverage, want)
 	}
 }

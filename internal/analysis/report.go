@@ -3,7 +3,7 @@ package analysis
 import (
 	"fmt"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/output"
 )
 
@@ -48,8 +48,8 @@ func (e *Engine) BaselineReport(path string) output.BaselineReport {
 func (e *Engine) gaps() output.Gaps {
 	gaps := output.Gaps{SkippedFiles: e.SkippedFiles, FailedChecks: e.FailedChecks, PartialFiles: e.PartialFiles, UnindexedADRs: e.UnindexedADRs}
 
-	for _, failure := range e.StageFailures {
-		gaps.FailedStages = append(gaps.FailedStages, output.FailedStage{Stage: failure.Stage, File: failure.File, Reason: failure.Error})
+	for _, failure := range e.NodeFailures {
+		gaps.FailedNodes = append(gaps.FailedNodes, output.FailedNode{Node: failure.Node, File: failure.File, Reason: failure.Error})
 	}
 
 	return gaps
@@ -68,7 +68,7 @@ func violationLine(violation Violation, baselined bool) string {
 	return line
 }
 
-func checkOutcomeLine(hit stage.Candidate, outcome string, cached bool) string {
+func checkOutcomeLine(hit node.Candidate, outcome string, cached bool) string {
 	line := fmt.Sprintf("ADR %s (%s), score %.2f: %s", hit.ADR.ID, hit.ADR.Title, hit.Score, outcome)
 	if cached {
 		line += " (cached)"

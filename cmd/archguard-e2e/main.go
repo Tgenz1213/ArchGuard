@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -60,9 +59,9 @@ func embedProviderFactory(stop context.CancelFunc) func(*config.Config) inferenc
 
 type mockJev struct{}
 
-func jevFactory(*config.Config) stage.Screener { return mockJev{} }
+func jevFactory(string) inference.Asker { return mockJev{} }
 
-func (mockJev) Screen(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (mockJev) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
 		return nil, &inference.JevError{Status: http.StatusUnauthorized}
 	}
@@ -74,7 +73,7 @@ func (mockJev) Screen(_ context.Context, state string, questions map[string]stri
 	answers := make(map[string]float64, len(questions))
 	for name, question := range questions {
 		answers[name] = 0.05
-		if strings.Contains(question, testutil.MockJevBreaksTrigger) {
+		if strings.Contains(question, testutil.MockJevBreaksTrigger) || strings.Contains(state, testutil.MockJevStateTrigger) {
 			answers[name] = 0.95
 		}
 	}

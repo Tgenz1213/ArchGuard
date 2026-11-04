@@ -1,4 +1,4 @@
-package stage_test
+package node_test
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/index"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -31,7 +31,7 @@ func queryEmbedder(vec ...float32) inference.Embedder {
 	}
 }
 
-func candidatesFor(t *testing.T, store *index.LocalStore) []stage.Candidate {
+func candidatesFor(t *testing.T, store *index.LocalStore) []node.Candidate {
 	t.Helper()
 
 	scoped, err := store.ScopedADRs("svc.go")
@@ -39,19 +39,19 @@ func candidatesFor(t *testing.T, store *index.LocalStore) []stage.Candidate {
 		t.Fatalf("ScopedADRs: %v", err)
 	}
 
-	out := make([]stage.Candidate, len(scoped))
+	out := make([]node.Candidate, len(scoped))
 	for i, scopedADR := range scoped {
-		out[i] = stage.Candidate{ADR: scopedADR.ADR}
+		out[i] = node.Candidate{ADR: scopedADR.ADR}
 	}
 
 	return out
 }
 
-func TestCosineStage_KeepsAboveThresholdBestFirst(t *testing.T) {
+func TestCosineNode_KeepsAboveThresholdBestFirst(t *testing.T) {
 	store := cosineStore(cosineADR("far", 0, 1), cosineADR("near", 1, 0), cosineADR("mid", 1, 1))
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.5, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0.5, 5)
 
-	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,16 +61,16 @@ func TestCosineStage_KeepsAboveThresholdBestFirst(t *testing.T) {
 	}
 }
 
-func TestCosineStage_HonorsPerADRThresholdBothWays(t *testing.T) {
+func TestCosineNode_HonorsPerADRThresholdBothWays(t *testing.T) {
 	strict, lenient := 0.95, 0.1
 	tooStrict := cosineADR("strict", 1, 1)
 	tooStrict.SimilarityThreshold = &strict
 	lowGlobal := cosineADR("lenient", 1, 1)
 	lowGlobal.SimilarityThreshold = &lenient
 	store := cosineStore(tooStrict, lowGlobal)
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.9, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0.9, 5)
 
-	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -80,12 +80,12 @@ func TestCosineStage_HonorsPerADRThresholdBothWays(t *testing.T) {
 	}
 }
 
-func TestCosineStage_SecondStageSeesOnlyEarlierSurvivors(t *testing.T) {
+func TestCosineNode_SecondNodeSeesOnlyEarlierSurvivors(t *testing.T) {
 	store := cosineStore(cosineADR("a", 1, 0), cosineADR("b", 1, 0))
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0, 5)
 	narrowed := candidatesFor(t, store)[:1]
 
-	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, narrowed)
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, narrowed)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -95,9 +95,9 @@ func TestCosineStage_SecondStageSeesOnlyEarlierSurvivors(t *testing.T) {
 	}
 }
 
-func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
+func TestCosineNode_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 	store := cosineStore(cosineADR("near", 1, 0), cosineADR("mid", 1, 1))
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.9, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0.9, 5)
 	var buf bytes.Buffer
 
 	if _, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, output.New(&buf, true), candidatesFor(t, store)); err != nil {
@@ -109,7 +109,7 @@ func TestCosineStage_DebugShowsRealScoresForRejectedADRs(t *testing.T) {
 	}
 }
 
-func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.T) {
+func TestCosineNode_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.T) {
 	boom := errors.New("embed down")
 	embedder := &inference.MockProvider{
 		EmbedFunc: func(ctx context.Context, text string, task inference.EmbeddingTaskType) ([]float32, error) {
@@ -117,47 +117,47 @@ func TestCosineStage_EmbeddingFailureIsReportedAsGeneratingEmbedding(t *testing.
 		},
 	}
 	store := cosineStore(cosineADR("a", 1, 0))
-	s := stage.NewCosineStage(store, embedder, 0, 5)
+	s := node.NewCosineNode(store, embedder, 0, 5)
 
-	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 
-	var stageErr *stage.Error
-	if !errors.As(err, &stageErr) || stageErr.Action != "generating embedding" || !errors.Is(err, boom) {
-		t.Fatalf("err = %v, want a *stage.Error with action generating embedding wrapping the cause", err)
+	var nodeErr *node.Error
+	if !errors.As(err, &nodeErr) || nodeErr.Action != "generating embedding" || !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want a *node.Error with action generating embedding wrapping the cause", err)
 	}
 
-	if stageErr.Kind != stage.KindUnavailable {
-		t.Errorf("Kind = %v, want %v", stageErr.Kind, stage.KindUnavailable)
+	if nodeErr.Kind != node.KindUnavailable {
+		t.Errorf("Kind = %v, want %v", nodeErr.Kind, node.KindUnavailable)
 	}
 }
 
-func TestCosineStage_MissingEmbedderIsPreconditionNotMet(t *testing.T) {
+func TestCosineNode_MissingEmbedderIsPreconditionNotMet(t *testing.T) {
 	store := cosineStore(cosineADR("a", 1, 0))
-	s := stage.NewCosineStage(store, nil, 0, 5)
+	s := node.NewCosineNode(store, nil, 0, 5)
 
-	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	_, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 
-	var stageErr *stage.Error
-	if !errors.As(err, &stageErr) || stageErr.Kind != stage.KindPreconditionNotMet {
-		t.Fatalf("err = %v, want a *stage.Error of kind precondition_not_met", err)
+	var nodeErr *node.Error
+	if !errors.As(err, &nodeErr) || nodeErr.Kind != node.KindPreconditionNotMet {
+		t.Fatalf("err = %v, want a *node.Error of kind precondition_not_met", err)
 	}
 }
 
 func TestKind_String(t *testing.T) {
-	if got := stage.KindUnavailable.String(); got != "unavailable" {
+	if got := node.KindUnavailable.String(); got != "unavailable" {
 		t.Errorf("KindUnavailable = %q", got)
 	}
 
-	if got := stage.KindPreconditionNotMet.String(); got != "precondition_not_met" {
+	if got := node.KindPreconditionNotMet.String(); got != "precondition_not_met" {
 		t.Errorf("KindPreconditionNotMet = %q", got)
 	}
 }
 
-func TestCosineStage_OmittedADRsScoreBelowAZeroThreshold(t *testing.T) {
+func TestCosineNode_OmittedADRsScoreBelowAZeroThreshold(t *testing.T) {
 	store := cosineStore(cosineADR("opposite", -1, 0), cosineADR("orthogonal", 0, 1))
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0, 5)
 
-	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -167,15 +167,15 @@ func TestCosineStage_OmittedADRsScoreBelowAZeroThreshold(t *testing.T) {
 	}
 }
 
-func TestCosineStage_KeepsSameIDDifferentPathADRsApart(t *testing.T) {
+func TestCosineNode_KeepsSameIDDifferentPathADRsApart(t *testing.T) {
 	near := cosineADR("dup", 1, 0)
 	near.RelPath = "docs/a/dup.md"
 	far := cosineADR("dup", 0, 1)
 	far.RelPath = "docs/b/dup.md"
 	store := cosineStore(near, far)
-	s := stage.NewCosineStage(store, queryEmbedder(1, 0), 0.5, 5)
+	s := node.NewCosineNode(store, queryEmbedder(1, 0), 0.5, 5)
 
-	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, stage.NoDebug, candidatesFor(t, store))
+	got, err := s.Apply(t.Context(), fakeFile{path: "svc.go"}, node.NoDebug, candidatesFor(t, store))
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

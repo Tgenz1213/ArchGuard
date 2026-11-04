@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tgenz1213/archguard/internal/analysis/stage"
+	"github.com/tgenz1213/archguard/internal/analysis/node"
 	"github.com/tgenz1213/archguard/internal/baseline"
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -25,8 +25,9 @@ type fileCheck struct {
 	fullContent string
 	mode        string
 	partial     bool
-	screenedOut bool
-	findings    fileResult
+	// The node that dropped this file's last candidates, when it was one that screens for violations.
+	screenedOutBy string
+	findings      fileResult
 }
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
@@ -61,9 +62,12 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 	}
 
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
-	// Top-K alone never empties a stage, so scored candidates that all dropped fell below a threshold.
-	fc.findings.screenedOut = fc.findings.withoutADR && fc.screenedOut
-	fc.findings.belowThreshold = fc.findings.withoutADR && scored && !fc.screenedOut
+	// Top-K alone never empties a node, so scored candidates that all dropped fell below a threshold.
+	if fc.findings.withoutADR {
+		fc.findings.screenedOutBy = fc.screenedOutBy
+	}
+
+	fc.findings.belowThreshold = fc.findings.withoutADR && scored && fc.screenedOutBy == ""
 	fc.findings.judged = !fc.partial && fc.findings.checks > 0
 	run.merge(&fc.findings)
 }
@@ -107,7 +111,7 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 	return true
 }
 
-func (fc *fileCheck) candidates() ([]stage.Candidate, bool) {
+func (fc *fileCheck) candidates() ([]node.Candidate, bool) {
 	source := fc.content
 	if fc.engine.JudgeChange {
 		source = fc.fullContent
@@ -122,51 +126,57 @@ func (fc *fileCheck) candidates() ([]stage.Candidate, bool) {
 	return hits, true
 }
 
-func (fc *fileCheck) score(ctx context.Context, hits []stage.Candidate) ([]stage.Candidate, bool) {
-	query := &queryFile{path: fc.file, content: fc.content, provider: fc.engine.Content, updateBaseline: fc.engine.UpdateBaseline}
+func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.Candidate, bool) {
+	query := &queryFile{
+		path:           fc.file,
+		content:        fc.content,
+		isDiff:         fc.engine.JudgeChange || fc.mode == "diff",
+		provider:       fc.engine.Content,
+		updateBaseline: fc.engine.UpdateBaseline,
+	}
 
-	for i, st := range fc.run.stages {
+	for i, pipelineNode := range fc.run.nodes {
 		var err error
 
 		received := len(hits)
 
 		hits, err = fc.run.telemetry.Apply(ctx, i, query, fc.out, hits)
-		if skipped, ok := errors.AsType[*stage.Skipped](err); ok {
-			fc.out.Warn("stage %s skipped, %d candidate(s) pass through unchanged: %s", st.Name, len(hits), scoringErrorMessage(skipped.Err))
+		if skipped, ok := errors.AsType[*node.Skipped](err); ok {
+			fc.out.Warn("node %s skipped, %d candidate(s) pass through unchanged: %s", pipelineNode.Name, len(hits), scoringErrorMessage(skipped.Err))
 			continue
 		}
 
-		if stage.KeyRejected(err) {
+		if node.KeyRejected(err) {
 			// The run reports this once and stops; a line per file would repeat it.
-			fc.run.rejectKey(newKeyRejectedError(st.Name, err))
+			fc.run.rejectKey(newKeyRejectedError(pipelineNode.Name, err))
 			return nil, false
 		}
 
 		if err != nil {
-			fc.failStage(st, err)
+			fc.failNode(pipelineNode, err)
 			return nil, false
 		}
 
-		if received > 0 && len(hits) == 0 {
-			fc.screenedOut = st.Screens
+		if received > 0 && len(hits) == 0 && pipelineNode.Screens {
+			fc.screenedOutBy = pipelineNode.Name
 		}
 	}
 
 	return hits, true
 }
 
-func (fc *fileCheck) failStage(st stage.Stage, err error) {
-	if !st.FailOnError {
+func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {
+	if !pipelineNode.FailOnError {
 		fc.skip(scoringErrorMessage(err))
 		return
 	}
 
-	failure := newStageFailure(st.Name, fc.file, err)
+	failure := newNodeFailure(pipelineNode.Name, fc.file, err)
 	fc.out.Error("%s", failureMessage(failure))
-	fc.run.addStageFailure(failure)
+	fc.run.addNodeFailure(failure)
 }
 
-func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
+func (fc *fileCheck) checkADR(ctx context.Context, hit node.Candidate) {
 	input := inference.DriftInput{ADRContent: hit.ADR.Content, CodeContext: fc.content, Filename: fc.file, Diff: fc.engine.JudgeChange}
 
 	if fc.engine.DryRun {
@@ -202,7 +212,7 @@ func (fc *fileCheck) checkADR(ctx context.Context, hit stage.Candidate) {
 	}
 }
 
-func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inference.DriftInput) (result *inference.AnalysisResult, cached bool, err error) {
+func (fc *fileCheck) analyze(ctx context.Context, hit node.Candidate, input inference.DriftInput) (result *inference.AnalysisResult, cached bool, err error) {
 	e := fc.engine
 	cacheKey := fc.analysisKey(hit)
 
@@ -229,7 +239,7 @@ func (fc *fileCheck) analyze(ctx context.Context, hit stage.Candidate, input inf
 	return result, false, nil
 }
 
-func (fc *fileCheck) analysisKey(hit stage.Candidate) string {
+func (fc *fileCheck) analysisKey(hit node.Candidate) string {
 	e := fc.engine
 
 	return cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
@@ -269,7 +279,7 @@ func (fc *fileCheck) cachedSuggestion(key string) (string, bool) {
 	return suggestion, found && suggestion != ""
 }
 
-func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {
+func (fc *fileCheck) judge(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult) {
 	record, keep := fc.locate(hit, result)
 	if !keep {
 		return
@@ -290,7 +300,7 @@ func (fc *fileCheck) judge(ctx context.Context, hit stage.Candidate, input infer
 	}
 }
 
-func (fc *fileCheck) locate(hit stage.Candidate, result *inference.AnalysisResult) (Violation, bool) {
+func (fc *fileCheck) locate(hit node.Candidate, result *inference.AnalysisResult) (Violation, bool) {
 	// Checked against the escaped content, which is what the LLM saw.
 	quote, where, line := fc.place(inference.EscapePromptDelimiter(fc.content), result.QuotedCode)
 
@@ -348,7 +358,7 @@ func (fc *fileCheck) find(content, quote string) (placement, int) {
 	return placedInFile, fc.engine.findLineNumber(content, quote)
 }
 
-func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.AnalysisResult, record Violation) {
+func (fc *fileCheck) recordBaselineEntry(hit node.Candidate, result *inference.AnalysisResult, record Violation) {
 	e := fc.engine
 
 	reason := e.BaselineReason
@@ -386,7 +396,7 @@ func (fc *fileCheck) recordBaselineEntry(hit stage.Candidate, result *inference.
 	})
 }
 
-func (fc *fileCheck) reportViolation(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult, record Violation) {
+func (fc *fileCheck) reportViolation(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult, record Violation) {
 	if record.unverified {
 		fc.out.Info("%s", violationLine(record, false))
 		fc.findings.unverified = append(fc.findings.unverified, record)
@@ -403,7 +413,7 @@ func (fc *fileCheck) reportViolation(ctx context.Context, hit stage.Candidate, i
 	fc.findings.records = append(fc.findings.records, record)
 }
 
-func (fc *fileCheck) suggestFix(ctx context.Context, hit stage.Candidate, input inference.DriftInput, result *inference.AnalysisResult) string {
+func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult) string {
 	e := fc.engine
 
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
