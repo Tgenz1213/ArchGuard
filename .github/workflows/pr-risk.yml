@@ -69,7 +69,7 @@ jobs:
       - name: Get the gate app's token
         id: gate
         continue-on-error: true
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.ARCHGUARD_GATE_APP_ID }}
           private-key: ${{ secrets.ARCHGUARD_GATE_PRIVATE_KEY }}
