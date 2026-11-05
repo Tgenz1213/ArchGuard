@@ -15,6 +15,8 @@ import (
 
 const askAction = "asking about candidates"
 
+var errInputTooLarge = fmt.Errorf("%w: the file and its rules are over the model's input limit", inference.ErrInputTooLarge)
+
 // RuleAsk scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
 type RuleAsk struct {
 	Asker inference.Asker
@@ -122,7 +124,7 @@ func ruleText(rule index.Rule) string {
 
 func askError(err error) error {
 	if errors.Is(err, inference.ErrInputTooLarge) {
-		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: err}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: errInputTooLarge}
 	}
 
 	if errors.Is(err, inference.ErrKeyRejected) {
