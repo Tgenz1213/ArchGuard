@@ -267,3 +267,18 @@ func TestRun_SuggestSkipNamesWhatWasJudged(t *testing.T) {
 		t.Errorf("suggested %q with output %q, want the truncated file skipped with its warning", p.suggested, out)
 	}
 }
+
+func TestRun_AnOversizedDiffIsSizedForTheSuggestionToo(t *testing.T) {
+	bigDiff := "@@ -0,0 +1,2 @@\n+import python_library\n+" + strings.Repeat("x", 200) + "\n"
+
+	p := newProfileProvider()
+	engine := profileEngine(t, p, &diffCapableContentProvider{content: profileFile + strings.Repeat("y", 4000), diff: bigDiff})
+	engine.Config.LLM.MaxTokens = 20
+	engine.SuggestFixes = true
+
+	out := captureOutput(engine, func() { runEngine(t, engine, true) })
+
+	if len(p.suggested) != 0 || !strings.Contains(out, "no suggestion for service.py: what was judged is over the suggest model's max_tokens (20)") {
+		t.Errorf("suggested %q with output %q, want the oversized diff skipped even on the judge's own profile", p.suggested, out)
+	}
+}

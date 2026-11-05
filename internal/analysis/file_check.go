@@ -486,7 +486,8 @@ func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
 	limit := tokenLimit(suggest)
 	code := suggestionCode{content: fc.content}
 
-	if suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
+	sizedForJudge := fc.mode == "full" || fc.mode == "truncated"
+	if sizedForJudge && suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
 		code.fits = true
 		return code
 	}
