@@ -22,7 +22,7 @@ Known gaps or deferred work, with an issue link if one exists.
 
 - [ ] Title follows Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `build(deps):`, etc.)
 - [ ] All acceptance criteria from the linked issue are met
-- [ ] `.github/scripts/coverage.sh 80` passes
+- [ ] Unit tests pass with the coverage gate (the command in `CLAUDE.md`)
 - [ ] `golangci-lint run --timeout=5m` is clean
 - [ ] `CLAUDE.md` or the matching `.claude/rules/` file updated if this changes build/test commands, adds or renames a top-level package, changes a cross-package interface, or adds a footgun
 - [ ] A new ADR added under `docs/arch/` if this makes an architectural decision: short, decision only, and superseding any ADR it changes rather than editing it (`docs/standards/guidance.md`)

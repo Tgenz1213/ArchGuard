@@ -68,9 +68,15 @@ jobs:
         if: ${{ !matrix.coverage }}
         run: go test -v -race -cover ./...
 
-      - name: Run Tests with the Coverage Gate
+      - name: Run Tests with Coverage
         if: ${{ matrix.coverage }}
-        run: .github/scripts/coverage.sh 80
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Check Coverage
+        if: ${{ matrix.coverage }}
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.testcoverage.yml
 
   integration:
     name: Integration Tests

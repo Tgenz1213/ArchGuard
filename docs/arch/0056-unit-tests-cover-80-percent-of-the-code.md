@@ -3,7 +3,7 @@ title: Unit tests cover 80% of the code
 status: Accepted
 scope:
   - ".github/workflows/checks.yml"
-  - ".github/scripts/**"
+  - ".testcoverage.yml"
 ---
 
 <!-- Write an ADR only for a decision, and keep it short. Never edit it once accepted: a changed decision gets a new ADR that supersedes this one. See docs/standards/guidance.md. -->

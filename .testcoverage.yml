@@ -1,0 +1,10 @@
+profile: coverage.out
+
+threshold:
+  total: 80
+
+exclude:
+  paths:
+    # Neither is shipped code: the mock binary the e2e tests run, and test helpers.
+    - ^cmd/archguard-e2e/
+    - ^internal/testutil/
