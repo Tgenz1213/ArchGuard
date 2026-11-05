@@ -196,7 +196,7 @@ func TestAskNode_InputTooLargeKeepsTheCauseOutOfTheMessage(t *testing.T) {
 	_, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no prints")})
 
 	if !errors.Is(err, cause) || !errors.Is(err, inference.ErrInputTooLarge) {
-		t.Errorf("err = %v, want it to wrap the asker's error", err)
+		t.Fatalf("err = %v, want it to wrap the asker's error", err)
 	}
 
 	if strings.Contains(err.Error(), rawBody) {

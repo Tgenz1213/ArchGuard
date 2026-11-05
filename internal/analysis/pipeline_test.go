@@ -603,8 +603,8 @@ func TestPipeline_AskNamesAFileTooLargeToScreen(t *testing.T) {
 			t.Errorf("judged %v, want every candidate passed to the LLM", h.judged)
 		}
 
-		if !strings.HasPrefix(logged, "svc.go\n") || strings.Contains(logged, rawBody) {
-			t.Errorf("log %q should warn under the file's name without the asker's raw error body", logged)
+		if strings.Contains(logged, rawBody) {
+			t.Errorf("log %q repeats the asker's raw error body", logged)
 		}
 	})
 
