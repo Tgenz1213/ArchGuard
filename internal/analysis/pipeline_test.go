@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -586,6 +587,43 @@ func TestPipeline_AskFailRecordsANodeFailure(t *testing.T) {
 	if len(h.judged) != 0 || len(h.engine.NodeFailures) != 1 || h.engine.NodeFailures[0].Node != "breaks-a-rule" {
 		t.Errorf("judged %v, failures %+v; want nothing judged and one breaks-a-rule failure", h.judged, h.engine.NodeFailures)
 	}
+}
+
+func TestPipeline_AskNamesAFileTooLargeToScreen(t *testing.T) {
+	const rawBody = `{"detail":{"error_type":"max_tokens_exceeded"}}`
+
+	tooLarge := askerFunc(func(string, map[string]string) (map[string]float64, error) {
+		return nil, fmt.Errorf("jev api error: 400 Bad Request: %s: %w", rawBody, inference.ErrInputTooLarge)
+	})
+
+	t.Run("skip", func(t *testing.T) {
+		h, logged := runAsk(t, askRun{}, tooLarge)
+
+		if len(h.judged) != 3 {
+			t.Errorf("judged %v, want every candidate passed to the LLM", h.judged)
+		}
+
+		if strings.Contains(logged, rawBody) {
+			t.Errorf("log %q repeats the asker's raw error body", logged)
+		}
+	})
+
+	t.Run("fail", func(t *testing.T) {
+		h, _ := runAsk(t, askRun{onError: config.OnErrorFail}, tooLarge)
+
+		if len(h.engine.NodeFailures) != 1 {
+			t.Fatalf("failures = %+v, want one", h.engine.NodeFailures)
+		}
+
+		got := h.engine.NodeFailures[0]
+		if got.Node != "breaks-a-rule" || got.File != "svc.go" || got.Kind != node.KindPreconditionNotMet {
+			t.Errorf("failure = %+v, want a breaks-a-rule precondition failure for svc.go", got)
+		}
+
+		if got.Error == "" || strings.Contains(got.Error, rawBody) {
+			t.Errorf("failure error %q should give a reason without the asker's raw error body", got.Error)
+		}
+	})
 }
 
 // askerBreaking answers 0.9 to every question about a state containing code, 0.05 otherwise, and records each state.
