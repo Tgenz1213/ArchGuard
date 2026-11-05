@@ -133,7 +133,7 @@ func decodeChoice(prefix, key string, fields map[string]yaml.Node, allowed []str
 func checkKeys(prefix string, fields map[string]yaml.Node, allowed []string) error {
 	for _, key := range slices.Sorted(maps.Keys(fields)) {
 		if !slices.Contains(allowed, key) {
-			return fmt.Errorf("%s: %q is a setting not allowed on the node (allowed: %s)", prefix, key, strings.Join(allowed, ", "))
+			return fmt.Errorf("%s: %q is a setting not allowed here (allowed: %s)", prefix, key, strings.Join(allowed, ", "))
 		}
 	}
 

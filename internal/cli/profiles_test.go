@@ -140,7 +140,7 @@ func TestWithProfiles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var built []string
 
-			setup, err := withProfiles(setupWithProfiles(&built), tt.nodes)
+			setup, err := withProfiles(setupWithProfiles(&built), tt.nodes, true)
 			if err != nil {
 				t.Fatalf("withProfiles failed: %v", err)
 			}
@@ -164,14 +164,18 @@ func TestWithProfiles(t *testing.T) {
 	}
 }
 
-func TestWithProfiles_ChecksEachProfilesCosts(t *testing.T) {
+func TestWithProfiles_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
 	var built []string
 
-	half := config.LLMConfig{Provider: "claude", Model: "big", CostPer1KInputTokens: new(0.003)}
+	nodes := pipelineNodes("", config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, Profile: "cheap", LLM: config.LLMConfig{Provider: "openai", Model: "tiny"}})
 
-	_, err := withProfiles(setupWithProfiles(&built), pipelineNodes("strong", half, nil))
-	if err == nil || !strings.Contains(err.Error(), "llms.strong.cost_per_1k_input_tokens") {
-		t.Errorf("err = %v, want the cost-pair error naming llms.strong", err)
+	setup, err := withProfiles(setupWithProfiles(&built), nodes, false)
+	if err != nil {
+		t.Fatalf("withProfiles failed: %v", err)
+	}
+
+	if len(built) != 0 || setup.suggestChat.(namedChat).name != "main" {
+		t.Errorf("built %v with suggest chat %v, want nothing built, so an unused profile's missing key never warns", built, setup.suggestChat)
 	}
 }
 
@@ -181,7 +185,7 @@ func TestWithProfiles_NamesTheProfileOnABuildError(t *testing.T) {
 		chatFor: func(config.LLMConfig) (inference.Chatter, error) { return nil, errors.New("unknown provider: voyage") },
 	}
 
-	_, err := withProfiles(setup, pipelineNodes("embedder", config.LLMConfig{Provider: "voyage"}, nil))
+	_, err := withProfiles(setup, pipelineNodes("embedder", config.LLMConfig{Provider: "voyage"}, nil), true)
 	if err == nil || !strings.Contains(err.Error(), "llms.embedder: unknown provider: voyage") {
 		t.Errorf("err = %v, want the build error naming llms.embedder", err)
 	}

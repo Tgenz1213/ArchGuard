@@ -69,7 +69,29 @@ func decodeProfile(prefix string, node *yaml.Node) (LLMConfig, error) {
 		return LLMConfig{}, fmt.Errorf("%s: provider is required", prefix)
 	}
 
-	return profile, nil
+	return profile, profile.CheckCosts(prefix)
+}
+
+// CheckCosts requires both chat prices or neither, since a cost from one side alone would understate the run.
+func (llm LLMConfig) CheckCosts(block string) error {
+	prices := []struct {
+		key   string
+		value *float64
+	}{
+		{block + ".cost_per_1k_input_tokens", llm.CostPer1KInputTokens},
+		{block + ".cost_per_1k_output_tokens", llm.CostPer1KOutputTokens},
+	}
+	for _, price := range prices {
+		if price.value != nil && *price.value < 0 {
+			return fmt.Errorf("%s cannot be negative, got %v", price.key, *price.value)
+		}
+	}
+
+	if (llm.CostPer1KInputTokens == nil) != (llm.CostPer1KOutputTokens == nil) {
+		return fmt.Errorf("set both %s.cost_per_1k_input_tokens and %s.cost_per_1k_output_tokens, or neither", block, block)
+	}
+
+	return nil
 }
 
 func llmKeys() []string {

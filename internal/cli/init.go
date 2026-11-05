@@ -242,6 +242,7 @@ llm:
 #     provider: "claude"
 #     model: "<model>"
 #     max_tokens: 150000
+#     temperature: 0.0
 
 vector_store:
   provider: "ollama"

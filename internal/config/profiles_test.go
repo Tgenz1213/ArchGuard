@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const strongProfile = "llms:\n  strong:\n    provider: claude\n    model: big\n    max_tokens: 150000\n    cost_per_1k_input_tokens: 0.003\n"
+const strongProfile = "llms:\n  strong:\n    provider: claude\n    model: big\n    max_tokens: 150000\n    cost_per_1k_input_tokens: 0.003\n    cost_per_1k_output_tokens: 0.015\n"
 
 const suggestNode = `
     - name: suggest
@@ -76,6 +76,8 @@ func TestParsePipeline_InvalidProfiles(t *testing.T) {
 		{"bad profile name", "llms:\n  \"two words\":\n    provider: claude\n", withJudgeProfile, []string{`llms.two words`, "letters, digits"}},
 		{"unknown key", "llms:\n  strong:\n    provider: claude\n    modle: big\n", withJudgeProfile, []string{"llms.strong", `"modle"`}},
 		{"missing provider", "llms:\n  strong:\n    model: big\n", withJudgeProfile, []string{"llms.strong", "provider is required"}},
+		{"one price only", "llms:\n  unused:\n    provider: claude\n    cost_per_1k_input_tokens: 0.003\n", "  pipeline:" + shortlistNode + judgeNode, []string{"llms.unused.cost_per_1k_input_tokens", "llms.unused.cost_per_1k_output_tokens", "or neither"}},
+		{"negative price", "llms:\n  unused:\n    provider: claude\n    cost_per_1k_input_tokens: -1\n    cost_per_1k_output_tokens: 1\n", "  pipeline:" + shortlistNode + judgeNode, []string{"llms.unused.cost_per_1k_input_tokens", "negative"}},
 		{"wrong type", "llms:\n  strong:\n    provider: claude\n    max_tokens: lots\n", withJudgeProfile, []string{"llms.strong", "`lots`"}},
 		{"unknown profile", strongProfile, "  pipeline:" + shortlistNode + judgeNode + "      llm: weak\n", []string{`node "judge".llm`, `"weak"`, "available: strong"}},
 		{"no profiles at all", "", withJudgeProfile, []string{`node "judge".llm`, `"strong"`, "add it under llms:"}},

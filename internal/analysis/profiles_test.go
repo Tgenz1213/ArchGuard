@@ -189,3 +189,81 @@ func TestRun_SuggestCountErrorSkipsTheSuggestion(t *testing.T) {
 		t.Errorf("output %q, want the count error named with the file", out)
 	}
 }
+
+func TestRun_SuggestionFromTheDiffIsCachedApart(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New failed: %v", err)
+	}
+
+	suggestWith := func(maxTokens int) *profileProvider {
+		p := newProfileProvider()
+		engine := profileEngine(t, p, &diffCapableContentProvider{content: profileFile, diff: profileDiff})
+		engine.Cache = c
+		engine.SuggestFixes = true
+		engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: maxTokens}
+
+		_ = captureOutput(engine, func() { runEngine(t, engine, true) })
+
+		return p
+	}
+
+	if p := suggestWith(10); len(p.suggested) != 1 || strings.Contains(p.suggested[0], "long tail") {
+		t.Fatalf("suggested %q, want one suggestion from the diff", p.suggested)
+	}
+
+	if p := suggestWith(1000); len(p.suggested) != 1 || !strings.Contains(p.suggested[0], "long tail") {
+		t.Errorf("suggested %q, want a fresh suggestion from the whole file, not the one cached from the diff", p.suggested)
+	}
+}
+
+func TestRun_SuggestionIsSizedOncePerFile(t *testing.T) {
+	second := goLangADR()
+	second.ID, second.Title = "0002", "Use Go everywhere"
+
+	store := goLangStore()
+	store.ADRs = append(store.ADRs, second)
+
+	p := newProfileProvider()
+	cfg := &config.Config{
+		LLM:         config.LLMConfig{Provider: "ollama", Model: "small", MaxTokens: 1000},
+		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
+		Analysis:    config.Analysis{ExcludePatterns: []string{}},
+	}
+	engine := newEngine(t, cfg, store, both(p), &fallbackOnlyContentProvider{files: map[string]string{"service.py": profileFile}})
+	engine.Cache = nil
+	engine.SuggestFixes = true
+	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
+
+	counts := 0
+	suggest := newProfileProvider()
+	suggest.CountTokensFunc = func(_ context.Context, text string) (int, error) {
+		counts++
+		return len(text) / 4, nil
+	}
+	engine.SuggestChat = suggest
+
+	out := captureOutput(engine, func() { runEngine(t, engine, true) })
+
+	if len(engine.CollectedViolations) != 2 {
+		t.Fatalf("violations = %d, want 2", len(engine.CollectedViolations))
+	}
+
+	if counts != 1 || strings.Count(out, "no suggestion for service.py") != 1 {
+		t.Errorf("counted %d times and warned %d times, want once each per file", counts, strings.Count(out, "no suggestion for service.py"))
+	}
+}
+
+func TestRun_SuggestSkipNamesWhatWasJudged(t *testing.T) {
+	p := newProfileProvider()
+	engine := profileEngine(t, p, &fallbackOnlyContentProvider{files: map[string]string{"service.py": profileFile}})
+	engine.Config.LLM.MaxTokens = 15
+	engine.SuggestFixes = true
+	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 2}
+
+	out := captureOutput(engine, func() { runEngine(t, engine, true) })
+
+	if len(p.suggested) != 0 || !strings.Contains(out, "no suggestion for service.py: what was judged is over the suggest model's max_tokens (2)") {
+		t.Errorf("suggested %q with output %q, want the truncated file skipped with its warning", p.suggested, out)
+	}
+}

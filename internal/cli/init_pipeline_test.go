@@ -183,3 +183,15 @@ func TestSpliceDefaultPipeline_ReportsAListCheckRejects(t *testing.T) {
 		t.Errorf("splice = %+v, err %v; want alreadyList with the pipeline's error", splice, err)
 	}
 }
+
+func TestSpliceDefaultPipeline_IgnoresABadJevOrLLMsBlock(t *testing.T) {
+	for _, block := range []string{"llms:\n  strong:\n    model: big\n", "jev:\n  model: [a]\n"} {
+		splice, err := spliceDefaultPipeline([]byte(block + "analysis:\n  pipeline:\n    rank:\n      threshold: 0.7\n"))
+		if err != nil {
+			t.Errorf("%q: %v, want the splice, since check reports the block", block, err)
+			continue
+		}
+
+		assertPipelineParses(t, []byte(strings.Replace(string(splice.result), block, "", 1)))
+	}
+}

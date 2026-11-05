@@ -277,6 +277,7 @@ llms:
     provider: claude
     model: <model>
     max_tokens: 150000
+    temperature: 0.0
 
 analysis:
   pipeline:
@@ -294,6 +295,7 @@ analysis:
       with: llm
 ```
 
+- **A profile inherits nothing from `llm`.** Set `temperature`, `system_prompt` and the prices on the profile itself; one left out takes the provider's or ArchGuard's default, not the `llm` block's value.
 - **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them, as before. It comes right after the judge, and a pipeline has at most one.
 - **The API key.** A profile on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A profile on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
 - **The judge's profile sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.

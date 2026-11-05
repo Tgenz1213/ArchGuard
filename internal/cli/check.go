@@ -44,7 +44,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitConfig, err
 	}
 
-	if setup, err = withProfiles(setup, nodes); err != nil {
+	if setup, err = withProfiles(setup, nodes, opts.SuggestFixes); err != nil {
 		return ExitConfig, err
 	}
 
@@ -114,20 +114,19 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.A
 	return nodes, askers, nil
 }
 
-// withProfiles gives the judge and suggest steps the Chatter of their own LLM profile, reusing one wherever two nodes share a profile.
-func withProfiles(setup runSetup, nodes []config.Node) (runSetup, error) {
+// withProfiles gives the judge, and the suggest step under --suggest-fixes, the Chatter of their own LLM profile, reusing one wherever two nodes share a profile.
+func withProfiles(setup runSetup, nodes []config.Node, suggestFixes bool) (runSetup, error) {
 	judge, suggest := config.JudgeNode(nodes), config.SuggestNode(nodes)
+	if !suggestFixes {
+		suggest = judge
+	}
+
 	setup.judgeLLM, setup.suggestLLM = judge.LLM, suggest.LLM
-	setup.suggestChat = setup.chat
 
 	built := map[string]inference.Chatter{"": setup.chat}
 	for _, n := range []config.Node{judge, suggest} {
 		if _, ok := built[n.Profile]; ok {
 			continue
-		}
-
-		if err := validateChatCosts("llms."+n.Profile, n.LLM); err != nil {
-			return setup, err
 		}
 
 		chat, err := setup.chatFor(n.LLM)

@@ -55,7 +55,7 @@ type Engine struct {
 	SuggestFixes bool
 	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
 	SuggestChat inference.Chatter
-	// The judge's and the suggest step's profiles; a zero value means Config.LLM.
+	// With no Provider, JudgeLLM is Config.LLM and SuggestLLM is the judge's.
 	JudgeLLM   config.LLMConfig
 	SuggestLLM config.LLMConfig
 	Nodes      []node.Node

@@ -137,26 +137,5 @@ func validateCosts(cfg *config.Config) error {
 		return fmt.Errorf("vector_store.cost_per_1k_tokens cannot be negative, got %v", *cfg.VectorStore.CostPer1KTokens)
 	}
 
-	return validateChatCosts("llm", cfg.LLM)
-}
-
-func validateChatCosts(block string, llm config.LLMConfig) error {
-	prices := []struct {
-		key   string
-		value *float64
-	}{
-		{block + ".cost_per_1k_input_tokens", llm.CostPer1KInputTokens},
-		{block + ".cost_per_1k_output_tokens", llm.CostPer1KOutputTokens},
-	}
-	for _, price := range prices {
-		if price.value != nil && *price.value < 0 {
-			return fmt.Errorf("%s cannot be negative, got %v", price.key, *price.value)
-		}
-	}
-
-	if (llm.CostPer1KInputTokens == nil) != (llm.CostPer1KOutputTokens == nil) {
-		return fmt.Errorf("set both %s.cost_per_1k_input_tokens and %s.cost_per_1k_output_tokens, or neither", block, block)
-	}
-
-	return nil
+	return cfg.LLM.CheckCosts("llm")
 }

@@ -28,6 +28,13 @@ type fileCheck struct {
 	// The node that dropped this file's last candidates, when it was one that screens for violations.
 	screenedOutBy string
 	findings      fileResult
+	suggestion    *suggestionCode
+}
+
+// suggestionCode is the code every suggestion for the file is written from, sized once per file.
+type suggestionCode struct {
+	content string
+	fits    bool
 }
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
@@ -417,11 +424,18 @@ func (fc *fileCheck) reportViolation(ctx context.Context, hit node.Candidate, in
 func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult) string {
 	e := fc.engine
 
+	code := fc.suggestionCode(ctx)
+	if !code.fits {
+		return ""
+	}
+
+	input.CodeContext = code.content
+
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
 		Provider:                 e.suggestLLM().Provider,
 		ModelName:                e.suggestLLM().Model,
 		ADRContent:               hit.ADR.Content,
-		FileContent:              fc.content,
+		FileContent:              code.content,
 		Filename:                 fc.file,
 		Reasoning:                result.Reasoning,
 		QuotedCode:               result.QuotedCode,
@@ -434,11 +448,6 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 
 	if found {
 		return cached
-	}
-
-	input, fits := fc.suggestionInput(ctx, input)
-	if !fits {
-		return ""
 	}
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
@@ -463,35 +472,45 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	return suggestion
 }
 
-// suggestionInput fits the judged content to the suggest profile's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
-func (fc *fileCheck) suggestionInput(ctx context.Context, input inference.DriftInput) (inference.DriftInput, bool) {
-	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
-	limit := tokenLimit(suggest)
-
-	if suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
-		return input, true
+func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
+	if fc.suggestion == nil {
+		fc.suggestion = new(fc.sizeSuggestion(ctx))
 	}
 
-	fits, err := fc.fitsSuggestion(ctx, input.CodeContext, limit)
+	return *fc.suggestion
+}
+
+// sizeSuggestion fits the judged content to the suggest profile's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
+func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
+	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
+	limit := tokenLimit(suggest)
+	code := suggestionCode{content: fc.content}
+
+	if suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
+		code.fits = true
+		return code
+	}
+
+	fits, err := fc.fitsSuggestion(ctx, fc.content, limit)
 	if err == nil && !fits && fc.mode == "full" {
 		var diff string
 		if diff, fits, err = fc.diffForSuggestion(ctx, limit); fits {
-			input.CodeContext = diff
+			code.content = diff
 		}
 	}
 
-	if err != nil {
+	switch {
+	case err != nil:
 		fc.out.Warn("no suggestion for %s: %v", fc.file, err)
-		return input, false
+	case fits:
+		code.fits = true
+	case fc.mode == "full":
+		fc.out.Warn("no suggestion for %s: it is over the suggest model's max_tokens (%d) and has no diff that fits", fc.file, limit)
+	default:
+		fc.out.Warn("no suggestion for %s: what was judged is over the suggest model's max_tokens (%d)", fc.file, limit)
 	}
 
-	if fits {
-		return input, true
-	}
-
-	fc.out.Warn("no suggestion for %s: it is over the suggest model's max_tokens (%d) and has no diff that fits", fc.file, limit)
-
-	return input, false
+	return code
 }
 
 // A file with no diff, or one git can't read, has nothing to fall back to, as in fetchContext.
