@@ -37,6 +37,10 @@ func (f *fakeAsker) Ask(_ context.Context, state string, questions map[string]st
 	return answers, nil
 }
 
+func (f *fakeAsker) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	return nil, errors.New("this fake asks only about one text")
+}
+
 // Answers 0.9 to a question naming any of the given rule statements, 0.1 to the rest.
 func breaks(statements ...string) func(string) float64 {
 	return func(instructions string) float64 {
@@ -220,6 +224,10 @@ func (f askerFunc) Ask(_ context.Context, _ string, questions map[string]string)
 	return f(questions), nil
 }
 
+func (f askerFunc) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	return nil, errors.New("this fake asks only about one text")
+}
+
 func TestAskNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
 	s := node.NewAskNode(&fakeAsker{answer: breaks("no prints", "no globals")}, "", 0.3, 1)
 	var buf bytes.Buffer
@@ -290,6 +298,10 @@ type sideAsker func(state string, questions map[string]string) (map[string]float
 
 func (f sideAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
 	return f(state, questions)
+}
+
+func (f sideAsker) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	return nil, errors.New("this fake asks only about one text")
 }
 
 func TestRuleAsk_ASideMissingAnAnswerFails(t *testing.T) {

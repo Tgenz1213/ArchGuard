@@ -56,6 +56,12 @@ func (u unexpectedAsker) Ask(context.Context, string, map[string]string) (map[st
 	return nil, errors.New("no asker in this test")
 }
 
+func (u unexpectedAsker) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	u.t.Error("an ask node ran with no asker; build the nodes with one")
+
+	return nil, errors.New("no asker in this test")
+}
+
 // fixedAskers gives every ask node the same asker and records the models asked for.
 type fixedAskers struct {
 	asker  inference.Asker

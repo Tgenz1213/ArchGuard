@@ -81,6 +81,29 @@ func (mockJev) Ask(_ context.Context, state string, questions map[string]string)
 	return answers, nil
 }
 
+// AskAbout answers yes about an ADR entry holding MockJevBreaksTrigger, and fails or answers yes for every entry as Ask does for its one state.
+func (mockJev) AskAbout(_ context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
+	for _, entry := range state {
+		if strings.Contains(entry, testutil.MockJevRejectedKeyTrigger) {
+			return nil, &inference.JevError{Status: http.StatusUnauthorized}
+		}
+
+		if strings.Contains(entry, testutil.MockJevFailureTrigger) {
+			return nil, fmt.Errorf("mock jev failure (E2E trigger)")
+		}
+	}
+
+	answers := make(map[string]float64, len(questions))
+	for name := range questions {
+		answers[name] = 0.05
+		if strings.Contains(state[name], testutil.MockJevBreaksTrigger) || strings.Contains(state["code"], testutil.MockJevStateTrigger) {
+			answers[name] = 0.95
+		}
+	}
+
+	return answers, nil
+}
+
 // Markers print on invocation, not construction, so tests can prove a
 // call was routed to the right provider.
 func mockChat(stop context.CancelFunc) func(ctx context.Context, system, user string) (string, error) {

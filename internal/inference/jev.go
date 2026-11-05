@@ -76,6 +76,15 @@ func NewJevProviderWithBaseURL(apiKey, model, baseURL string, httpClient *http.C
 
 // Ask asks every yes/no question about state in one call and returns each answer's probability of yes, by question name.
 func (p *JevProvider) Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	return p.ask(ctx, state, questions)
+}
+
+// AskAbout sends state as a JSON object, so a question can name its entries.
+func (p *JevProvider) AskAbout(ctx context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
+	return p.ask(ctx, state, questions)
+}
+
+func (p *JevProvider) ask(ctx context.Context, state any, questions map[string]string) (map[string]float64, error) {
 	payload, err := p.requestBody(state, questions)
 	if err != nil {
 		return nil, err
@@ -102,7 +111,7 @@ func (p *JevProvider) Ask(ctx context.Context, state string, questions map[strin
 	}
 }
 
-func (p *JevProvider) requestBody(state string, questions map[string]string) ([]byte, error) {
+func (p *JevProvider) requestBody(state any, questions map[string]string) ([]byte, error) {
 	type question struct {
 		Type         string `json:"type"`
 		Instructions string `json:"instructions"`

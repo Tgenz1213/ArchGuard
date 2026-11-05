@@ -5,9 +5,11 @@ import (
 	"errors"
 )
 
-// Asker answers named yes/no questions about one text in a single call, with each answer's probability of yes.
+// Asker answers named yes/no questions in a single call, with each answer's probability of yes.
 type Asker interface {
 	Ask(ctx context.Context, state string, questions map[string]string) (map[string]float64, error)
+	// AskAbout asks about named texts, which the questions refer to by name.
+	AskAbout(ctx context.Context, state map[string]string, questions map[string]string) (map[string]float64, error)
 }
 
 // An Asker's error matches these with errors.Is, so callers never depend on which model answered. A rejected key stops the whole check, since no retry or pass-through fixes it.

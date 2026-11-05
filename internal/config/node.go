@@ -14,13 +14,24 @@ import (
 const (
 	QuestionNoul = "noul"
 	ForEachRule  = "rule"
+	ForEachADR   = "adr"
 )
 
-const PresetBreaksARule = "breaks-a-rule"
+const (
+	PresetBreaksARule = "breaks-a-rule"
+	PresetGoverns     = "governs"
+)
 
-const BreaksARuleInstructions = "Does this code break the following rule? {rule}"
+const (
+	BreaksARuleInstructions = "Does this code break the following rule? {rule}"
+	GovernsInstructions     = "Is {code} governed by the decision in {adr}?"
+)
 
-const breaksARuleThreshold = 0.3
+const (
+	breaksARuleThreshold = 0.3
+	governsThreshold     = 0.5
+	governsTopK          = 3
+)
 
 const maxNodeNameLength = 64
 
@@ -85,7 +96,7 @@ func parseNode(src nodeSource) (Node, error) {
 	case JobRank:
 		err = node.decodeRank(prefix, fields, src.cfg)
 	case JobAsk:
-		err = node.decodeAsk(prefix, fields, src.jev)
+		err = node.decodeAsk(prefix, fields, src.jev, src.position == 1)
 	case JobJudge, JobSuggest:
 		err = node.decodeLLM(prefix, fields, src.cfg)
 	}
@@ -178,7 +189,7 @@ func (n *Node) decodeOnErrorField(prefix string, fields map[string]yaml.Node) er
 	return err
 }
 
-func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, jev jevSettings) error {
+func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, jev jevSettings, first bool) error {
 	n.Model = jev.model
 
 	if value, ok := fields["model"]; ok {
@@ -196,7 +207,29 @@ func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, jev jevSett
 		return err
 	}
 
-	return n.decodeOnErrorField(prefix, fields)
+	if !first {
+		return n.decodeOnErrorField(prefix, fields)
+	}
+
+	return n.decodeFirstOnError(prefix, fields)
+}
+
+// A first ask node that skipped would pass every scope-matched ADR to the judge (docs/arch/0052).
+func (n *Node) decodeFirstOnError(prefix string, fields map[string]yaml.Node) error {
+	if err := n.decodeOnErrorField(prefix, fields); err != nil {
+		return err
+	}
+
+	if _, set := fields["on_error"]; !set {
+		n.OnError = OnErrorFail
+		return nil
+	}
+
+	if n.OnError == OnErrorSkip {
+		return fmt.Errorf("%s.on_error: skip isn't allowed on the first node, since it would pass every ADR whose scope matches to the judge; use fail", prefix)
+	}
+
+	return nil
 }
 
 func (n *Node) decodeQuestion(prefix string, fields map[string]yaml.Node) error {
@@ -216,12 +249,16 @@ func (n *Node) decodeQuestion(prefix string, fields map[string]yaml.Node) error 
 		return err
 	}
 
-	if preset != PresetBreaksARule {
-		return fmt.Errorf("%s.preset: unknown preset %q (available: %s)", prefix, preset, PresetBreaksARule)
+	switch preset {
+	case PresetBreaksARule:
+		n.Question = Question{Type: QuestionNoul, ForEach: ForEachRule, Instructions: BreaksARuleInstructions}
+		n.Threshold = breaksARuleThreshold
+	case PresetGoverns:
+		n.Question = Question{Type: QuestionNoul, ForEach: ForEachADR, Instructions: GovernsInstructions}
+		n.Threshold, n.TopK = governsThreshold, governsTopK
+	default:
+		return fmt.Errorf("%s.preset: unknown preset %q (available: %s, %s)", prefix, preset, PresetBreaksARule, PresetGoverns)
 	}
-
-	n.Question = Question{Type: QuestionNoul, ForEach: ForEachRule, Instructions: BreaksARuleInstructions}
-	n.Threshold = breaksARuleThreshold
 
 	return nil
 }
@@ -234,11 +271,11 @@ func (n *Node) decodeOwnQuestion(prefix string, fields map[string]yaml.Node) err
 	}
 
 	var err error
-	if n.Question.Type, err = decodeSupported(prefix, "type", fields, QuestionNoul, []string{"choice", "score"}); err != nil {
+	if n.Question.Type, err = decodeSupported(prefix, "type", fields, []string{QuestionNoul}, []string{"choice", "score"}); err != nil {
 		return err
 	}
 
-	if n.Question.ForEach, err = decodeSupported(prefix, "for_each", fields, ForEachRule, []string{"adr"}); err != nil {
+	if n.Question.ForEach, err = decodeSupported(prefix, "for_each", fields, []string{ForEachRule, ForEachADR}, nil); err != nil {
 		return err
 	}
 
@@ -247,11 +284,18 @@ func (n *Node) decodeOwnQuestion(prefix string, fields map[string]yaml.Node) err
 		return err
 	}
 
-	return checkRulePlaceholders(prefix, n.Question.Instructions)
+	if n.Question.ForEach == ForEachADR {
+		return checkPlaceholders(prefix, n.Question.Instructions, []string{"code", "adr"}, map[string]string{"rule": "for_each: adr asks about the whole ADR; use for_each: rule to ask per rule"})
+	}
+
+	return checkPlaceholders(prefix, n.Question.Instructions, []string{"rule"}, map[string]string{
+		"code": "the code is what is asked about with for_each: rule; write \"this code\" instead",
+		"adr":  "for_each: rule asks about one rule; use for_each: adr to ask about the whole ADR",
+	})
 }
 
-// decodeSupported accepts only the supported value, and names a planned value as not supported yet rather than unknown.
-func decodeSupported(prefix, key string, fields map[string]yaml.Node, supported string, planned []string) (string, error) {
+// decodeSupported accepts only a supported value, and names a planned value as not supported yet rather than unknown.
+func decodeSupported(prefix, key string, fields map[string]yaml.Node, supported, planned []string) (string, error) {
 	value := fields[key]
 
 	got, err := decodeString(prefix, key, &value)
@@ -259,32 +303,41 @@ func decodeSupported(prefix, key string, fields map[string]yaml.Node, supported 
 		return "", err
 	}
 
+	available := strings.Join(supported, ", ")
+
 	if slices.Contains(planned, got) {
-		return "", fmt.Errorf("%s.%s: %q is not supported yet (available: %s)", prefix, key, got, supported)
+		return "", fmt.Errorf("%s.%s: %q is not supported yet (available: %s)", prefix, key, got, available)
 	}
 
-	if got != supported {
-		return "", fmt.Errorf("%s.%s: unknown value %q (available: %s)", prefix, key, got, supported)
+	if !slices.Contains(supported, got) {
+		return "", fmt.Errorf("%s.%s: unknown value %q (available: %s)", prefix, key, got, available)
 	}
 
 	return got, nil
 }
 
-func checkRulePlaceholders(prefix, instructions string) error {
-	found := false
+// checkPlaceholders requires every placeholder in required and rejects the others, explaining the ones in misplaced.
+func checkPlaceholders(prefix, instructions string, required []string, misplaced map[string]string) error {
+	found := make(map[string]bool, len(required))
 	for _, match := range placeholderPattern.FindAllStringSubmatch(instructions, -1) {
-		switch match[1] {
-		case "rule":
-			found = true
-		case "code", "adr":
-			return fmt.Errorf("%s.instructions: {%s} isn't allowed with for_each: rule, since the code is what is asked about; write \"this code\" instead", prefix, match[1])
-		default:
-			return fmt.Errorf("%s.instructions: unknown placeholder {%s} (available: {rule})", prefix, match[1])
+		name := match[1]
+
+		if slices.Contains(required, name) {
+			found[name] = true
+			continue
 		}
+
+		if why, ok := misplaced[name]; ok {
+			return fmt.Errorf("%s.instructions: {%s} isn't allowed here: %s", prefix, name, why)
+		}
+
+		return fmt.Errorf("%s.instructions: unknown placeholder {%s} (available: {%s})", prefix, name, strings.Join(required, "}, {"))
 	}
 
-	if !found {
-		return fmt.Errorf("%s.instructions: must contain {rule}", prefix)
+	for _, name := range required {
+		if !found[name] {
+			return fmt.Errorf("%s.instructions: must contain {%s}", prefix, name)
+		}
 	}
 
 	return nil

@@ -15,10 +15,14 @@ import (
 
 const askAction = "asking about candidates"
 
-type inputTooLargeError struct{ err error }
+type inputTooLargeError struct {
+	err error
+	// What else was sent beside the file, since the model's error doesn't say which was too large.
+	alongside string
+}
 
 func (e *inputTooLargeError) Error() string {
-	return "the file or its rules are over the model's input limit"
+	return "the file or its " + e.alongside + " are over the model's input limit"
 }
 
 func (e *inputTooLargeError) Unwrap() error { return e.err }
@@ -31,10 +35,7 @@ type RuleAsk struct {
 }
 
 func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
-	scores := make([]float64, len(candidates))
-	for i := range scores {
-		scores[i] = math.Inf(1)
-	}
+	scores := unscoredByThisNode(len(candidates))
 
 	asked, owner := ruleQuestions(r.instructions(), candidates)
 	if len(asked) == 0 {
@@ -73,7 +74,7 @@ func (r *RuleAsk) askSides(ctx context.Context, sides []string, asked map[string
 
 		answers, err := r.Asker.Ask(ctx, side, asked)
 		if err != nil {
-			return nil, askError(err)
+			return nil, askError(err, "rules")
 		}
 
 		for name := range asked {
@@ -115,6 +116,15 @@ func ruleQuestions(instructions string, candidates []Candidate) (map[string]stri
 	return texts, owner
 }
 
+func unscoredByThisNode(n int) []float64 {
+	scores := make([]float64, n)
+	for i := range scores {
+		scores[i] = math.Inf(1)
+	}
+
+	return scores
+}
+
 func ruleText(rule index.Rule) string {
 	var text strings.Builder
 
@@ -131,9 +141,9 @@ func ruleText(rule index.Rule) string {
 	return text.String()
 }
 
-func askError(err error) error {
+func askError(err error, alongside string) error {
 	if errors.Is(err, inference.ErrInputTooLarge) {
-		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err}}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err, alongside: alongside}}
 	}
 
 	if errors.Is(err, inference.ErrKeyRejected) {
