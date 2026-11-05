@@ -207,11 +207,11 @@ func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, jev jevSett
 		return err
 	}
 
-	if !first {
-		return n.decodeOnErrorField(prefix, fields)
+	if first && narrowsFirst(*n) {
+		return n.decodeFirstOnError(prefix, fields)
 	}
 
-	return n.decodeFirstOnError(prefix, fields)
+	return n.decodeOnErrorField(prefix, fields)
 }
 
 // A first ask node that skipped would pass every scope-matched ADR to the judge (docs/arch/0052).

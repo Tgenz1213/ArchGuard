@@ -118,13 +118,25 @@ func TestADRAsk_SkipsAnEmptySide(t *testing.T) {
 	}
 }
 
-func TestADRAsk_AFileWithNoTextPassesItsCandidatesOn(t *testing.T) {
+func TestADRAskNode_AFileWithNoTextKeepsNothing(t *testing.T) {
 	asker := &stateAsker{answer: byContent(nil)}
 	n := node.NewADRAskNode(asker, config.GovernsInstructions, 0.5, 1)
 
 	kept, err := n.Apply(t.Context(), sidedFile{sides: []string{""}}, node.NoDebug, []node.Candidate{contentCandidate("a", "a"), contentCandidate("b", "b")})
-	if err != nil || len(kept) != 2 || len(asker.states) != 0 {
-		t.Errorf("kept = %d, err %v after %d calls; want both passed on without asking", len(kept), err, len(asker.states))
+	if err != nil || len(kept) != 0 || len(asker.states) != 0 {
+		t.Errorf("kept = %d, err %v after %d calls; want none kept without asking, so a first node never passes every ADR on", len(kept), err, len(asker.states))
+	}
+}
+
+func TestADRAsk_EmptyInstructionsAskTheGovernsQuestion(t *testing.T) {
+	asker := &stateAsker{answer: byContent(nil)}
+
+	if _, err := (&node.ADRAsk{Asker: asker}).Score(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{contentCandidate("a", "a")}); err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+
+	if got := asker.asked[0]["adr0"]; got != "Is `code` governed by the decision in `adr0`?" {
+		t.Errorf("question = %q, want the governs question", got)
 	}
 }
 
@@ -159,7 +171,7 @@ func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
 	_, err := (&node.ADRAsk{Asker: &stateAsker{err: tooLarge}, Instructions: config.GovernsInstructions}).Score(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{contentCandidate("a", "a")})
 
 	nodeErr, ok := errors.AsType[*node.Error](err)
-	if !ok || nodeErr.Kind != node.KindPreconditionNotMet || !errors.Is(err, inference.ErrInputTooLarge) || err.Error() != "the file or its candidate ADRs are over the model's input limit" {
+	if !ok || nodeErr.Kind != node.KindPreconditionNotMet || !errors.Is(err, inference.ErrInputTooLarge) || !strings.Contains(err.Error(), "candidate ADRs") {
 		t.Errorf("err = %v, want a too-large precondition error naming the candidate ADRs", err)
 	}
 

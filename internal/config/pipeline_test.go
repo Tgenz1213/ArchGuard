@@ -282,6 +282,7 @@ func TestParsePipeline_Invalid(t *testing.T) {
 		{"governs on a judge", "  pipeline:" + shortlistNode + judgeNode + "      preset: governs\n", []string{`node "judge"`, `"preset"`, "not allowed"}},
 		{"first ask asks per rule", "  pipeline:" + ask + "      type: noul\n      for_each: rule\n      instructions: \"{rule}\"\n      keep:\n        threshold: 0.3\n        top_k: 3\n" + judgeNode, []string{`"screen"`, "first node", "for_each: adr and a keep.top_k"}},
 		{"first ask without top_k", "  pipeline:" + ask + "      type: noul\n      for_each: adr\n      instructions: \"Is {code} governed by {adr}?\"\n      keep:\n        threshold: 0.5\n" + judgeNode, []string{`"screen"`, "first node", "keep.top_k"}},
+		{"first rule ask under skip names the order", "  pipeline:" + ask + "      preset: breaks-a-rule\n      on_error: skip\n" + judgeNode, []string{`"screen"`, "first node", "for_each: adr and a keep.top_k"}},
 		{"first ask under skip", "  pipeline:" + ask + "      preset: governs\n      on_error: skip\n" + judgeNode, []string{`node "screen".on_error`, "first node", "use fail"}},
 		{"instructions without rule", pipelineWith(ask + "      type: noul\n      for_each: rule\n      instructions: Is this bad?\n      keep:\n        threshold: 0.3\n"), []string{`node "screen".instructions`, "{rule}"}},
 		{"code placeholder", pipelineWith(ask + "      type: noul\n      for_each: rule\n      instructions: \"Does {code} break {rule}?\"\n      keep:\n        threshold: 0.3\n"), []string{`node "screen".instructions`, "{code}", "this code"}},
