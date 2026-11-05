@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/tgenz1213/archguard/internal/config"
 )
 
 const retiredPipelineConfig = "analysis:\n  adr_path: docs\n  pipeline:\n    rank:\n      top_k: 2\n"
@@ -94,6 +96,132 @@ func TestVerifySplice(t *testing.T) {
 
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func withStdin(t *testing.T, answers string) {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(path, []byte(answers), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdin, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orig := os.Stdin
+	os.Stdin = stdin
+
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = stdin.Close() //nolint:errcheck // a read-only test file
+	})
+}
+
+func TestExecute_InitInAFreshRepo(t *testing.T) {
+	tests := []struct {
+		name         string
+		answers      string
+		wantADRDir   bool
+		wantTemplate bool
+	}{
+		{"creates the ADR directory and template", "\ny\ny\n", true, true},
+		{"declines the template", "\ny\nn\n", true, false},
+		{"declines the ADR directory", "\nn\n", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupExecuteTestRepo(t)
+			withStdin(t, tt.answers)
+
+			if code, _ := runExecute(t, ProviderFactories{}, "init"); code != ExitSuccess {
+				t.Fatalf("init exit = %d, want %d", code, ExitSuccess)
+			}
+
+			cfg, err := config.LoadConfig(configFilename)
+			if err != nil {
+				t.Fatalf("init wrote a config that doesn't load: %v", err)
+			}
+
+			if _, err := config.ParsePipeline(cfg); err != nil {
+				t.Errorf("init wrote a pipeline check rejects: %v", err)
+			}
+
+			if _, err := os.Stat(defaultADRPath); (err == nil) != tt.wantADRDir {
+				t.Errorf("ADR directory exists = %v, want %v", err == nil, tt.wantADRDir)
+			}
+
+			if _, err := os.Stat(filepath.Join(defaultADRPath, "ADR_TEMPLATE.md")); (err == nil) != tt.wantTemplate {
+				t.Errorf("template exists = %v, want %v", err == nil, tt.wantTemplate)
+			}
+
+			if info, err := os.Stat(filepath.Join(".archguard", "cache")); err != nil || !info.IsDir() {
+				t.Errorf("init made no .archguard/cache directory: %v", err)
+			}
+
+			if gitignore, err := os.ReadFile(".gitignore"); err != nil || string(gitignore) != ".archguard/\n" {
+				t.Errorf(".gitignore = %q, %v; want only the .archguard/ entry", gitignore, err)
+			}
+		})
+	}
+}
+
+func TestExecute_InitUsesAnExistingADRDirectory(t *testing.T) {
+	setupExecuteTestRepo(t)
+
+	if err := os.MkdirAll("adrs", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	withStdin(t, "adrs\n")
+
+	if code, _ := runExecute(t, ProviderFactories{}, "init"); code != ExitSuccess {
+		t.Fatalf("init exit = %d, want %d", code, ExitSuccess)
+	}
+
+	cfg, err := config.LoadConfig(configFilename)
+	if err != nil {
+		t.Fatalf("init wrote a config that doesn't load: %v", err)
+	}
+
+	if cfg.Analysis.ADRPath != "adrs" {
+		t.Errorf("analysis.adr_path = %q, want adrs", cfg.Analysis.ADRPath)
+	}
+}
+
+func TestEnsureGitignore(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing string
+		want     string
+	}{
+		{"adds the entry after a last line with no newline", "bin/", "bin/\n.archguard/\n"},
+		{"adds the entry after a last line with a newline", "bin/\n", "bin/\n.archguard/\n"},
+		{"leaves an existing entry alone", "bin/\n  .archguard/  \n", "bin/\n  .archguard/  \n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
+			if err := os.WriteFile(".gitignore", []byte(tt.existing), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			captureStdout(t, func() {
+				if err := ensureGitignore(); err != nil {
+					t.Errorf("ensureGitignore failed: %v", err)
+				}
+			})
+
+			if got, err := os.ReadFile(".gitignore"); err != nil || string(got) != tt.want {
+				t.Errorf(".gitignore = %q, %v; want %q", got, err, tt.want)
 			}
 		})
 	}

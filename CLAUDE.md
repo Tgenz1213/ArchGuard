@@ -15,7 +15,7 @@ It ships two ways: as a CLI binary a developer runs locally (e.g. as a pre-commi
 - Run the unit tests: `go test ./...`
 - Run the Postgres integration tests (requires Docker): `go test -tags integration ./internal/index`
 - Run the e2e tests: `go test -tags e2e ./test/e2e`
-- Run unit tests with race + coverage (matches CI): `go test -v -race -cover ./...`
+- Run unit tests with the coverage gate (matches CI's Ubuntu run): `go test -race -coverprofile=coverage.out ./... && go run github.com/vladopajic/go-test-coverage/v2@v2.21.0 --config=.testcoverage.yml`
 - Run a single test: `go test ./internal/analysis -run TestName -v`
 - Lint (matches CI): `golangci-lint run --timeout=5m`
 - Local release dry-run: `goreleaser release --snapshot --clean`

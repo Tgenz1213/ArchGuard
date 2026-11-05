@@ -278,3 +278,91 @@ func TestGetDiffSince_ARenamedFileShowsOnlyItsRealChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestStagedAndWorktreeContent(t *testing.T) {
+	dir := initTestRepo(t)
+
+	writeFile(t, dir, "main.go", "package main\n")
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "add main.go")
+
+	writeFile(t, dir, "main.go", "package main\n\nfunc staged() {}\n")
+	runGit(t, dir, "add", "main.go")
+	writeFile(t, dir, "main.go", "package main\n\nfunc staged() {}\n\nfunc unstaged() {}\n")
+
+	content, err := GetStagedFileContent(t.Context(), "main.go")
+	if err != nil {
+		t.Fatalf("GetStagedFileContent failed: %v", err)
+	}
+
+	if content != "package main\n\nfunc staged() {}\n" {
+		t.Errorf("GetStagedFileContent = %q, want the staged copy", content)
+	}
+
+	staged, err := GetStagedDiff(t.Context(), "main.go")
+	if err != nil {
+		t.Fatalf("GetStagedDiff failed: %v", err)
+	}
+
+	if !strings.Contains(staged, "+func staged() {}") || strings.Contains(staged, "unstaged") {
+		t.Errorf("GetStagedDiff holds more or less than the staged change:\n%s", staged)
+	}
+
+	worktree, err := GetWorktreeDiff(t.Context(), "main.go")
+	if err != nil {
+		t.Fatalf("GetWorktreeDiff failed: %v", err)
+	}
+
+	if !strings.Contains(worktree, "+func unstaged() {}") || strings.Contains(worktree, "+func staged() {}") {
+		t.Errorf("GetWorktreeDiff holds more or less than the unstaged change:\n%s", worktree)
+	}
+}
+
+func TestGetStagedFileContent_UnstagedFileFails(t *testing.T) {
+	dir := initTestRepo(t)
+	writeFile(t, dir, "new.go", "package main\n")
+
+	if _, err := GetStagedFileContent(t.Context(), "new.go"); err == nil {
+		t.Error("GetStagedFileContent succeeded for a file that is not staged")
+	}
+}
+
+func TestGetRepoRoot_FromSubdirectory(t *testing.T) {
+	dir := initTestRepo(t)
+
+	sub := filepath.Join(dir, "a", "b")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(sub)
+
+	root, err := GetRepoRoot(t.Context())
+	if err != nil {
+		t.Fatalf("GetRepoRoot failed: %v", err)
+	}
+
+	want, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("GetRepoRoot returned %q, which can't be read: %v", root, err)
+	}
+
+	if !os.SameFile(got, want) {
+		t.Errorf("GetRepoRoot = %q, want %q", root, dir)
+	}
+}
+
+func TestGetRepoRoot_OutsideARepoFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+
+	if _, err := GetRepoRoot(t.Context()); err == nil {
+		t.Error("GetRepoRoot succeeded outside a git repository")
+	}
+}

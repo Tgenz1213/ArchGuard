@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -212,5 +214,40 @@ func TestLocalProvider_GetADRs_WarnsWhenIDPatternMatchesNoFile(t *testing.T) {
 				t.Errorf("warned = %v, want %v; output %q", warned, tt.wantWarn, buf.String())
 			}
 		})
+	}
+}
+
+func TestLocalProvider_GetADRs_RespectsFrontmatterMappings(t *testing.T) {
+	dir := t.TempDir()
+	writeADRFile(t, dir, "0001-use-go.md", "---\ntitle: Use Go\nstatus: Accepted\napplies_to: \"**/*.go\"\n---\nWe will use Go.")
+
+	provider := NewLocalProvider(dir, []string{"Accepted"})
+	provider.SetFrontmatterMappings(map[string]string{"scope": "applies_to"})
+
+	adrs, _, err := provider.GetADRs(t.Context())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(adrs) != 1 || !slices.Equal(adrs[0].Scope, ScopePatterns{"**/*.go"}) {
+		t.Errorf("expected scope [\"**/*.go\"] read via mapped applies_to key, got %+v", adrs)
+	}
+}
+
+func TestLocalProvider_GetADRs_CustomRulesHeading(t *testing.T) {
+	dir := t.TempDir()
+	writeADRFile(t, dir, "0001-use-go.md", "---\ntitle: Use Go\nstatus: Accepted\n---\n## Rules\n\n- Not a rule here.\n\n## Detection\n\n- All code MUST be written in Go.\n- Errors MUST be compared with errors.Is.\n")
+
+	provider := NewLocalProvider(dir, []string{"Accepted"})
+	provider.SetRulesHeading("Detection")
+
+	adrs, _, err := provider.GetADRs(t.Context())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := statements("All code MUST be written in Go.", "Errors MUST be compared with errors.Is.")
+	if len(adrs) != 1 || !reflect.DeepEqual(adrs[0].Rules, want) {
+		t.Errorf("expected the rules under Detection, got %+v", adrs)
 	}
 }
