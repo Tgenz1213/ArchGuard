@@ -186,6 +186,24 @@ func TestAskNode_Errors(t *testing.T) {
 	}
 }
 
+func TestAskNode_InputTooLargeKeepsTheCauseOutOfTheMessage(t *testing.T) {
+	const rawBody = `{"detail":{"error_type":"max_tokens_exceeded"}}`
+
+	cause := fmt.Errorf("jev api error: 400 Bad Request: %s: %w", rawBody, inference.ErrInputTooLarge)
+	s := node.NewAskNode(&fakeAsker{err: cause}, "", 0.3, 0)
+	s.FailOnError = true
+
+	_, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no prints")})
+
+	if !errors.Is(err, cause) || !errors.Is(err, inference.ErrInputTooLarge) {
+		t.Errorf("err = %v, want it to wrap the asker's error", err)
+	}
+
+	if strings.Contains(err.Error(), rawBody) {
+		t.Errorf("err = %q, want the asker's raw body left out of the message", err)
+	}
+}
+
 func TestAskNode_MissingAnswerIsAnError(t *testing.T) {
 	asker := askerFunc(func(map[string]string) map[string]float64 { return map[string]float64{} })
 	s := node.NewAskNode(asker, "", 0.3, 0)

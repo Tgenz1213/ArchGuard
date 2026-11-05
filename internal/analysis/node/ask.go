@@ -15,7 +15,13 @@ import (
 
 const askAction = "asking about candidates"
 
-var errInputTooLarge = fmt.Errorf("%w: the file and its rules are over the model's input limit", inference.ErrInputTooLarge)
+type inputTooLargeError struct{ err error }
+
+func (e *inputTooLargeError) Error() string {
+	return "the file or its rules are over the model's input limit"
+}
+
+func (e *inputTooLargeError) Unwrap() error { return e.err }
 
 // RuleAsk scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
 type RuleAsk struct {
@@ -124,7 +130,7 @@ func ruleText(rule index.Rule) string {
 
 func askError(err error) error {
 	if errors.Is(err, inference.ErrInputTooLarge) {
-		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: errInputTooLarge}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err}}
 	}
 
 	if errors.Is(err, inference.ErrKeyRejected) {

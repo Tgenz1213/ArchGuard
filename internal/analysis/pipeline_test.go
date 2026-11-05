@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -593,7 +593,7 @@ func TestPipeline_AskNamesAFileTooLargeToScreen(t *testing.T) {
 	const rawBody = `{"detail":{"error_type":"max_tokens_exceeded"}}`
 
 	tooLarge := askerFunc(func(string, map[string]string) (map[string]float64, error) {
-		return nil, &inference.JevError{Status: http.StatusBadRequest, ErrorType: "max_tokens_exceeded", Body: rawBody}
+		return nil, fmt.Errorf("jev api error: 400 Bad Request: %s: %w", rawBody, inference.ErrInputTooLarge)
 	})
 
 	t.Run("skip", func(t *testing.T) {
@@ -603,14 +603,8 @@ func TestPipeline_AskNamesAFileTooLargeToScreen(t *testing.T) {
 			t.Errorf("judged %v, want every candidate passed to the LLM", h.judged)
 		}
 
-		for _, want := range []string{"svc.go", "breaks-a-rule skipped", "over the model's input limit"} {
-			if !strings.Contains(logged, want) {
-				t.Errorf("log %q lacks %q", logged, want)
-			}
-		}
-
-		if strings.Contains(logged, rawBody) {
-			t.Errorf("log %q repeats the asker's raw error body", logged)
+		if !strings.HasPrefix(logged, "svc.go\n") || strings.Contains(logged, rawBody) {
+			t.Errorf("log %q should warn under the file's name without the asker's raw error body", logged)
 		}
 	})
 
@@ -626,8 +620,8 @@ func TestPipeline_AskNamesAFileTooLargeToScreen(t *testing.T) {
 			t.Errorf("failure = %+v, want a breaks-a-rule precondition failure for svc.go", got)
 		}
 
-		if strings.Contains(got.Error, rawBody) {
-			t.Errorf("failure error %q repeats the asker's raw error body", got.Error)
+		if got.Error == "" || strings.Contains(got.Error, rawBody) {
+			t.Errorf("failure error %q should give a reason without the asker's raw error body", got.Error)
 		}
 	})
 }
