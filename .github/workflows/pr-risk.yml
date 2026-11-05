@@ -39,6 +39,7 @@ env:
     docs/ADR_TEMPLATE.md
     .goreleaser.yaml
     .golangci.yml
+    .testcoverage.yml
     go.mod
     go.sum
     LICENSE.md
