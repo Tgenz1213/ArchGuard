@@ -59,12 +59,30 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 }
 
 // Fixed digests pin field order so a field reorder cannot slip past self-consistency checks.
-func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
-	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+func TestComputeSuggestionKey_MatchesPinnedDigest(t *testing.T) {
+	got := ComputeSuggestionKey(SuggestionKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	want := "3bbf79ea1021fe4efcbefa734d4fc80131eab86457b8b19af4560f798408b413"
+	want := "d464da11baf68e2bb19c949af2d301f276f689395686485b70bbdfcf78d3b6e2"
 	if got != want {
-		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
+	}
+}
+
+func TestComputeKeys_ChangeWithTheProvider(t *testing.T) {
+	analysis := AnalysisKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", SystemPrompt: "s", UserPromptTemplate: "t"}
+	otherAnalysis := analysis
+	otherAnalysis.Provider = "ollama"
+
+	if ComputeAnalysisKey(analysis) == ComputeAnalysisKey(otherAnalysis) {
+		t.Error("expected the analysis key to change with the provider")
+	}
+
+	suggestion := SuggestionKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"}
+	otherSuggestion := suggestion
+	otherSuggestion.Provider = "ollama"
+
+	if ComputeSuggestionKey(suggestion) == ComputeSuggestionKey(otherSuggestion) {
+		t.Error("expected the suggestion key to change with the provider")
 	}
 }
 
@@ -86,12 +104,12 @@ func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
 	}
 }
 
-func TestComputeAnalysisKey_MatchesPreRefactorDigest(t *testing.T) {
-	got := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+func TestComputeAnalysisKey_MatchesPinnedDigest(t *testing.T) {
+	got := ComputeAnalysisKey(AnalysisKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 
-	want := "4cb31f140f7789067d939c2ec91ce1a41028c3bdc51df3c9b8466c30c0a62ab3"
+	want := "4774fd0ced089b24dbfbc5fe7e2938b17cd99be4dcf172b8c4c7843f589ad999"
 	if got != want {
-		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
 	}
 }
 

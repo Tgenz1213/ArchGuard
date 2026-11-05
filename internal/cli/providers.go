@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
@@ -132,6 +133,26 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	}
 
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
+}
+
+// profileChatter builds the Chatter for an LLM profile; a profile on llm.provider's provider reuses ARCHGUARD_API_KEY, any other reads its own variable (docs/arch/0054).
+func profileChatter(warnings *output.Printer, cfg *config.Config, profile config.LLMConfig, factories ProviderFactories) (inference.Chatter, error) {
+	profiled := *cfg
+	profiled.LLM = profile
+
+	if factories.Chat != nil {
+		return factories.Chat(&profiled), nil
+	}
+
+	return buildChatProvider(warnings, profile.Provider, os.Getenv(profileKeyEnv(cfg, profile)), &profiled)
+}
+
+func profileKeyEnv(cfg *config.Config, profile config.LLMConfig) string {
+	if profile.Provider == cfg.LLM.Provider {
+		return "ARCHGUARD_API_KEY"
+	}
+
+	return "ARCHGUARD_" + strings.ToUpper(profile.Provider) + "_API_KEY"
 }
 
 // jevAskers builds a Jev client per model, or hands out the asker a test injected.

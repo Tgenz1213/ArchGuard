@@ -56,6 +56,7 @@ func hashParts(parts ...string) string {
 }
 
 type AnalysisKeyInput struct {
+	Provider           string
 	ModelName          string
 	ADRContent         string
 	FileContent        string
@@ -64,12 +65,13 @@ type AnalysisKeyInput struct {
 }
 
 func ComputeAnalysisKey(in AnalysisKeyInput) string {
-	return hashParts(in.ModelName, in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
+	return hashParts(in.Provider, in.ModelName, in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
 }
 
 // SuggestionKeyInput is a separate namespace from AnalysisKeyInput, keyed
 // on the suggestion prompt so changing it invalidates only suggestions.
 type SuggestionKeyInput struct {
+	Provider                 string
 	ModelName                string
 	ADRContent               string
 	FileContent              string
@@ -82,6 +84,7 @@ type SuggestionKeyInput struct {
 
 func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	return hashParts(
+		in.Provider,
 		in.ModelName,
 		in.ADRContent,
 		in.FileContent,

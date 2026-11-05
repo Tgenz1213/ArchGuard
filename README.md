@@ -214,9 +214,10 @@ Each node has a `name`, a `job` and a runner in `with`. The name is what `--debu
 |---|---|---|---|
 | `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
 | `ask` | `jev` | Asks Jev a question about each rule of each ADR and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
-| `judge` | `llm` | The `llm` block judges each ADR that is left and reports the violations. | none |
+| `judge` | `llm` | The `llm` block, or the profile named in `llm`, judges each ADR that is left and reports the violations. | `llm` |
+| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions with the `llm` block or the profile named in `llm` (see [A second LLM](#a-second-llm)). | `llm` |
 
-The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node. On a `rank` node:
+The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node, followed by at most one `suggest` node. On a `rank` node:
 
 - `threshold`: the minimum score, from 0 to 1. Unset, it is `vector_store.similarity_threshold`. An ADR's own `similarity_threshold` frontmatter overrides it for that ADR, so it is a default for ADRs that don't set their own, not a hard floor.
 - `top_k`: the maximum number of ADRs kept, a positive integer. Unset, it is `analysis.max_relevant_adrs` (3 when unset).
@@ -266,6 +267,42 @@ analysis:
 - **Jev's size limits,** measured on 2026-11-05 with `jev-latest`, may change with the model: the file text (each side, for a diff) can be about 32k tokens, and the questions (every rule of every candidate ADR, with its examples) have a separate budget that took 200k characters but not 600k. 1280 questions in one call passed. Every question is sent in one call per side, so a large rule set isn't split across calls. Over a limit, the warning or failure is printed under the file's name and says the file or its rules are over the model's input limit, because Jev's error doesn't say which. A skipped `ask` node isn't listed in the report or `--format json`; only the printed warning names the file.
 - **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 
+#### A second LLM
+
+`llms` holds named LLM profiles, each a whole `llm` block. A `judge` or `suggest` node uses one with `llm: <name>`; a node that names none uses the `llm` block.
+
+```yaml
+llms:
+  strong:
+    provider: claude
+    model: <model>
+    max_tokens: 150000
+
+analysis:
+  pipeline:
+    - name: shortlist
+      job: rank
+      with: cosine
+
+    - name: judge
+      job: judge
+      with: llm
+      llm: strong
+
+    - name: suggest
+      job: suggest
+      with: llm
+```
+
+- **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them, as before. It comes right after the judge, and a pipeline has at most one.
+- **The API key.** A profile on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A profile on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
+- **The judge's profile sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.
+- **A suggestion that is too big.** When the judged content is over the `suggest` profile's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
+- **Prices.** Judgments are priced with the judge profile's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the `suggest` profile's (see [Token Usage and Cost](#token-usage-and-cost)). Each profile sets both prices or neither.
+- **Embeddings** still use `llm` and `vector_store`; a profile never changes them.
+- **Checked only by `check`.** A bad `llms` block, or a node naming a profile that isn't in it, stops `archguard check` at startup with exit code 3 and a message naming the profile or the node. `archguard index` doesn't read `llms`.
+- **The cache.** A judgment is cached under the judge profile's provider and model, and a suggestion under the `suggest` profile's, so switching either one judges or suggests again.
+
 #### When a node fails
 
 By default, if a `rank` node fails for a file (for example the embedding call errors), ArchGuard skips that file, prints the error, lists it under the report's skipped files, and the run still exits `0`, unless no ADR check returned a verdict in the whole run, which exits `8`. Set `on_error: fail` on a node to fail the check instead:
@@ -290,7 +327,7 @@ Under `fail`, a failed node stops that file's remaining nodes, other files still
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
 | `precondition_not_met` | The node could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. An `ask` node under `skip` passes the file's candidates on instead of skipping the file (see [Screening with Jev](#screening-with-jev)). The `judge` node takes no `on_error`. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. An `ask` node under `skip` passes the file's candidates on instead of skipping the file (see [Screening with Jev](#screening-with-jev)). The `judge` and `suggest` nodes take no `on_error`. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -543,7 +580,7 @@ Tokens: judgment 48210 input, 1630 output (estimated cost 0.169080); embeddings 
 
 Calls that only count tokens to fit a large file into `llm.max_tokens` are not included. A figure is `unavailable`, never `0`, when the provider did not report it: Gemini's and Ollama's embedding endpoints never do, and an OpenAI-compatible server may leave it out. One unreported call makes its whole figure unavailable.
 
-To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
+To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. A judge or `suggest` node on an LLM profile is priced with that profile's own pair (see [A second LLM](#a-second-llm)). ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
 
 `--dry-run` previews a run's cost without paying for the judgments. It embeds and scores files as usual, so its embedding figure is real, then counts the prompt each judgment would send with the chat provider's tokenizer instead of sending it. A judgment a cached verdict would answer costs nothing and is counted apart. The output tokens depend on the answer, so they are not projected and the estimated cost covers the input alone. The report lists what would be called instead of findings:
 

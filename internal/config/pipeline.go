@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	JobRank  = "rank"
-	JobAsk   = "ask"
-	JobJudge = "judge"
+	JobRank    = "rank"
+	JobAsk     = "ask"
+	JobJudge   = "judge"
+	JobSuggest = "suggest"
 )
 
 const (
@@ -51,6 +52,8 @@ type Node struct {
 	OnError   string
 	Model     string
 	Question  Question
+	Profile   string
+	LLM       LLMConfig
 }
 
 type Question struct {
@@ -59,9 +62,14 @@ type Question struct {
 	Instructions string
 }
 
-// ParsePipeline validates analysis.pipeline and the jev block. LoadConfig never does, so commands other than check run on any pipeline.
+// ParsePipeline validates analysis.pipeline and the jev and llms blocks. LoadConfig never does, so commands other than check run on any pipeline.
 func ParsePipeline(cfg *Config) ([]Node, error) {
 	jev, err := parseJev(&cfg.Jev)
+	if err != nil {
+		return nil, err
+	}
+
+	profiles, err := parseProfiles(&cfg.LLMs)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +85,7 @@ func ParsePipeline(cfg *Config) ([]Node, error) {
 
 	nodes := make([]Node, 0, len(pipeline.Content))
 	for i, item := range pipeline.Content {
-		node, err := parseNode(nodeSource{cfg: cfg, jev: jev, position: i + 1, raw: resolveAlias(item)})
+		node, err := parseNode(nodeSource{cfg: cfg, jev: jev, profiles: profiles, position: i + 1, raw: resolveAlias(item)})
 		if err != nil {
 			return nil, err
 		}
@@ -108,12 +116,8 @@ func needsInitError(retired bool) error {
 }
 
 func checkOrder(nodes []Node) error {
-	judges := 0
-	for _, node := range nodes {
-		if node.Job == JobJudge {
-			judges++
-		}
-	}
+	judge := slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobJudge })
+	judges := countJob(nodes, JobJudge)
 
 	if judges != 1 {
 		return fmt.Errorf("analysis.pipeline: needs exactly one judge node, found %d", judges)
@@ -123,11 +127,45 @@ func checkOrder(nodes []Node) error {
 		return fmt.Errorf("analysis.pipeline: the first node, %q, must be a rank node so the candidates are narrowed before anything asks about them", first.Name)
 	}
 
-	if last := nodes[len(nodes)-1]; last.Job != JobJudge {
-		return fmt.Errorf("analysis.pipeline: node %q comes after the judge node; the judge must be the last node", last.Name)
+	if suggests := countJob(nodes, JobSuggest); suggests > 1 {
+		return fmt.Errorf("analysis.pipeline: needs at most one suggest node, found %d", suggests)
+	}
+
+	for _, after := range nodes[judge+1:] {
+		if after.Job != JobSuggest {
+			return fmt.Errorf("analysis.pipeline: node %q comes after the judge node; only a suggest node may follow the judge", after.Name)
+		}
+	}
+
+	if suggest := slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobSuggest }); suggest >= 0 && suggest < judge {
+		return fmt.Errorf("analysis.pipeline: suggest node %q comes before the judge node; it must follow the judge", nodes[suggest].Name)
 	}
 
 	return nil
+}
+
+func JudgeNode(nodes []Node) Node {
+	return nodes[slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobJudge })]
+}
+
+// SuggestNode is the node whose profile writes fixes: the suggest node, or the judge when there is none.
+func SuggestNode(nodes []Node) Node {
+	if i := slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobSuggest }); i >= 0 {
+		return nodes[i]
+	}
+
+	return JudgeNode(nodes)
+}
+
+func countJob(nodes []Node, job string) int {
+	count := 0
+	for _, node := range nodes {
+		if node.Job == job {
+			count++
+		}
+	}
+
+	return count
 }
 
 type jevSettings struct {

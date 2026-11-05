@@ -14,8 +14,9 @@ type Config struct {
 	VectorStore VectorStore `yaml:"vector_store"`
 	Analysis    Analysis    `yaml:"analysis"`
 	IndexFile   string      `yaml:"index_file"`
-	// Kept raw, like Analysis.Pipeline, so only ParsePipeline can reject it.
-	Jev yaml.Node `yaml:"jev"`
+	// Kept raw, like Analysis.Pipeline, so only ParsePipeline can reject them.
+	Jev  yaml.Node `yaml:"jev"`
+	LLMs yaml.Node `yaml:"llms"`
 }
 
 type LLMConfig struct {

@@ -243,7 +243,8 @@ func (fc *fileCheck) analysisKey(hit node.Candidate) string {
 	e := fc.engine
 
 	return cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
-		ModelName:          e.Config.LLM.Model,
+		Provider:           e.judgeLLM().Provider,
+		ModelName:          e.judgeLLM().Model,
 		ADRContent:         hit.ADR.Content,
 		FileContent:        fc.content,
 		SystemPrompt:       e.systemPrompt(),
@@ -417,7 +418,8 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	e := fc.engine
 
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
-		ModelName:                e.Config.LLM.Model,
+		Provider:                 e.suggestLLM().Provider,
+		ModelName:                e.suggestLLM().Model,
 		ADRContent:               hit.ADR.Content,
 		FileContent:              fc.content,
 		Filename:                 fc.file,
@@ -432,6 +434,11 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 
 	if found {
 		return cached
+	}
+
+	input, fits := fc.suggestionInput(ctx, input)
+	if !fits {
+		return ""
 	}
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
@@ -454,4 +461,56 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	}
 
 	return suggestion
+}
+
+// suggestionInput fits the judged content to the suggest profile's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
+func (fc *fileCheck) suggestionInput(ctx context.Context, input inference.DriftInput) (inference.DriftInput, bool) {
+	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
+	limit := tokenLimit(suggest)
+
+	if suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
+		return input, true
+	}
+
+	fits, err := fc.fitsSuggestion(ctx, input.CodeContext, limit)
+	if err == nil && !fits && fc.mode == "full" {
+		var diff string
+		if diff, fits, err = fc.diffForSuggestion(ctx, limit); fits {
+			input.CodeContext = diff
+		}
+	}
+
+	if err != nil {
+		fc.out.Warn("no suggestion for %s: %v", fc.file, err)
+		return input, false
+	}
+
+	if fits {
+		return input, true
+	}
+
+	fc.out.Warn("no suggestion for %s: it is over the suggest model's max_tokens (%d) and has no diff that fits", fc.file, limit)
+
+	return input, false
+}
+
+// A file with no diff, or one git can't read, has nothing to fall back to, as in fetchContext.
+func (fc *fileCheck) diffForSuggestion(ctx context.Context, limit int) (string, bool, error) {
+	diff, err := fc.engine.Content.GetDiff(ctx, fc.file)
+	if err != nil || diff == "" {
+		return "", false, nil
+	}
+
+	fits, err := fc.fitsSuggestion(ctx, diff, limit)
+
+	return diff, fits, err
+}
+
+func (fc *fileCheck) fitsSuggestion(ctx context.Context, content string, limit int) (bool, error) {
+	tokens, err := fc.engine.suggestionChat().CountTokens(ctx, content)
+	if err != nil {
+		return false, fmt.Errorf("counting tokens: %w", err)
+	}
+
+	return tokens <= limit, nil
 }

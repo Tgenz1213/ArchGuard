@@ -237,6 +237,12 @@ llm:
   max_tokens: 8000
   temperature: 0.0
 
+# llms: # Named LLM profiles; a judge or suggest node uses one with llm: <name> (see README)
+#   strong:
+#     provider: "claude"
+#     model: "<model>"
+#     max_tokens: 150000
+
 vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
@@ -254,7 +260,11 @@ analysis:
     - "go.sum"
     - "README.md"
     - "bin/**"
-%s`, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
+%s
+    # - name: suggest # Writes fixes under --suggest-fixes; without it, the judge's LLM writes them
+    #   job: suggest
+    #   with: llm
+`, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
 }
 
 func ensureGitignore() (err error) {

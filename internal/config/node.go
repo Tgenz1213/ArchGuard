@@ -25,17 +25,19 @@ const breaksARuleThreshold = 0.3
 const maxNodeNameLength = 64
 
 var (
-	jobs          = []string{JobRank, JobAsk, JobJudge}
+	jobs          = []string{JobRank, JobAsk, JobJudge, JobSuggest}
 	onErrorModes  = []string{OnErrorSkip, OnErrorFail}
 	runnersForJob = map[string][]string{
-		JobRank:  {RunnerCosine},
-		JobAsk:   {RunnerJev},
-		JobJudge: {RunnerLLM},
+		JobRank:    {RunnerCosine},
+		JobAsk:     {RunnerJev},
+		JobJudge:   {RunnerLLM},
+		JobSuggest: {RunnerLLM},
 	}
 	keysForJob = map[string][]string{
-		JobRank:  {"name", "job", "with", "threshold", "top_k", "on_error"},
-		JobAsk:   {"name", "job", "with", "model", "preset", "type", "for_each", "instructions", "keep", "on_error"},
-		JobJudge: {"name", "job", "with"},
+		JobRank:    {"name", "job", "with", "threshold", "top_k", "on_error"},
+		JobAsk:     {"name", "job", "with", "model", "preset", "type", "for_each", "instructions", "keep", "on_error"},
+		JobJudge:   {"name", "job", "with", "llm"},
+		JobSuggest: {"name", "job", "with", "llm"},
 	}
 	nodeNamePattern    = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	placeholderPattern = regexp.MustCompile(`\{([a-z_]+)\}`)
@@ -44,6 +46,7 @@ var (
 type nodeSource struct {
 	cfg      *Config
 	jev      jevSettings
+	profiles map[string]LLMConfig
 	position int
 	raw      *yaml.Node
 }
@@ -84,6 +87,8 @@ func parseNode(src nodeSource) (Node, error) {
 		err = node.decodeRank(prefix, fields, src.cfg)
 	case JobAsk:
 		err = node.decodeAsk(prefix, fields, src.jev)
+	case JobJudge, JobSuggest:
+		err = node.decodeLLM(prefix, fields, src.cfg, src.profiles)
 	}
 
 	return node, err

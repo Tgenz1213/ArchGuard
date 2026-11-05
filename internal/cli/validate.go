@@ -133,13 +133,20 @@ func validateProviderConfig(cfg *config.Config) error {
 
 // Both chat prices or neither: a cost from one side alone would understate the run.
 func validateCosts(cfg *config.Config) error {
+	if cfg.VectorStore.CostPer1KTokens != nil && *cfg.VectorStore.CostPer1KTokens < 0 {
+		return fmt.Errorf("vector_store.cost_per_1k_tokens cannot be negative, got %v", *cfg.VectorStore.CostPer1KTokens)
+	}
+
+	return validateChatCosts("llm", cfg.LLM)
+}
+
+func validateChatCosts(block string, llm config.LLMConfig) error {
 	prices := []struct {
 		key   string
 		value *float64
 	}{
-		{"llm.cost_per_1k_input_tokens", cfg.LLM.CostPer1KInputTokens},
-		{"llm.cost_per_1k_output_tokens", cfg.LLM.CostPer1KOutputTokens},
-		{"vector_store.cost_per_1k_tokens", cfg.VectorStore.CostPer1KTokens},
+		{block + ".cost_per_1k_input_tokens", llm.CostPer1KInputTokens},
+		{block + ".cost_per_1k_output_tokens", llm.CostPer1KOutputTokens},
 	}
 	for _, price := range prices {
 		if price.value != nil && *price.value < 0 {
@@ -147,8 +154,8 @@ func validateCosts(cfg *config.Config) error {
 		}
 	}
 
-	if (cfg.LLM.CostPer1KInputTokens == nil) != (cfg.LLM.CostPer1KOutputTokens == nil) {
-		return fmt.Errorf("set both llm.cost_per_1k_input_tokens and llm.cost_per_1k_output_tokens, or neither")
+	if (llm.CostPer1KInputTokens == nil) != (llm.CostPer1KOutputTokens == nil) {
+		return fmt.Errorf("set both %s.cost_per_1k_input_tokens and %s.cost_per_1k_output_tokens, or neither", block, block)
 	}
 
 	return nil

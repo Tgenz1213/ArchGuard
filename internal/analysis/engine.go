@@ -55,10 +55,13 @@ type Engine struct {
 	SuggestFixes bool
 	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
 	SuggestChat inference.Chatter
-	Nodes       []node.Node
-	DryRun      bool
-	Projection  Projection
-	Recorder    telemetry.Recorder
+	// The judge's and the suggest step's profiles; a zero value means Config.LLM.
+	JudgeLLM   config.LLMConfig
+	SuggestLLM config.LLMConfig
+	Nodes      []node.Node
+	DryRun     bool
+	Projection Projection
+	Recorder   telemetry.Recorder
 }
 
 type Violation struct {
@@ -131,6 +134,16 @@ func (e *Engine) printer() *output.Printer {
 	return output.New(nil, e.Debug)
 }
 
+const defaultMaxTokens = 8000
+
+func tokenLimit(llm config.LLMConfig) int {
+	if llm.MaxTokens == 0 {
+		return defaultMaxTokens
+	}
+
+	return llm.MaxTokens
+}
+
 var errNoNodes = errors.New("no pipeline nodes to choose which ADRs are judged")
 
 func (e *Engine) Run(ctx context.Context) error {
@@ -179,9 +192,25 @@ func (e *Engine) scoringNodes() []node.Node {
 	return nodes
 }
 
+func (e *Engine) judgeLLM() config.LLMConfig {
+	if e.JudgeLLM.Provider == "" {
+		return e.Config.LLM
+	}
+
+	return e.JudgeLLM
+}
+
+func (e *Engine) suggestLLM() config.LLMConfig {
+	if e.SuggestLLM.Provider == "" {
+		return e.judgeLLM()
+	}
+
+	return e.SuggestLLM
+}
+
 func (e *Engine) systemPrompt() string {
-	if e.Config.LLM.SystemPrompt != "" {
-		return e.Config.LLM.SystemPrompt
+	if prompt := e.judgeLLM().SystemPrompt; prompt != "" {
+		return prompt
 	}
 
 	return inference.DefaultSystemPrompt
@@ -297,10 +326,7 @@ func (e *Engine) shouldExclude(path string) bool {
 
 // fetchContext also returns the untruncated content so callers needing both don't re-read the file.
 func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
-	maxTokens := e.Config.LLM.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = 8000
-	}
+	maxTokens := tokenLimit(e.judgeLLM())
 
 	fullContent, err = e.Content.GetContent(ctx, path)
 	if err != nil {

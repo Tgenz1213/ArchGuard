@@ -44,6 +44,10 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitConfig, err
 	}
 
+	if setup, err = withProfiles(setup, nodes); err != nil {
+		return ExitConfig, err
+	}
+
 	run, err := newCheckRun(setup, opts, colors)
 	if err != nil {
 		return ExitError, err
@@ -110,10 +114,39 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.A
 	return nodes, askers, nil
 }
 
+// withProfiles gives the judge and suggest steps the Chatter of their own LLM profile, reusing one wherever two nodes share a profile.
+func withProfiles(setup runSetup, nodes []config.Node) (runSetup, error) {
+	judge, suggest := config.JudgeNode(nodes), config.SuggestNode(nodes)
+	setup.judgeLLM, setup.suggestLLM = judge.LLM, suggest.LLM
+	setup.suggestChat = setup.chat
+
+	built := map[string]inference.Chatter{"": setup.chat}
+	for _, n := range []config.Node{judge, suggest} {
+		if _, ok := built[n.Profile]; ok {
+			continue
+		}
+
+		if err := validateChatCosts("llms."+n.Profile, n.LLM); err != nil {
+			return setup, err
+		}
+
+		chat, err := setup.chatFor(n.LLM)
+		if err != nil {
+			return setup, fmt.Errorf("llms.%s: %w", n.Profile, err)
+		}
+
+		built[n.Profile] = chat
+	}
+
+	setup.chat, setup.suggestChat = built[judge.Profile], built[suggest.Profile]
+
+	return setup, nil
+}
+
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
 	run := &checkRun{setup: setup, opts: opts, log: colors.stderrPrinter(opts.Debug), tally: &telemetry.Tally{}}
 	run.recorder = newRecorder(run.tally, setup.recorder)
-	run.suggestChat = telemetry.NewChatter(setup.chat, telemetry.Suggestion, run.recorder)
+	run.suggestChat = telemetry.NewChatter(setup.suggestChat, telemetry.Suggestion, run.recorder)
 	run.setup.chat = telemetry.NewChatter(setup.chat, telemetry.Judgment, run.recorder)
 	run.setup.embed = telemetry.NewEmbedder(setup.embed, run.recorder)
 
@@ -192,6 +225,8 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 	engine.SuggestFixes = opts.SuggestFixes
 	engine.UnindexedADRs = r.unindexed
 	engine.SuggestChat = r.suggestChat
+	engine.JudgeLLM = setup.judgeLLM
+	engine.SuggestLLM = setup.suggestLLM
 	engine.Recorder = r.recorder
 	engine.DryRun = opts.DryRun
 
@@ -314,10 +349,10 @@ func (r *checkRun) warnJSONGaps(engine *analysis.Engine) {
 
 func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
 	if r.opts.DryRun {
-		return dryRunUsage(r.setup.cfg, r.tally, engine.Projection.Usage)
+		return dryRunUsage(r.setup.cfg, r.setup.judgeLLM, r.tally, engine.Projection.Usage)
 	}
 
-	return usageReport(r.setup.cfg, r.opts.SuggestFixes, r.tally)
+	return usageReport(r.setup.cfg, llmProfiles{judge: r.setup.judgeLLM, suggest: r.setup.suggestLLM}, r.opts.SuggestFixes, r.tally)
 }
 
 func (r *checkRun) saveReportFile() error {
