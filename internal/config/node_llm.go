@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"reflect"
-	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -30,12 +29,17 @@ func (llm LLMConfig) CheckCosts(block string) error {
 	return nil
 }
 
-func llmKeys() []string {
+func llmKeys(job string) []string {
 	fields := reflect.TypeFor[LLMConfig]()
 
 	keys := make([]string, 0, fields.NumField())
 	for field := range fields.Fields() {
-		keys = append(keys, field.Tag.Get("yaml"))
+		key := field.Tag.Get("yaml")
+		if key == "system_prompt" && job == JobSuggest {
+			continue
+		}
+
+		keys = append(keys, key)
 	}
 
 	return keys
@@ -62,31 +66,51 @@ func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config
 		return err
 	}
 
-	if err := checkKeys(prefix, set, llmKeys()); err != nil {
+	if err := checkKeys(prefix, set, llmKeys(n.Job)); err != nil {
 		return err
 	}
 
-	var own LLMConfig
-	if err := block.Decode(&own); err != nil {
+	n.LLM = cfg.LLM.clone()
+	if err := block.Decode(&n.LLM); err != nil {
 		return decodeError(prefix, err)
 	}
 
-	n.LLM = withKeysSet(cfg.LLM, own, set)
-	n.OwnLLM = true
+	if _, ok := set["provider"]; ok && n.LLM.Provider == "" {
+		return fmt.Errorf("%s.provider: cannot be empty; leave it out to use llm.provider", prefix)
+	}
+
+	if !setsAPrice(set) {
+		return nil
+	}
 
 	return n.LLM.CheckCosts(prefix)
 }
 
-// withKeysSet copies into base each field of own whose yaml key is in set, so a key own leaves out keeps base's value.
-func withKeysSet(base, own LLMConfig, set map[string]yaml.Node) LLMConfig {
-	merged := reflect.ValueOf(&base).Elem()
-	from := reflect.ValueOf(own)
+func setsAPrice(set map[string]yaml.Node) bool {
+	_, input := set["cost_per_1k_input_tokens"]
+	_, output := set["cost_per_1k_output_tokens"]
 
-	for i, field := range slices.Collect(reflect.TypeFor[LLMConfig]().Fields()) {
-		if _, ok := set[field.Tag.Get("yaml")]; ok {
-			merged.Field(i).Set(from.Field(i))
-		}
+	return input || output
+}
+
+// Same reports whether two llm blocks set the same values, comparing what pointers point to.
+func (llm LLMConfig) Same(other LLMConfig) bool {
+	return reflect.DeepEqual(llm, other)
+}
+
+// clone copies the pointer fields so decoding a node's block over it never writes through to the llm block.
+func (llm LLMConfig) clone() LLMConfig {
+	llm.Temperature = clonePtr(llm.Temperature)
+	llm.CostPer1KInputTokens = clonePtr(llm.CostPer1KInputTokens)
+	llm.CostPer1KOutputTokens = clonePtr(llm.CostPer1KOutputTokens)
+
+	return llm
+}
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
 	}
 
-	return base
+	return new(*p)
 }

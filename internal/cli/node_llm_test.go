@@ -96,7 +96,7 @@ func TestNodeChatter_FactoryGetsTheNodeLLM(t *testing.T) {
 func pipelineNodes(judge config.LLMConfig, suggest *config.Node) []config.Node {
 	nodes := []config.Node{
 		{Name: "shortlist", Job: config.JobRank},
-		{Name: "judge", Job: config.JobJudge, OwnLLM: judge.Model != "small", LLM: judge},
+		{Name: "judge", Job: config.JobJudge, LLM: judge},
 	}
 	if suggest != nil {
 		nodes = append(nodes, *suggest)
@@ -133,7 +133,8 @@ func TestWithNodeLLMs(t *testing.T) {
 		{"no node llm blocks", pipelineNodes(main, nil), "main", "main", nil},
 		{"judge llm block writes fixes too", pipelineNodes(big, nil), "big", "big", []string{"big"}},
 		{"suggest on the llm block", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: main}), "big", "main", []string{"big"}},
-		{"suggest with its own llm block", pipelineNodes(main, &config.Node{Name: "suggest", Job: config.JobSuggest, OwnLLM: true, LLM: tiny}), "main", "tiny", []string{"tiny"}},
+		{"suggest with its own llm block", pipelineNodes(main, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: tiny}), "main", "tiny", []string{"tiny"}},
+		{"suggest with the judge's llm block", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: big}), "big", "big", []string{"big"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,7 +167,7 @@ func TestWithNodeLLMs(t *testing.T) {
 func TestWithNodeLLMs_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
 	var built []string
 
-	nodes := pipelineNodes(config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, OwnLLM: true, LLM: config.LLMConfig{Provider: "openai", Model: "tiny"}})
+	nodes := pipelineNodes(config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: config.LLMConfig{Provider: "openai", Model: "tiny"}})
 
 	setup, err := withNodeLLMs(setupWithNodeLLMs(&built), nodes, false)
 	if err != nil {
@@ -180,6 +181,7 @@ func TestWithNodeLLMs_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
 
 func TestWithNodeLLMs_NamesTheNodeOnABuildError(t *testing.T) {
 	setup := runSetup{
+		cfg:     &config.Config{},
 		chat:    namedChat{name: "main"},
 		chatFor: func(config.LLMConfig) (inference.Chatter, error) { return nil, errors.New("unknown provider: voyage") },
 	}

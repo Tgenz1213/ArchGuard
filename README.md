@@ -214,8 +214,8 @@ Each node has a `name`, a `job` and a runner in `with`. The name is what `--debu
 |---|---|---|---|
 | `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
 | `ask` | `jev` | Asks Jev a question about each rule of each ADR and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
-| `judge` | `llm` | The `llm` block, or the node's own `llm` block, judges each ADR that is left and reports the violations. | `llm` |
-| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions with the `llm` block or the node's own `llm` block (see [A second LLM](#a-second-llm)). | `llm` |
+| `judge` | `llm` | Judges each ADR that is left and reports the violations, with the `llm` block and any keys the node's own `llm` block sets laid over it. | `llm` |
+| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions, with the `llm` block and any keys the node's own `llm` block sets laid over it (see [A second LLM](#a-second-llm)). | `llm` |
 
 The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node, followed by at most one `suggest` node. On a `rank` node:
 
@@ -298,7 +298,7 @@ analysis:
 
 Here the judge runs on Claude with a temperature of `0.0` from the `llm` block, and the suggestions are written by the `llm` block's Ollama model.
 
-- **The keys** are those of the `llm` block. An unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
+- **The keys** are those of the `llm` block, except that a `suggest` node can't set `system_prompt`: suggestions are written with ArchGuard's own prompt. An empty `provider`, an unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
 - **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
 - **The API key.** A node on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A node on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
 - **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.

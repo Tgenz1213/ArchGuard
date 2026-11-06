@@ -129,7 +129,7 @@ func withNodeLLMs(setup runSetup, nodes []config.Node, suggestFixes bool) (runSe
 	}
 
 	suggestChat := judgeChat
-	if suggest.Name != judge.Name {
+	if !suggest.LLM.Same(judge.LLM) {
 		if suggestChat, err = nodeChat(setup, suggest); err != nil {
 			return setup, err
 		}
@@ -141,7 +141,7 @@ func withNodeLLMs(setup runSetup, nodes []config.Node, suggestFixes bool) (runSe
 }
 
 func nodeChat(setup runSetup, n config.Node) (inference.Chatter, error) {
-	if !n.OwnLLM {
+	if n.LLM.Same(setup.cfg.LLM) {
 		return setup.chat, nil
 	}
 

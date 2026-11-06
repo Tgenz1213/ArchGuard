@@ -22,7 +22,7 @@ func TestParsePipeline_NodeLLMReplacesOnlyTheKeysItSets(t *testing.T) {
 	}
 
 	judge := JudgeNode(nodes)
-	if !judge.OwnLLM || judge.LLM.Provider != "claude" || judge.LLM.Model != "big" || judge.LLM.MaxTokens != 150000 {
+	if judge.LLM.Provider != "claude" || judge.LLM.Model != "big" || judge.LLM.MaxTokens != 150000 {
 		t.Errorf("judge = %+v, want its own provider, model and max_tokens", judge.LLM)
 	}
 
@@ -31,7 +31,7 @@ func TestParsePipeline_NodeLLMReplacesOnlyTheKeysItSets(t *testing.T) {
 	}
 
 	suggest := SuggestNode(nodes)
-	if suggest.Name != "suggest" || suggest.OwnLLM || suggest.LLM.Provider != "ollama" || suggest.LLM.Model != "small" {
+	if suggest.Name != "suggest" || suggest.LLM.Provider != "ollama" || suggest.LLM.Model != "small" {
 		t.Errorf("suggest = %+v, want the llm block", suggest)
 	}
 }
@@ -73,12 +73,12 @@ func TestParsePipeline_SuggestTakesItsOwnLLM(t *testing.T) {
 		t.Fatalf("ParsePipeline failed: %v", err)
 	}
 
-	if got := SuggestNode(nodes); !got.OwnLLM || got.LLM.Provider != "ollama" || got.LLM.Model != "tiny" {
+	if got := SuggestNode(nodes); got.LLM.Provider != "ollama" || got.LLM.Model != "tiny" {
 		t.Errorf("SuggestNode = %+v, want the llm block with model tiny", got)
 	}
 
-	if JudgeNode(nodes).OwnLLM {
-		t.Error("judge has its own llm block, want the llm block")
+	if got := JudgeNode(nodes).LLM.Model; got != "small" {
+		t.Errorf("judge model = %q, want the llm block's", got)
 	}
 }
 
@@ -94,6 +94,8 @@ func TestParsePipeline_InvalidNodeLLM(t *testing.T) {
 		{"unknown key", baseLLM, judgeWith("      llm:\n        modle: big\n"), []string{`node "judge".llm`, `"modle"`}},
 		{"wrong type", baseLLM, judgeWith("      llm:\n        max_tokens: lots\n"), []string{`node "judge".llm`, "`lots`"}},
 		{"one price over a block with none", "llm:\n  provider: ollama\n", judgeWith("      llm:\n        cost_per_1k_input_tokens: 0.003\n"), []string{`node "judge".llm.cost_per_1k_input_tokens`, "or neither"}},
+		{"empty provider", baseLLM, judgeWith("      llm:\n        provider: \"\"\n"), []string{`node "judge".llm.provider`, "empty"}},
+		{"system_prompt on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        system_prompt: be kind\n", []string{`node "suggest".llm`, `"system_prompt"`}},
 		{"negative price", baseLLM, judgeWith("      llm:\n        cost_per_1k_output_tokens: -1\n"), []string{`node "judge".llm.cost_per_1k_output_tokens`, "negative"}},
 		{"bad key on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        modle: tiny\n", []string{`node "suggest".llm`, `"modle"`}},
 		{"llm on a rank node", baseLLM, "  pipeline:" + shortlistNode + strongLLM + judgeNode, []string{`node "shortlist"`, `"llm"`, "not allowed"}},
@@ -117,6 +119,12 @@ func TestParsePipeline_InvalidNodeLLM(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParsePipeline_LeavesTheLLMBlocksPricesToItsOwnCheck(t *testing.T) {
+	if _, err := parseFromYAML(t, "llm:\n  provider: ollama\n  cost_per_1k_input_tokens: 0.5\n", "  pipeline:"+shortlistNode+judgeNode+"      llm:\n        temperature: 0.7\n"); err != nil {
+		t.Errorf("ParsePipeline failed: %v, want llm's one price left for llm's own check to name", err)
 	}
 }
 

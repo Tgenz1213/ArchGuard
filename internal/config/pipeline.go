@@ -52,9 +52,8 @@ type Node struct {
 	OnError   string
 	Model     string
 	Question  Question
-	// LLM is the llm block with the node's own llm block, when OwnLLM, laid over it.
-	OwnLLM bool
-	LLM    LLMConfig
+	// LLM is the llm block with the node's own llm block, if it has one, laid over it.
+	LLM LLMConfig
 }
 
 type Question struct {
