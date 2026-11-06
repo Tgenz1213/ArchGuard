@@ -269,7 +269,10 @@ analysis:
 
 #### A second LLM
 
-A `judge` or `suggest` node can take its own `llm` block. It sets only the keys that differ from the top-level `llm` block, and takes every key it leaves out from there. A node without one uses the `llm` block.
+A `judge` or `suggest` node can take its own `llm` block. A node without one uses the top-level `llm` block. What a node's block takes from `llm` depends on its provider ([ADR 0057](docs/arch/0057-a-node-llm-block-inherits-only-on-its-provider.md)):
+
+- **On `llm.provider`,** or with no `provider`, the block sets only the keys that differ, and takes every key it leaves out from `llm`.
+- **On another provider,** the block starts fresh. It must set `model`, and every key it leaves out takes that provider's default, except that a judge still takes `llm.system_prompt`.
 
 ```yaml
 llm:
@@ -296,14 +299,14 @@ analysis:
       with: llm
 ```
 
-Here the judge runs on Claude with a temperature of `0.0` from the `llm` block, and the suggestions are written by the `llm` block's Ollama model.
+Here the judge runs on Claude with Claude's default temperature, since a node on another provider inherits nothing but `system_prompt`, and the suggestions are written by the `llm` block's Ollama model at a temperature of `0.0`.
 
-- **The keys** are those of the `llm` block, except that a `suggest` node can't set `system_prompt`: suggestions are written with ArchGuard's own prompt. An empty `provider`, an unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
+- **The keys** are those of the `llm` block, except that a `suggest` node can't set `system_prompt`: suggestions are written with ArchGuard's own prompt. An empty `provider`, another provider without a `model`, one price without the other, an unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
 - **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
 - **The API key.** A node on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A node on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
 - **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.
 - **A suggestion that is too big.** When the judged content is over the suggest step's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
-- **Prices.** Judgments are priced with the judge's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the suggest step's (see [Token Usage and Cost](#token-usage-and-cost)). A price a node leaves out comes from the `llm` block, so a node on another provider usually sets both. After that, each node has both prices or neither.
+- **Prices.** Judgments are priced with the judge's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the suggest step's (see [Token Usage and Cost](#token-usage-and-cost)). A node's block sets both prices or neither. One that sets neither takes `llm`'s on `llm.provider` and has none on another provider.
 - **Embeddings** still use `llm` and `vector_store`; a node's `llm` block never changes them.
 - **The cache.** A judgment is cached under the judge's provider and model, and a suggestion under the suggest step's, so switching either one judges or suggests again.
 
@@ -584,7 +587,7 @@ Tokens: judgment 48210 input, 1630 output (estimated cost 0.169080); embeddings 
 
 Calls that only count tokens to fit a large file into `llm.max_tokens` are not included. A figure is `unavailable`, never `0`, when the provider did not report it: Gemini's and Ollama's embedding endpoints never do, and an OpenAI-compatible server may leave it out. One unreported call makes its whole figure unavailable.
 
-To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. A judge or `suggest` node with its own `llm` block is priced with that block's pair, taking any price it leaves out from `llm` (see [A second LLM](#a-second-llm)). ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
+To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. A judge or `suggest` node with its own `llm` block is priced with that block's pair (see [A second LLM](#a-second-llm)). ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
 
 `--dry-run` previews a run's cost without paying for the judgments. It embeds and scores files as usual, so its embedding figure is real, then counts the prompt each judgment would send with the chat provider's tokenizer instead of sending it. A judgment a cached verdict would answer costs nothing and is counted apart. The output tokens depend on the answer, so they are not projected and the estimated cost covers the input alone. The report lists what would be called instead of findings:
 

@@ -45,7 +45,7 @@ func llmKeys(job string) []string {
 	return keys
 }
 
-// decodeLLM gives the node the llm block, with the keys its own llm block sets replacing the llm block's.
+// decodeLLM gives the node the llm block, with the keys its own llm block sets replacing the llm block's (docs/arch/0057).
 func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config) error {
 	n.LLM = cfg.LLM
 
@@ -70,13 +70,18 @@ func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config
 		return err
 	}
 
-	n.LLM = cfg.LLM.clone()
-	if err := block.Decode(&n.LLM); err != nil {
+	var own LLMConfig
+	if err := block.Decode(&own); err != nil {
 		return decodeError(prefix, err)
 	}
 
-	if _, ok := set["provider"]; ok && n.LLM.Provider == "" {
-		return fmt.Errorf("%s.provider: cannot be empty; leave it out to use llm.provider", prefix)
+	if err := checkOwnLLM(prefix, own, set, cfg.LLM); err != nil {
+		return err
+	}
+
+	n.LLM = n.inherited(own, set, cfg.LLM)
+	if err := block.Decode(&n.LLM); err != nil {
+		return decodeError(prefix, err)
 	}
 
 	if !setsAPrice(set) {
@@ -86,11 +91,39 @@ func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config
 	return n.LLM.CheckCosts(prefix)
 }
 
-func setsAPrice(set map[string]yaml.Node) bool {
-	_, input := set["cost_per_1k_input_tokens"]
-	_, output := set["cost_per_1k_output_tokens"]
+// inherited is what a node's llm block is laid over: the llm block, or on another provider only the judge's system_prompt.
+func (n *Node) inherited(own LLMConfig, set map[string]yaml.Node, top LLMConfig) LLMConfig {
+	if !switchesProvider(own, set, top) {
+		return top.clone()
+	}
 
-	return input || output
+	if n.Job == JobJudge {
+		return LLMConfig{SystemPrompt: top.SystemPrompt}
+	}
+
+	return LLMConfig{}
+}
+
+func checkOwnLLM(prefix string, own LLMConfig, set map[string]yaml.Node, top LLMConfig) error {
+	if _, ok := set["provider"]; ok && own.Provider == "" {
+		return fmt.Errorf("%s.provider: cannot be empty; leave it out to use llm.provider", prefix)
+	}
+
+	if _, ok := set["model"]; !ok && switchesProvider(own, set, top) {
+		return fmt.Errorf("%s: set model, since provider %q is not llm.provider and inherits no model", prefix, own.Provider)
+	}
+
+	if setsAPrice(set) && !setsBothPrices(set) {
+		return fmt.Errorf("set both %[1]s.cost_per_1k_input_tokens and %[1]s.cost_per_1k_output_tokens, or neither", prefix)
+	}
+
+	return nil
+}
+
+func switchesProvider(own LLMConfig, set map[string]yaml.Node, top LLMConfig) bool {
+	_, ok := set["provider"]
+
+	return ok && own.Provider != top.Provider
 }
 
 // Same reports whether two llm blocks set the same values, comparing what pointers point to.
@@ -113,4 +146,18 @@ func clonePtr[T any](p *T) *T {
 	}
 
 	return new(*p)
+}
+
+func setsAPrice(set map[string]yaml.Node) bool {
+	_, input := set["cost_per_1k_input_tokens"]
+	_, output := set["cost_per_1k_output_tokens"]
+
+	return input || output
+}
+
+func setsBothPrices(set map[string]yaml.Node) bool {
+	_, input := set["cost_per_1k_input_tokens"]
+	_, output := set["cost_per_1k_output_tokens"]
+
+	return input && output
 }

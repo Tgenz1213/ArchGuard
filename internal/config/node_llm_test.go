@@ -16,14 +16,14 @@ const suggestNode = `
 const strongLLM = "      llm:\n        provider: claude\n        model: big\n        max_tokens: 150000\n"
 
 func TestParsePipeline_NodeLLMReplacesOnlyTheKeysItSets(t *testing.T) {
-	nodes, err := parseFromYAML(t, baseLLM, "  pipeline:"+shortlistNode+judgeNode+strongLLM+suggestNode)
+	nodes, err := parseFromYAML(t, baseLLM, "  pipeline:"+shortlistNode+judgeNode+"      llm:\n        model: big\n        max_tokens: 150000\n"+suggestNode)
 	if err != nil {
 		t.Fatalf("ParsePipeline failed: %v", err)
 	}
 
 	judge := JudgeNode(nodes)
-	if judge.LLM.Provider != "claude" || judge.LLM.Model != "big" || judge.LLM.MaxTokens != 150000 {
-		t.Errorf("judge = %+v, want its own provider, model and max_tokens", judge.LLM)
+	if judge.LLM.Provider != "ollama" || judge.LLM.Model != "big" || judge.LLM.MaxTokens != 150000 {
+		t.Errorf("judge = %+v, want its own model and max_tokens on the llm block's provider", judge.LLM)
 	}
 
 	if judge.LLM.Temperature == nil || *judge.LLM.Temperature != 0 || judge.LLM.CostPer1KInputTokens == nil || *judge.LLM.CostPer1KInputTokens != 0.5 {
@@ -33,6 +33,35 @@ func TestParsePipeline_NodeLLMReplacesOnlyTheKeysItSets(t *testing.T) {
 	suggest := SuggestNode(nodes)
 	if suggest.Name != "suggest" || suggest.LLM.Provider != "ollama" || suggest.LLM.Model != "small" {
 		t.Errorf("suggest = %+v, want the llm block", suggest)
+	}
+}
+
+func TestParsePipeline_NodeOnAnotherProviderStartsFresh(t *testing.T) {
+	top := baseLLM + "  base_url: http://localhost:11434\n  system_prompt: be literal\n"
+
+	nodes, err := parseFromYAML(t, top, "  pipeline:"+shortlistNode+judgeNode+strongLLM+suggestNode+"      llm:\n        provider: openai\n        model: tiny\n")
+	if err != nil {
+		t.Fatalf("ParsePipeline failed: %v", err)
+	}
+
+	want := LLMConfig{Provider: "claude", Model: "big", MaxTokens: 150000, SystemPrompt: "be literal"}
+	if got := JudgeNode(nodes).LLM; !got.Same(want) {
+		t.Errorf("judge = %+v, want %+v: only system_prompt inherited", got, want)
+	}
+
+	if got := SuggestNode(nodes).LLM; !got.Same(LLMConfig{Provider: "openai", Model: "tiny"}) {
+		t.Errorf("suggest = %+v, want nothing inherited", got)
+	}
+}
+
+func TestParsePipeline_NodeNamingTheLLMBlocksProviderInheritsEverything(t *testing.T) {
+	nodes, err := parseFromYAML(t, baseLLM, "  pipeline:"+shortlistNode+judgeNode+"      llm:\n        provider: ollama\n")
+	if err != nil {
+		t.Fatalf("ParsePipeline failed: %v", err)
+	}
+
+	if got := JudgeNode(nodes).LLM; got.Model != "small" || got.MaxTokens != 8000 || got.CostPer1KOutputTokens == nil {
+		t.Errorf("judge = %+v, want every key of the llm block", got)
 	}
 }
 
@@ -96,7 +125,9 @@ func TestParsePipeline_InvalidNodeLLM(t *testing.T) {
 		{"one price over a block with none", "llm:\n  provider: ollama\n", judgeWith("      llm:\n        cost_per_1k_input_tokens: 0.003\n"), []string{`node "judge".llm.cost_per_1k_input_tokens`, "or neither"}},
 		{"empty provider", baseLLM, judgeWith("      llm:\n        provider: \"\"\n"), []string{`node "judge".llm.provider`, "empty"}},
 		{"system_prompt on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        system_prompt: be kind\n", []string{`node "suggest".llm`, `"system_prompt"`}},
-		{"negative price", baseLLM, judgeWith("      llm:\n        cost_per_1k_output_tokens: -1\n"), []string{`node "judge".llm.cost_per_1k_output_tokens`, "negative"}},
+		{"one price over a block with both", baseLLM, judgeWith("      llm:\n        cost_per_1k_input_tokens: 0.003\n"), []string{`node "judge".llm.cost_per_1k_input_tokens`, "or neither"}},
+		{"another provider without a model", baseLLM, judgeWith("      llm:\n        provider: claude\n"), []string{`node "judge".llm`, "set model", `"claude"`}},
+		{"negative price", baseLLM, judgeWith("      llm:\n        cost_per_1k_input_tokens: 1\n        cost_per_1k_output_tokens: -1\n"), []string{`node "judge".llm.cost_per_1k_output_tokens`, "negative"}},
 		{"bad key on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        modle: tiny\n", []string{`node "suggest".llm`, `"modle"`}},
 		{"llm on a rank node", baseLLM, "  pipeline:" + shortlistNode + strongLLM + judgeNode, []string{`node "shortlist"`, `"llm"`, "not allowed"}},
 		{"two suggest nodes", "", "  pipeline:" + shortlistNode + judgeNode + suggestNode + strings.ReplaceAll(suggestNode, "name: suggest", "name: suggest2"), []string{"at most one suggest", "found 2"}},
