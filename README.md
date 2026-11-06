@@ -214,8 +214,8 @@ Each node has a `name`, a `job` and a runner in `with`. The name is what `--debu
 |---|---|---|---|
 | `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
 | `ask` | `jev` | Asks Jev a question about each rule of each ADR and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
-| `judge` | `llm` | The `llm` block, or the profile named in `llm`, judges each ADR that is left and reports the violations. | `llm` |
-| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions with the `llm` block or the profile named in `llm` (see [A second LLM](#a-second-llm)). | `llm` |
+| `judge` | `llm` | The `llm` block, or the node's own `llm` block, judges each ADR that is left and reports the violations. | `llm` |
+| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions with the `llm` block or the node's own `llm` block (see [A second LLM](#a-second-llm)). | `llm` |
 
 The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node, followed by at most one `suggest` node. On a `rank` node:
 
@@ -269,15 +269,13 @@ analysis:
 
 #### A second LLM
 
-`llms` holds named LLM profiles, each a whole `llm` block. A `judge` or `suggest` node uses one with `llm: <name>`; a node that names none uses the `llm` block.
+A `judge` or `suggest` node can take its own `llm` block. It sets only the keys that differ from the top-level `llm` block, and takes every key it leaves out from there. A node without one uses the `llm` block.
 
 ```yaml
-llms:
-  strong:
-    provider: claude
-    model: <model>
-    max_tokens: 150000
-    temperature: 0.0
+llm:
+  provider: ollama
+  model: <model>
+  temperature: 0.0
 
 analysis:
   pipeline:
@@ -288,22 +286,26 @@ analysis:
     - name: judge
       job: judge
       with: llm
-      llm: strong
+      llm:
+        provider: claude
+        model: <model>
+        max_tokens: 150000
 
     - name: suggest
       job: suggest
       with: llm
 ```
 
-- **A profile inherits nothing from `llm`.** Set `temperature`, `system_prompt` and the prices on the profile itself; one left out takes the provider's or ArchGuard's default, not the `llm` block's value.
-- **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them, as before. It comes right after the judge, and a pipeline has at most one.
-- **The API key.** A profile on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A profile on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
-- **The judge's profile sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.
-- **A suggestion that is too big.** When the judged content is over the `suggest` profile's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
-- **Prices.** Judgments are priced with the judge profile's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the `suggest` profile's (see [Token Usage and Cost](#token-usage-and-cost)). Each profile sets both prices or neither.
-- **Embeddings** still use `llm` and `vector_store`; a profile never changes them.
-- **Checked only by `check`.** A bad `llms` block, or a node naming a profile that isn't in it, stops `archguard check` at startup with exit code 3 and a message naming the profile or the node. `archguard index` doesn't read `llms`.
-- **The cache.** A judgment is cached under the judge profile's provider and model, and a suggestion under the `suggest` profile's, so switching either one judges or suggests again.
+Here the judge runs on Claude with a temperature of `0.0` from the `llm` block, and the suggestions are written by the `llm` block's Ollama model.
+
+- **The keys** are those of the `llm` block. An unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
+- **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
+- **The API key.** A node on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A node on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
+- **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.
+- **A suggestion that is too big.** When the judged content is over the suggest step's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
+- **Prices.** Judgments are priced with the judge's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the suggest step's (see [Token Usage and Cost](#token-usage-and-cost)). A price a node leaves out comes from the `llm` block, so a node on another provider usually sets both. After that, each node has both prices or neither.
+- **Embeddings** still use `llm` and `vector_store`; a node's `llm` block never changes them.
+- **The cache.** A judgment is cached under the judge's provider and model, and a suggestion under the suggest step's, so switching either one judges or suggests again.
 
 #### When a node fails
 
@@ -582,7 +584,7 @@ Tokens: judgment 48210 input, 1630 output (estimated cost 0.169080); embeddings 
 
 Calls that only count tokens to fit a large file into `llm.max_tokens` are not included. A figure is `unavailable`, never `0`, when the provider did not report it: Gemini's and Ollama's embedding endpoints never do, and an OpenAI-compatible server may leave it out. One unreported call makes its whole figure unavailable.
 
-To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. A judge or `suggest` node on an LLM profile is priced with that profile's own pair (see [A second LLM](#a-second-llm)). ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
+To turn tokens into a cost, set the price per 1,000 tokens in `archguard.yaml`: `llm.cost_per_1k_input_tokens` and `llm.cost_per_1k_output_tokens` (both or neither), and `vector_store.cost_per_1k_tokens`. A judge or `suggest` node with its own `llm` block is priced with that block's pair, taking any price it leaves out from `llm` (see [A second LLM](#a-second-llm)). ArchGuard has no built-in prices, and the cost is in whatever currency your prices are. **It is an estimate, not your bill:** it is the reported tokens times your prices, and it does not account for discounts, cached-input or batch pricing, failed calls the provider still billed, or price changes. See [ADR 0034](docs/arch/0034-token-usage-is-what-the-provider-reported.md).
 
 `--dry-run` previews a run's cost without paying for the judgments. It embeds and scores files as usual, so its embedding figure is real, then counts the prompt each judgment would send with the chat provider's tokenizer instead of sending it. A judgment a cached verdict would answer costs nothing and is counted apart. The output tokens depend on the answer, so they are not projected and the estimated cost covers the input alone. The report lists what would be called instead of findings:
 

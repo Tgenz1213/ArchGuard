@@ -44,7 +44,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitConfig, err
 	}
 
-	if setup, err = withProfiles(setup, nodes, opts.SuggestFixes); err != nil {
+	if setup, err = withNodeLLMs(setup, nodes, opts.SuggestFixes); err != nil {
 		return ExitConfig, err
 	}
 
@@ -114,8 +114,8 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.A
 	return nodes, askers, nil
 }
 
-// withProfiles gives the judge, and the suggest step under --suggest-fixes, the Chatter of their own LLM profile, reusing one wherever two nodes share a profile.
-func withProfiles(setup runSetup, nodes []config.Node, suggestFixes bool) (runSetup, error) {
+// withNodeLLMs gives the judge, and the suggest step under --suggest-fixes, a Chatter built from its own llm block when it has one.
+func withNodeLLMs(setup runSetup, nodes []config.Node, suggestFixes bool) (runSetup, error) {
 	judge, suggest := config.JudgeNode(nodes), config.SuggestNode(nodes)
 	if !suggestFixes {
 		suggest = judge
@@ -123,23 +123,34 @@ func withProfiles(setup runSetup, nodes []config.Node, suggestFixes bool) (runSe
 
 	setup.judgeLLM, setup.suggestLLM = judge.LLM, suggest.LLM
 
-	built := map[string]inference.Chatter{"": setup.chat}
-	for _, n := range []config.Node{judge, suggest} {
-		if _, ok := built[n.Profile]; ok {
-			continue
-		}
-
-		chat, err := setup.chatFor(n.LLM)
-		if err != nil {
-			return setup, fmt.Errorf("llms.%s: %w", n.Profile, err)
-		}
-
-		built[n.Profile] = chat
+	judgeChat, err := nodeChat(setup, judge)
+	if err != nil {
+		return setup, err
 	}
 
-	setup.chat, setup.suggestChat = built[judge.Profile], built[suggest.Profile]
+	suggestChat := judgeChat
+	if suggest.Name != judge.Name {
+		if suggestChat, err = nodeChat(setup, suggest); err != nil {
+			return setup, err
+		}
+	}
+
+	setup.chat, setup.suggestChat = judgeChat, suggestChat
 
 	return setup, nil
+}
+
+func nodeChat(setup runSetup, n config.Node) (inference.Chatter, error) {
+	if !n.OwnLLM {
+		return setup.chat, nil
+	}
+
+	chat, err := setup.chatFor(n.LLM)
+	if err != nil {
+		return nil, fmt.Errorf("analysis.pipeline node %q.llm: %w", n.Name, err)
+	}
+
+	return chat, nil
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {
@@ -351,7 +362,7 @@ func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
 		return dryRunUsage(r.setup.cfg, r.setup.judgeLLM, r.tally, engine.Projection.Usage)
 	}
 
-	return usageReport(r.setup.cfg, llmProfiles{judge: r.setup.judgeLLM, suggest: r.setup.suggestLLM}, r.opts.SuggestFixes, r.tally)
+	return usageReport(r.setup.cfg, roleLLMs{judge: r.setup.judgeLLM, suggest: r.setup.suggestLLM}, r.opts.SuggestFixes, r.tally)
 }
 
 func (r *checkRun) saveReportFile() error {

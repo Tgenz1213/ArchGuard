@@ -14,19 +14,12 @@ import (
 	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
-const profilesConfigYAML = `
+const nodeLLMConfigYAML = `
 version: "1"
 llm:
   provider: "ollama"
   cost_per_1k_input_tokens: 0.5
   cost_per_1k_output_tokens: 2
-llms:
-  strong:
-    provider: "claude"
-    model: "big"
-    max_tokens: 150000
-    cost_per_1k_input_tokens: 3
-    cost_per_1k_output_tokens: 15
 vector_store:
   provider: "ollama"
   embedding_dim: 768
@@ -35,12 +28,12 @@ analysis:
   accepted_statuses: ["Accepted", "Active"]
 `
 
-func setupProfilesRepo(t *testing.T, pipeline string) (dir, binaryPath string) {
+func setupNodeLLMRepo(t *testing.T, pipeline string) (dir, binaryPath string) {
 	t.Helper()
 
 	dir, binaryPath = buildE2EBinary(t)
 
-	writeE2EConfig(t, dir, profilesConfigYAML+pipeline)
+	writeE2EConfig(t, dir, nodeLLMConfigYAML+pipeline)
 	writeNoSecretsADR(t, dir)
 
 	if err := os.WriteFile(filepath.Join(dir, fixtureFilename), []byte(violationFixtureContent()), 0644); err != nil {
@@ -52,9 +45,9 @@ func setupProfilesRepo(t *testing.T, pipeline string) (dir, binaryPath string) {
 	return dir, binaryPath
 }
 
-func TestE2E_JudgeProfileAndSuggestNode(t *testing.T) {
-	pipeline := "  pipeline:\n" + shortlistNodeYAML + judgeNodeYAML + "      llm: strong\n    - name: suggest\n      job: suggest\n      with: llm\n"
-	dir, binaryPath := setupProfilesRepo(t, pipeline)
+func TestE2E_JudgeLLMBlockAndSuggestNode(t *testing.T) {
+	pipeline := "  pipeline:\n" + shortlistNodeYAML + judgeNodeYAML + "      llm:\n        provider: claude\n        model: big\n        cost_per_1k_input_tokens: 3\n        cost_per_1k_output_tokens: 15\n    - name: suggest\n      job: suggest\n      with: llm\n"
+	dir, binaryPath := setupNodeLLMRepo(t, pipeline)
 
 	stdout, stderr, exitCode := runCheckWithEnv(t, dir, binaryPath, nil, "--format", "json", "--suggest-fixes", fixtureFilename)
 	if exitCode != int(cli.ExitDriftDetected) {
@@ -88,19 +81,19 @@ func assertPricedCall(t *testing.T, role string, got *chatUsage, inputPrice, out
 
 	want := float64(testutil.MockChatInputTokens)/1000*inputPrice + float64(testutil.MockChatOutputTokens)/1000*outputPrice
 	if math.Abs(*got.Cost-want) > 1e-9 {
-		t.Errorf("%s cost = %v, want %v from its profile's prices", role, *got.Cost, want)
+		t.Errorf("%s cost = %v, want %v from its llm block's prices", role, *got.Cost, want)
 	}
 }
 
-func TestE2E_UnknownProfileExitsConfig(t *testing.T) {
-	dir, binaryPath := setupProfilesRepo(t, "  pipeline:\n"+shortlistNodeYAML+judgeNodeYAML+"      llm: weak\n")
+func TestE2E_BadNodeLLMExitsConfig(t *testing.T) {
+	dir, binaryPath := setupNodeLLMRepo(t, "  pipeline:\n"+shortlistNodeYAML+judgeNodeYAML+"      llm:\n        modle: big\n")
 
 	_, stderr, exitCode := runCheckWithEnv(t, dir, binaryPath, nil, fixtureFilename)
 	if exitCode != int(cli.ExitConfig) {
 		t.Fatalf("exit code = %d, want %d. stderr: %s", exitCode, cli.ExitConfig, stderr)
 	}
 
-	if !strings.Contains(stderr, `node "judge".llm`) || !strings.Contains(stderr, `"weak"`) {
-		t.Errorf("stderr = %q, want the node and the profile named", stderr)
+	if !strings.Contains(stderr, `node "judge".llm`) || !strings.Contains(stderr, `"modle"`) {
+		t.Errorf("stderr = %q, want the node and the bad key named", stderr)
 	}
 }

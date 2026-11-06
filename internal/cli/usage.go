@@ -15,22 +15,22 @@ func newRecorder(tally *telemetry.Tally, injected telemetry.Recorder) telemetry.
 	return telemetry.Fanout{tally, injected}
 }
 
-type llmProfiles struct {
+type roleLLMs struct {
 	judge, suggest config.LLMConfig
 }
 
-func usageReport(cfg *config.Config, profiles llmProfiles, suggestFixes bool, tally *telemetry.Tally) *output.Usage {
+func usageReport(cfg *config.Config, llms roleLLMs, suggestFixes bool, tally *telemetry.Tally) *output.Usage {
 	judgment := tally.Totals(telemetry.Judgment)
 
 	usage := &output.Usage{
-		Judgment:  withCounts(chatUsage(judgment.Usage, profiles.judge), judgment),
+		Judgment:  withCounts(chatUsage(judgment.Usage, llms.judge), judgment),
 		Embedding: embeddingReport(cfg, tally),
 		Files:     fileDurations(tally),
 	}
 
 	if suggestFixes {
 		totals := tally.Totals(telemetry.Suggestion)
-		suggestion := withCounts(chatUsage(totals.Usage, profiles.suggest), totals)
+		suggestion := withCounts(chatUsage(totals.Usage, llms.suggest), totals)
 		usage.Suggestion = &suggestion
 	}
 

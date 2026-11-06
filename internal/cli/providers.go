@@ -135,24 +135,24 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
-// profileChatter builds the Chatter for an LLM profile; a profile on llm.provider's provider reuses ARCHGUARD_API_KEY, any other reads its own variable (docs/arch/0054).
-func profileChatter(warnings *output.Printer, cfg *config.Config, profile config.LLMConfig, factories ProviderFactories) (inference.Chatter, error) {
-	profiled := *cfg
-	profiled.LLM = profile
+// nodeChatter builds the Chatter for a node's llm block; on llm.provider's provider it reuses ARCHGUARD_API_KEY, and on any other it reads that provider's own variable (docs/arch/0054).
+func nodeChatter(warnings *output.Printer, cfg *config.Config, llm config.LLMConfig, factories ProviderFactories) (inference.Chatter, error) {
+	nodeCfg := *cfg
+	nodeCfg.LLM = llm
 
 	if factories.Chat != nil {
-		return factories.Chat(&profiled), nil
+		return factories.Chat(&nodeCfg), nil
 	}
 
-	return buildChatProvider(warnings, profile.Provider, os.Getenv(profileKeyEnv(cfg, profile)), &profiled)
+	return buildChatProvider(warnings, llm.Provider, os.Getenv(nodeKeyEnv(cfg, llm)), &nodeCfg)
 }
 
-func profileKeyEnv(cfg *config.Config, profile config.LLMConfig) string {
-	if profile.Provider == cfg.LLM.Provider {
+func nodeKeyEnv(cfg *config.Config, llm config.LLMConfig) string {
+	if llm.Provider == cfg.LLM.Provider {
 		return "ARCHGUARD_API_KEY"
 	}
 
-	return "ARCHGUARD_" + strings.ToUpper(profile.Provider) + "_API_KEY"
+	return "ARCHGUARD_" + strings.ToUpper(llm.Provider) + "_API_KEY"
 }
 
 // jevAskers builds a Jev client per model, or hands out the asker a test injected.

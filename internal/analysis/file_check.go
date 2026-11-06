@@ -480,7 +480,7 @@ func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
 	return *fc.suggestion
 }
 
-// sizeSuggestion fits the judged content to the suggest profile's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
+// sizeSuggestion fits the judged content to the suggest step's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
 func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
 	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
 	limit := tokenLimit(suggest)

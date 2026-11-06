@@ -46,7 +46,6 @@ var (
 type nodeSource struct {
 	cfg      *Config
 	jev      jevSettings
-	profiles map[string]LLMConfig
 	position int
 	raw      *yaml.Node
 }
@@ -88,7 +87,7 @@ func parseNode(src nodeSource) (Node, error) {
 	case JobAsk:
 		err = node.decodeAsk(prefix, fields, src.jev)
 	case JobJudge, JobSuggest:
-		err = node.decodeLLM(prefix, fields, src.cfg, src.profiles)
+		err = node.decodeLLM(prefix, fields, src.cfg)
 	}
 
 	return node, err

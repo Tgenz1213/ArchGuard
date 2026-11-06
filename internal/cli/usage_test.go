@@ -41,7 +41,7 @@ func TestUsageReport_Report(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage := usageReport(tt.cfg, llmProfiles{judge: tt.cfg.LLM, suggest: tt.cfg.LLM}, false, tallyOf(tt.chat, tt.chat))
+			usage := usageReport(tt.cfg, roleLLMs{judge: tt.cfg.LLM, suggest: tt.cfg.LLM}, false, tallyOf(tt.chat, tt.chat))
 
 			assertChatUsage(t, usage.Judgment, tt.wantTokens, tt.chat)
 			assertCost(t, "judgment", usage.Judgment.Cost, tt.wantChatCost)
@@ -96,7 +96,7 @@ func TestUsageReport_Counts(t *testing.T) {
 	tally.Record(telemetry.FileChecked{File: "fast.go", Spent: 10 * time.Millisecond})
 	tally.Record(telemetry.FileChecked{File: "slow.go", Spent: 900 * time.Millisecond})
 
-	usage := usageReport(&config.Config{}, llmProfiles{}, true, tally)
+	usage := usageReport(&config.Config{}, roleLLMs{}, true, tally)
 
 	wantJudgment := output.ChatCounts{CacheHits: 1, CacheMisses: 1, Retries: 3}
 	if usage.Judgment.Calls != 1 || usage.Judgment.ChatCounts != wantJudgment {
@@ -119,7 +119,7 @@ func TestUsageReport_Counts(t *testing.T) {
 }
 
 func TestUsageReport_ListsNoFilesAsEmpty(t *testing.T) {
-	usage := usageReport(&config.Config{}, llmProfiles{}, false, &telemetry.Tally{})
+	usage := usageReport(&config.Config{}, roleLLMs{}, false, &telemetry.Tally{})
 
 	if usage.Files == nil {
 		t.Error("files is nil, want an empty list so the JSON has [] and not null")

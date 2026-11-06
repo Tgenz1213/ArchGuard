@@ -25,7 +25,7 @@ func (c namedChat) CreateEmbedding(context.Context, string, inference.EmbeddingT
 	return inference.Embedding{}, nil
 }
 
-func TestProfileKeyEnv(t *testing.T) {
+func TestNodeKeyEnv(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Provider: "ollama"}}
 
 	tests := []struct {
@@ -37,22 +37,22 @@ func TestProfileKeyEnv(t *testing.T) {
 		{"openai", "ARCHGUARD_OPENAI_API_KEY"},
 	}
 	for _, tt := range tests {
-		if got := profileKeyEnv(cfg, config.LLMConfig{Provider: tt.provider}); got != tt.want {
-			t.Errorf("profileKeyEnv(%s) = %s, want %s", tt.provider, got, tt.want)
+		if got := nodeKeyEnv(cfg, config.LLMConfig{Provider: tt.provider}); got != tt.want {
+			t.Errorf("nodeKeyEnv(%s) = %s, want %s", tt.provider, got, tt.want)
 		}
 	}
 }
 
-func TestProfileChatter_DifferentProviderNeverReadsTheMainKey(t *testing.T) {
+func TestNodeChatter_DifferentProviderNeverReadsTheMainKey(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Provider: "ollama"}}
-	profile := config.LLMConfig{Provider: "claude", Model: "big"}
+	judge := config.LLMConfig{Provider: "claude", Model: "big"}
 
 	t.Setenv("ARCHGUARD_API_KEY", "main-key")
 	t.Setenv("ARCHGUARD_CLAUDE_API_KEY", "")
 
 	var warnings bytes.Buffer
-	if _, err := profileChatter(output.New(&warnings, false), cfg, profile, ProviderFactories{}); err != nil {
-		t.Fatalf("profileChatter failed: %v", err)
+	if _, err := nodeChatter(output.New(&warnings, false), cfg, judge, ProviderFactories{}); err != nil {
+		t.Fatalf("nodeChatter failed: %v", err)
 	}
 
 	if !strings.Contains(warnings.String(), "no API key set for claude") {
@@ -62,8 +62,8 @@ func TestProfileChatter_DifferentProviderNeverReadsTheMainKey(t *testing.T) {
 	t.Setenv("ARCHGUARD_CLAUDE_API_KEY", "claude-key")
 	warnings.Reset()
 
-	if _, err := profileChatter(output.New(&warnings, false), cfg, profile, ProviderFactories{}); err != nil {
-		t.Fatalf("profileChatter failed: %v", err)
+	if _, err := nodeChatter(output.New(&warnings, false), cfg, judge, ProviderFactories{}); err != nil {
+		t.Fatalf("nodeChatter failed: %v", err)
 	}
 
 	if warnings.Len() != 0 {
@@ -71,7 +71,7 @@ func TestProfileChatter_DifferentProviderNeverReadsTheMainKey(t *testing.T) {
 	}
 }
 
-func TestProfileChatter_FactoryGetsTheProfile(t *testing.T) {
+func TestNodeChatter_FactoryGetsTheNodeLLM(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{Provider: "ollama", Model: "small"}}
 
 	var got config.LLMConfig
@@ -80,12 +80,12 @@ func TestProfileChatter_FactoryGetsTheProfile(t *testing.T) {
 		return namedChat{}
 	}}
 
-	if _, err := profileChatter(output.New(&bytes.Buffer{}, false), cfg, config.LLMConfig{Provider: "claude", Model: "big"}, factories); err != nil {
-		t.Fatalf("profileChatter failed: %v", err)
+	if _, err := nodeChatter(output.New(&bytes.Buffer{}, false), cfg, config.LLMConfig{Provider: "claude", Model: "big"}, factories); err != nil {
+		t.Fatalf("nodeChatter failed: %v", err)
 	}
 
 	if got.Provider != "claude" || got.Model != "big" {
-		t.Errorf("factory got %+v, want the profile", got)
+		t.Errorf("factory got %+v, want the node's llm block", got)
 	}
 
 	if cfg.LLM.Model != "small" {
@@ -93,10 +93,10 @@ func TestProfileChatter_FactoryGetsTheProfile(t *testing.T) {
 	}
 }
 
-func pipelineNodes(judgeProfile string, judge config.LLMConfig, suggest *config.Node) []config.Node {
+func pipelineNodes(judge config.LLMConfig, suggest *config.Node) []config.Node {
 	nodes := []config.Node{
 		{Name: "shortlist", Job: config.JobRank},
-		{Name: "judge", Job: config.JobJudge, Profile: judgeProfile, LLM: judge},
+		{Name: "judge", Job: config.JobJudge, OwnLLM: judge.Model != "small", LLM: judge},
 	}
 	if suggest != nil {
 		nodes = append(nodes, *suggest)
@@ -105,7 +105,7 @@ func pipelineNodes(judgeProfile string, judge config.LLMConfig, suggest *config.
 	return nodes
 }
 
-func setupWithProfiles(built *[]string) runSetup {
+func setupWithNodeLLMs(built *[]string) runSetup {
 	main := config.LLMConfig{Provider: "ollama", Model: "small"}
 
 	return runSetup{
@@ -118,7 +118,7 @@ func setupWithProfiles(built *[]string) runSetup {
 	}
 }
 
-func TestWithProfiles(t *testing.T) {
+func TestWithNodeLLMs(t *testing.T) {
 	main := config.LLMConfig{Provider: "ollama", Model: "small"}
 	big := config.LLMConfig{Provider: "claude", Model: "big"}
 	tiny := config.LLMConfig{Provider: "openai", Model: "tiny"}
@@ -130,19 +130,18 @@ func TestWithProfiles(t *testing.T) {
 		wantSuggest string
 		wantBuilt   []string
 	}{
-		{"no profiles", pipelineNodes("", main, nil), "main", "main", nil},
-		{"judge profile writes fixes too", pipelineNodes("strong", big, nil), "big", "big", []string{"big"}},
-		{"suggest on the llm block", pipelineNodes("strong", big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: main}), "big", "main", []string{"big"}},
-		{"suggest on its own profile", pipelineNodes("", main, &config.Node{Name: "suggest", Job: config.JobSuggest, Profile: "cheap", LLM: tiny}), "main", "tiny", []string{"tiny"}},
-		{"shared profile builds once", pipelineNodes("strong", big, &config.Node{Name: "suggest", Job: config.JobSuggest, Profile: "strong", LLM: big}), "big", "big", []string{"big"}},
+		{"no node llm blocks", pipelineNodes(main, nil), "main", "main", nil},
+		{"judge llm block writes fixes too", pipelineNodes(big, nil), "big", "big", []string{"big"}},
+		{"suggest on the llm block", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: main}), "big", "main", []string{"big"}},
+		{"suggest with its own llm block", pipelineNodes(main, &config.Node{Name: "suggest", Job: config.JobSuggest, OwnLLM: true, LLM: tiny}), "main", "tiny", []string{"tiny"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var built []string
 
-			setup, err := withProfiles(setupWithProfiles(&built), tt.nodes, true)
+			setup, err := withNodeLLMs(setupWithNodeLLMs(&built), tt.nodes, true)
 			if err != nil {
-				t.Fatalf("withProfiles failed: %v", err)
+				t.Fatalf("withNodeLLMs failed: %v", err)
 			}
 
 			if got := setup.chat.(namedChat).name; got != tt.wantJudge {
@@ -158,40 +157,40 @@ func TestWithProfiles(t *testing.T) {
 			}
 
 			if setup.judgeLLM != tt.nodes[1].LLM || setup.suggestLLM != config.SuggestNode(tt.nodes).LLM {
-				t.Errorf("profiles = %+v and %+v, want the judge's and the suggest node's", setup.judgeLLM, setup.suggestLLM)
+				t.Errorf("llms = %+v and %+v, want the judge's and the suggest node's", setup.judgeLLM, setup.suggestLLM)
 			}
 		})
 	}
 }
 
-func TestWithProfiles_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
+func TestWithNodeLLMs_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
 	var built []string
 
-	nodes := pipelineNodes("", config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, Profile: "cheap", LLM: config.LLMConfig{Provider: "openai", Model: "tiny"}})
+	nodes := pipelineNodes(config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, OwnLLM: true, LLM: config.LLMConfig{Provider: "openai", Model: "tiny"}})
 
-	setup, err := withProfiles(setupWithProfiles(&built), nodes, false)
+	setup, err := withNodeLLMs(setupWithNodeLLMs(&built), nodes, false)
 	if err != nil {
-		t.Fatalf("withProfiles failed: %v", err)
+		t.Fatalf("withNodeLLMs failed: %v", err)
 	}
 
 	if len(built) != 0 || setup.suggestChat.(namedChat).name != "main" {
-		t.Errorf("built %v with suggest chat %v, want nothing built, so an unused profile's missing key never warns", built, setup.suggestChat)
+		t.Errorf("built %v with suggest chat %v, want nothing built, so an unused llm block's missing key never warns", built, setup.suggestChat)
 	}
 }
 
-func TestWithProfiles_NamesTheProfileOnABuildError(t *testing.T) {
+func TestWithNodeLLMs_NamesTheNodeOnABuildError(t *testing.T) {
 	setup := runSetup{
 		chat:    namedChat{name: "main"},
 		chatFor: func(config.LLMConfig) (inference.Chatter, error) { return nil, errors.New("unknown provider: voyage") },
 	}
 
-	_, err := withProfiles(setup, pipelineNodes("embedder", config.LLMConfig{Provider: "voyage"}, nil), true)
-	if err == nil || !strings.Contains(err.Error(), "llms.embedder: unknown provider: voyage") {
-		t.Errorf("err = %v, want the build error naming llms.embedder", err)
+	_, err := withNodeLLMs(setup, pipelineNodes(config.LLMConfig{Provider: "voyage"}, nil), true)
+	if err == nil || !strings.Contains(err.Error(), `analysis.pipeline node "judge".llm: unknown provider: voyage`) {
+		t.Errorf("err = %v, want the build error naming the judge's llm block", err)
 	}
 }
 
-func TestUsageReport_PricesEachRoleWithItsProfile(t *testing.T) {
+func TestUsageReport_PricesEachRoleWithItsLLM(t *testing.T) {
 	reported := inference.Usage{InputTokens: 2000, OutputTokens: 500, Reported: true}
 
 	tally := &telemetry.Tally{}
@@ -199,18 +198,18 @@ func TestUsageReport_PricesEachRoleWithItsProfile(t *testing.T) {
 	tally.Record(telemetry.RequestSent{Role: telemetry.Suggestion, Usage: reported})
 
 	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(1.0), CostPer1KOutputTokens: new(1.0)}}
-	profiles := llmProfiles{
+	llms := roleLLMs{
 		judge:   config.LLMConfig{CostPer1KInputTokens: new(0.003), CostPer1KOutputTokens: new(0.015)},
 		suggest: config.LLMConfig{CostPer1KInputTokens: new(0.001), CostPer1KOutputTokens: new(0.002)},
 	}
 
-	usage := usageReport(cfg, profiles, true, tally)
+	usage := usageReport(cfg, llms, true, tally)
 
 	assertCost(t, "judgment", usage.Judgment.Cost, 0.0135)
 	assertCost(t, "suggestion", usage.Suggestion.Cost, 0.003)
 }
 
-func TestDryRunUsage_PricesWithTheJudgeProfile(t *testing.T) {
+func TestDryRunUsage_PricesWithTheJudgeLLM(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(1.0)}}
 	judge := config.LLMConfig{CostPer1KInputTokens: new(0.003)}
 

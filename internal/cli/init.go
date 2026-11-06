@@ -237,13 +237,6 @@ llm:
   max_tokens: 8000
   temperature: 0.0
 
-# llms: # Named LLM profiles; a judge or suggest node uses one with llm: <name> (see README)
-#   strong:
-#     provider: "claude"
-#     model: "<model>"
-#     max_tokens: 150000
-#     temperature: 0.0
-
 vector_store:
   provider: "ollama"
   model: "nomic-embed-text"
@@ -265,6 +258,8 @@ analysis:
     # - name: suggest # Writes fixes under --suggest-fixes; without it, the judge's LLM writes them
     #   job: suggest
     #   with: llm
+    #   llm: # Optional, also on the judge: only the keys that differ from the llm block (see README)
+    #     model: "<model>"
 `, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
 }
 

@@ -184,8 +184,8 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		return runSetup{}, err
 	}
 
-	chatFor := func(profile config.LLMConfig) (inference.Chatter, error) {
-		return profileChatter(warnings, cfg, profile, factories)
+	chatFor := func(llm config.LLMConfig) (inference.Chatter, error) {
+		return nodeChatter(warnings, cfg, llm, factories)
 	}
 
 	return runSetup{

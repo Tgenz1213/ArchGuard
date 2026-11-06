@@ -71,14 +71,14 @@ func checkPipeline(content []byte) error {
 	return err
 }
 
-// The default pipeline uses neither Jev nor a profile, so a bad jev or llms block is for check to report, not a sign the splice went wrong.
+// The default pipeline doesn't use Jev, so a bad jev block is for check to report, not a sign the splice went wrong.
 func checkDefaultPipeline(content []byte) error {
 	var cfg config.Config
 	if err := yaml.Unmarshal(content, &cfg); err != nil {
 		return err
 	}
 
-	cfg.Jev, cfg.LLMs = yaml.Node{}, yaml.Node{}
+	cfg.Jev = yaml.Node{}
 	_, err := config.ParsePipeline(&cfg)
 
 	return err

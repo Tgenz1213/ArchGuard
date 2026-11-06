@@ -52,8 +52,9 @@ type Node struct {
 	OnError   string
 	Model     string
 	Question  Question
-	Profile   string
-	LLM       LLMConfig
+	// LLM is the llm block with the node's own llm block, when OwnLLM, laid over it.
+	OwnLLM bool
+	LLM    LLMConfig
 }
 
 type Question struct {
@@ -62,14 +63,9 @@ type Question struct {
 	Instructions string
 }
 
-// ParsePipeline validates analysis.pipeline and the jev and llms blocks. LoadConfig never does, so commands other than check run on any pipeline.
+// ParsePipeline validates analysis.pipeline and the jev block. LoadConfig never does, so commands other than check run on any pipeline.
 func ParsePipeline(cfg *Config) ([]Node, error) {
 	jev, err := parseJev(&cfg.Jev)
-	if err != nil {
-		return nil, err
-	}
-
-	profiles, err := parseProfiles(&cfg.LLMs)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +81,7 @@ func ParsePipeline(cfg *Config) ([]Node, error) {
 
 	nodes := make([]Node, 0, len(pipeline.Content))
 	for i, item := range pipeline.Content {
-		node, err := parseNode(nodeSource{cfg: cfg, jev: jev, profiles: profiles, position: i + 1, raw: resolveAlias(item)})
+		node, err := parseNode(nodeSource{cfg: cfg, jev: jev, position: i + 1, raw: resolveAlias(item)})
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +144,7 @@ func JudgeNode(nodes []Node) Node {
 	return nodes[slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobJudge })]
 }
 
-// SuggestNode is the node whose profile writes fixes: the suggest node, or the judge when there is none.
+// SuggestNode is the node whose LLM writes fixes: the suggest node, or the judge when there is none.
 func SuggestNode(nodes []Node) Node {
 	if i := slices.IndexFunc(nodes, func(n Node) bool { return n.Job == JobSuggest }); i >= 0 {
 		return nodes[i]

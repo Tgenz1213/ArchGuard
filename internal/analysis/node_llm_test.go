@@ -13,18 +13,18 @@ import (
 )
 
 const (
-	profileFile = "import python_library\n# a long tail that only the full file has, so it is too big for a small max_tokens\n"
-	profileDiff = "@@ -0,0 +1 @@\n+import python_library\n"
+	llmFile = "import python_library\n# a long tail that only the full file has, so it is too big for a small max_tokens\n"
+	llmDiff = "@@ -0,0 +1 @@\n+import python_library\n"
 )
 
-// profileProvider flags every judged file and records what the judge and the suggestion were sent.
-type profileProvider struct {
+// nodeLLMProvider flags every judged file and records what the judge and the suggestion were sent.
+type nodeLLMProvider struct {
 	inference.MockProvider
 	judged, suggested []string
 }
 
-func newProfileProvider() *profileProvider {
-	p := &profileProvider{}
+func newNodeLLMProvider() *nodeLLMProvider {
+	p := &nodeLLMProvider{}
 	p.ChatFunc = func(_ context.Context, system, user string) (string, error) {
 		if strings.Contains(system, "Remediation Advisor") {
 			p.suggested = append(p.suggested, user)
@@ -39,7 +39,7 @@ func newProfileProvider() *profileProvider {
 	return p
 }
 
-func profileEngine(t *testing.T, p *profileProvider, content analysis.ContentProvider) *analysis.Engine {
+func nodeLLMEngine(t *testing.T, p *nodeLLMProvider, content analysis.ContentProvider) *analysis.Engine {
 	t.Helper()
 
 	cfg := &config.Config{
@@ -54,40 +54,40 @@ func profileEngine(t *testing.T, p *profileProvider, content analysis.ContentPro
 	return engine
 }
 
-func TestRun_SizingFollowsTheJudgeProfile(t *testing.T) {
-	p := newProfileProvider()
-	engine := profileEngine(t, p, &diffCapableContentProvider{content: profileFile, diff: profileDiff})
+func TestRun_SizingFollowsTheJudgeLLM(t *testing.T) {
+	p := newNodeLLMProvider()
+	engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile, diff: llmDiff})
 	engine.JudgeLLM = config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 10}
 
 	_ = captureOutput(engine, func() { runEngine(t, engine, true) })
 
-	if len(p.judged) != 1 || strings.Contains(p.judged[0], "long tail") || !strings.Contains(p.judged[0], profileDiff) {
-		t.Errorf("judged %q, want the diff: the file fits llm.max_tokens but not the judge profile's", p.judged)
+	if len(p.judged) != 1 || strings.Contains(p.judged[0], "long tail") || !strings.Contains(p.judged[0], llmDiff) {
+		t.Errorf("judged %q, want the diff: the file fits llm.max_tokens but not the judge's llm block's", p.judged)
 	}
 }
 
-func TestRun_SystemPromptFollowsTheJudgeProfile(t *testing.T) {
+func TestRun_SystemPromptFollowsTheJudgeLLM(t *testing.T) {
 	var systems []string
 
-	p := newProfileProvider()
+	p := newNodeLLMProvider()
 	judge := p.ChatFunc
 	p.ChatFunc = func(ctx context.Context, system, user string) (string, error) {
 		systems = append(systems, system)
 		return judge(ctx, system, user)
 	}
 
-	engine := profileEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": profileFile}})
+	engine := nodeLLMEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": llmFile}})
 	engine.Config.LLM.SystemPrompt = "the llm block's prompt"
-	engine.JudgeLLM = config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, SystemPrompt: "the profile's prompt"}
+	engine.JudgeLLM = config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, SystemPrompt: "the judge's prompt"}
 
 	_ = captureOutput(engine, func() { runEngine(t, engine, true) })
 
-	if len(systems) != 1 || systems[0] != "the profile's prompt" {
-		t.Errorf("system prompts = %q, want the judge profile's", systems)
+	if len(systems) != 1 || systems[0] != "the judge's prompt" {
+		t.Errorf("system prompts = %q, want the judge's llm block's", systems)
 	}
 }
 
-func TestRun_SuggestProfileSizing(t *testing.T) {
+func TestRun_SuggestLLMSizing(t *testing.T) {
 	smallSuggest := config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
 
 	tests := []struct {
@@ -97,16 +97,16 @@ func TestRun_SuggestProfileSizing(t *testing.T) {
 		wantSuggested string
 		wantWarning   string
 	}{
-		{"same profile as the judge sends the file", &diffCapableContentProvider{content: profileFile, diff: profileDiff}, config.LLMConfig{}, profileFile, ""},
-		{"a profile that fits sends the file", &diffCapableContentProvider{content: profileFile, diff: profileDiff}, config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 1000}, profileFile, ""},
-		{"too big sends the diff", &diffCapableContentProvider{content: profileFile, diff: profileDiff}, smallSuggest, profileDiff, ""},
-		{"too big with no diff is skipped", &MockContentProvider{Files: map[string]string{"service.py": profileFile}}, smallSuggest, "", "no suggestion for service.py: it is over the suggest model's max_tokens (10) and has no diff that fits"},
-		{"too big with a diff that is too big is skipped", &diffCapableContentProvider{content: profileFile, diff: profileFile + profileFile}, smallSuggest, "", "has no diff that fits"},
+		{"same llm as the judge sends the file", &diffCapableContentProvider{content: llmFile, diff: llmDiff}, config.LLMConfig{}, llmFile, ""},
+		{"an llm that fits sends the file", &diffCapableContentProvider{content: llmFile, diff: llmDiff}, config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 1000}, llmFile, ""},
+		{"too big sends the diff", &diffCapableContentProvider{content: llmFile, diff: llmDiff}, smallSuggest, llmDiff, ""},
+		{"too big with no diff is skipped", &MockContentProvider{Files: map[string]string{"service.py": llmFile}}, smallSuggest, "", "no suggestion for service.py: it is over the suggest model's max_tokens (10) and has no diff that fits"},
+		{"too big with a diff that is too big is skipped", &diffCapableContentProvider{content: llmFile, diff: llmFile + llmFile}, smallSuggest, "", "has no diff that fits"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newProfileProvider()
-			engine := profileEngine(t, p, tt.content)
+			p := newNodeLLMProvider()
+			engine := nodeLLMEngine(t, p, tt.content)
 			engine.SuggestFixes = true
 			engine.SuggestLLM = tt.suggest
 
@@ -116,7 +116,7 @@ func TestRun_SuggestProfileSizing(t *testing.T) {
 				if len(p.suggested) != 0 {
 					t.Errorf("suggested %q, want no suggestion call", p.suggested)
 				}
-			} else if len(p.suggested) != 1 || !strings.Contains(p.suggested[0], tt.wantSuggested) || (tt.wantSuggested == profileDiff && strings.Contains(p.suggested[0], "long tail")) {
+			} else if len(p.suggested) != 1 || !strings.Contains(p.suggested[0], tt.wantSuggested) || (tt.wantSuggested == llmDiff && strings.Contains(p.suggested[0], "long tail")) {
 				t.Errorf("suggested %q, want it to carry %q", p.suggested, tt.wantSuggested)
 			}
 
@@ -127,16 +127,16 @@ func TestRun_SuggestProfileSizing(t *testing.T) {
 	}
 }
 
-func TestRun_CacheKeysFollowTheProfiles(t *testing.T) {
+func TestRun_CacheKeysFollowTheNodeLLMs(t *testing.T) {
 	c, err := cache.New(t.TempDir())
 	if err != nil {
 		t.Fatalf("cache.New failed: %v", err)
 	}
 
 	strong := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000}
-	rerun := func(judge, suggest config.LLMConfig) *profileProvider {
-		p := newProfileProvider()
-		engine := profileEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": profileFile}})
+	rerun := func(judge, suggest config.LLMConfig) *nodeLLMProvider {
+		p := newNodeLLMProvider()
+		engine := nodeLLMEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": llmFile}})
 		engine.Cache = c
 		engine.SuggestFixes = true
 		engine.JudgeLLM, engine.SuggestLLM = judge, suggest
@@ -154,7 +154,7 @@ func TestRun_CacheKeysFollowTheProfiles(t *testing.T) {
 		wantSuggested int
 	}{
 		{"first run", strong, strong, 1, 1},
-		{"same profiles hit both caches", strong, strong, 0, 0},
+		{"same llms hit both caches", strong, strong, 0, 0},
 		{"another judge provider misses the analysis cache", config.LLMConfig{Provider: "openai", Model: "big", MaxTokens: 1000}, strong, 1, 0},
 		{"another judge model misses the analysis cache", config.LLMConfig{Provider: "claude", Model: "bigger", MaxTokens: 1000}, strong, 1, 0},
 		{"another suggest provider misses the suggestion cache", strong, config.LLMConfig{Provider: "openai", Model: "big", MaxTokens: 1000}, 0, 1},
@@ -170,12 +170,12 @@ func TestRun_CacheKeysFollowTheProfiles(t *testing.T) {
 }
 
 func TestRun_SuggestCountErrorSkipsTheSuggestion(t *testing.T) {
-	p := newProfileProvider()
-	engine := profileEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": profileFile}})
+	p := newNodeLLMProvider()
+	engine := nodeLLMEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": llmFile}})
 	engine.SuggestFixes = true
 	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
 
-	suggest := newProfileProvider()
+	suggest := newNodeLLMProvider()
 	suggest.CountTokensFunc = func(context.Context, string) (int, error) { return 0, errors.New("tokenizer offline") }
 	engine.SuggestChat = suggest
 
@@ -196,9 +196,9 @@ func TestRun_SuggestionFromTheDiffIsCachedApart(t *testing.T) {
 		t.Fatalf("cache.New failed: %v", err)
 	}
 
-	suggestWith := func(maxTokens int) *profileProvider {
-		p := newProfileProvider()
-		engine := profileEngine(t, p, &diffCapableContentProvider{content: profileFile, diff: profileDiff})
+	suggestWith := func(maxTokens int) *nodeLLMProvider {
+		p := newNodeLLMProvider()
+		engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile, diff: llmDiff})
 		engine.Cache = c
 		engine.SuggestFixes = true
 		engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: maxTokens}
@@ -224,19 +224,19 @@ func TestRun_SuggestionIsSizedOncePerFile(t *testing.T) {
 	store := goLangStore()
 	store.ADRs = append(store.ADRs, second)
 
-	p := newProfileProvider()
+	p := newNodeLLMProvider()
 	cfg := &config.Config{
 		LLM:         config.LLMConfig{Provider: "ollama", Model: "small", MaxTokens: 1000},
 		VectorStore: config.VectorStore{SimilarityThreshold: 0.0},
 		Analysis:    config.Analysis{ExcludePatterns: []string{}},
 	}
-	engine := newEngine(t, cfg, store, both(p), &fallbackOnlyContentProvider{files: map[string]string{"service.py": profileFile}})
+	engine := newEngine(t, cfg, store, both(p), &fallbackOnlyContentProvider{files: map[string]string{"service.py": llmFile}})
 	engine.Cache = nil
 	engine.SuggestFixes = true
 	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
 
 	counts := 0
-	suggest := newProfileProvider()
+	suggest := newNodeLLMProvider()
 	suggest.CountTokensFunc = func(_ context.Context, text string) (int, error) {
 		counts++
 		return len(text) / 4, nil
@@ -255,8 +255,8 @@ func TestRun_SuggestionIsSizedOncePerFile(t *testing.T) {
 }
 
 func TestRun_SuggestSkipNamesWhatWasJudged(t *testing.T) {
-	p := newProfileProvider()
-	engine := profileEngine(t, p, &fallbackOnlyContentProvider{files: map[string]string{"service.py": profileFile}})
+	p := newNodeLLMProvider()
+	engine := nodeLLMEngine(t, p, &fallbackOnlyContentProvider{files: map[string]string{"service.py": llmFile}})
 	engine.Config.LLM.MaxTokens = 15
 	engine.SuggestFixes = true
 	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 2}
@@ -271,14 +271,14 @@ func TestRun_SuggestSkipNamesWhatWasJudged(t *testing.T) {
 func TestRun_AnOversizedDiffIsSizedForTheSuggestionToo(t *testing.T) {
 	bigDiff := "@@ -0,0 +1,2 @@\n+import python_library\n+" + strings.Repeat("x", 200) + "\n"
 
-	p := newProfileProvider()
-	engine := profileEngine(t, p, &diffCapableContentProvider{content: profileFile + strings.Repeat("y", 4000), diff: bigDiff})
+	p := newNodeLLMProvider()
+	engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile + strings.Repeat("y", 4000), diff: bigDiff})
 	engine.Config.LLM.MaxTokens = 20
 	engine.SuggestFixes = true
 
 	out := captureOutput(engine, func() { runEngine(t, engine, true) })
 
 	if len(p.suggested) != 0 || !strings.Contains(out, "no suggestion for service.py: what was judged is over the suggest model's max_tokens (20)") {
-		t.Errorf("suggested %q with output %q, want the oversized diff skipped even on the judge's own profile", p.suggested, out)
+		t.Errorf("suggested %q with output %q, want the oversized diff skipped even on the judge's own llm", p.suggested, out)
 	}
 }
