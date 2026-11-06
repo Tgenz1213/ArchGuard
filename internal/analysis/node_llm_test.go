@@ -282,3 +282,22 @@ func TestRun_AnOversizedDiffIsSizedForTheSuggestionToo(t *testing.T) {
 		t.Errorf("suggested %q with output %q, want the oversized diff skipped even on the judge's own llm", p.suggested, out)
 	}
 }
+
+func TestRun_AJudgedChangeIsNotCountedAgainForTheSameLLM(t *testing.T) {
+	p := newNodeLLMProvider()
+	counts := 0
+	p.CountTokensFunc = func(_ context.Context, text string) (int, error) {
+		counts++
+		return len(text) / 4, nil
+	}
+
+	engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile, diff: llmDiff})
+	engine.JudgeChange = true
+	engine.SuggestFixes = true
+
+	_ = captureOutput(engine, func() { runEngine(t, engine, true) })
+
+	if len(p.suggested) != 1 || counts != 1 {
+		t.Errorf("suggested %d times after %d token counts, want one suggestion and only the judge's count", len(p.suggested), counts)
+	}
+}

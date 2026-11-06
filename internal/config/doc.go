@@ -20,6 +20,7 @@ Terms:
   - Preset: a named question and keep threshold an ask node can use instead
     of writing its own.
   - Node llm block: the keys of the llm block a judge or suggest node sets
-    for itself; the keys it leaves out come from the llm block.
+    for itself. On llm.provider the keys it leaves out come from the llm
+    block; on another provider they take that provider's defaults.
 */
 package config

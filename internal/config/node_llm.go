@@ -45,7 +45,7 @@ func llmKeys(job string) []string {
 	return keys
 }
 
-// decodeLLM gives the node the llm block, with the keys its own llm block sets replacing the llm block's (docs/arch/0057).
+// docs/arch/0057 decides what a node's llm block inherits.
 func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config) error {
 	n.LLM = cfg.LLM
 
@@ -84,14 +84,13 @@ func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config
 		return decodeError(prefix, err)
 	}
 
-	if !setsAPrice(set) {
+	if pricesSet(set) == 0 {
 		return nil
 	}
 
 	return n.LLM.CheckCosts(prefix)
 }
 
-// inherited is what a node's llm block is laid over: the llm block, or on another provider only the judge's system_prompt.
 func (n *Node) inherited(own LLMConfig, set map[string]yaml.Node, top LLMConfig) LLMConfig {
 	if !switchesProvider(own, set, top) {
 		return top.clone()
@@ -109,11 +108,11 @@ func checkOwnLLM(prefix string, own LLMConfig, set map[string]yaml.Node, top LLM
 		return fmt.Errorf("%s.provider: cannot be empty; leave it out to use llm.provider", prefix)
 	}
 
-	if _, ok := set["model"]; !ok && switchesProvider(own, set, top) {
+	if own.Model == "" && switchesProvider(own, set, top) {
 		return fmt.Errorf("%s: set model, since provider %q is not llm.provider and inherits no model", prefix, own.Provider)
 	}
 
-	if setsAPrice(set) && !setsBothPrices(set) {
+	if pricesSet(set) == 1 {
 		return fmt.Errorf("set both %[1]s.cost_per_1k_input_tokens and %[1]s.cost_per_1k_output_tokens, or neither", prefix)
 	}
 
@@ -126,7 +125,6 @@ func switchesProvider(own LLMConfig, set map[string]yaml.Node, top LLMConfig) bo
 	return ok && own.Provider != top.Provider
 }
 
-// Same reports whether two llm blocks set the same values, comparing what pointers point to.
 func (llm LLMConfig) Same(other LLMConfig) bool {
 	return reflect.DeepEqual(llm, other)
 }
@@ -148,16 +146,14 @@ func clonePtr[T any](p *T) *T {
 	return new(*p)
 }
 
-func setsAPrice(set map[string]yaml.Node) bool {
-	_, input := set["cost_per_1k_input_tokens"]
-	_, output := set["cost_per_1k_output_tokens"]
+func pricesSet(set map[string]yaml.Node) int {
+	count := 0
 
-	return input || output
-}
+	for _, key := range []string{"cost_per_1k_input_tokens", "cost_per_1k_output_tokens"} {
+		if _, ok := set[key]; ok {
+			count++
+		}
+	}
 
-func setsBothPrices(set map[string]yaml.Node) bool {
-	_, input := set["cost_per_1k_input_tokens"]
-	_, output := set["cost_per_1k_output_tokens"]
-
-	return input && output
+	return count
 }

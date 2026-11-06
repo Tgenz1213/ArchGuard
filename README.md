@@ -214,8 +214,8 @@ Each node has a `name`, a `job` and a runner in `with`. The name is what `--debu
 |---|---|---|---|
 | `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
 | `ask` | `jev` | Asks Jev a question about each rule of each ADR and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
-| `judge` | `llm` | Judges each ADR that is left and reports the violations, with the `llm` block and any keys the node's own `llm` block sets laid over it. | `llm` |
-| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions, with the `llm` block and any keys the node's own `llm` block sets laid over it (see [A second LLM](#a-second-llm)). | `llm` |
+| `judge` | `llm` | Judges each ADR that is left and reports the violations, with the `llm` block or the node's own (see [A second LLM](#a-second-llm)). | `llm` |
+| `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions, with the `llm` block or the node's own (see [A second LLM](#a-second-llm)). | `llm` |
 
 The first node is a `rank` node, so the candidates are narrowed before anything asks about them, and the pipeline ends with its one `judge` node, followed by at most one `suggest` node. On a `rank` node:
 

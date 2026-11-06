@@ -258,7 +258,7 @@ analysis:
     # - name: suggest # Writes fixes under --suggest-fixes; without it, the judge's LLM writes them
     #   job: suggest
     #   with: llm
-    #   llm: # Optional, also on the judge: only the keys that differ from the llm block (see README)
+    #   llm: # Optional, also on the judge: on llm.provider only the keys that differ; on another, provider and model at least (see README)
     #     model: "<model>"
 `, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
 }

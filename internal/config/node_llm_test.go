@@ -1,6 +1,8 @@
 package config
 
 import (
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -127,6 +129,7 @@ func TestParsePipeline_InvalidNodeLLM(t *testing.T) {
 		{"system_prompt on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        system_prompt: be kind\n", []string{`node "suggest".llm`, `"system_prompt"`}},
 		{"one price over a block with both", baseLLM, judgeWith("      llm:\n        cost_per_1k_input_tokens: 0.003\n"), []string{`node "judge".llm.cost_per_1k_input_tokens`, "or neither"}},
 		{"another provider without a model", baseLLM, judgeWith("      llm:\n        provider: claude\n"), []string{`node "judge".llm`, "set model", `"claude"`}},
+		{"another provider with an empty model", baseLLM, judgeWith("      llm:\n        provider: claude\n        model: \"\"\n"), []string{`node "judge".llm`, "set model"}},
 		{"negative price", baseLLM, judgeWith("      llm:\n        cost_per_1k_input_tokens: 1\n        cost_per_1k_output_tokens: -1\n"), []string{`node "judge".llm.cost_per_1k_output_tokens`, "negative"}},
 		{"bad key on suggest", baseLLM, "  pipeline:" + shortlistNode + judgeNode + suggestNode + "      llm:\n        modle: tiny\n", []string{`node "suggest".llm`, `"modle"`}},
 		{"llm on a rank node", baseLLM, "  pipeline:" + shortlistNode + strongLLM + judgeNode, []string{`node "shortlist"`, `"llm"`, "not allowed"}},
@@ -162,5 +165,20 @@ func TestParsePipeline_LeavesTheLLMBlocksPricesToItsOwnCheck(t *testing.T) {
 func TestLoadConfig_AcceptsABadNodeLLM(t *testing.T) {
 	if _, err := loadFromYAML(t, "analysis:\n  pipeline:"+shortlistNode+judgeNode+"      llm:\n        modle: big\n"); err != nil {
 		t.Errorf("LoadConfig failed: %v", err)
+	}
+}
+
+func TestLLMConfigClone_CopiesEveryPointer(t *testing.T) {
+	top := LLMConfig{Temperature: new(0.1), CostPer1KInputTokens: new(0.2), CostPer1KOutputTokens: new(0.3)}
+	clone := reflect.ValueOf(top.clone())
+
+	for i, field := range slices.Collect(reflect.TypeFor[LLMConfig]().Fields()) {
+		if field.Type.Kind() != reflect.Pointer {
+			continue
+		}
+
+		if original := reflect.ValueOf(top).Field(i); original.IsNil() || original.Pointer() == clone.Field(i).Pointer() {
+			t.Errorf("clone shares %s with the llm block, so decoding a node's block would change it", field.Name)
+		}
 	}
 }
