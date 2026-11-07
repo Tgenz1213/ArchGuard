@@ -17,7 +17,7 @@ Terms:
     each file and then judge them.
   - Node: one step of the pipeline, with a name, a job (rank, ask, judge or
     suggest) and the runner that does it.
-  - Preset: a named question and keep threshold an ask node can use instead
+  - Preset: a named question and keep settings an ask node can use instead
     of writing its own.
   - Node llm block: the keys of the llm block a judge or suggest node sets
     for itself. On llm.provider the keys it leaves out come from the llm

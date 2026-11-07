@@ -37,7 +37,12 @@ func rankNode(s config.Node, store index.VectorStore, embed inference.Embedder) 
 }
 
 func askNode(s config.Node, asker inference.Asker) node.Node {
-	n := node.NewAskNode(asker, s.Question.Instructions, s.Threshold, s.TopK)
+	newNode := node.NewAskNode
+	if s.Question.ForEach == config.ForEachADR {
+		newNode = node.NewADRAskNode
+	}
+
+	n := newNode(asker, s.Question.Instructions, s.Threshold, s.TopK)
 	n.Name = s.Name
 	n.FailOnError = s.OnError == config.OnErrorFail
 

@@ -485,6 +485,10 @@ func (f askerFunc) Ask(_ context.Context, state string, questions map[string]str
 	return f(state, questions)
 }
 
+func (f askerFunc) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	return nil, errors.New("this fake asks only about one text")
+}
+
 func ruledADR(id, statement string) index.ADR {
 	adr := scorerADR(id, 1)
 	adr.Rules = index.Rules{{Statement: statement}}

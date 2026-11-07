@@ -15,10 +15,14 @@ import (
 
 const askAction = "asking about candidates"
 
-type inputTooLargeError struct{ err error }
+type inputTooLargeError struct {
+	err error
+	// What else was sent beside the file, since the model's error doesn't say which was too large.
+	alongside string
+}
 
 func (e *inputTooLargeError) Error() string {
-	return "the file or its rules are over the model's input limit"
+	return "the file or its " + e.alongside + " are over the model's input limit"
 }
 
 func (e *inputTooLargeError) Unwrap() error { return e.err }
@@ -31,22 +35,21 @@ type RuleAsk struct {
 }
 
 func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
-	scores := make([]float64, len(candidates))
-	for i := range scores {
-		scores[i] = math.Inf(1)
-	}
+	scores := unscoredByThisNode(len(candidates))
 
 	asked, owner := ruleQuestions(r.instructions(), candidates)
 	if len(asked) == 0 {
 		return scores, nil
 	}
 
-	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+	sides := nonBlankSides(file)
 	if len(sides) == 0 {
 		return scores, nil
 	}
 
-	answers, err := r.askSides(ctx, sides, asked)
+	answers, err := askEachSide(ctx, sides, asked, "rules", func(ctx context.Context, side string) (map[string]float64, error) {
+		return r.Asker.Ask(ctx, side, asked)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -61,22 +64,26 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 	return scores, nil
 }
 
-// askSides asks every question about each side and keeps each question's higher answer, so a rule a change removes still counts.
+func nonBlankSides(file File) []string {
+	return slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+}
+
+// askEachSide asks every question about each side and keeps each question's higher answer, so what a change removes still counts.
 // Every side must answer every question; one side never fills in for the other.
-func (r *RuleAsk) askSides(ctx context.Context, sides []string, asked map[string]string) (map[string]float64, error) {
-	highest := make(map[string]float64, len(asked))
+func askEachSide(ctx context.Context, sides []string, questions map[string]string, alongside string, ask func(ctx context.Context, side string) (map[string]float64, error)) (map[string]float64, error) {
+	highest := make(map[string]float64, len(questions))
 
 	for _, side := range sides {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		answers, err := r.Asker.Ask(ctx, side, asked)
+		answers, err := ask(ctx, side)
 		if err != nil {
-			return nil, askError(err)
+			return nil, askError(err, alongside)
 		}
 
-		for name := range asked {
+		for name := range questions {
 			probability, ok := answers[name]
 			if !ok {
 				return nil, &Error{Action: askAction, Err: fmt.Errorf("no answer for question %s", name)}
@@ -115,6 +122,15 @@ func ruleQuestions(instructions string, candidates []Candidate) (map[string]stri
 	return texts, owner
 }
 
+func unscoredByThisNode(n int) []float64 {
+	scores := make([]float64, n)
+	for i := range scores {
+		scores[i] = math.Inf(1)
+	}
+
+	return scores
+}
+
 func ruleText(rule index.Rule) string {
 	var text strings.Builder
 
@@ -131,9 +147,9 @@ func ruleText(rule index.Rule) string {
 	return text.String()
 }
 
-func askError(err error) error {
+func askError(err error, alongside string) error {
 	if errors.Is(err, inference.ErrInputTooLarge) {
-		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err}}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err, alongside: alongside}}
 	}
 
 	if errors.Is(err, inference.ErrKeyRejected) {
