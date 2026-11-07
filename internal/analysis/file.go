@@ -5,21 +5,39 @@ import "context"
 type queryFile struct {
 	path           string
 	content        string
-	isDiff         bool
 	provider       ContentProvider
 	updateBaseline bool
 	text           string
 	built          bool
+	readSides      func() []string
+	sides          []string
+	sidesRead      bool
 }
 
 func (f *queryFile) Path() string { return f.path }
 
 func (f *queryFile) Sides() []string {
-	if !f.isDiff {
-		return []string{f.content}
+	if f.sidesRead {
+		return f.sides
 	}
 
-	before, after := diffSides(f.content)
+	f.sidesRead = true
+
+	if f.readSides == nil {
+		f.sides = []string{f.content}
+	} else {
+		f.sides = f.readSides()
+	}
+
+	return f.sides
+}
+
+func sidesOf(content string, isDiff bool) []string {
+	if !isDiff {
+		return []string{content}
+	}
+
+	before, after := diffSides(content)
 
 	return []string{before, after}
 }

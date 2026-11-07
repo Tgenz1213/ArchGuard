@@ -71,9 +71,22 @@ func checkPipeline(content []byte) error {
 	return err
 }
 
+// The default pipeline doesn't use Jev, so a bad jev block is for check to report, not a sign the splice went wrong.
+func checkDefaultPipeline(content []byte) error {
+	var cfg config.Config
+	if err := yaml.Unmarshal(content, &cfg); err != nil {
+		return err
+	}
+
+	cfg.Jev = yaml.Node{}
+	_, err := config.ParsePipeline(&cfg)
+
+	return err
+}
+
 // verifySplice refuses an edit the line-based splice got wrong: the result must have a valid pipeline and nothing else changed.
 func verifySplice(before, after []byte) error {
-	if err := checkPipeline(after); err != nil {
+	if err := checkDefaultPipeline(after); err != nil {
 		return fmt.Errorf("%w: %w", errNotSpliceable, err)
 	}
 

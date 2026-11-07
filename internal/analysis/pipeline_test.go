@@ -495,6 +495,9 @@ type askRun struct {
 	onError     string
 	content     string
 	judgeChange bool
+	judgeLLM    config.LLMConfig
+	llmTokens   int
+	noDiff      bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -507,6 +510,13 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
 	h.engine.JudgeChange = run.judgeChange
+	h.engine.JudgeLLM = run.judgeLLM
+	h.engine.Config.LLM.MaxTokens = run.llmTokens
+
+	if run.noDiff {
+		h.engine.Content = &fallbackOnlyContentProvider{files: map[string]string{"svc.go": content}}
+	}
+
 	var logged bytes.Buffer
 	h.engine.Out = output.New(&logged, false)
 	h.engine.JSONOutput = true
@@ -527,6 +537,50 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 	}
 
 	return h, logged.String()
+}
+
+func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
+	content := "package svc\n" + strings.Repeat("// padding\n", 100)
+	strongJudge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}
+
+	tests := []struct {
+		name       string
+		llmTokens  int
+		wantStates int
+		wantJudged int
+		wantLog    string
+	}{
+		{"a file within llm.max_tokens is asked about whole", 1000, 1, 0, ""},
+		{"a file over llm.max_tokens passes every candidate on", 20, 0, 3, "ask nodes pass every candidate on: the file is over llm.max_tokens (20)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var states []string
+			asker := askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+				states = append(states, state)
+				answers := make(map[string]float64, len(questions))
+				for name := range questions {
+					answers[name] = 0.05
+				}
+
+				return answers, nil
+			})
+
+			h, logged := runAsk(t, askRun{content: content, noDiff: true, llmTokens: tt.llmTokens, judgeLLM: strongJudge}, asker)
+
+			if len(states) != tt.wantStates || (tt.wantStates == 1 && states[0] != content) {
+				t.Errorf("asked about %d states, want %d of the whole file", len(states), tt.wantStates)
+			}
+
+			if tt.wantJudged > 0 && len(h.judged) != tt.wantJudged {
+				t.Errorf("judged %v, want all %d candidates passed on unscreened", h.judged, tt.wantJudged)
+			}
+
+			if !strings.Contains(logged, tt.wantLog) {
+				t.Errorf("output %q, want %q", logged, tt.wantLog)
+			}
+		})
+	}
 }
 
 func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {
