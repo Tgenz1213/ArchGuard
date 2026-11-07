@@ -159,6 +159,10 @@ func TestRun_CacheKeysFollowTheNodeLLMs(t *testing.T) {
 		{"another judge model misses the analysis cache", config.LLMConfig{Provider: "claude", Model: "bigger", MaxTokens: 1000}, strong, 1, 0},
 		{"another suggest provider misses the suggestion cache", strong, config.LLMConfig{Provider: "openai", Model: "big", MaxTokens: 1000}, 0, 1},
 		{"another suggest model misses the suggestion cache", strong, config.LLMConfig{Provider: "claude", Model: "bigger", MaxTokens: 1000}, 0, 1},
+		{"another judge temperature misses the analysis cache", config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, Temperature: new(0.9)}, strong, 1, 0},
+		{"another judge base_url misses the analysis cache", config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, BaseURL: "http://other"}, strong, 1, 0},
+		{"another suggest temperature misses the suggestion cache", strong, config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, Temperature: new(0.9)}, 0, 1},
+		{"another suggest base_url misses the suggestion cache", strong, config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 1000, BaseURL: "http://other"}, 0, 1},
 	}
 	for _, tt := range tests {
 		p := rerun(tt.judge, tt.suggest)
@@ -185,7 +189,7 @@ func TestRun_SuggestCountErrorSkipsTheSuggestion(t *testing.T) {
 		t.Errorf("suggested %q, want no suggestion call", suggest.suggested)
 	}
 
-	if !strings.Contains(out, "no suggestion for service.py: counting tokens: tokenizer offline") {
+	if !strings.Contains(out, "no suggestion for service.py: counting tokens for service.py: tokenizer offline") {
 		t.Errorf("output %q, want the count error named with the file", out)
 	}
 }
@@ -299,5 +303,40 @@ func TestRun_AJudgedChangeIsNotCountedAgainForTheSameLLM(t *testing.T) {
 
 	if len(p.suggested) != 1 || counts != 1 {
 		t.Errorf("suggested %d times after %d token counts, want one suggestion and only the judge's count", len(p.suggested), counts)
+	}
+}
+
+func TestRun_ACachedSuggestionCostsNoTokenCount(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New failed: %v", err)
+	}
+
+	rerun := func() (int, *nodeLLMProvider) {
+		p := newNodeLLMProvider()
+		engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile, diff: llmDiff})
+		engine.Cache = c
+		engine.SuggestFixes = true
+		engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
+
+		counts := 0
+		suggest := newNodeLLMProvider()
+		suggest.CountTokensFunc = func(_ context.Context, text string) (int, error) {
+			counts++
+			return len(text) / 4, nil
+		}
+		engine.SuggestChat = suggest
+
+		_ = captureOutput(engine, func() { runEngine(t, engine, true) })
+
+		return counts, suggest
+	}
+
+	if counts, suggest := rerun(); counts == 0 || len(suggest.suggested) != 1 {
+		t.Fatalf("first run counted %d times and suggested %d times, want it sized and suggested", counts, len(suggest.suggested))
+	}
+
+	if counts, suggest := rerun(); counts != 0 || len(suggest.suggested) != 0 {
+		t.Errorf("cached rerun counted %d times and suggested %d times, want neither", counts, len(suggest.suggested))
 	}
 }

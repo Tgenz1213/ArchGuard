@@ -495,6 +495,9 @@ type askRun struct {
 	onError     string
 	content     string
 	judgeChange bool
+	judgeLLM    config.LLMConfig
+	llmTokens   int
+	noDiff      bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -507,6 +510,13 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
 	h.engine.JudgeChange = run.judgeChange
+	h.engine.JudgeLLM = run.judgeLLM
+	h.engine.Config.LLM.MaxTokens = run.llmTokens
+
+	if run.noDiff {
+		h.engine.Content = &fallbackOnlyContentProvider{files: map[string]string{"svc.go": content}}
+	}
+
 	var logged bytes.Buffer
 	h.engine.Out = output.New(&logged, false)
 	h.engine.JSONOutput = true
@@ -527,6 +537,30 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 	}
 
 	return h, logged.String()
+}
+
+func TestPipeline_AskReadsTheFileSizedForTheLLMBlockNotTheJudge(t *testing.T) {
+	var states []string
+	asker := askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
+		states = append(states, state)
+		answers := make(map[string]float64, len(questions))
+		for name := range questions {
+			answers[name] = 0.95
+		}
+
+		return answers, nil
+	})
+
+	content := "package svc\n" + strings.Repeat("// padding\n", 100)
+	h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}}, asker)
+
+	if len(states) != 1 || len(states[0]) >= len(content) || !strings.HasPrefix(content, states[0]) {
+		t.Fatalf("asker states = %q, want the file truncated to llm.max_tokens", states)
+	}
+
+	if len(h.judged) == 0 {
+		t.Error("judged nothing, want the judge to read the whole file under its own max_tokens")
+	}
 }
 
 func TestPipeline_AskSendsOnlyScreenedInADRsToTheLLM(t *testing.T) {

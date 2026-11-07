@@ -140,6 +140,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		isDiff:         fc.engine.JudgeChange || fc.mode == "diff",
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
+		sideContent:    func() (string, bool) { return fc.askContent(ctx) },
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -170,6 +171,24 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	}
 
 	return hits, true
+}
+
+// askContent is the file as an ask node reads it, sized to the llm block's max_tokens like before a judge could raise its own.
+func (fc *fileCheck) askContent(ctx context.Context) (string, bool) {
+	e := fc.engine
+	limit := tokenLimit(e.Config.LLM)
+
+	if limit >= tokenLimit(e.judgeLLM()) {
+		return fc.content, e.JudgeChange || fc.mode == "diff"
+	}
+
+	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
+	if err != nil {
+		fc.out.Warn("ask nodes read what the judge reads: %v", err)
+		return fc.content, e.JudgeChange || fc.mode == "diff"
+	}
+
+	return content, e.JudgeChange || mode == "diff"
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {
@@ -252,6 +271,8 @@ func (fc *fileCheck) analysisKey(hit node.Candidate) string {
 	return cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
 		Provider:           e.judgeLLM().Provider,
 		ModelName:          e.judgeLLM().Model,
+		BaseURL:            e.judgeLLM().BaseURL,
+		Temperature:        e.judgeLLM().Temperature,
 		ADRContent:         hit.ADR.Content,
 		FileContent:        fc.content,
 		SystemPrompt:       e.systemPrompt(),
@@ -423,19 +444,17 @@ func (fc *fileCheck) reportViolation(ctx context.Context, hit node.Candidate, in
 
 func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult) string {
 	e := fc.engine
+	suggest := e.suggestLLM()
 
-	code := fc.suggestionCode(ctx)
-	if !code.fits {
-		return ""
-	}
-
-	input.CodeContext = code.content
-
+	// Keyed on what sizing starts from, so a cached suggestion costs no token count.
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
-		Provider:                 e.suggestLLM().Provider,
-		ModelName:                e.suggestLLM().Model,
+		Provider:                 suggest.Provider,
+		ModelName:                suggest.Model,
+		BaseURL:                  suggest.BaseURL,
+		Temperature:              suggest.Temperature,
+		MaxTokens:                tokenLimit(suggest),
 		ADRContent:               hit.ADR.Content,
-		FileContent:              code.content,
+		FileContent:              fc.content,
 		Filename:                 fc.file,
 		Reasoning:                result.Reasoning,
 		QuotedCode:               result.QuotedCode,
@@ -449,6 +468,13 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	if found {
 		return cached
 	}
+
+	code := fc.suggestionCode(ctx)
+	if !code.fits {
+		return ""
+	}
+
+	input.CodeContext = code.content
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
 	e.record(telemetry.RetriesSent{Role: telemetry.Suggestion, Retries: retries})
@@ -480,57 +506,49 @@ func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
 	return *fc.suggestion
 }
 
-// sizeSuggestion fits the judged content to the suggest step's max_tokens, falling back to the file's diff as fetchContext does (docs/arch/0037).
 func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
 	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
 	limit := tokenLimit(suggest)
-	code := suggestionCode{content: fc.content}
 
-	sizedForJudge := fc.mode == "full" || fc.mode == "change" || fc.mode == "truncated"
-	if sizedForJudge && suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
-		code.fits = true
-		return code
+	// Only a diff fetchContext fell back to went uncounted against the judge's limit.
+	if fc.mode != "diff" && suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
+		return suggestionCode{content: fc.content, fits: true}
 	}
 
-	fits, err := fc.fitsSuggestion(ctx, fc.content, limit)
-	if err == nil && !fits && fc.mode == "full" {
-		var diff string
-		if diff, fits, err = fc.diffForSuggestion(ctx, limit); fits {
-			code.content = diff
-		}
-	}
+	content, fits, err := fc.fitSuggestion(ctx, limit)
 
 	switch {
 	case err != nil:
 		fc.out.Warn("no suggestion for %s: %v", fc.file, err)
 	case fits:
-		code.fits = true
+		return suggestionCode{content: content, fits: true}
 	case fc.mode == "full":
 		fc.out.Warn("no suggestion for %s: it is over the suggest model's max_tokens (%d) and has no diff that fits", fc.file, limit)
 	default:
 		fc.out.Warn("no suggestion for %s: what was judged is over the suggest model's max_tokens (%d)", fc.file, limit)
 	}
 
-	return code
+	return suggestionCode{}
 }
 
-// A file with no diff, or one git can't read, has nothing to fall back to, as in fetchContext.
-func (fc *fileCheck) diffForSuggestion(ctx context.Context, limit int) (string, bool, error) {
-	diff, err := fc.engine.Content.GetDiff(ctx, fc.file)
-	if err != nil || diff == "" {
-		return "", false, nil
+// A whole file falls back to its diff as fetchContext does, but is never truncated: a fix for half a file is no fix.
+func (fc *fileCheck) fitSuggestion(ctx context.Context, limit int) (string, bool, error) {
+	chat := fc.engine.suggestionChat()
+	content := fc.content
+
+	if fc.mode == "full" {
+		fitted, mode, _, err := fc.engine.fitWhole(ctx, chat, fc.file, fc.content, limit)
+		if err != nil || mode != "diff" {
+			return fitted, mode == "full", err
+		}
+
+		content = fitted
 	}
 
-	fits, err := fc.fitsSuggestion(ctx, diff, limit)
-
-	return diff, fits, err
-}
-
-func (fc *fileCheck) fitsSuggestion(ctx context.Context, content string, limit int) (bool, error) {
-	tokens, err := fc.engine.suggestionChat().CountTokens(ctx, content)
+	tokens, err := chat.CountTokens(ctx, content)
 	if err != nil {
-		return false, fmt.Errorf("counting tokens: %w", err)
+		return "", false, fmt.Errorf("counting tokens for %s: %w", fc.file, err)
 	}
 
-	return tokens <= limit, nil
+	return content, tokens <= limit, nil
 }

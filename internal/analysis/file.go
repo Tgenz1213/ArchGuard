@@ -3,9 +3,12 @@ package analysis
 import "context"
 
 type queryFile struct {
-	path           string
-	content        string
-	isDiff         bool
+	path    string
+	content string
+	isDiff  bool
+	// sideContent, when set, gives what Sides reads in place of content, worked out on first use.
+	sideContent    func() (content string, isDiff bool)
+	sides          []string
 	provider       ContentProvider
 	updateBaseline bool
 	text           string
@@ -15,13 +18,24 @@ type queryFile struct {
 func (f *queryFile) Path() string { return f.path }
 
 func (f *queryFile) Sides() []string {
-	if !f.isDiff {
-		return []string{f.content}
+	if f.sides != nil {
+		return f.sides
 	}
 
-	before, after := diffSides(f.content)
+	content, isDiff := f.content, f.isDiff
+	if f.sideContent != nil {
+		content, isDiff = f.sideContent()
+	}
 
-	return []string{before, after}
+	if !isDiff {
+		f.sides = []string{content}
+		return f.sides
+	}
+
+	before, after := diffSides(content)
+	f.sides = []string{before, after}
+
+	return f.sides
 }
 
 func (f *queryFile) QueryText(ctx context.Context) string {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -58,6 +59,8 @@ func hashParts(parts ...string) string {
 type AnalysisKeyInput struct {
 	Provider           string
 	ModelName          string
+	BaseURL            string
+	Temperature        *float64
 	ADRContent         string
 	FileContent        string
 	SystemPrompt       string
@@ -65,7 +68,7 @@ type AnalysisKeyInput struct {
 }
 
 func ComputeAnalysisKey(in AnalysisKeyInput) string {
-	return hashParts(in.Provider, in.ModelName, in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
+	return hashParts(in.Provider, in.ModelName, in.BaseURL, temperature(in.Temperature), in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
 }
 
 // SuggestionKeyInput is a separate namespace from AnalysisKeyInput, keyed
@@ -73,6 +76,9 @@ func ComputeAnalysisKey(in AnalysisKeyInput) string {
 type SuggestionKeyInput struct {
 	Provider                 string
 	ModelName                string
+	BaseURL                  string
+	Temperature              *float64
+	MaxTokens                int
 	ADRContent               string
 	FileContent              string
 	Filename                 string
@@ -86,6 +92,9 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	return hashParts(
 		in.Provider,
 		in.ModelName,
+		in.BaseURL,
+		temperature(in.Temperature),
+		strconv.Itoa(in.MaxTokens),
 		in.ADRContent,
 		in.FileContent,
 		in.Filename,
@@ -94,6 +103,15 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 		in.SuggestionSystemPrompt,
 		in.SuggestionPromptTemplate,
 	)
+}
+
+// An unset temperature keys apart from 0, since the provider's default may not be 0.
+func temperature(t *float64) string {
+	if t == nil {
+		return "unset"
+	}
+
+	return strconv.FormatFloat(*t, 'g', -1, 64)
 }
 
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {

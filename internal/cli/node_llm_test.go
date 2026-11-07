@@ -135,6 +135,8 @@ func TestWithNodeLLMs(t *testing.T) {
 		{"suggest on the llm block", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: main}), "big", "main", []string{"big"}},
 		{"suggest with its own llm block", pipelineNodes(main, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: tiny}), "main", "tiny", []string{"tiny"}},
 		{"suggest with the judge's llm block", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: big}), "big", "big", []string{"big"}},
+		{"judge changing only max_tokens", pipelineNodes(config.LLMConfig{Provider: "ollama", Model: "small", MaxTokens: 20000}, nil), "main", "main", nil},
+		{"suggest changing only prices", pipelineNodes(big, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: config.LLMConfig{Provider: "claude", Model: "big", CostPer1KInputTokens: new(1.0), CostPer1KOutputTokens: new(2.0)}}), "big", "big", []string{"big"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,6 +178,30 @@ func TestWithNodeLLMs_BuildsNoSuggestChatWithoutSuggestFixes(t *testing.T) {
 
 	if len(built) != 0 || setup.suggestChat.(namedChat).name != "main" {
 		t.Errorf("built %v with suggest chat %v, want nothing built, so an unused llm block's missing key never warns", built, setup.suggestChat)
+	}
+}
+
+func TestWithNodeLLMs_ChecksAnUnusedSuggestNodesProvider(t *testing.T) {
+	var built []string
+
+	nodes := pipelineNodes(config.LLMConfig{Provider: "ollama", Model: "small"}, &config.Node{Name: "suggest", Job: config.JobSuggest, LLM: config.LLMConfig{Provider: "claud", Model: "tiny"}})
+
+	_, err := withNodeLLMs(setupWithNodeLLMs(&built), nodes, false)
+	if err == nil || !strings.Contains(err.Error(), `analysis.pipeline node "suggest".llm: unknown provider: claud`) {
+		t.Errorf("err = %v, want the suggest node's provider rejected without --suggest-fixes", err)
+	}
+
+	if len(built) != 0 {
+		t.Errorf("built %v, want nothing built for an unused suggest node", built)
+	}
+}
+
+func TestChatProviders_AllBuild(t *testing.T) {
+	for _, name := range chatProviders {
+		cfg := &config.Config{LLM: config.LLMConfig{Provider: name, Model: "m"}}
+		if _, err := buildChatProvider(output.New(&bytes.Buffer{}, false), name, "key", cfg); err != nil {
+			t.Errorf("chat provider %s does not build: %v", name, err)
+		}
 	}
 }
 

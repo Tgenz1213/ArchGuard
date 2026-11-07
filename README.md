@@ -302,13 +302,13 @@ analysis:
 Here the judge runs on Claude with Claude's default temperature, since a node on another provider inherits nothing but `system_prompt`, and the suggestions are written by the `llm` block's Ollama model at a temperature of `0.0`.
 
 - **The keys** are those of the `llm` block, except that a `suggest` node can't set `system_prompt`: suggestions are written with ArchGuard's own prompt. An empty `provider`, another provider without a `model`, one price without the other, an unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
-- **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
+- **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it, though its provider is still checked at startup. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
 - **The API key.** A node on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A node on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
-- **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt.
+- **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt. An `ask` node still reads the file sized to `llm.max_tokens` when the judge's is larger, so raising the judge's limit never sends Jev more than before.
 - **A suggestion that is too big.** When the judged content is over the suggest step's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
 - **Prices.** Judgments are priced with the judge's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the suggest step's (see [Token Usage and Cost](#token-usage-and-cost)). A node's block sets both prices or neither. One that sets neither takes `llm`'s on `llm.provider` and has none on another provider.
 - **Embeddings** still use `llm` and `vector_store`; a node's `llm` block never changes them.
-- **The cache.** A judgment is cached under the judge's provider and model, and a suggestion under the suggest step's, so switching either one judges or suggests again.
+- **The cache.** A judgment is cached under the judge's provider, model, `base_url` and `temperature`, and a suggestion under the suggest step's and its `max_tokens`, so changing any of them judges or suggests again.
 
 #### When a node fails
 

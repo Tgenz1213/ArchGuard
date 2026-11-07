@@ -135,6 +135,16 @@ func buildEmbedProvider(warnings *output.Printer, name, apiKey string, cfg *conf
 	return inference.NewVoyageProvider(apiKey, cfg.VectorStore.Model), nil
 }
 
+var chatProviders = []string{"openai", "ollama", "gemini", "claude"}
+
+func checkChatProvider(name string) error {
+	if !slices.Contains(chatProviders, name) {
+		return fmt.Errorf("unknown provider: %s (want one of %s)", name, strings.Join(chatProviders, ", "))
+	}
+
+	return nil
+}
+
 // nodeChatter builds the Chatter for a node's llm block; on llm.provider's provider it reuses ARCHGUARD_API_KEY, and on any other it reads that provider's own variable (docs/arch/0054).
 func nodeChatter(warnings *output.Printer, cfg *config.Config, llm config.LLMConfig, factories ProviderFactories) (inference.Chatter, error) {
 	nodeCfg := *cfg

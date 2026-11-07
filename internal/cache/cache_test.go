@@ -62,27 +62,42 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 func TestComputeSuggestionKey_MatchesPinnedDigest(t *testing.T) {
 	got := ComputeSuggestionKey(SuggestionKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	want := "d464da11baf68e2bb19c949af2d301f276f689395686485b70bbdfcf78d3b6e2"
+	want := "1b54e55bec6b86c029f466b46ca4b453d45cf48075bf5d3425493de2d927d734"
 	if got != want {
 		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
 	}
 }
 
-func TestComputeKeys_ChangeWithTheProvider(t *testing.T) {
+func TestComputeKeys_ChangeWithTheLLMSettings(t *testing.T) {
 	analysis := AnalysisKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", SystemPrompt: "s", UserPromptTemplate: "t"}
-	otherAnalysis := analysis
-	otherAnalysis.Provider = "ollama"
-
-	if ComputeAnalysisKey(analysis) == ComputeAnalysisKey(otherAnalysis) {
-		t.Error("expected the analysis key to change with the provider")
-	}
-
 	suggestion := SuggestionKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"}
-	otherSuggestion := suggestion
-	otherSuggestion.Provider = "ollama"
 
-	if ComputeSuggestionKey(suggestion) == ComputeSuggestionKey(otherSuggestion) {
-		t.Error("expected the suggestion key to change with the provider")
+	changes := []struct {
+		name       string
+		analysis   func(*AnalysisKeyInput)
+		suggestion func(*SuggestionKeyInput)
+	}{
+		{"provider", func(in *AnalysisKeyInput) { in.Provider = "ollama" }, func(in *SuggestionKeyInput) { in.Provider = "ollama" }},
+		{"base_url", func(in *AnalysisKeyInput) { in.BaseURL = "http://other:11434" }, func(in *SuggestionKeyInput) { in.BaseURL = "http://other:11434" }},
+		{"temperature 0 against unset", func(in *AnalysisKeyInput) { in.Temperature = new(0.0) }, func(in *SuggestionKeyInput) { in.Temperature = new(0.0) }},
+		{"max_tokens", nil, func(in *SuggestionKeyInput) { in.MaxTokens = 10 }},
+	}
+	for _, change := range changes {
+		if change.analysis != nil {
+			other := analysis
+			change.analysis(&other)
+
+			if ComputeAnalysisKey(analysis) == ComputeAnalysisKey(other) {
+				t.Errorf("expected the analysis key to change with the %s", change.name)
+			}
+		}
+
+		other := suggestion
+		change.suggestion(&other)
+
+		if ComputeSuggestionKey(suggestion) == ComputeSuggestionKey(other) {
+			t.Errorf("expected the suggestion key to change with the %s", change.name)
+		}
 	}
 }
 
@@ -107,7 +122,7 @@ func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
 func TestComputeAnalysisKey_MatchesPinnedDigest(t *testing.T) {
 	got := ComputeAnalysisKey(AnalysisKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 
-	want := "4774fd0ced089b24dbfbc5fe7e2938b17cd99be4dcf172b8c4c7843f589ad999"
+	want := "421a8c664eb31b85a41c5f2ab91a3f6112f311dc5b7f71b2aaba4b0906dd9543"
 	if got != want {
 		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
 	}
