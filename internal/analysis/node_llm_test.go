@@ -10,6 +10,7 @@ import (
 	"github.com/tgenz1213/archguard/internal/cache"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
+	"github.com/tgenz1213/archguard/internal/telemetry"
 )
 
 const (
@@ -189,7 +190,7 @@ func TestRun_SuggestCountErrorSkipsTheSuggestion(t *testing.T) {
 		t.Errorf("suggested %q, want no suggestion call", suggest.suggested)
 	}
 
-	if !strings.Contains(out, "no suggestion for service.py: counting tokens for service.py: tokenizer offline") {
+	if !strings.Contains(out, "no suggestion: counting tokens for service.py: tokenizer offline") {
 		t.Errorf("output %q, want the count error named with the file", out)
 	}
 }
@@ -338,5 +339,49 @@ func TestRun_ACachedSuggestionCostsNoTokenCount(t *testing.T) {
 
 	if counts, suggest := rerun(); counts != 0 || len(suggest.suggested) != 0 {
 		t.Errorf("cached rerun counted %d times and suggested %d times, want neither", counts, len(suggest.suggested))
+	}
+}
+
+func TestRun_ASuggestionThatDoesNotFitIsNoCacheMiss(t *testing.T) {
+	p := newNodeLLMProvider()
+	engine := nodeLLMEngine(t, p, &MockContentProvider{Files: map[string]string{"service.py": llmFile}})
+	engine.SuggestFixes = true
+	engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 1}
+
+	tally := &telemetry.Tally{}
+	engine.Recorder = tally
+
+	_ = captureOutput(engine, func() { runEngine(t, engine, true) })
+
+	if got := tally.Totals(telemetry.Suggestion); got.CacheMisses != 0 || len(p.suggested) != 0 {
+		t.Errorf("suggestion totals %+v after %d calls, want no miss for a suggestion never sent", got, len(p.suggested))
+	}
+}
+
+func TestRun_ASuggestionIsCachedUnderTheDiffItMayBeWrittenFrom(t *testing.T) {
+	c, err := cache.New(t.TempDir())
+	if err != nil {
+		t.Fatalf("cache.New failed: %v", err)
+	}
+
+	suggestWithDiff := func(diff string) *nodeLLMProvider {
+		p := newNodeLLMProvider()
+		engine := nodeLLMEngine(t, p, &diffCapableContentProvider{content: llmFile, diff: diff})
+		engine.Cache = c
+		engine.SuggestFixes = true
+		engine.SuggestLLM = config.LLMConfig{Provider: "openai", Model: "tiny", MaxTokens: 10}
+
+		_ = captureOutput(engine, func() { runEngine(t, engine, true) })
+
+		return p
+	}
+
+	if p := suggestWithDiff(llmDiff); len(p.suggested) != 1 {
+		t.Fatalf("suggested %d times, want one suggestion from the diff", len(p.suggested))
+	}
+
+	otherDiff := "@@ -1 +1 @@\n-old\n+new\n"
+	if p := suggestWithDiff(otherDiff); len(p.suggested) != 1 || !strings.Contains(p.suggested[0], "-old") {
+		t.Errorf("suggested %q, want a fresh suggestion from the new diff, not the cached one", p.suggested)
 	}
 }

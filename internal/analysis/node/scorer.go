@@ -14,7 +14,7 @@ type Candidate struct {
 type File interface {
 	Path() string
 	QueryText(ctx context.Context) string
-	// Sides is what a runner that answers without a quote reads: the content the LLM judges, or each side of it when that is a diff.
+	// Sides is what a runner that answers without a quote reads: the file or each side of its diff, never over llm.max_tokens; none passes every candidate on.
 	Sides() []string
 }
 

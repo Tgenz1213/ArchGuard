@@ -125,8 +125,9 @@ func switchesProvider(own LLMConfig, set map[string]yaml.Node, top LLMConfig) bo
 	return ok && own.Provider != top.Provider
 }
 
-func (llm LLMConfig) Same(other LLMConfig) bool {
-	return reflect.DeepEqual(llm, other)
+// SameClient compares only the keys a chat client is built from; the others size, prompt or price its calls.
+func (llm LLMConfig) SameClient(other LLMConfig) bool {
+	return llm.Provider == other.Provider && llm.Model == other.Model && llm.BaseURL == other.BaseURL && reflect.DeepEqual(llm.Temperature, other.Temperature)
 }
 
 // clone copies the pointer fields so decoding a node's block over it never writes through to the llm block.

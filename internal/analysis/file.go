@@ -3,39 +3,43 @@ package analysis
 import "context"
 
 type queryFile struct {
-	path    string
-	content string
-	isDiff  bool
-	// sideContent, when set, gives what Sides reads in place of content, worked out on first use.
-	sideContent    func() (content string, isDiff bool)
-	sides          []string
+	path           string
+	content        string
 	provider       ContentProvider
 	updateBaseline bool
 	text           string
 	built          bool
+	readSides      func() []string
+	sides          []string
+	sidesRead      bool
 }
 
 func (f *queryFile) Path() string { return f.path }
 
 func (f *queryFile) Sides() []string {
-	if f.sides != nil {
+	if f.sidesRead {
 		return f.sides
 	}
 
-	content, isDiff := f.content, f.isDiff
-	if f.sideContent != nil {
-		content, isDiff = f.sideContent()
+	f.sidesRead = true
+
+	if f.readSides == nil {
+		f.sides = []string{f.content}
+	} else {
+		f.sides = f.readSides()
 	}
 
+	return f.sides
+}
+
+func sidesOf(content string, isDiff bool) []string {
 	if !isDiff {
-		f.sides = []string{content}
-		return f.sides
+		return []string{content}
 	}
 
 	before, after := diffSides(content)
-	f.sides = []string{before, after}
 
-	return f.sides
+	return []string{before, after}
 }
 
 func (f *queryFile) QueryText(ctx context.Context) string {

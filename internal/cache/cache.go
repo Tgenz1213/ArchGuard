@@ -74,12 +74,14 @@ func ComputeAnalysisKey(in AnalysisKeyInput) string {
 // SuggestionKeyInput is a separate namespace from AnalysisKeyInput, keyed
 // on the suggestion prompt so changing it invalidates only suggestions.
 type SuggestionKeyInput struct {
-	Provider                 string
-	ModelName                string
-	BaseURL                  string
-	Temperature              *float64
-	MaxTokens                int
-	ADRContent               string
+	Provider    string
+	ModelName   string
+	BaseURL     string
+	Temperature *float64
+	MaxTokens   int
+	ADRContent  string
+	// Diff is what a suggestion for a file over MaxTokens may be written from instead.
+	Diff                     string
 	FileContent              string
 	Filename                 string
 	Reasoning                string
@@ -96,6 +98,7 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 		temperature(in.Temperature),
 		strconv.Itoa(in.MaxTokens),
 		in.ADRContent,
+		in.Diff,
 		in.FileContent,
 		in.Filename,
 		in.Reasoning,

@@ -62,7 +62,7 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 func TestComputeSuggestionKey_MatchesPinnedDigest(t *testing.T) {
 	got := ComputeSuggestionKey(SuggestionKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	want := "1b54e55bec6b86c029f466b46ca4b453d45cf48075bf5d3425493de2d927d734"
+	want := "c01100df4cf994f0ddec612adcab4714742c28f7699e0415a9b6301d09a8521c"
 	if got != want {
 		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
 	}

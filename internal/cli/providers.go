@@ -109,6 +109,10 @@ func buildProvider(warnings *output.Printer, name, apiKey string, cfg *config.Co
 }
 
 func buildChatProvider(warnings *output.Printer, name, apiKey string, cfg *config.Config) (inference.Chatter, error) {
+	if err := checkChatProvider(name); err != nil {
+		return nil, err
+	}
+
 	if name != "claude" {
 		return buildProvider(warnings, name, apiKey, cfg)
 	}

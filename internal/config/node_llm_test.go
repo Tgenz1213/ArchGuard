@@ -47,11 +47,11 @@ func TestParsePipeline_NodeOnAnotherProviderStartsFresh(t *testing.T) {
 	}
 
 	want := LLMConfig{Provider: "claude", Model: "big", MaxTokens: 150000, SystemPrompt: "be literal"}
-	if got := JudgeNode(nodes).LLM; !got.Same(want) {
+	if got := JudgeNode(nodes).LLM; !reflect.DeepEqual(got, want) {
 		t.Errorf("judge = %+v, want %+v: only system_prompt inherited", got, want)
 	}
 
-	if got := SuggestNode(nodes).LLM; !got.Same(LLMConfig{Provider: "openai", Model: "tiny"}) {
+	if got := SuggestNode(nodes).LLM; !reflect.DeepEqual(got, LLMConfig{Provider: "openai", Model: "tiny"}) {
 		t.Errorf("suggest = %+v, want nothing inherited", got)
 	}
 }

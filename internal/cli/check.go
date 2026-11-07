@@ -134,7 +134,7 @@ func withNodeLLMs(setup runSetup, nodes []config.Node, suggestFixes bool) (runSe
 	}
 
 	suggestChat := judgeChat
-	if !sameClient(suggest.LLM, judge.LLM) {
+	if !suggest.LLM.SameClient(judge.LLM) {
 		if suggestChat, err = nodeChat(setup, suggest); err != nil {
 			return setup, err
 		}
@@ -146,7 +146,7 @@ func withNodeLLMs(setup runSetup, nodes []config.Node, suggestFixes bool) (runSe
 }
 
 func nodeChat(setup runSetup, n config.Node) (inference.Chatter, error) {
-	if sameClient(n.LLM, setup.cfg.LLM) {
+	if n.LLM.SameClient(setup.cfg.LLM) {
 		return setup.chat, nil
 	}
 
@@ -164,15 +164,6 @@ func checkNodeProvider(n config.Node) error {
 	}
 
 	return nil
-}
-
-// sameClient compares only the keys a chat client is built from; the others size, prompt or price its calls.
-func sameClient(a, b config.LLMConfig) bool {
-	client := func(llm config.LLMConfig) config.LLMConfig {
-		return config.LLMConfig{Provider: llm.Provider, Model: llm.Model, BaseURL: llm.BaseURL, Temperature: llm.Temperature}
-	}
-
-	return client(a).Same(client(b))
 }
 
 func newCheckRun(setup runSetup, opts checkCmd, colors streamColors) (*checkRun, error) {

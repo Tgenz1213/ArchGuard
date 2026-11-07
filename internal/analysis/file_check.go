@@ -29,6 +29,7 @@ type fileCheck struct {
 	screenedOutBy string
 	findings      fileResult
 	suggestion    *suggestionCode
+	diff          *string
 }
 
 // suggestionCode is the code every suggestion for the file is written from, sized once per file.
@@ -137,10 +138,9 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	query := &queryFile{
 		path:           fc.file,
 		content:        fc.content,
-		isDiff:         fc.engine.JudgeChange || fc.mode == "diff",
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
-		sideContent:    func() (string, bool) { return fc.askContent(ctx) },
+		readSides:      func() []string { return fc.askSides(ctx) },
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -173,22 +173,28 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	return hits, true
 }
 
-// askContent is the file as an ask node reads it, sized to the llm block's max_tokens like before a judge could raise its own.
-func (fc *fileCheck) askContent(ctx context.Context) (string, bool) {
+// Jev never reads past llm.max_tokens, and no sides makes an ask node pass every candidate on rather than screen half a file.
+func (fc *fileCheck) askSides(ctx context.Context) []string {
 	e := fc.engine
 	limit := tokenLimit(e.Config.LLM)
 
-	if limit >= tokenLimit(e.judgeLLM()) {
-		return fc.content, e.JudgeChange || fc.mode == "diff"
+	if fc.mode == "diff" || limit >= tokenLimit(e.judgeLLM()) {
+		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff")
 	}
 
 	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
-	if err != nil {
-		fc.out.Warn("ask nodes read what the judge reads: %v", err)
-		return fc.content, e.JudgeChange || fc.mode == "diff"
+
+	switch {
+	case ctx.Err() != nil:
+	case err != nil:
+		fc.out.Warn("ask nodes pass every candidate on: %v", err)
+	case mode == "truncated":
+		fc.out.Warn("ask nodes pass every candidate on: the file is over llm.max_tokens (%d)", limit)
+	default:
+		return sidesOf(content, e.JudgeChange || mode == "diff")
 	}
 
-	return content, e.JudgeChange || mode == "diff"
+	return nil
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {
@@ -448,6 +454,7 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 
 	// Keyed on what sizing starts from, so a cached suggestion costs no token count.
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
+		Diff:                     fc.fallbackDiff(ctx),
 		Provider:                 suggest.Provider,
 		ModelName:                suggest.Model,
 		BaseURL:                  suggest.BaseURL,
@@ -462,10 +469,8 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 		SuggestionPromptTemplate: inference.SuggestionPrompt,
 	})
 
-	cached, found := fc.cachedSuggestion(key)
-	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: found})
-
-	if found {
+	if cached, found := fc.cachedSuggestion(key); found {
+		e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: true})
 		return cached
 	}
 
@@ -473,6 +478,8 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	if !code.fits {
 		return ""
 	}
+
+	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: false})
 
 	input.CodeContext = code.content
 
@@ -498,6 +505,31 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	return suggestion
 }
 
+// fallbackDiff is the diff a whole-file suggestion may be written from instead, read once per file.
+func (fc *fileCheck) fallbackDiff(ctx context.Context) string {
+	if fc.mode != "full" || fc.engine.UpdateBaseline {
+		return ""
+	}
+
+	if fc.diff == nil {
+		diff, err := fc.engine.Content.GetDiff(ctx, fc.file)
+		if err != nil {
+			diff = ""
+		}
+
+		fc.diff = &diff
+	}
+
+	return *fc.diff
+}
+
+func (fc *fileCheck) suggestsAsJudged() bool {
+	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
+
+	// Only a diff fetchContext fell back to went uncounted against the judge's limit.
+	return fc.mode != "diff" && suggest.Provider == judge.Provider && suggest.Model == judge.Model && tokenLimit(suggest) >= tokenLimit(judge)
+}
+
 func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
 	if fc.suggestion == nil {
 		fc.suggestion = new(fc.sizeSuggestion(ctx))
@@ -507,11 +539,9 @@ func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
 }
 
 func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
-	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
-	limit := tokenLimit(suggest)
+	limit := tokenLimit(fc.engine.suggestLLM())
 
-	// Only a diff fetchContext fell back to went uncounted against the judge's limit.
-	if fc.mode != "diff" && suggest.Provider == judge.Provider && suggest.Model == judge.Model && limit >= tokenLimit(judge) {
+	if fc.suggestsAsJudged() {
 		return suggestionCode{content: fc.content, fits: true}
 	}
 
@@ -519,7 +549,7 @@ func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
 
 	switch {
 	case err != nil:
-		fc.out.Warn("no suggestion for %s: %v", fc.file, err)
+		fc.out.Warn("no suggestion: %v", err)
 	case fits:
 		return suggestionCode{content: content, fits: true}
 	case fc.mode == "full":
