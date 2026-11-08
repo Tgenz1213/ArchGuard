@@ -21,9 +21,10 @@ An `ask` node never reads more than `llm.max_tokens` (`docs/arch/0053-quoteless-
 
 ## Rules
 
-- A node that asks per ADR MUST NOT keep or drop the candidates of a file over `llm.max_tokens` without screening it.
-- That file MUST be listed as skipped, naming the node.
+- When a node that asks per ADR can't screen a file because the file is over `llm.max_tokens`, it MUST NOT keep or drop that file's candidates, and the file MUST be listed as skipped, naming the node.
 - Outside `--ci`, that skip MUST count toward a run that checked nothing.
+- When a node that asks per rule can't screen a file for the same reason, it MUST pass every candidate on.
+- These rules cover only a file over `llm.max_tokens`. A provider failure, such as Jev timing out, still follows `on_error` and may pass candidates on.
 
 ## Alternatives considered
 
