@@ -70,11 +70,12 @@ func (a *ADRAsk) instructions() string {
 
 func NewADRAskNode(asker inference.Asker, instructions string, threshold float64, topK int) Node {
 	return Node{
-		Name:              "ask",
-		Scorer:            &ADRAsk{Asker: asker, Instructions: instructions},
-		Min:               FixedMin(threshold),
-		MaxKeep:           topK,
-		PassThroughOnSkip: true,
-		Screens:           true,
+		Name:                  "ask",
+		Scorer:                &ADRAsk{Asker: asker, Instructions: instructions},
+		Min:                   FixedMin(threshold),
+		MaxKeep:               topK,
+		PassThroughOnSkip:     true,
+		Screens:               true,
+		SkipsUnscreenableFile: true,
 	}
 }

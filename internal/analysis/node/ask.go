@@ -171,12 +171,11 @@ func askError(err error, alongside string) error {
 
 func NewAskNode(asker inference.Asker, instructions string, threshold float64, topK int) Node {
 	return Node{
-		Name:               "ask",
-		Scorer:             &RuleAsk{Asker: asker, Instructions: instructions},
-		Min:                FixedMin(threshold),
-		MaxKeep:            topK,
-		PassThroughOnSkip:  true,
-		Screens:            true,
-		PassesUnscreenable: true,
+		Name:              "ask",
+		Scorer:            &RuleAsk{Asker: asker, Instructions: instructions},
+		Min:               FixedMin(threshold),
+		MaxKeep:           topK,
+		PassThroughOnSkip: true,
+		Screens:           true,
 	}
 }
