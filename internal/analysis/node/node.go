@@ -53,7 +53,7 @@ type Node struct {
 	PassesUnscreenable bool
 }
 
-// ErrUnscreenable is a file too large for a node to screen, which no on_error value changes.
+// ErrUnscreenable is a file too large for a node to screen; the node's PassesUnscreenable, not its on_error, decides whether it passes its candidates on.
 var ErrUnscreenable = errors.New("the file is too large to screen")
 
 // Skipped is a node error the node recovered from by passing its candidates on unchanged.

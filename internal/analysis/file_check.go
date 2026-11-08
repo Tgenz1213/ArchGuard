@@ -69,6 +69,10 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 		fc.checkADR(ctx, hit)
 	}
 
+	if fc.partial {
+		fc.run.addPartial(fc.file, "too large to analyze in full; only the visible portion was checked")
+	}
+
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
 	// Top-K alone never empties a node, so scored candidates that all dropped fell below a threshold.
 	if fc.findings.withoutADR {
@@ -113,7 +117,6 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 	}
 
 	fc.out.Warn("truncated for analysis; only the visible portion is checked")
-	fc.run.addPartial(fc.file, "too large to analyze in full; only the visible portion was checked")
 	fc.partial = true
 
 	return true
@@ -161,10 +164,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		}
 
 		if errors.Is(err, node.ErrUnscreenable) {
-			reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, errors.Unwrap(err))
-			fc.out.Warn("%s", reason)
-			fc.run.addSkipped(fc.file, reason)
-
+			fc.unscreenable(pipelineNode, err)
 			return nil, false
 		}
 
@@ -196,12 +196,27 @@ func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 	case ctx.Err() != nil:
 		return nil, ctx.Err()
 	case err != nil:
-		return nil, fmt.Errorf("%w: sizing it: %w", node.ErrUnscreenable, err)
+		return nil, err
 	case mode == "truncated":
 		return nil, fmt.Errorf("%w: it is over llm.max_tokens (%d)", node.ErrUnscreenable, limit)
 	}
 
 	return sidesOf(content, e.JudgeChange || mode == "diff"), nil
+}
+
+// unscreenable skips the file, unless on_error: fail or a baseline being written, from which a skip would drop the file's entries.
+func (fc *fileCheck) unscreenable(pipelineNode node.Node, err error) {
+	if pipelineNode.FailOnError || fc.engine.UpdateBaseline {
+		failure := newNodeFailure(pipelineNode.Name, fc.file, err)
+		fc.out.Error("%s", failureMessage(failure))
+		fc.run.addNodeFailure(failure)
+
+		return
+	}
+
+	reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, err)
+	fc.out.Warn("%s", reason)
+	fc.run.addSkipped(fc.file, reason)
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {

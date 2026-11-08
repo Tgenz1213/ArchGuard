@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/cli"
@@ -62,12 +64,8 @@ type mockJev struct{}
 func jevFactory(string) inference.Asker { return mockJev{} }
 
 func (mockJev) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
-	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
-		return nil, &inference.JevError{Status: http.StatusUnauthorized}
-	}
-
-	if strings.Contains(state, testutil.MockJevFailureTrigger) {
-		return nil, fmt.Errorf("mock jev failure (E2E trigger)")
+	if err := mockJevTriggerError(state); err != nil {
+		return nil, err
 	}
 
 	answers := make(map[string]float64, len(questions))
@@ -83,14 +81,8 @@ func (mockJev) Ask(_ context.Context, state string, questions map[string]string)
 
 // AskAbout answers yes about an ADR entry holding MockJevBreaksTrigger, and fails or answers yes for every entry as Ask does for its one state.
 func (mockJev) AskAbout(_ context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
-	for _, entry := range state {
-		if strings.Contains(entry, testutil.MockJevRejectedKeyTrigger) {
-			return nil, &inference.JevError{Status: http.StatusUnauthorized}
-		}
-
-		if strings.Contains(entry, testutil.MockJevFailureTrigger) {
-			return nil, fmt.Errorf("mock jev failure (E2E trigger)")
-		}
+	if err := mockJevTriggerError(strings.Join(slices.Sorted(maps.Values(state)), "\n")); err != nil {
+		return nil, err
 	}
 
 	answers := make(map[string]float64, len(questions))
@@ -102,6 +94,19 @@ func (mockJev) AskAbout(_ context.Context, state map[string]string, questions ma
 	}
 
 	return answers, nil
+}
+
+// A rejected key wins over a failure, so a state holding both triggers always exits the same way.
+func mockJevTriggerError(state string) error {
+	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
+		return &inference.JevError{Status: http.StatusUnauthorized}
+	}
+
+	if strings.Contains(state, testutil.MockJevFailureTrigger) {
+		return fmt.Errorf("mock jev failure (E2E trigger)")
+	}
+
+	return nil
 }
 
 // Markers print on invocation, not construction, so tests can prove a

@@ -496,13 +496,14 @@ func ruledADR(id, statement string) index.ADR {
 }
 
 type askRun struct {
-	onError     string
-	content     string
-	judgeChange bool
-	judgeLLM    config.LLMConfig
-	llmTokens   int
-	noDiff      bool
-	forEachADR  bool
+	onError        string
+	content        string
+	judgeChange    bool
+	judgeLLM       config.LLMConfig
+	llmTokens      int
+	noDiff         bool
+	forEachADR     bool
+	updateBaseline bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -515,6 +516,7 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
 	h.engine.JudgeChange = run.judgeChange
+	h.engine.UpdateBaseline = run.updateBaseline
 	h.engine.JudgeLLM = run.judgeLLM
 	h.engine.Config.LLM.MaxTokens = run.llmTokens
 
@@ -592,31 +594,53 @@ func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
 	}
 }
 
-func TestPipeline_AnADRAskSkipsAFileTooLargeToScreen(t *testing.T) {
+type countingAsker struct{ calls int }
+
+func (c *countingAsker) Ask(context.Context, string, map[string]string) (map[string]float64, error) {
+	c.calls++
+	return nil, errors.New("not expected")
+}
+
+func (c *countingAsker) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
+	c.calls++
+	return nil, errors.New("not expected")
+}
+
+func TestPipeline_AnADRAskOnAFileTooLargeToScreen(t *testing.T) {
 	content := "package svc\n" + strings.Repeat("// padding\n", 100)
 	strongJudge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}
 
-	for _, onError := range []string{config.OnErrorSkip, config.OnErrorFail} {
-		t.Run(onError, func(t *testing.T) {
-			asked := 0
-			asker := askerFunc(func(string, map[string]string) (map[string]float64, error) {
-				asked++
-				return nil, nil
-			})
+	tests := []struct {
+		name           string
+		onError        string
+		updateBaseline bool
+		wantSkipped    int
+		wantFailures   int
+	}{
+		{"on_error skip skips the file", config.OnErrorSkip, false, 1, 0},
+		{"on_error fail is a node failure", config.OnErrorFail, false, 0, 1},
+		{"a baseline update is a node failure, so no entry is dropped", config.OnErrorSkip, true, 0, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			asker := &countingAsker{}
 
-			h, logged := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: strongJudge, forEachADR: true, onError: onError}, asker)
+			h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: strongJudge, forEachADR: true, onError: tt.onError, updateBaseline: tt.updateBaseline}, asker)
 
-			if asked != 0 || len(h.judged) != 0 || len(h.engine.NodeFailures) != 0 {
-				t.Errorf("asked %d times, judged %v, node failures %+v; want no call, no judgment and no node failure", asked, h.judged, h.engine.NodeFailures)
+			if asker.calls != 0 || len(h.judged) != 0 {
+				t.Errorf("asked %d times and judged %v, want neither", asker.calls, h.judged)
 			}
 
-			want := "node governs can't screen it, so none of its ADRs were judged: the file is too large to screen: it is over llm.max_tokens (20)"
-			if len(h.engine.SkippedFiles) != 1 || h.engine.SkippedFiles[0].Reason != want {
-				t.Errorf("skipped files = %+v, want svc.go skipped with %q", h.engine.SkippedFiles, want)
+			if len(h.engine.SkippedFiles) != tt.wantSkipped || len(h.engine.NodeFailures) != tt.wantFailures {
+				t.Errorf("skipped %+v with node failures %+v, want %d skipped and %d failures", h.engine.SkippedFiles, h.engine.NodeFailures, tt.wantSkipped, tt.wantFailures)
 			}
 
-			if !strings.Contains(logged, want) {
-				t.Errorf("output %q, want the warning %q", logged, want)
+			if tt.wantFailures > 0 && h.engine.NodeFailures[0].Kind != node.KindPreconditionNotMet {
+				t.Errorf("failure kind = %v, want precondition_not_met", h.engine.NodeFailures[0].Kind)
+			}
+
+			if len(h.engine.PartialFiles) != 0 {
+				t.Errorf("partial files = %+v, want none, since nothing of the file was judged", h.engine.PartialFiles)
 			}
 		})
 	}

@@ -66,8 +66,12 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 
 func nonBlankSides(file File) ([]string, error) {
 	sides, err := file.Sides()
-	if err != nil {
+	if errors.Is(err, ErrUnscreenable) {
 		return nil, &Error{Action: "sizing the file", Kind: KindPreconditionNotMet, Err: err}
+	}
+
+	if err != nil {
+		return nil, &Error{Action: "sizing the file", Err: err}
 	}
 
 	return slices.DeleteFunc(slices.Clone(sides), func(side string) bool { return strings.TrimSpace(side) == "" }), nil
