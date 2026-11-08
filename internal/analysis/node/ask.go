@@ -37,9 +37,12 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 	}
 
 	asked, owner := ruleQuestions(r.instructions(), candidates)
-	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+	if len(asked) == 0 {
+		return scores, nil
+	}
 
-	if len(asked) == 0 || len(sides) == 0 {
+	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+	if len(sides) == 0 {
 		return scores, nil
 	}
 

@@ -28,6 +28,14 @@ type fileCheck struct {
 	// The node that dropped this file's last candidates, when it was one that screens for violations.
 	screenedOutBy string
 	findings      fileResult
+	suggestion    *suggestionCode
+	diff          *string
+}
+
+// suggestionCode is the code every suggestion for the file is written from, sized once per file.
+type suggestionCode struct {
+	content string
+	fits    bool
 }
 
 func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
@@ -130,9 +138,9 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	query := &queryFile{
 		path:           fc.file,
 		content:        fc.content,
-		isDiff:         fc.engine.JudgeChange || fc.mode == "diff",
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
+		readSides:      func() []string { return fc.askSides(ctx) },
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -163,6 +171,30 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	}
 
 	return hits, true
+}
+
+// Jev never reads past llm.max_tokens, and no sides makes an ask node pass every candidate on rather than screen half a file.
+func (fc *fileCheck) askSides(ctx context.Context) []string {
+	e := fc.engine
+	limit := tokenLimit(e.Config.LLM)
+
+	if fc.mode == "diff" || limit >= tokenLimit(e.judgeLLM()) {
+		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff")
+	}
+
+	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
+
+	switch {
+	case ctx.Err() != nil:
+	case err != nil:
+		fc.out.Warn("ask nodes pass every candidate on: %v", err)
+	case mode == "truncated":
+		fc.out.Warn("ask nodes pass every candidate on: the file is over llm.max_tokens (%d)", limit)
+	default:
+		return sidesOf(content, e.JudgeChange || mode == "diff")
+	}
+
+	return nil
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {
@@ -243,7 +275,10 @@ func (fc *fileCheck) analysisKey(hit node.Candidate) string {
 	e := fc.engine
 
 	return cache.ComputeAnalysisKey(cache.AnalysisKeyInput{
-		ModelName:          e.Config.LLM.Model,
+		Provider:           e.judgeLLM().Provider,
+		ModelName:          e.judgeLLM().Model,
+		BaseURL:            e.judgeLLM().BaseURL,
+		Temperature:        e.judgeLLM().Temperature,
 		ADRContent:         hit.ADR.Content,
 		FileContent:        fc.content,
 		SystemPrompt:       e.systemPrompt(),
@@ -415,9 +450,16 @@ func (fc *fileCheck) reportViolation(ctx context.Context, hit node.Candidate, in
 
 func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input inference.DriftInput, result *inference.AnalysisResult) string {
 	e := fc.engine
+	suggest := e.suggestLLM()
 
+	// Keyed on what sizing starts from, so a cached suggestion costs no token count.
 	key := cache.ComputeSuggestionKey(cache.SuggestionKeyInput{
-		ModelName:                e.Config.LLM.Model,
+		Diff:                     fc.fallbackDiff(ctx),
+		Provider:                 suggest.Provider,
+		ModelName:                suggest.Model,
+		BaseURL:                  suggest.BaseURL,
+		Temperature:              suggest.Temperature,
+		MaxTokens:                tokenLimit(suggest),
 		ADRContent:               hit.ADR.Content,
 		FileContent:              fc.content,
 		Filename:                 fc.file,
@@ -427,12 +469,19 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 		SuggestionPromptTemplate: inference.SuggestionPrompt,
 	})
 
-	cached, found := fc.cachedSuggestion(key)
-	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: found})
-
-	if found {
+	if cached, found := fc.cachedSuggestion(key); found {
+		e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: true})
 		return cached
 	}
+
+	code := fc.suggestionCode(ctx)
+	if !code.fits {
+		return ""
+	}
+
+	e.record(telemetry.CacheChecked{Role: telemetry.Suggestion, Hit: false})
+
+	input.CodeContext = code.content
 
 	suggestion, retries, err := inference.SuggestRemediation(ctx, e.suggestionChat(), input, *result)
 	e.record(telemetry.RetriesSent{Role: telemetry.Suggestion, Retries: retries})
@@ -454,4 +503,82 @@ func (fc *fileCheck) suggestFix(ctx context.Context, hit node.Candidate, input i
 	}
 
 	return suggestion
+}
+
+// fallbackDiff is the diff a whole-file suggestion may be written from instead, read once per file.
+func (fc *fileCheck) fallbackDiff(ctx context.Context) string {
+	if fc.mode != "full" || fc.engine.UpdateBaseline {
+		return ""
+	}
+
+	if fc.diff == nil {
+		diff, err := fc.engine.Content.GetDiff(ctx, fc.file)
+		if err != nil {
+			diff = ""
+		}
+
+		fc.diff = &diff
+	}
+
+	return *fc.diff
+}
+
+func (fc *fileCheck) suggestsAsJudged() bool {
+	judge, suggest := fc.engine.judgeLLM(), fc.engine.suggestLLM()
+
+	// Only a diff fetchContext fell back to went uncounted against the judge's limit.
+	return fc.mode != "diff" && suggest.Provider == judge.Provider && suggest.Model == judge.Model && tokenLimit(suggest) >= tokenLimit(judge)
+}
+
+func (fc *fileCheck) suggestionCode(ctx context.Context) suggestionCode {
+	if fc.suggestion == nil {
+		fc.suggestion = new(fc.sizeSuggestion(ctx))
+	}
+
+	return *fc.suggestion
+}
+
+func (fc *fileCheck) sizeSuggestion(ctx context.Context) suggestionCode {
+	limit := tokenLimit(fc.engine.suggestLLM())
+
+	if fc.suggestsAsJudged() {
+		return suggestionCode{content: fc.content, fits: true}
+	}
+
+	content, fits, err := fc.fitSuggestion(ctx, limit)
+
+	switch {
+	case err != nil:
+		fc.out.Warn("no suggestion: %v", err)
+	case fits:
+		return suggestionCode{content: content, fits: true}
+	case fc.mode == "full":
+		fc.out.Warn("no suggestion for %s: it is over the suggest model's max_tokens (%d) and has no diff that fits", fc.file, limit)
+	default:
+		fc.out.Warn("no suggestion for %s: what was judged is over the suggest model's max_tokens (%d)", fc.file, limit)
+	}
+
+	return suggestionCode{}
+}
+
+// A whole file falls back to its diff as fetchContext does, but is never truncated: a fix for half a file is no fix.
+func (fc *fileCheck) fitSuggestion(ctx context.Context, limit int) (string, bool, error) {
+	chat := fc.engine.suggestionChat()
+	content := fc.content
+
+	if fc.mode == "full" {
+		fitted, mode, _, err := fc.engine.fitWhole(ctx, chat, fc.file, fc.content, limit)
+		if err != nil || mode != "diff" {
+			return fitted, mode == "full", err
+		}
+
+		content = fitted
+	}
+
+	tokens, err := chat.CountTokens(ctx, content)
+	if err != nil {
+		return "", false, fmt.Errorf("counting tokens for %s: %w", fc.file, err)
+	}
+
+	return content, tokens <= limit, nil
 }

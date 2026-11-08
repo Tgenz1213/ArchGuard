@@ -59,12 +59,45 @@ func TestComputeSuggestionKey_IndependentOfAnalysisKey(t *testing.T) {
 }
 
 // Fixed digests pin field order so a field reorder cannot slip past self-consistency checks.
-func TestComputeSuggestionKey_MatchesPreRefactorDigest(t *testing.T) {
-	got := ComputeSuggestionKey(SuggestionKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
+func TestComputeSuggestionKey_MatchesPinnedDigest(t *testing.T) {
+	got := ComputeSuggestionKey(SuggestionKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", Filename: "file.go", Reasoning: "reasoning", QuotedCode: "quoted", SuggestionSystemPrompt: "sys", SuggestionPromptTemplate: "tmpl"})
 
-	want := "3bbf79ea1021fe4efcbefa734d4fc80131eab86457b8b19af4560f798408b413"
+	want := "c01100df4cf994f0ddec612adcab4714742c28f7699e0415a9b6301d09a8521c"
 	if got != want {
-		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
+	}
+}
+
+func TestComputeKeys_ChangeWithTheLLMSettings(t *testing.T) {
+	analysis := AnalysisKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", SystemPrompt: "s", UserPromptTemplate: "t"}
+	suggestion := SuggestionKeyInput{Provider: "openai", ModelName: "m", ADRContent: "adr", FileContent: "code", Filename: "f", Reasoning: "r", QuotedCode: "q", SuggestionSystemPrompt: "s", SuggestionPromptTemplate: "t"}
+
+	changes := []struct {
+		name       string
+		analysis   func(*AnalysisKeyInput)
+		suggestion func(*SuggestionKeyInput)
+	}{
+		{"provider", func(in *AnalysisKeyInput) { in.Provider = "ollama" }, func(in *SuggestionKeyInput) { in.Provider = "ollama" }},
+		{"base_url", func(in *AnalysisKeyInput) { in.BaseURL = "http://other:11434" }, func(in *SuggestionKeyInput) { in.BaseURL = "http://other:11434" }},
+		{"temperature 0 against unset", func(in *AnalysisKeyInput) { in.Temperature = new(0.0) }, func(in *SuggestionKeyInput) { in.Temperature = new(0.0) }},
+		{"max_tokens", nil, func(in *SuggestionKeyInput) { in.MaxTokens = 10 }},
+	}
+	for _, change := range changes {
+		if change.analysis != nil {
+			other := analysis
+			change.analysis(&other)
+
+			if ComputeAnalysisKey(analysis) == ComputeAnalysisKey(other) {
+				t.Errorf("expected the analysis key to change with the %s", change.name)
+			}
+		}
+
+		other := suggestion
+		change.suggestion(&other)
+
+		if ComputeSuggestionKey(suggestion) == ComputeSuggestionKey(other) {
+			t.Errorf("expected the suggestion key to change with the %s", change.name)
+		}
 	}
 }
 
@@ -86,12 +119,12 @@ func TestComputeAnalysisKey_NoAmbiguousFieldBoundaries(t *testing.T) {
 	}
 }
 
-func TestComputeAnalysisKey_MatchesPreRefactorDigest(t *testing.T) {
-	got := ComputeAnalysisKey(AnalysisKeyInput{ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
+func TestComputeAnalysisKey_MatchesPinnedDigest(t *testing.T) {
+	got := ComputeAnalysisKey(AnalysisKeyInput{Provider: "openai", ModelName: "gpt-4", ADRContent: "adr", FileContent: "code", SystemPrompt: "sys", UserPromptTemplate: "tmpl"})
 
-	want := "4cb31f140f7789067d939c2ec91ce1a41028c3bdc51df3c9b8466c30c0a62ab3"
+	want := "421a8c664eb31b85a41c5f2ab91a3f6112f311dc5b7f71b2aaba4b0906dd9543"
 	if got != want {
-		t.Errorf("expected digest to match the pre-refactor field order, got %q want %q", got, want)
+		t.Errorf("expected digest to match the pinned field order, got %q want %q", got, want)
 	}
 }
 

@@ -15,18 +15,22 @@ func newRecorder(tally *telemetry.Tally, injected telemetry.Recorder) telemetry.
 	return telemetry.Fanout{tally, injected}
 }
 
-func usageReport(cfg *config.Config, suggestFixes bool, tally *telemetry.Tally) *output.Usage {
+type roleLLMs struct {
+	judge, suggest config.LLMConfig
+}
+
+func usageReport(cfg *config.Config, llms roleLLMs, suggestFixes bool, tally *telemetry.Tally) *output.Usage {
 	judgment := tally.Totals(telemetry.Judgment)
 
 	usage := &output.Usage{
-		Judgment:  withCounts(chatUsage(judgment.Usage, cfg.LLM), judgment),
+		Judgment:  withCounts(chatUsage(judgment.Usage, llms.judge), judgment),
 		Embedding: embeddingReport(cfg, tally),
 		Files:     fileDurations(tally),
 	}
 
 	if suggestFixes {
 		totals := tally.Totals(telemetry.Suggestion)
-		suggestion := withCounts(chatUsage(totals.Usage, cfg.LLM), totals)
+		suggestion := withCounts(chatUsage(totals.Usage, llms.suggest), totals)
 		usage.Suggestion = &suggestion
 	}
 
@@ -34,8 +38,8 @@ func usageReport(cfg *config.Config, suggestFixes bool, tally *telemetry.Tally) 
 }
 
 // A dry run sends no judgment, so only its input is known and priced.
-func dryRunUsage(cfg *config.Config, tally *telemetry.Tally, projected inference.Usage) *output.Usage {
-	judgment := projectedChatUsage(projected, cfg.LLM.CostPer1KInputTokens)
+func dryRunUsage(cfg *config.Config, judge config.LLMConfig, tally *telemetry.Tally, projected inference.Usage) *output.Usage {
+	judgment := projectedChatUsage(projected, judge.CostPer1KInputTokens)
 	judgment.ChatCounts = cacheCounts(tally.Totals(telemetry.Judgment))
 
 	return &output.Usage{

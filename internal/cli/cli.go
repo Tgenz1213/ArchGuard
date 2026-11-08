@@ -184,9 +184,14 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		return runSetup{}, err
 	}
 
+	chatFor := func(llm config.LLMConfig) (inference.Chatter, error) {
+		return nodeChatter(warnings, cfg, llm, factories)
+	}
+
 	return runSetup{
 		cfg:                 cfg,
 		chat:                chat,
+		chatFor:             chatFor,
 		embed:               embed,
 		jev:                 factories.Jev,
 		indexFile:           indexFile,
@@ -199,6 +204,10 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 type runSetup struct {
 	cfg                 *config.Config
 	chat                inference.Chatter
+	suggestChat         inference.Chatter
+	chatFor             func(config.LLMConfig) (inference.Chatter, error)
+	judgeLLM            config.LLMConfig
+	suggestLLM          config.LLMConfig
 	embed               inference.Embedder
 	jev                 func(model string) inference.Asker
 	recorder            telemetry.Recorder
