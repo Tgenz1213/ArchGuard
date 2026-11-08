@@ -42,9 +42,9 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 		return scores, nil
 	}
 
-	sides := nonBlankSides(file)
-	if len(sides) == 0 {
-		return scores, nil
+	sides, err := nonBlankSides(file)
+	if err != nil || len(sides) == 0 {
+		return scores, err
 	}
 
 	answers, err := askEachSide(ctx, sides, asked, "rules", func(ctx context.Context, side string) (map[string]float64, error) {
@@ -64,8 +64,13 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 	return scores, nil
 }
 
-func nonBlankSides(file File) []string {
-	return slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+func nonBlankSides(file File) ([]string, error) {
+	sides, err := file.Sides()
+	if err != nil {
+		return nil, &Error{Action: "sizing the file", Kind: KindPreconditionNotMet, Err: err}
+	}
+
+	return slices.DeleteFunc(slices.Clone(sides), func(side string) bool { return strings.TrimSpace(side) == "" }), nil
 }
 
 // askEachSide asks every question about each side and keeps each question's higher answer, so what a change removes still counts.
@@ -161,11 +166,12 @@ func askError(err error, alongside string) error {
 
 func NewAskNode(asker inference.Asker, instructions string, threshold float64, topK int) Node {
 	return Node{
-		Name:              "ask",
-		Scorer:            &RuleAsk{Asker: asker, Instructions: instructions},
-		Min:               FixedMin(threshold),
-		MaxKeep:           topK,
-		PassThroughOnSkip: true,
-		Screens:           true,
+		Name:               "ask",
+		Scorer:             &RuleAsk{Asker: asker, Instructions: instructions},
+		Min:                FixedMin(threshold),
+		MaxKeep:            topK,
+		PassThroughOnSkip:  true,
+		Screens:            true,
+		PassesUnscreenable: true,
 	}
 }

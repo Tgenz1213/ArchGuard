@@ -23,6 +23,9 @@ Terms:
     by the answer.
   - Sides: what a scorer that answers without a quote reads, the whole file or
     each side of a diff, so a rule broken by removing code is still seen.
+  - Unscreenable: a file too large for its sides, whatever on_error says. A
+    node that asks per rule passes its candidates on; one that asks per ADR
+    skips the file.
   - Pass-through: a candidate a scorer does not judge, such as an ADR with no
     rules in an ask node. The node keeps it whatever its threshold or limit.
   - Skipped: a node that failed under on_error: skip and passed its

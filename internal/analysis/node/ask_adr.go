@@ -20,10 +20,14 @@ type ADRAsk struct {
 }
 
 // A file with no text is governed by no ADR, so every candidate scores 0 rather than passing on uncapped.
+// A file too large to screen is an error, so it is skipped rather than kept or dropped unscreened.
 func (a *ADRAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
-	scores := make([]float64, len(candidates))
+	sides, err := nonBlankSides(file)
+	if err != nil {
+		return nil, err
+	}
 
-	sides := nonBlankSides(file)
+	scores := make([]float64, len(candidates))
 	if len(sides) == 0 {
 		return scores, nil
 	}

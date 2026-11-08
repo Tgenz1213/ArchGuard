@@ -3,6 +3,7 @@ package node_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -179,5 +180,23 @@ func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
 
 	if _, err := n.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{contentCandidate("a", "a")}); !node.KeyRejected(err) {
 		t.Errorf("err = %v, want a rejected key that even on_error: skip doesn't pass over", err)
+	}
+}
+
+func TestAskNodes_AFileTooLargeToScreen(t *testing.T) {
+	unscreenable := sidedFile{err: fmt.Errorf("%w: it is over llm.max_tokens (20)", node.ErrUnscreenable)}
+	candidates := []node.Candidate{ruledCandidate("a", "no globals"), ruledCandidate("b", "no prints")}
+
+	ruleNode := node.NewAskNode(&stateAsker{}, "", 0.3, 0)
+	ruleNode.FailOnError = true
+
+	got, err := ruleNode.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+	if _, skipped := errors.AsType[*node.Skipped](err); !skipped || ids(got) != "a,b" {
+		t.Errorf("rule ask node kept %s with err %v, want every candidate passed on as skipped even under on_error: fail", ids(got), err)
+	}
+
+	got, err = node.NewADRAskNode(&stateAsker{}, "", 0.5, 3).Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+	if !errors.Is(err, node.ErrUnscreenable) || got != nil {
+		t.Errorf("ADR ask node kept %s with err %v, want ErrUnscreenable and nothing kept, even under on_error: skip", ids(got), err)
 	}
 }

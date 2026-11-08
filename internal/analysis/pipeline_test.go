@@ -502,6 +502,7 @@ type askRun struct {
 	judgeLLM    config.LLMConfig
 	llmTokens   int
 	noDiff      bool
+	forEachADR  bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -535,6 +536,10 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
 
+	if run.forEachADR {
+		nodes[1] = config.Node{Name: "governs", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.5, TopK: 3, OnError: onError, Question: config.Question{ForEach: config.ForEachADR, Instructions: config.GovernsInstructions}}
+	}
+
 	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -555,7 +560,7 @@ func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
 		wantLog    string
 	}{
 		{"a file within llm.max_tokens is asked about whole", 1000, 1, 0, ""},
-		{"a file over llm.max_tokens passes every candidate on", 20, 0, 3, "ask nodes pass every candidate on: the file is over llm.max_tokens (20)"},
+		{"a file over llm.max_tokens passes every candidate on", 20, 0, 3, "node breaks-a-rule skipped, 3 candidate(s) pass through unchanged: sizing the file: the file is too large to screen: it is over llm.max_tokens (20)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -582,6 +587,36 @@ func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
 
 			if !strings.Contains(logged, tt.wantLog) {
 				t.Errorf("output %q, want %q", logged, tt.wantLog)
+			}
+		})
+	}
+}
+
+func TestPipeline_AnADRAskSkipsAFileTooLargeToScreen(t *testing.T) {
+	content := "package svc\n" + strings.Repeat("// padding\n", 100)
+	strongJudge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}
+
+	for _, onError := range []string{config.OnErrorSkip, config.OnErrorFail} {
+		t.Run(onError, func(t *testing.T) {
+			asked := 0
+			asker := askerFunc(func(string, map[string]string) (map[string]float64, error) {
+				asked++
+				return nil, nil
+			})
+
+			h, logged := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: strongJudge, forEachADR: true, onError: onError}, asker)
+
+			if asked != 0 || len(h.judged) != 0 || len(h.engine.NodeFailures) != 0 {
+				t.Errorf("asked %d times, judged %v, node failures %+v; want no call, no judgment and no node failure", asked, h.judged, h.engine.NodeFailures)
+			}
+
+			want := "node governs can't screen it, so none of its ADRs were judged: the file is too large to screen: it is over llm.max_tokens (20)"
+			if len(h.engine.SkippedFiles) != 1 || h.engine.SkippedFiles[0].Reason != want {
+				t.Errorf("skipped files = %+v, want svc.go skipped with %q", h.engine.SkippedFiles, want)
+			}
+
+			if !strings.Contains(logged, want) {
+				t.Errorf("output %q, want the warning %q", logged, want)
 			}
 		})
 	}

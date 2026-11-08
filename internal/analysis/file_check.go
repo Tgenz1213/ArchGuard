@@ -140,7 +140,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		content:        fc.content,
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
-		readSides:      func() []string { return fc.askSides(ctx) },
+		readSides:      func() ([]string, error) { return fc.askSides(ctx) },
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -160,6 +160,14 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 			return nil, false
 		}
 
+		if errors.Is(err, node.ErrUnscreenable) {
+			reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, errors.Unwrap(err))
+			fc.out.Warn("%s", reason)
+			fc.run.addSkipped(fc.file, reason)
+
+			return nil, false
+		}
+
 		if err != nil {
 			fc.failNode(pipelineNode, err)
 			return nil, false
@@ -173,28 +181,27 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	return hits, true
 }
 
-// Jev never reads past llm.max_tokens, and no sides makes an ask node pass every candidate on rather than screen half a file.
-func (fc *fileCheck) askSides(ctx context.Context) []string {
+// Jev never reads past llm.max_tokens, so a file over it is unscreenable rather than screened by half.
+func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 	e := fc.engine
 	limit := tokenLimit(e.Config.LLM)
 
 	if fc.mode == "diff" || limit >= tokenLimit(e.judgeLLM()) {
-		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff")
+		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff"), nil
 	}
 
 	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
 
 	switch {
 	case ctx.Err() != nil:
+		return nil, ctx.Err()
 	case err != nil:
-		fc.out.Warn("ask nodes pass every candidate on: %v", err)
+		return nil, fmt.Errorf("%w: sizing it: %w", node.ErrUnscreenable, err)
 	case mode == "truncated":
-		fc.out.Warn("ask nodes pass every candidate on: the file is over llm.max_tokens (%d)", limit)
-	default:
-		return sidesOf(content, e.JudgeChange || mode == "diff")
+		return nil, fmt.Errorf("%w: it is over llm.max_tokens (%d)", node.ErrUnscreenable, limit)
 	}
 
-	return nil
+	return sidesOf(content, e.JudgeChange || mode == "diff"), nil
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {

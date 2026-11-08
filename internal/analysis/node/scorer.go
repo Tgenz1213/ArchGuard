@@ -14,8 +14,9 @@ type Candidate struct {
 type File interface {
 	Path() string
 	QueryText(ctx context.Context) string
-	// Sides is what a runner that answers without a quote reads: the file or each side of its diff, never over llm.max_tokens; none passes every candidate on.
-	Sides() []string
+	// Sides is what a runner that answers without a quote reads: the file or each side of its diff, never over llm.max_tokens.
+	// It returns ErrUnscreenable for a file it can't size under that limit.
+	Sides() ([]string, error)
 }
 
 // A Scorer only scores, one value per candidate in order; dropping is a Node's job.

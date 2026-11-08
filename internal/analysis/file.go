@@ -9,16 +9,17 @@ type queryFile struct {
 	updateBaseline bool
 	text           string
 	built          bool
-	readSides      func() []string
+	readSides      func() ([]string, error)
 	sides          []string
+	sidesErr       error
 	sidesRead      bool
 }
 
 func (f *queryFile) Path() string { return f.path }
 
-func (f *queryFile) Sides() []string {
+func (f *queryFile) Sides() ([]string, error) {
 	if f.sidesRead {
-		return f.sides
+		return f.sides, f.sidesErr
 	}
 
 	f.sidesRead = true
@@ -26,10 +27,10 @@ func (f *queryFile) Sides() []string {
 	if f.readSides == nil {
 		f.sides = []string{f.content}
 	} else {
-		f.sides = f.readSides()
+		f.sides, f.sidesErr = f.readSides()
 	}
 
-	return f.sides
+	return f.sides, f.sidesErr
 }
 
 func sidesOf(content string, isDiff bool) []string {
