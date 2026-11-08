@@ -121,7 +121,7 @@ func TestADRAsk_SkipsAnEmptySide(t *testing.T) {
 
 func TestADRAskNode_AFileWithNoTextKeepsNothing(t *testing.T) {
 	asker := &stateAsker{answer: byContent(nil)}
-	n := node.NewADRAskNode(asker, config.GovernsInstructions, 0.5, 1)
+	n := node.NewADRAskNode(asker, config.GovernsInstructions, 0, 1)
 
 	kept, err := n.Apply(t.Context(), sidedFile{sides: []string{""}}, node.NoDebug, []node.Candidate{contentCandidate("a", "a"), contentCandidate("b", "b")})
 	if err != nil || len(kept) != 0 || len(asker.states) != 0 {

@@ -186,7 +186,7 @@ func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 	e := fc.engine
 	limit := tokenLimit(e.Config.LLM)
 
-	if fc.mode == "diff" || limit >= tokenLimit(e.judgeLLM()) {
+	if fc.mode == "diff" || (fc.mode != "truncated" && limit >= tokenLimit(e.judgeLLM())) {
 		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff"), nil
 	}
 

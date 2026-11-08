@@ -620,6 +620,7 @@ func TestPipeline_AnADRAskSkipsAFileTooLargeToScreen(t *testing.T) {
 		{"on_error fail", config.OnErrorFail, false, 100000, true},
 		{"under --ci", config.OnErrorSkip, true, 100000, false},
 		{"truncated for the judge too", config.OnErrorSkip, false, 30, true},
+		{"truncated for a judge with the same limit", config.OnErrorSkip, false, 20, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

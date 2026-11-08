@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/config"
@@ -19,7 +20,7 @@ type ADRAsk struct {
 	Instructions string
 }
 
-// A file with no text is governed by no ADR, so every candidate scores 0 rather than passing on uncapped.
+// A file with no text is governed by no ADR, so every candidate scores below any threshold, 0 included, rather than passing on uncapped.
 // A file too large to screen is an error, so it is skipped rather than kept or dropped unscreened.
 func (a *ADRAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
 	sides, err := nonBlankSides(file)
@@ -29,6 +30,10 @@ func (a *ADRAsk) Score(ctx context.Context, file File, _ Debug, candidates []Can
 
 	scores := make([]float64, len(candidates))
 	if len(sides) == 0 {
+		for i := range scores {
+			scores[i] = math.Inf(-1)
+		}
+
 		return scores, nil
 	}
 
