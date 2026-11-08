@@ -15,15 +15,15 @@ An `ask` node never reads more than `llm.max_tokens` (`docs/arch/0053-quoteless-
 
 ## Decision
 
-- **A node that asks per ADR skips a file too large to screen, and the report lists it as skipped.** This is not a provider failure, so the pass-on rule of `docs/arch/0052-what-a-node-failure-does.md` doesn't apply to it.
-- **Under `on_error: fail`, or while `--update-baseline` runs, it is a node failure whose kind is a precondition not met,** since a skipped file's entries would drop out of a new baseline.
+- **A node that asks per ADR skips a file too large to screen, whatever its `on_error`,** and the report lists the file as skipped. This is not a provider failure, so `docs/arch/0052-what-a-node-failure-does.md` doesn't apply to it, and a first node, which can't take `on_error: skip`, still skips the file.
+- **Outside `--ci`, the skip counts as a failed file,** so a run left with no ADR check by it doesn't exit 0 (`docs/arch/0032-a-run-that-checked-nothing-fails.md`). Under `--ci` it is skipped as a file too large to judge is.
 - **A node that asks per rule passes its candidates on, whatever `on_error` says.**
 
 ## Rules
 
-- A node that asks per ADR MUST NOT keep or drop candidates for a file over `llm.max_tokens` that it hasn't screened.
-- Under `on_error: skip` without `--update-baseline`, that file MUST be listed as skipped.
-- Under `on_error: fail`, or while `--update-baseline` runs, that file MUST be a precondition-not-met node failure.
+- A node that asks per ADR MUST NOT keep or drop the candidates of a file over `llm.max_tokens` without screening it.
+- That file MUST be listed as skipped, naming the node.
+- Outside `--ci`, that skip MUST count toward a run that checked nothing.
 
 ## Alternatives considered
 

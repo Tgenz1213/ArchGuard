@@ -81,7 +81,7 @@ func (mockJev) Ask(_ context.Context, state string, questions map[string]string)
 
 // AskAbout answers yes about an ADR entry holding MockJevBreaksTrigger, and fails or answers yes for every entry as Ask does for its one state.
 func (mockJev) AskAbout(_ context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
-	if err := mockJevTriggerError(strings.Join(slices.Sorted(maps.Values(state)), "\n")); err != nil {
+	if err := mockJevTriggerError(strings.Join(slices.Collect(maps.Values(state)), "\n")); err != nil {
 		return nil, err
 	}
 

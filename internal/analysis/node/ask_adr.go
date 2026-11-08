@@ -35,10 +35,12 @@ func (a *ADRAsk) Score(ctx context.Context, file File, _ Debug, candidates []Can
 	entries := make([]string, len(candidates))
 	questions := make(map[string]string, len(candidates))
 	state := make(map[string]string, len(candidates)+1)
+	code := strings.ReplaceAll(a.instructions(), "{code}", "`"+codeEntry+"`")
+
 	for i, candidate := range candidates {
 		entries[i] = fmt.Sprintf("adr%d", i)
 		state[entries[i]] = candidate.ADR.Content
-		questions[entries[i]] = strings.NewReplacer("{code}", "`"+codeEntry+"`", "{adr}", "`"+entries[i]+"`").Replace(a.instructions())
+		questions[entries[i]] = strings.ReplaceAll(code, "{adr}", "`"+entries[i]+"`")
 	}
 
 	answers, err := askEachSide(ctx, sides, questions, "candidate ADRs", func(ctx context.Context, side string) (map[string]float64, error) {

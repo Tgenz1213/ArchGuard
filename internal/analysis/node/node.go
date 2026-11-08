@@ -53,7 +53,7 @@ type Node struct {
 	PassesUnscreenable bool
 }
 
-// ErrUnscreenable is a file too large for a node to screen; the node's PassesUnscreenable, not its on_error, decides whether it passes its candidates on.
+// ErrUnscreenable is a file too large for a node to screen. It isn't a provider failure, so on_error doesn't apply: PassesUnscreenable decides.
 var ErrUnscreenable = errors.New("the file is too large to screen")
 
 // Skipped is a node error the node recovered from by passing its candidates on unchanged.
@@ -74,12 +74,16 @@ type decision struct {
 
 func (s Node) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
-	if errors.Is(err, ErrUnscreenable) && s.PassesUnscreenable {
-		return candidates, &Skipped{Err: err}
+	if errors.Is(err, ErrUnscreenable) {
+		if s.PassesUnscreenable {
+			return candidates, &Skipped{Err: err}
+		}
+
+		return nil, err
 	}
 
 	if err != nil {
-		if errors.Is(err, ErrUnscreenable) || s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
+		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
 			return nil, err
 		}
 

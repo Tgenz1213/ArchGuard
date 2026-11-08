@@ -190,33 +190,43 @@ func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff"), nil
 	}
 
-	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
+	content, mode, err := fc.fitAsk(ctx, limit)
 
 	switch {
 	case ctx.Err() != nil:
 		return nil, ctx.Err()
 	case err != nil:
 		return nil, err
-	case mode == "truncated":
+	case mode == "truncated" || mode == "over":
 		return nil, fmt.Errorf("%w: it is over llm.max_tokens (%d)", node.ErrUnscreenable, limit)
 	}
 
 	return sidesOf(content, e.JudgeChange || mode == "diff"), nil
 }
 
-// unscreenable skips the file, unless on_error: fail or a baseline being written, from which a skip would drop the file's entries.
+// unscreenable skips the file whatever on_error says; outside --ci the skip counts toward a run that checked nothing.
 func (fc *fileCheck) unscreenable(pipelineNode node.Node, err error) {
-	if pipelineNode.FailOnError || fc.engine.UpdateBaseline {
-		failure := newNodeFailure(pipelineNode.Name, fc.file, err)
-		fc.out.Error("%s", failureMessage(failure))
-		fc.run.addNodeFailure(failure)
+	reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, err)
+
+	if fc.engine.CI && !fc.engine.UpdateBaseline {
+		fc.out.Warn("%s", reason)
+		fc.run.addSkipped(fc.file, reason)
 
 		return
 	}
 
-	reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, err)
-	fc.out.Warn("%s", reason)
-	fc.run.addSkipped(fc.file, reason)
+	fc.skip(reason)
+}
+
+// fitAsk never truncates a whole file, since an ask node can't screen a truncated one.
+func (fc *fileCheck) fitAsk(ctx context.Context, limit int) (content, mode string, err error) {
+	if fc.engine.JudgeChange {
+		return fc.engine.sizeContent(ctx, fc.file, fc.fullContent, limit)
+	}
+
+	content, mode, _, err = fc.engine.fitWhole(ctx, fc.engine.Chat, fc.file, fc.fullContent, limit)
+
+	return content, mode, err
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {

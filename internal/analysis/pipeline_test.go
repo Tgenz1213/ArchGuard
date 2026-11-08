@@ -496,14 +496,14 @@ func ruledADR(id, statement string) index.ADR {
 }
 
 type askRun struct {
-	onError        string
-	content        string
-	judgeChange    bool
-	judgeLLM       config.LLMConfig
-	llmTokens      int
-	noDiff         bool
-	forEachADR     bool
-	updateBaseline bool
+	onError     string
+	content     string
+	judgeChange bool
+	judgeLLM    config.LLMConfig
+	llmTokens   int
+	noDiff      bool
+	forEachADR  bool
+	ci          bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -516,7 +516,7 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
 	h.engine.JudgeChange = run.judgeChange
-	h.engine.UpdateBaseline = run.updateBaseline
+	h.engine.CI = run.ci
 	h.engine.JudgeLLM = run.judgeLLM
 	h.engine.Config.LLM.MaxTokens = run.llmTokens
 
@@ -606,41 +606,38 @@ func (c *countingAsker) AskAbout(context.Context, map[string]string, map[string]
 	return nil, errors.New("not expected")
 }
 
-func TestPipeline_AnADRAskOnAFileTooLargeToScreen(t *testing.T) {
+func TestPipeline_AnADRAskSkipsAFileTooLargeToScreen(t *testing.T) {
 	content := "package svc\n" + strings.Repeat("// padding\n", 100)
-	strongJudge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}
 
 	tests := []struct {
-		name           string
-		onError        string
-		updateBaseline bool
-		wantSkipped    int
-		wantFailures   int
+		name        string
+		onError     string
+		ci          bool
+		judgeTokens int
+		wantFailed  bool
 	}{
-		{"on_error skip skips the file", config.OnErrorSkip, false, 1, 0},
-		{"on_error fail is a node failure", config.OnErrorFail, false, 0, 1},
-		{"a baseline update is a node failure, so no entry is dropped", config.OnErrorSkip, true, 0, 1},
+		{"on_error skip", config.OnErrorSkip, false, 100000, true},
+		{"on_error fail", config.OnErrorFail, false, 100000, true},
+		{"under --ci", config.OnErrorSkip, true, 100000, false},
+		{"truncated for the judge too", config.OnErrorSkip, false, 30, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			asker := &countingAsker{}
+			judge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: tt.judgeTokens}
 
-			h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: strongJudge, forEachADR: true, onError: tt.onError, updateBaseline: tt.updateBaseline}, asker)
+			h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: judge, forEachADR: true, onError: tt.onError, ci: tt.ci}, asker)
 
-			if asker.calls != 0 || len(h.judged) != 0 {
-				t.Errorf("asked %d times and judged %v, want neither", asker.calls, h.judged)
+			if asker.calls != 0 || len(h.judged) != 0 || len(h.engine.NodeFailures) != 0 {
+				t.Errorf("asked %d times, judged %v, node failures %+v; want none of them", asker.calls, h.judged, h.engine.NodeFailures)
 			}
 
-			if len(h.engine.SkippedFiles) != tt.wantSkipped || len(h.engine.NodeFailures) != tt.wantFailures {
-				t.Errorf("skipped %+v with node failures %+v, want %d skipped and %d failures", h.engine.SkippedFiles, h.engine.NodeFailures, tt.wantSkipped, tt.wantFailures)
+			if len(h.engine.SkippedFiles) != 1 || h.engine.SkippedFiles[0].File != "svc.go" || len(h.engine.PartialFiles) != 0 {
+				t.Errorf("skipped %+v and partial %+v, want svc.go skipped and not partial", h.engine.SkippedFiles, h.engine.PartialFiles)
 			}
 
-			if tt.wantFailures > 0 && h.engine.NodeFailures[0].Kind != node.KindPreconditionNotMet {
-				t.Errorf("failure kind = %v, want precondition_not_met", h.engine.NodeFailures[0].Kind)
-			}
-
-			if len(h.engine.PartialFiles) != 0 {
-				t.Errorf("partial files = %+v, want none, since nothing of the file was judged", h.engine.PartialFiles)
+			if h.engine.CheckedNothing != tt.wantFailed {
+				t.Errorf("CheckedNothing = %v, want %v", h.engine.CheckedNothing, tt.wantFailed)
 			}
 		})
 	}
