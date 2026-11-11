@@ -45,7 +45,6 @@ func llmKeys(job string) []string {
 	return keys
 }
 
-// A block on another provider inherits nothing provider-specific, so it never sends llm's model, host or prices to a different provider.
 func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config) error {
 	n.LLM = cfg.LLM
 
