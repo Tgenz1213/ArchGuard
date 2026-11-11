@@ -24,7 +24,7 @@ const (
 
 const (
 	BreaksARuleInstructions = "Does this code break the following rule? {rule}"
-	GovernsInstructions     = "Is {code} governed by the decision in {adr}?"
+	GovernsInstructions     = "Is this code governed by the following decision? {adr}"
 )
 
 const (
@@ -284,12 +284,17 @@ func (n *Node) decodeOwnQuestion(prefix string, fields map[string]yaml.Node) err
 		return err
 	}
 
+	const code = "the code is what is asked about; write \"this code\" instead"
+
 	if n.Question.ForEach == ForEachADR {
-		return checkPlaceholders(prefix, n.Question.Instructions, []string{"code", "adr"}, map[string]string{"rule": "for_each: adr asks about the whole ADR; use for_each: rule to ask per rule"})
+		return checkPlaceholders(prefix, n.Question.Instructions, []string{"adr"}, map[string]string{
+			"code": code,
+			"rule": "for_each: adr asks about the whole ADR; use for_each: rule to ask per rule",
+		})
 	}
 
 	return checkPlaceholders(prefix, n.Question.Instructions, []string{"rule"}, map[string]string{
-		"code": "the code is what is asked about with for_each: rule; write \"this code\" instead",
+		"code": code,
 		"adr":  "for_each: rule asks about one rule; use for_each: adr to ask about the whole ADR",
 	})
 }

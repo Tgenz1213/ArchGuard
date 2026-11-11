@@ -485,10 +485,6 @@ func (f askerFunc) Ask(_ context.Context, state string, questions map[string]str
 	return f(state, questions)
 }
 
-func (f askerFunc) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
-	return nil, errors.New("this fake asks only about one text")
-}
-
 func ruledADR(id, statement string) index.ADR {
 	adr := scorerADR(id, 1)
 	adr.Rules = index.Rules{{Statement: statement}}
@@ -503,7 +499,6 @@ type askRun struct {
 	llmTokens   int
 	noDiff      bool
 	forEachADR  bool
-	ci          bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -516,7 +511,6 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	h := newScorerHarness(t, []index.ADR{ruledADR("0001", "no prints"), ruledADR("0002", "no globals"), scorerADR("0003", 1)}, "svc.go", content)
 	h.engine.JudgeChange = run.judgeChange
-	h.engine.CI = run.ci
 	h.engine.JudgeLLM = run.judgeLLM
 	h.engine.Config.LLM.MaxTokens = run.llmTokens
 
@@ -601,44 +595,39 @@ func (c *countingAsker) Ask(context.Context, string, map[string]string) (map[str
 	return nil, errors.New("not expected")
 }
 
-func (c *countingAsker) AskAbout(context.Context, map[string]string, map[string]string) (map[string]float64, error) {
-	c.calls++
-	return nil, errors.New("not expected")
-}
-
-func TestPipeline_AnADRAskSkipsAFileTooLargeToScreen(t *testing.T) {
+func TestPipeline_AnADRAskFollowsOnErrorForAFileTooLargeToScreen(t *testing.T) {
 	content := "package svc\n" + strings.Repeat("// padding\n", 100)
 
 	tests := []struct {
 		name        string
 		onError     string
-		ci          bool
 		judgeTokens int
-		wantFailed  bool
+		wantJudged  int
+		wantFailure bool
+		wantPartial bool
 	}{
-		{"on_error skip", config.OnErrorSkip, false, 100000, true},
-		{"on_error fail", config.OnErrorFail, false, 100000, true},
-		{"under --ci", config.OnErrorSkip, true, 100000, false},
-		{"truncated for the judge too", config.OnErrorSkip, false, 30, true},
-		{"truncated for a judge with the same limit", config.OnErrorSkip, false, 20, true},
+		{"skip passes the shortlist on", config.OnErrorSkip, 100000, 3, false, false},
+		{"fail fails the file", config.OnErrorFail, 100000, 0, true, false},
+		{"skip on a file the judge truncates too", config.OnErrorSkip, 30, 3, false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			asker := &countingAsker{}
 			judge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: tt.judgeTokens}
 
-			h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: judge, forEachADR: true, onError: tt.onError, ci: tt.ci}, asker)
+			h, _ := runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: judge, forEachADR: true, onError: tt.onError}, asker)
 
-			if asker.calls != 0 || len(h.judged) != 0 || len(h.engine.NodeFailures) != 0 {
-				t.Errorf("asked %d times, judged %v, node failures %+v; want none of them", asker.calls, h.judged, h.engine.NodeFailures)
+			if asker.calls != 0 || len(h.judged) != tt.wantJudged {
+				t.Errorf("asked %d times and judged %v, want no asks and %d judged", asker.calls, h.judged, tt.wantJudged)
 			}
 
-			if len(h.engine.SkippedFiles) != 1 || h.engine.SkippedFiles[0].File != "svc.go" || len(h.engine.PartialFiles) != 0 {
-				t.Errorf("skipped %+v and partial %+v, want svc.go skipped and not partial", h.engine.SkippedFiles, h.engine.PartialFiles)
+			failures := h.engine.NodeFailures
+			if gotFailure := len(failures) == 1 && failures[0].Kind == node.KindPreconditionNotMet; gotFailure != tt.wantFailure {
+				t.Errorf("node failures %+v, want a precondition_not_met failure: %v", failures, tt.wantFailure)
 			}
 
-			if h.engine.CheckedNothing != tt.wantFailed {
-				t.Errorf("CheckedNothing = %v, want %v", h.engine.CheckedNothing, tt.wantFailed)
+			if gotPartial := len(h.engine.PartialFiles) == 1; gotPartial != tt.wantPartial || len(h.engine.SkippedFiles) != 0 {
+				t.Errorf("partial %+v and skipped %+v, want partial %v and nothing skipped", h.engine.PartialFiles, h.engine.SkippedFiles, tt.wantPartial)
 			}
 		})
 	}

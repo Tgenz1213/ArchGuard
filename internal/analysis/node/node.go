@@ -49,11 +49,9 @@ type Node struct {
 	PassThroughOnSkip bool
 	// Dropping every candidate means the node found nothing worth judging, not that none were relevant.
 	Screens bool
-	// A file too large to screen is skipped rather than its candidates passed on; on_error doesn't change either.
-	SkipsUnscreenableFile bool
 }
 
-// ErrUnscreenable is a file too large for a node to screen. It isn't a provider failure, so on_error doesn't apply: SkipsUnscreenableFile decides.
+// ErrUnscreenable is a file too large for a node to screen: a precondition_not_met failure that on_error handles like any other.
 var ErrUnscreenable = errors.New("the file is too large to screen")
 
 // Skipped is a node error the node recovered from by passing its candidates on unchanged.
@@ -74,14 +72,6 @@ type decision struct {
 
 func (s Node) Apply(ctx context.Context, file File, debug Debug, candidates []Candidate) ([]Candidate, error) {
 	decided, err := s.decide(ctx, file, debug, candidates)
-	if errors.Is(err, ErrUnscreenable) {
-		if s.SkipsUnscreenableFile {
-			return nil, err
-		}
-
-		return candidates, &Skipped{Err: err}
-	}
-
 	if err != nil {
 		if s.FailOnError || !s.PassThroughOnSkip || ctx.Err() != nil || KeyRejected(err) {
 			return nil, err

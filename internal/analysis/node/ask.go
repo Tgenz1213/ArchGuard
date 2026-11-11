@@ -47,9 +47,7 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 		return scores, err
 	}
 
-	answers, err := askEachSide(ctx, sides, asked, "rules", func(ctx context.Context, side string) (map[string]float64, error) {
-		return r.Asker.Ask(ctx, side, asked)
-	})
+	answers, err := askEachSide(ctx, r.Asker, sides, asked, "rules")
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +78,7 @@ func nonBlankSides(file File) ([]string, error) {
 
 // askEachSide asks every question about each side and keeps each question's higher answer, so what a change removes still counts.
 // Every side must answer every question; one side never fills in for the other.
-func askEachSide(ctx context.Context, sides []string, questions map[string]string, alongside string, ask func(ctx context.Context, side string) (map[string]float64, error)) (map[string]float64, error) {
+func askEachSide(ctx context.Context, asker inference.Asker, sides []string, questions map[string]string, alongside string) (map[string]float64, error) {
 	highest := make(map[string]float64, len(questions))
 
 	for _, side := range sides {
@@ -88,7 +86,7 @@ func askEachSide(ctx context.Context, sides []string, questions map[string]strin
 			return nil, err
 		}
 
-		answers, err := ask(ctx, side)
+		answers, err := asker.Ask(ctx, side, questions)
 		if err != nil {
 			return nil, askError(err, alongside)
 		}

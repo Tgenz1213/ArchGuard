@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/cli"
@@ -64,8 +62,12 @@ type mockJev struct{}
 func jevFactory(string) inference.Asker { return mockJev{} }
 
 func (mockJev) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
-	if err := mockJevTriggerError(state); err != nil {
-		return nil, err
+	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
+		return nil, &inference.JevError{Status: http.StatusUnauthorized}
+	}
+
+	if strings.Contains(state, testutil.MockJevFailureTrigger) {
+		return nil, fmt.Errorf("mock jev failure (E2E trigger)")
 	}
 
 	answers := make(map[string]float64, len(questions))
@@ -77,36 +79,6 @@ func (mockJev) Ask(_ context.Context, state string, questions map[string]string)
 	}
 
 	return answers, nil
-}
-
-// AskAbout answers yes about an ADR entry holding MockJevBreaksTrigger, and fails or answers yes for every entry as Ask does for its one state.
-func (mockJev) AskAbout(_ context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
-	if err := mockJevTriggerError(strings.Join(slices.Collect(maps.Values(state)), "\n")); err != nil {
-		return nil, err
-	}
-
-	answers := make(map[string]float64, len(questions))
-	for name := range questions {
-		answers[name] = 0.05
-		if strings.Contains(state[name], testutil.MockJevBreaksTrigger) || strings.Contains(state["code"], testutil.MockJevStateTrigger) {
-			answers[name] = 0.95
-		}
-	}
-
-	return answers, nil
-}
-
-// A rejected key wins over a failure, so a state holding both triggers always exits the same way.
-func mockJevTriggerError(state string) error {
-	if strings.Contains(state, testutil.MockJevRejectedKeyTrigger) {
-		return &inference.JevError{Status: http.StatusUnauthorized}
-	}
-
-	if strings.Contains(state, testutil.MockJevFailureTrigger) {
-		return fmt.Errorf("mock jev failure (E2E trigger)")
-	}
-
-	return nil
 }
 
 // Markers print on invocation, not construction, so tests can prove a

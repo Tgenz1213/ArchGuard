@@ -69,10 +69,6 @@ func (e *Engine) checkFile(ctx context.Context, run *runState, file string) {
 		fc.checkADR(ctx, hit)
 	}
 
-	if fc.partial {
-		fc.run.addPartial(fc.file, "too large to analyze in full; only the visible portion was checked")
-	}
-
 	fc.findings.withoutADR = !fc.partial && len(hits) == 0
 	// Top-K alone never empties a node, so scored candidates that all dropped fell below a threshold.
 	if fc.findings.withoutADR {
@@ -117,6 +113,7 @@ func (fc *fileCheck) load(ctx context.Context) bool {
 	}
 
 	fc.out.Warn("truncated for analysis; only the visible portion is checked")
+	fc.run.addPartial(fc.file, "too large to analyze in full; only the visible portion was checked")
 	fc.partial = true
 
 	return true
@@ -163,11 +160,6 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 			return nil, false
 		}
 
-		if errors.Is(err, node.ErrUnscreenable) {
-			fc.unscreenable(pipelineNode, err)
-			return nil, false
-		}
-
 		if err != nil {
 			fc.failNode(pipelineNode, err)
 			return nil, false
@@ -181,7 +173,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	return hits, true
 }
 
-// Jev never reads past llm.max_tokens, so a file over it is unscreenable rather than screened by half.
+// Jev never reads past llm.max_tokens, and a file over it fails the node rather than being screened by half.
 func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 	e := fc.engine
 	limit := tokenLimit(e.Config.LLM)
@@ -202,20 +194,6 @@ func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
 	}
 
 	return sidesOf(content, e.JudgeChange || mode == "diff"), nil
-}
-
-// unscreenable skips the file whatever on_error says; outside --ci the skip counts toward a run that checked nothing.
-func (fc *fileCheck) unscreenable(pipelineNode node.Node, err error) {
-	reason := fmt.Sprintf("node %s can't screen it, so none of its ADRs were judged: %v", pipelineNode.Name, err)
-
-	if fc.engine.CI && !fc.engine.UpdateBaseline {
-		fc.out.Warn("%s", reason)
-		fc.run.addSkipped(fc.file, reason)
-
-		return
-	}
-
-	fc.skip(reason)
 }
 
 // fitAsk never truncates a whole file, since an ask node can't screen a truncated one.

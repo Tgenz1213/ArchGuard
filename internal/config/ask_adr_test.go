@@ -42,7 +42,7 @@ func TestParsePipeline_AskPerADRWithItsOwnQuestion(t *testing.T) {
       with: jev
       type: noul
       for_each: adr
-      instructions: "Does {adr} apply to {code}?"
+      instructions: "Does this decision apply to this code? {adr}"
       keep:
         threshold: 0.4
 `))
@@ -50,7 +50,7 @@ func TestParsePipeline_AskPerADRWithItsOwnQuestion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := nodes[1].Question; got != (Question{Type: QuestionNoul, ForEach: ForEachADR, Instructions: "Does {adr} apply to {code}?"}) {
+	if got := nodes[1].Question; got != (Question{Type: QuestionNoul, ForEach: ForEachADR, Instructions: "Does this decision apply to this code? {adr}"}) {
 		t.Errorf("question = %+v", got)
 	}
 

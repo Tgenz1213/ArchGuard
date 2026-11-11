@@ -19,12 +19,12 @@ Terms:
   - Ask node: run by Jev. Asking per rule, it screens candidates by asking a
     question about each of their rules and scores an ADR by its
     likeliest-broken rule. Asking per ADR, it asks one question about each
-    candidate, with every candidate's text in the state, and scores the ADR
+    candidate, with the candidate's text in the question, and scores the ADR
     by the answer.
   - Sides: what a scorer that answers without a quote reads, the whole file or
     each side of a diff, so a rule broken by removing code is still seen.
-  - Unscreenable: a file too large for its sides. A node that asks per rule
-    passes its candidates on; one that asks per ADR leaves the file unjudged.
+  - Unscreenable: a file too large for its sides, a precondition_not_met
+    failure that on_error handles.
   - Pass-through: a candidate a scorer does not judge, such as an ADR with no
     rules in an ask node. The node keeps it whatever its threshold or limit.
   - Skipped: a node that failed under on_error: skip and passed its

@@ -15,18 +15,14 @@ import (
 )
 
 type stateAsker struct {
-	answer func(state map[string]string, entry string) float64
+	answer func(state, question string) float64
 	err    error
-	states []map[string]string
+	states []string
 	asked  []map[string]string
 }
 
-func (s *stateAsker) Ask(context.Context, string, map[string]string) (map[string]float64, error) {
-	return nil, errors.New("an ADR ask node must ask about named texts")
-}
-
-func (s *stateAsker) AskAbout(_ context.Context, state map[string]string, questions map[string]string) (map[string]float64, error) {
-	s.states = append(s.states, maps.Clone(state))
+func (s *stateAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+	s.states = append(s.states, state)
 	s.asked = append(s.asked, questions)
 
 	if s.err != nil {
@@ -34,8 +30,8 @@ func (s *stateAsker) AskAbout(_ context.Context, state map[string]string, questi
 	}
 
 	answers := make(map[string]float64, len(questions))
-	for name := range questions {
-		answers[name] = s.answer(state, name)
+	for name, question := range questions {
+		answers[name] = s.answer(state, question)
 	}
 
 	return answers, nil
@@ -45,9 +41,17 @@ func contentCandidate(id, content string) node.Candidate {
 	return node.Candidate{ADR: &index.ADR{ID: id, Title: "ADR " + id, Content: content}, Score: 0.7}
 }
 
-// byContent answers each ADR entry with the probability listed for its content.
-func byContent(probabilities map[string]float64) func(map[string]string, string) float64 {
-	return func(state map[string]string, entry string) float64 { return probabilities[state[entry]] }
+// byContent answers each question with the probability listed for the ADR content it ends with.
+func byContent(probabilities map[string]float64) func(string, string) float64 {
+	return func(_, question string) float64 {
+		for content, probability := range probabilities {
+			if strings.HasSuffix(question, " "+content) {
+				return probability
+			}
+		}
+
+		return 0
+	}
 }
 
 func TestADRAsk_AsksOncePerCandidateInOneCall(t *testing.T) {
@@ -58,18 +62,13 @@ func TestADRAsk_AsksOncePerCandidateInOneCall(t *testing.T) {
 		t.Fatalf("Score: %v", err)
 	}
 
-	if len(asker.states) != 1 {
-		t.Fatalf("calls = %d, want 1", len(asker.states))
-	}
-
-	wantState := map[string]string{"code": "fmt.Println(x)", "adr0": "Never print.", "adr1": "Use Go."}
-	if !maps.Equal(asker.states[0], wantState) {
-		t.Errorf("state = %v, want %v", asker.states[0], wantState)
+	if len(asker.states) != 1 || asker.states[0] != "fmt.Println(x)" {
+		t.Fatalf("states = %q, want one call about the file alone", asker.states)
 	}
 
 	wantQuestions := map[string]string{
-		"adr0": "Is `code` governed by the decision in `adr0`?",
-		"adr1": "Is `code` governed by the decision in `adr1`?",
+		"adr0": "Is this code governed by the following decision? Never print.",
+		"adr1": "Is this code governed by the following decision? Use Go.",
 	}
 	if !maps.Equal(asker.asked[0], wantQuestions) {
 		t.Errorf("questions = %v, want %v", asker.asked[0], wantQuestions)
@@ -93,14 +92,14 @@ func TestADRAskNode_KeepsByThresholdThenTopKBestFirst(t *testing.T) {
 }
 
 func TestADRAsk_ScoresTheHigherSide(t *testing.T) {
-	asker := &stateAsker{answer: func(state map[string]string, entry string) float64 {
+	asker := &stateAsker{answer: func(state, question string) float64 {
 		return map[string]map[string]float64{
-			"before": {"adr0": 0.8, "adr1": 0.1},
-			"after":  {"adr0": 0.2, "adr1": 0.6},
-		}[state["code"]][entry]
+			"before": {"ADR-A": 0.8, "ADR-B": 0.1},
+			"after":  {"ADR-A": 0.2, "ADR-B": 0.6},
+		}[state][question[strings.LastIndex(question, " ")+1:]]
 	}}
 
-	scores, err := (&node.ADRAsk{Asker: asker, Instructions: config.GovernsInstructions}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{contentCandidate("a", "a"), contentCandidate("b", "b")})
+	scores, err := (&node.ADRAsk{Asker: asker, Instructions: config.GovernsInstructions}).Score(t.Context(), sidedFile{sides: []string{"before", "after"}}, node.NoDebug, []node.Candidate{contentCandidate("a", "ADR-A"), contentCandidate("b", "ADR-B")})
 	if err != nil {
 		t.Fatalf("Score: %v", err)
 	}
@@ -136,7 +135,7 @@ func TestADRAsk_EmptyInstructionsAskTheGovernsQuestion(t *testing.T) {
 		t.Fatalf("Score: %v", err)
 	}
 
-	if got := asker.asked[0]["adr0"]; got != "Is `code` governed by the decision in `adr0`?" {
+	if got := asker.asked[0]["adr0"]; got != "Is this code governed by the following decision? a" {
 		t.Errorf("question = %q, want the governs question", got)
 	}
 }
@@ -150,11 +149,7 @@ func TestADRAsk_AMissingAnswerIsAnError(t *testing.T) {
 
 type askerWithout string
 
-func (askerWithout) Ask(context.Context, string, map[string]string) (map[string]float64, error) {
-	return nil, errors.New("unused")
-}
-
-func (a askerWithout) AskAbout(_ context.Context, _ map[string]string, questions map[string]string) (map[string]float64, error) {
+func (a askerWithout) Ask(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
 	answers := make(map[string]float64, len(questions))
 	for name := range questions {
 		if name != string(a) {
@@ -183,20 +178,21 @@ func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
 	}
 }
 
-func TestAskNodes_AFileTooLargeToScreen(t *testing.T) {
+func TestAskNodes_AFileTooLargeToScreenFollowsOnError(t *testing.T) {
 	unscreenable := sidedFile{err: fmt.Errorf("%w: it is over llm.max_tokens (20)", node.ErrUnscreenable)}
 	candidates := []node.Candidate{ruledCandidate("a", "no globals"), ruledCandidate("b", "no prints")}
 
-	ruleNode := node.NewAskNode(&stateAsker{}, "", 0.3, 0)
-	ruleNode.FailOnError = true
+	for _, n := range []node.Node{node.NewAskNode(&stateAsker{}, "", 0.3, 0), node.NewADRAskNode(&stateAsker{}, "", 0.5, 1)} {
+		got, err := n.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+		if skipped, ok := errors.AsType[*node.Skipped](err); !ok || skipped == nil || ids(got) != "a,b" {
+			t.Errorf("%T under skip kept %s with err %v, want every candidate passed on", n.Scorer, ids(got), err)
+		}
 
-	got, err := ruleNode.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
-	if _, skipped := errors.AsType[*node.Skipped](err); !skipped || ids(got) != "a,b" {
-		t.Errorf("rule ask node kept %s with err %v, want every candidate passed on as skipped even under on_error: fail", ids(got), err)
-	}
+		n.FailOnError = true
 
-	got, err = node.NewADRAskNode(&stateAsker{}, "", 0.5, 3).Apply(t.Context(), unscreenable, node.NoDebug, candidates)
-	if !errors.Is(err, node.ErrUnscreenable) || got != nil {
-		t.Errorf("ADR ask node kept %s with err %v, want ErrUnscreenable and nothing kept, even under on_error: skip", ids(got), err)
+		got, err = n.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+		if nodeErr, ok := errors.AsType[*node.Error](err); !ok || nodeErr.Kind != node.KindPreconditionNotMet || got != nil {
+			t.Errorf("%T under fail kept %s with err %v, want a precondition_not_met failure", n.Scorer, ids(got), err)
+		}
 	}
 }
