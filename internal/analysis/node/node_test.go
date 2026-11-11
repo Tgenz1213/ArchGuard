@@ -29,7 +29,7 @@ type fakeFile struct{ path, text string }
 
 func (f fakeFile) Path() string                     { return f.path }
 func (f fakeFile) QueryText(context.Context) string { return f.text }
-func (f fakeFile) Sides() ([]string, error)         { return []string{f.text}, nil }
+func (f fakeFile) Sides() []string                  { return []string{f.text} }
 
 func candidates(ids ...string) []node.Candidate {
 	out := make([]node.Candidate, len(ids))

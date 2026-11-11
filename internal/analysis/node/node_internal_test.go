@@ -18,7 +18,7 @@ type noFile struct{}
 
 func (noFile) Path() string                     { return "" }
 func (noFile) QueryText(context.Context) string { return "" }
-func (noFile) Sides() ([]string, error)         { return nil, nil }
+func (noFile) Sides() []string                  { return nil }
 
 func newCandidates(ids ...string) []Candidate {
 	out := make([]Candidate, len(ids))

@@ -51,9 +51,6 @@ type Node struct {
 	Screens bool
 }
 
-// ErrUnscreenable is a file too large for a node to screen: a precondition_not_met failure that on_error handles like any other.
-var ErrUnscreenable = errors.New("the file is too large to screen")
-
 // Skipped is a node error the node recovered from by passing its candidates on unchanged.
 type Skipped struct{ Err error }
 

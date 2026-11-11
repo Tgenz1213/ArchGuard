@@ -140,7 +140,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		content:        fc.content,
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
-		readSides:      func() ([]string, error) { return fc.askSides(ctx) },
+		readSides:      fc.askSides,
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -173,38 +173,9 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	return hits, true
 }
 
-// Jev never reads past llm.max_tokens, and a file over it fails the node rather than being screened by half.
-func (fc *fileCheck) askSides(ctx context.Context) ([]string, error) {
-	e := fc.engine
-	limit := tokenLimit(e.Config.LLM)
-
-	if fc.mode == "diff" || (fc.mode != "truncated" && limit >= tokenLimit(e.judgeLLM())) {
-		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff"), nil
-	}
-
-	content, mode, err := fc.fitAsk(ctx, limit)
-
-	switch {
-	case ctx.Err() != nil:
-		return nil, ctx.Err()
-	case err != nil:
-		return nil, err
-	case mode == "truncated" || mode == "over":
-		return nil, fmt.Errorf("%w: it is over llm.max_tokens (%d)", node.ErrUnscreenable, limit)
-	}
-
-	return sidesOf(content, e.JudgeChange || mode == "diff"), nil
-}
-
-// fitAsk never truncates a whole file, since an ask node can't screen a truncated one.
-func (fc *fileCheck) fitAsk(ctx context.Context, limit int) (content, mode string, err error) {
-	if fc.engine.JudgeChange {
-		return fc.engine.sizeContent(ctx, fc.file, fc.fullContent, limit)
-	}
-
-	content, mode, _, err = fc.engine.fitWhole(ctx, fc.engine.Chat, fc.file, fc.fullContent, limit)
-
-	return content, mode, err
+// An ask node reads what the judge reads; a file over the model's own limit fails the node, so on_error decides.
+func (fc *fileCheck) askSides() []string {
+	return sidesOf(fc.content, fc.engine.JudgeChange || fc.mode == "diff")
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {

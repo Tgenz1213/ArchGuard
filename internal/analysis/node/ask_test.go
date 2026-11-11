@@ -239,14 +239,11 @@ func TestAskNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
 	}
 }
 
-type sidedFile struct {
-	sides []string
-	err   error
-}
+type sidedFile struct{ sides []string }
 
 func (sidedFile) Path() string                     { return "a.go" }
 func (sidedFile) QueryText(context.Context) string { return "" }
-func (f sidedFile) Sides() ([]string, error)       { return f.sides, f.err }
+func (f sidedFile) Sides() []string                { return f.sides }
 
 func TestRuleAsk_ScoresEachCandidateByItsHigherSide(t *testing.T) {
 	asker := sideAsker(func(state string, questions map[string]string) (map[string]float64, error) {

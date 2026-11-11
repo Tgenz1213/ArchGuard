@@ -42,9 +42,9 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 		return scores, nil
 	}
 
-	sides, err := nonBlankSides(file)
-	if err != nil || len(sides) == 0 {
-		return scores, err
+	sides := nonBlankSides(file)
+	if len(sides) == 0 {
+		return scores, nil
 	}
 
 	answers, err := askEachSide(ctx, r.Asker, sides, asked, "rules")
@@ -62,18 +62,8 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 	return scores, nil
 }
 
-func nonBlankSides(file File) ([]string, error) {
-	sides, err := file.Sides()
-	if err != nil {
-		kind := KindUnavailable
-		if errors.Is(err, ErrUnscreenable) {
-			kind = KindPreconditionNotMet
-		}
-
-		return nil, &Error{Action: "sizing the file", Kind: kind, Err: err}
-	}
-
-	return slices.DeleteFunc(slices.Clone(sides), func(side string) bool { return strings.TrimSpace(side) == "" }), nil
+func nonBlankSides(file File) []string {
+	return slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
 }
 
 // askEachSide asks every question about each side and keeps each question's higher answer, so what a change removes still counts.

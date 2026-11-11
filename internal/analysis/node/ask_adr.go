@@ -19,12 +19,9 @@ type ADRAsk struct {
 
 // A file with no text is governed by no ADR, so every candidate scores below any threshold, 0 included, rather than passing on uncapped.
 func (a *ADRAsk) Score(ctx context.Context, file File, _ Debug, candidates []Candidate) ([]float64, error) {
-	sides, err := nonBlankSides(file)
-	if err != nil {
-		return nil, err
-	}
-
 	scores := make([]float64, len(candidates))
+
+	sides := nonBlankSides(file)
 	if len(sides) == 0 {
 		for i := range scores {
 			scores[i] = math.Inf(-1)

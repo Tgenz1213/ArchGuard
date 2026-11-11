@@ -3,7 +3,6 @@ package node_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"maps"
 	"strings"
 	"testing"
@@ -178,19 +177,19 @@ func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
 	}
 }
 
-func TestAskNodes_AFileTooLargeToScreenFollowsOnError(t *testing.T) {
-	unscreenable := sidedFile{err: fmt.Errorf("%w: it is over llm.max_tokens (20)", node.ErrUnscreenable)}
+func TestAskNodes_AFileTooLargeForJevFollowsOnError(t *testing.T) {
+	tooLarge := &inference.JevError{Status: 400, ErrorType: "max_tokens_exceeded"}
 	candidates := []node.Candidate{ruledCandidate("a", "no globals"), ruledCandidate("b", "no prints")}
 
-	for _, n := range []node.Node{node.NewAskNode(&stateAsker{}, "", 0.3, 0), node.NewADRAskNode(&stateAsker{}, "", 0.5, 1)} {
-		got, err := n.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+	for _, n := range []node.Node{node.NewAskNode(&stateAsker{err: tooLarge}, "", 0.3, 0), node.NewADRAskNode(&stateAsker{err: tooLarge}, "", 0.5, 1)} {
+		got, err := n.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, candidates)
 		if skipped, ok := errors.AsType[*node.Skipped](err); !ok || skipped == nil || ids(got) != "a,b" {
 			t.Errorf("%T under skip kept %s with err %v, want every candidate passed on", n.Scorer, ids(got), err)
 		}
 
 		n.FailOnError = true
 
-		got, err = n.Apply(t.Context(), unscreenable, node.NoDebug, candidates)
+		got, err = n.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, candidates)
 		if nodeErr, ok := errors.AsType[*node.Error](err); !ok || nodeErr.Kind != node.KindPreconditionNotMet || got != nil {
 			t.Errorf("%T under fail kept %s with err %v, want a precondition_not_met failure", n.Scorer, ids(got), err)
 		}
