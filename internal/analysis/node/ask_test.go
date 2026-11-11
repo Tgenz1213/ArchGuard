@@ -154,6 +154,7 @@ func TestAskNode_Errors(t *testing.T) {
 		{"fail reports a rejected key", unauthorized, true, node.KindUnavailable, false},
 		{"fail reports an unavailable dependency", outage, true, node.KindUnavailable, false},
 		{"fail reports input over the size limit as a precondition", tooLarge, true, node.KindPreconditionNotMet, false},
+		{"skip passes input over the size limit through as a precondition", tooLarge, false, node.KindPreconditionNotMet, true},
 	}
 
 	for _, tt := range tests {
@@ -182,6 +183,24 @@ func TestAskNode_Errors(t *testing.T) {
 				t.Errorf("err = %v, want a node error of kind %v", err, tt.wantKind)
 			}
 		})
+	}
+}
+
+func TestAskNode_InputTooLargeKeepsTheCauseOutOfTheMessage(t *testing.T) {
+	const rawBody = `{"detail":{"error_type":"max_tokens_exceeded"}}`
+
+	cause := fmt.Errorf("jev api error: 400 Bad Request: %s: %w", rawBody, inference.ErrInputTooLarge)
+	s := node.NewAskNode(&fakeAsker{err: cause}, "", 0.3, 0)
+	s.FailOnError = true
+
+	_, err := s.Apply(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{ruledCandidate("a", "no prints")})
+
+	if !errors.Is(err, cause) || !errors.Is(err, inference.ErrInputTooLarge) {
+		t.Fatalf("err = %v, want it to wrap the asker's error", err)
+	}
+
+	if strings.Contains(err.Error(), rawBody) {
+		t.Errorf("err = %q, want the asker's raw body left out of the message", err)
 	}
 }
 

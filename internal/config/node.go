@@ -25,17 +25,19 @@ const breaksARuleThreshold = 0.3
 const maxNodeNameLength = 64
 
 var (
-	jobs          = []string{JobRank, JobAsk, JobJudge}
+	jobs          = []string{JobRank, JobAsk, JobJudge, JobSuggest}
 	onErrorModes  = []string{OnErrorSkip, OnErrorFail}
 	runnersForJob = map[string][]string{
-		JobRank:  {RunnerCosine},
-		JobAsk:   {RunnerJev},
-		JobJudge: {RunnerLLM},
+		JobRank:    {RunnerCosine},
+		JobAsk:     {RunnerJev},
+		JobJudge:   {RunnerLLM},
+		JobSuggest: {RunnerLLM},
 	}
 	keysForJob = map[string][]string{
-		JobRank:  {"name", "job", "with", "threshold", "top_k", "on_error"},
-		JobAsk:   {"name", "job", "with", "model", "preset", "type", "for_each", "instructions", "keep", "on_error"},
-		JobJudge: {"name", "job", "with"},
+		JobRank:    {"name", "job", "with", "threshold", "top_k", "on_error"},
+		JobAsk:     {"name", "job", "with", "model", "preset", "type", "for_each", "instructions", "keep", "on_error"},
+		JobJudge:   {"name", "job", "with", "llm"},
+		JobSuggest: {"name", "job", "with", "llm"},
 	}
 	nodeNamePattern    = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	placeholderPattern = regexp.MustCompile(`\{([a-z_]+)\}`)
@@ -84,6 +86,8 @@ func parseNode(src nodeSource) (Node, error) {
 		err = node.decodeRank(prefix, fields, src.cfg)
 	case JobAsk:
 		err = node.decodeAsk(prefix, fields, src.jev)
+	case JobJudge, JobSuggest:
+		err = node.decodeLLM(prefix, fields, src.cfg)
 	}
 
 	return node, err
@@ -128,7 +132,7 @@ func decodeChoice(prefix, key string, fields map[string]yaml.Node, allowed []str
 func checkKeys(prefix string, fields map[string]yaml.Node, allowed []string) error {
 	for _, key := range slices.Sorted(maps.Keys(fields)) {
 		if !slices.Contains(allowed, key) {
-			return fmt.Errorf("%s: %q is a setting not allowed on the node (allowed: %s)", prefix, key, strings.Join(allowed, ", "))
+			return fmt.Errorf("%s: %q is a setting not allowed here (allowed: %s)", prefix, key, strings.Join(allowed, ", "))
 		}
 	}
 

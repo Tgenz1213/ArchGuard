@@ -55,10 +55,13 @@ type Engine struct {
 	SuggestFixes bool
 	// Nil sends suggestions through Chat; a separate Chatter lets their usage be counted apart.
 	SuggestChat inference.Chatter
-	Nodes       []node.Node
-	DryRun      bool
-	Projection  Projection
-	Recorder    telemetry.Recorder
+	// With no Provider, JudgeLLM is Config.LLM and SuggestLLM is the judge's.
+	JudgeLLM   config.LLMConfig
+	SuggestLLM config.LLMConfig
+	Nodes      []node.Node
+	DryRun     bool
+	Projection Projection
+	Recorder   telemetry.Recorder
 }
 
 type Violation struct {
@@ -131,6 +134,16 @@ func (e *Engine) printer() *output.Printer {
 	return output.New(nil, e.Debug)
 }
 
+const defaultMaxTokens = 8000
+
+func tokenLimit(llm config.LLMConfig) int {
+	if llm.MaxTokens == 0 {
+		return defaultMaxTokens
+	}
+
+	return llm.MaxTokens
+}
+
 var errNoNodes = errors.New("no pipeline nodes to choose which ADRs are judged")
 
 func (e *Engine) Run(ctx context.Context) error {
@@ -179,9 +192,25 @@ func (e *Engine) scoringNodes() []node.Node {
 	return nodes
 }
 
+func (e *Engine) judgeLLM() config.LLMConfig {
+	if e.JudgeLLM.Provider == "" {
+		return e.Config.LLM
+	}
+
+	return e.JudgeLLM
+}
+
+func (e *Engine) suggestLLM() config.LLMConfig {
+	if e.SuggestLLM.Provider == "" {
+		return e.judgeLLM()
+	}
+
+	return e.SuggestLLM
+}
+
 func (e *Engine) systemPrompt() string {
-	if e.Config.LLM.SystemPrompt != "" {
-		return e.Config.LLM.SystemPrompt
+	if prompt := e.judgeLLM().SystemPrompt; prompt != "" {
+		return prompt
 	}
 
 	return inference.DefaultSystemPrompt
@@ -297,29 +326,44 @@ func (e *Engine) shouldExclude(path string) bool {
 
 // fetchContext also returns the untruncated content so callers needing both don't re-read the file.
 func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullContent, mode string, err error) {
-	maxTokens := e.Config.LLM.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = 8000
-	}
-
 	fullContent, err = e.Content.GetContent(ctx, path)
 	if err != nil {
 		return "", "", "", err
 	}
 
+	content, mode, err = e.sizeContent(ctx, path, fullContent, tokenLimit(e.judgeLLM()))
+
+	return content, fullContent, mode, err
+}
+
+// sizeContent fits a file to limit with the judge's tokenizer (docs/arch/0037).
+func (e *Engine) sizeContent(ctx context.Context, path, fullContent string, limit int) (content, mode string, err error) {
 	if e.JudgeChange {
-		content, mode, err = e.fetchChange(ctx, path, maxTokens)
-
-		return content, fullContent, mode, err
+		return e.fetchChange(ctx, path, limit)
 	}
 
-	totalTokens, err := e.Chat.CountTokens(ctx, fullContent)
+	content, mode, tokens, err := e.fitWhole(ctx, e.Chat, path, fullContent, limit)
+	if err != nil || mode != "over" {
+		return content, mode, err
+	}
+
+	truncated, err := e.truncateToTokenLimit(ctx, fullContent, tokens, limit)
 	if err != nil {
-		return "", "", "", fmt.Errorf("counting tokens for %s: %w", path, err)
+		return "", "", fmt.Errorf("truncating content for %s: %w", path, err)
 	}
 
-	if totalTokens <= maxTokens {
-		return fullContent, fullContent, "full", nil
+	return truncated, "truncated", nil
+}
+
+// fitWhole keeps the whole file when it fits and otherwise offers its uncounted diff; "over" means it has neither.
+func (e *Engine) fitWhole(ctx context.Context, chat inference.Chatter, path, fullContent string, limit int) (content, mode string, tokens int, err error) {
+	tokens, err = chat.CountTokens(ctx, fullContent)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("counting tokens for %s: %w", path, err)
+	}
+
+	if tokens <= limit {
+		return fullContent, "full", tokens, nil
 	}
 
 	// A diff only covers the uncommitted-vs-HEAD hunk, which can't satisfy
@@ -327,16 +371,11 @@ func (e *Engine) fetchContext(ctx context.Context, path string) (content, fullCo
 	if !e.UpdateBaseline {
 		diff, err := e.Content.GetDiff(ctx, path)
 		if err == nil && diff != "" {
-			return diff, fullContent, "diff", nil
+			return diff, "diff", tokens, nil
 		}
 	}
 
-	truncated, err := e.truncateToTokenLimit(ctx, fullContent, totalTokens, maxTokens)
-	if err != nil {
-		return "", "", "", fmt.Errorf("truncating content for %s: %w", path, err)
-	}
-
-	return truncated, fullContent, "truncated", nil
+	return fullContent, "over", tokens, nil
 }
 
 func (e *Engine) fetchChange(ctx context.Context, path string, maxTokens int) (content, mode string, err error) {

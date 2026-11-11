@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
 	"github.com/tgenz1213/archguard/internal/inference"
@@ -56,7 +57,10 @@ func hashParts(parts ...string) string {
 }
 
 type AnalysisKeyInput struct {
+	Provider           string
 	ModelName          string
+	BaseURL            string
+	Temperature        *float64
 	ADRContent         string
 	FileContent        string
 	SystemPrompt       string
@@ -64,14 +68,20 @@ type AnalysisKeyInput struct {
 }
 
 func ComputeAnalysisKey(in AnalysisKeyInput) string {
-	return hashParts(in.ModelName, in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
+	return hashParts(in.Provider, in.ModelName, in.BaseURL, temperature(in.Temperature), in.ADRContent, in.FileContent, in.SystemPrompt, in.UserPromptTemplate)
 }
 
 // SuggestionKeyInput is a separate namespace from AnalysisKeyInput, keyed
 // on the suggestion prompt so changing it invalidates only suggestions.
 type SuggestionKeyInput struct {
-	ModelName                string
-	ADRContent               string
+	Provider    string
+	ModelName   string
+	BaseURL     string
+	Temperature *float64
+	MaxTokens   int
+	ADRContent  string
+	// Diff is what a suggestion for a file over MaxTokens may be written from instead.
+	Diff                     string
 	FileContent              string
 	Filename                 string
 	Reasoning                string
@@ -82,8 +92,13 @@ type SuggestionKeyInput struct {
 
 func ComputeSuggestionKey(in SuggestionKeyInput) string {
 	return hashParts(
+		in.Provider,
 		in.ModelName,
+		in.BaseURL,
+		temperature(in.Temperature),
+		strconv.Itoa(in.MaxTokens),
 		in.ADRContent,
+		in.Diff,
 		in.FileContent,
 		in.Filename,
 		in.Reasoning,
@@ -91,6 +106,15 @@ func ComputeSuggestionKey(in SuggestionKeyInput) string {
 		in.SuggestionSystemPrompt,
 		in.SuggestionPromptTemplate,
 	)
+}
+
+// An unset temperature keys apart from 0, since the provider's default may not be 0.
+func temperature(t *float64) string {
+	if t == nil {
+		return "unset"
+	}
+
+	return strconv.FormatFloat(*t, 'g', -1, 64)
 }
 
 func (c *Cache) GetSuggestion(key string) (string, bool, error) {

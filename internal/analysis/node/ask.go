@@ -15,6 +15,14 @@ import (
 
 const askAction = "asking about candidates"
 
+type inputTooLargeError struct{ err error }
+
+func (e *inputTooLargeError) Error() string {
+	return "the file or its rules are over the model's input limit"
+}
+
+func (e *inputTooLargeError) Unwrap() error { return e.err }
+
 // RuleAsk scores a candidate by its likeliest-broken rule; a candidate with no rules passes through.
 type RuleAsk struct {
 	Asker inference.Asker
@@ -29,9 +37,12 @@ func (r *RuleAsk) Score(ctx context.Context, file File, _ Debug, candidates []Ca
 	}
 
 	asked, owner := ruleQuestions(r.instructions(), candidates)
-	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+	if len(asked) == 0 {
+		return scores, nil
+	}
 
-	if len(asked) == 0 || len(sides) == 0 {
+	sides := slices.DeleteFunc(slices.Clone(file.Sides()), func(side string) bool { return strings.TrimSpace(side) == "" })
+	if len(sides) == 0 {
 		return scores, nil
 	}
 
@@ -122,7 +133,7 @@ func ruleText(rule index.Rule) string {
 
 func askError(err error) error {
 	if errors.Is(err, inference.ErrInputTooLarge) {
-		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: err}
+		return &Error{Action: askAction, Kind: KindPreconditionNotMet, Err: &inputTooLargeError{err: err}}
 	}
 
 	if errors.Is(err, inference.ErrKeyRejected) {
