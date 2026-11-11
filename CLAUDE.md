@@ -47,6 +47,8 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 
 Each package's `doc.go` says what the package is for, what it does not own and its key terms; `go doc ./internal/<pkg>` prints it.
 
+`.claude/rules/wide-packages.md` also loads for `inference`, `atomicfile`, `output`, `config` and `index`, the packages most others import; `.githooks/pre-push` warns when a branch changes their exported API.
+
 `internal/atomicfile` has no rules file: its `Write` (and `WriteMode`, which sets the permission bits) is the one write-tmp-then-rename helper, used by the baseline, the local index, `check --output` and `init` rewriting a config. `internal/telemetry` has none either: its `Recorder` is the one seam through which a run reports what it did (`docs/arch/0035-run-recorder-seam.md`).
 
 ## Conventions

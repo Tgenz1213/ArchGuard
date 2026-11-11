@@ -1,7 +1,7 @@
 #!/bin/bash
 # Blocks a push of any branch that does not contain the latest origin/main,
 # unless the branch is stacked on another open branch.
-# Tags and deletions are not checked.
+# Tags and deletions are not checked. Then warns, without blocking, about exported API changes in wide packages.
 set -uo pipefail
 
 zero=0000000000000000000000000000000000000000
@@ -47,4 +47,5 @@ while read -r local_ref local_sha remote_ref _; do
   echo "Push blocked: $local_ref does not contain origin/main. Merge origin/main into it, then push again." >&2
   status=1
 done
+go run .githooks/wideapi.go origin/main >&2 || true
 exit $status
