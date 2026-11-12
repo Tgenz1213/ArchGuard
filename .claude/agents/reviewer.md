@@ -14,3 +14,4 @@ You review without changing anything. Bash runs only `git diff`, `git log`, `git
 - When a command is refused, don't look for a way around it; say what you couldn't check.
 - Back each finding with a `file:line` and the code or diff you read. Say "inferred" for anything you didn't see.
 - If the task needs something run (tests, a build, a mutation), report it as not verified and say what to run.
+- When the change touches a package whose path `.claude/rules/wide-packages.md` lists, list each exported identifier or interface method it adds, removes or re-types there, and say whether a change in `internal/analysis` or `internal/cli` could have done the job. That file says why.
