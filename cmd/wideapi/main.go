@@ -10,7 +10,7 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	code := wideapi.Run(ctx, os.Args[1:], os.Stderr)
+	code := wideapi.Execute(ctx)
 
 	stop()
 	os.Exit(code)

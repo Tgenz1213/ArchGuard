@@ -3,6 +3,7 @@ package wideapi
 import (
 	"context"
 	"io"
+	"os"
 
 	"github.com/alecthomas/kong"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -16,6 +17,10 @@ const (
 type commandLine struct {
 	Base string `arg:"" optional:"" default:"origin/main" help:"The ref the branch forked from."`
 	Head string `arg:"" optional:"" default:"HEAD" help:"The commit being pushed."`
+}
+
+func Execute(ctx context.Context) int {
+	return Run(ctx, os.Args[1:], os.Stderr)
 }
 
 // Run prints what it finds as warnings and exits 0 however much it finds, since it never blocks a push.
