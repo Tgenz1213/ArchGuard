@@ -8,5 +8,3 @@ exclude:
     # Neither is shipped code: the mock binary the e2e tests run, and test helpers.
     - ^cmd/archguard-e2e/
     - ^internal/testutil/
-    # A developer tool the pre-push hook runs; its logic is in internal/wideapi.
-    - ^cmd/wideapi/

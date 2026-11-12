@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 const importers = 5
@@ -186,19 +187,23 @@ func TestCheckFailsForARefThatDoesNotExist(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestStringNamesEachChangedPackageAndWarning(t *testing.T) {
+func TestReportNamesEachChangedPackageAndWarning(t *testing.T) {
 	result := Result{
 		Changes:  []Change{{Dir: "core", Reach: 6, Names: []string{"+func A", "+func B", "+func C", "+func D", "+func E", "+func F", "+func G", "+func H"}}},
 		Warnings: []string{"index not checked: boom"},
 	}
 
-	out := result.String(5)
+	var out bytes.Buffer
+	result.Report(output.New(&out, false), 5)
 
-	assert.Contains(t, out, "wideapi: index not checked: boom")
-	assert.Contains(t, out, "5+ packages import")
-	assert.Contains(t, out, "core (reach 6): +func A, +func B, +func C, +func D, +func E, +func F, and 2 more")
+	assert.Contains(t, out.String(), "index not checked: boom")
+	assert.Contains(t, out.String(), "5+ packages import")
+	assert.Contains(t, out.String(), "core (reach 6): +func A, +func B, +func C, +func D, +func E, +func F, and 2 more")
 }
 
-func TestStringSaysNothingWhenNothingChanged(t *testing.T) {
-	assert.Empty(t, Result{}.String(5))
+func TestReportSaysNothingWhenNothingChanged(t *testing.T) {
+	var out bytes.Buffer
+	Result{}.Report(output.New(&out, false), 5)
+
+	assert.Empty(t, out.String())
 }

@@ -11,6 +11,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/tgenz1213/archguard/internal/output"
 )
 
 const DefaultMinReach = 5
@@ -90,26 +92,24 @@ func (r repo) compare(ctx context.Context, sc scan) (Result, error) {
 	return result, nil
 }
 
-func (r Result) String(minReach int) string {
-	var out strings.Builder
-
+func (r Result) Report(p *output.Printer, minReach int) {
 	for _, warning := range r.Warnings {
-		fmt.Fprintf(&out, "wideapi: %s\n", warning)
+		p.Warn("%s", warning)
 	}
 
 	if len(r.Changes) == 0 {
-		return out.String()
+		return
 	}
 
-	fmt.Fprintf(&out, "wide-API: exported API changed in packages that %d+ packages import:\n", minReach)
+	p.Warn("exported API changed in packages that %d+ packages import:", minReach)
+
+	details := p.Indented()
 
 	for _, c := range r.Changes {
-		fmt.Fprintf(&out, "  %s (reach %d): %s\n", c.Dir, c.Reach, summarize(c.Names))
+		details.Info("%s (reach %d): %s", c.Dir, c.Reach, summarize(c.Names))
 	}
 
-	out.WriteString("  Could the change live in a dependent (internal/analysis, internal/cli) instead? See .claude/rules/wide-packages.md.\n")
-
-	return out.String()
+	details.Info("Could the change live in a dependent (internal/analysis, internal/cli) instead? See .claude/rules/wide-packages.md.")
 }
 
 func summarize(names []string) string {
