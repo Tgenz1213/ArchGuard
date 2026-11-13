@@ -70,6 +70,52 @@ func TestAgentsFollowTheirADRs(t *testing.T) {
 	}
 }
 
+func TestProberViolationsCatchEachRule(t *testing.T) {
+	const proberHook = `hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: bash "$CLAUDE_PROJECT_DIR/.claude/hooks/prober-bash.sh"
+`
+
+	const tools = "tools: Read, Grep, Glob, Bash, Edit, Write\nisolation: worktree\n"
+
+	tests := []struct {
+		name        string
+		frontmatter string
+		want        int
+	}{
+		{"prober", tools + proberHook, 0},
+		{"without the hook", tools, 1},
+		{"with the read-only hook", tools + strings.Replace(proberHook, "prober-bash.sh", "read-only-git.sh", 1), 1},
+		{"without a worktree", "tools: Read, Bash, Edit, Write\n" + proberHook, 1},
+		{"without Bash", "tools: Read, Edit, Write\nisolation: worktree\n" + proberHook, 1},
+		{"with an MCP server pattern", "tools: Read, Bash, Edit, Write, mcp__Context7\nisolation: worktree\n" + proberHook, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte("---\n" + tc.frontmatter + "---\nBody.\n")
+
+			if got := proberViolations(t, parseAgent(t, data)); len(got) != tc.want {
+				t.Errorf("violations = %q, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProberFollowsItsADR(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(agentsDir, "prober.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, violation := range proberViolations(t, parseAgent(t, data)) {
+		t.Error(violation)
+	}
+}
+
 func TestViolationsCatchEachRule(t *testing.T) {
 	const readOnlyHook = `hooks:
   PreToolUse:
@@ -110,8 +156,8 @@ func TestViolationsCatchEachRule(t *testing.T) {
 	}
 }
 
-// violations checks the rules of docs/arch/0040-isolated-subagents.md and
-// docs/arch/0041-read-only-subagents-name-their-mcp-tools.md.
+// violations checks the rules of docs/arch/0058-probers-run-code-without-committing.md
+// and docs/arch/0041-read-only-subagents-name-their-mcp-tools.md.
 func violations(t *testing.T, a agent) []string {
 	t.Helper()
 
@@ -124,7 +170,7 @@ func violations(t *testing.T, a agent) []string {
 		found = append(found, "an agent that can edit or write must set isolation: worktree")
 	}
 
-	if !writes && slices.Contains(tools, "Bash") && !hasReadOnlyGitHook(a) {
+	if !writes && slices.Contains(tools, "Bash") && !hasBashHook(a, "read-only-git.sh") {
 		found = append(found, "a read-only agent with Bash must run read-only-git.sh as a PreToolUse hook on Bash")
 	}
 
@@ -139,20 +185,47 @@ func violations(t *testing.T, a agent) []string {
 	return found
 }
 
-func hasReadOnlyGitHook(a agent) bool {
+func hasBashHook(a agent, script string) bool {
 	for _, matcher := range a.Hooks.PreToolUse {
 		if matcher.Matcher != "Bash" {
 			continue
 		}
 
 		for _, hook := range matcher.Hooks {
-			if strings.Contains(hook.Command, ".claude/hooks/read-only-git.sh") {
+			if strings.Contains(hook.Command, ".claude/hooks/"+script) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+func proberViolations(t *testing.T, a agent) []string {
+	t.Helper()
+
+	var found []string
+
+	if a.Isolation != "worktree" {
+		found = append(found, "prober must set isolation: worktree")
+	}
+
+	if !hasBashHook(a, "prober-bash.sh") {
+		found = append(found, "prober must run prober-bash.sh as a PreToolUse hook on Bash")
+	}
+
+	tools := toolList(t, a.Tools)
+	if !slices.Contains(tools, "Bash") {
+		found = append(found, "prober must list Bash")
+	}
+
+	for _, tool := range tools {
+		if strings.HasPrefix(tool, "mcp__") && !slices.Contains(readOnlyMCPTools, tool) {
+			found = append(found, "prober lists "+tool+", which is not a known read-only MCP tool")
+		}
+	}
+
+	return found
 }
 
 // toolList reads a tools field, which Claude Code accepts as a
