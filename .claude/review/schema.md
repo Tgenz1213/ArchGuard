@@ -24,7 +24,7 @@ A reviewer returns a JSON array of findings, or `none`. Each finding is one obje
 {"role": "breaker", "kind": "break", "file": "internal/git/diff.go", "line": 42, "claim": "...", "evidence": "...", "trigger": "...", "repro": "...", "severity": "major", "confidence": 0.8}
 ```
 
-A finding without its kind's evidence (`file`, `evidence` and `trigger` for `break`; `evidence` and `basis` for `design`, and `line` where code exists) is dropped by triage.
+A finding without its kind's evidence (`file`, `evidence` and `trigger` for `break`; `evidence` and `basis` for `design`, and `line` where code exists) is dropped by triage. A `break` finding with no `line` is dropped too.
 
 ## Claim
 
@@ -77,3 +77,5 @@ The report and any posted comments use Conventional Comments labels:
 | Confirmed `design`, severity `minor` | `suggestion (non-blocking):` |
 | Confirmed with `actionable: no` | `suggestion (non-blocking):` |
 | Suspected | `question:` |
+
+A confirmed finding with `actionable: no` takes the `actionable: no` row whatever its severity.

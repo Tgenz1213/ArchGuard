@@ -3,7 +3,8 @@ title: Probers run code in a worktree without committing
 status: Accepted
 scope:
   - ".claude/agents/**"
-  - ".claude/hooks/**"
+  - ".claude/hooks/prober-bash.sh"
+  - ".claude/agents/prober.md"
   - ".claude/skills/review-*/**"
   - ".claude/review/**"
 ---
@@ -18,11 +19,11 @@ A `reviewer` can't run tests, builds or mutations, and a `writer` can commit. Re
 
 ## Decision
 
-Subagents are dispatched as one of three committed agents in `.claude/agents/`:
+Subagents are dispatched as one of the committed agents in `.claude/agents/`:
 
 - `writer` sets `isolation: worktree`, so it edits and commits in its own worktree on its own branch.
 - `reviewer` has no Edit or Write tool, and a `PreToolUse` hook on Bash, `.claude/hooks/read-only-git.sh`, lets through only read-only git commands.
-- `prober` sets `isolation: worktree` and can edit and write there, so it can run tests and throwaway reproductions. A `PreToolUse` hook on Bash, `.claude/hooks/prober-bash.sh`, lets through only an allowlist of single commands: go build, test, vet, run and list, golangci-lint run, read-only git, applying a patch, checking out a review ref, and cleaning its own worktree. It commits nothing and leaves nothing to merge.
+- `prober` sets `isolation: worktree` and can edit and write there, so it can run tests and throwaway reproductions. A `PreToolUse` hook on Bash, `.claude/hooks/prober-bash.sh`, lets through only an allowlist of single commands: go build, test, vet, run and list, golangci-lint run, read-only git, git apply and git restore, `git checkout --detach` of `refs/review/pr-N` or a 7 to 40 character hex SHA, cleaning its own worktree, and `gh pr view`, `gh pr diff` and `gh issue view`. It commits nothing and leaves nothing to merge.
 
 Review skills dispatch their subagents as `reviewer` or `prober`.
 
@@ -45,5 +46,5 @@ Review skills dispatch their subagents as `reviewer` or `prober`.
 ## Consequences
 
 - A prober has a cold cache in each worktree and shares a writable module cache with the session.
-- The hook is best effort on top of the worktree: the worktree contains the damage a command the hook misses can do to the checkout.
+- The hook limits what a command can write, and the worktree keeps the agent's own git changes off the session's checkout. Code a test runs can still write anywhere the user can, which is why PR code needs the user's approval.
 - A review role that must execute code has an agent built for it, and reviewers stay read-only.

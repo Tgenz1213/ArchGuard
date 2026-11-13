@@ -2,15 +2,19 @@
 # Allowlist for the prober's Bash: single commands only, no shell operators.
 cmd=$(sed -nE 's/.*"command"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p')
 args='(\ [^\;\&\|\`\$\<\>\\]*)?$'
+outpath='\ --?o[=\ ]+(/|[A-Za-z]:|[^\ ]*\.\.)'
+writes='\ -(C|coverprofile|cpuprofile|memprofile|blockprofile|mutexprofile|trace|outputdir)([=\ ]|$)'
 if [[ $cmd =~ ^go\ (build|test|vet|run|list)$args &&
-  $cmd != *-exec* && $cmd != *-toolexec* && $cmd != *-overlay* ]]; then
+  $cmd != *-exec* && $cmd != *-toolexec* && $cmd != *-overlay* &&
+  ! $cmd =~ $outpath && ! $cmd =~ $writes ]]; then
   exit 0
 fi
-if [[ $cmd =~ ^golangci-lint\ run$args ]]; then
+if [[ $cmd =~ ^golangci-lint\ run$args && $cmd != *--fix* ]]; then
   exit 0
 fi
 if [[ $cmd =~ ^git\ (diff|log|show|status|grep|ls-files|apply|restore)$args &&
-  $cmd != *--output* && $cmd != *--op* && ! $cmd =~ \ -[[:alnum:]]*O ]]; then
+  $cmd != *--output* && $cmd != *--op* && $cmd != *--unsafe-paths* &&
+  $cmd != *--directory* && ! $cmd =~ \ -[[:alnum:]]*O && ! $cmd =~ $writes ]]; then
   exit 0
 fi
 if [[ $cmd == 'git reset --hard HEAD' || $cmd == 'git clean -fd' ]]; then

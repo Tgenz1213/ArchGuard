@@ -25,6 +25,6 @@ Each finding is `kind: design` and carries:
 
 - `file` and `line` of the offending code in the new version.
 - `evidence`: the code or diff lines, quoted.
-- `basis`: the rule, quoted word for word, and the file it is in (`docs/standards/errors.md`, `docs/arch/0040-isolated-subagents.md`). A paraphrase is not a basis.
+- `basis`: the rule, quoted word for word, and the file it is in (`docs/standards/errors.md`, `docs/arch/0058-probers-run-code-without-committing.md`). A paraphrase is not a basis.
 
 Return findings in the schema in `.claude/review/schema.md`, or `none`.

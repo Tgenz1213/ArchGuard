@@ -131,6 +131,22 @@ func TestProberBashHook(t *testing.T) {
 		"git checkout --detach 012345",
 		"git reset --hard HEAD~1",
 		"git clean -fd .",
+		"go test -C ../other ./...",
+		"git diff -C x",
+		"go build -o /tmp/x ./...",
+		"go build -o=/tmp/x ./...",
+		"go build -o ../x ./cmd/archguard",
+		"go build -o C:/x ./cmd/archguard",
+		"go test -coverprofile=/tmp/c.out ./...",
+		"go test -cpuprofile cpu.out ./...",
+		"go test -memprofile=m.out ./...",
+		"go test -blockprofile b.out ./...",
+		"go test -mutexprofile m.out ./...",
+		"go test -trace t.out ./...",
+		"go test -outputdir ../x ./...",
+		"git apply --unsafe-paths x.patch",
+		"git apply --directory=../x x.patch",
+		"golangci-lint run --fix",
 	}
 
 	for _, command := range allowed {

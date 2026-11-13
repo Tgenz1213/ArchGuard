@@ -57,7 +57,7 @@ Each package's `doc.go` says what the package is for, what it does not own and i
 - Architectural Decision Records for this codebase's own design live in `docs/arch/` — check there before making a design decision that might already be settled.
 - Conventional Commits for commit messages (`feat: ...`, `fix: ...`, `docs: ...`, `refactor: ...`, `build(deps): ...`).
 - **Dispatch subagents as `writer` (edits or commits), `reviewer` (reads only), `triager` (reads GitHub too) or `prober` (runs code, commits nothing)** from `.claude/agents/`. A general-purpose subagent shares the session's checkout and can commit on the wrong branch or reset the work it reviews (`docs/arch/0058-probers-run-code-without-committing.md`).
-- **`.worktreeinclude` copies `.archguard/`, `.serena/project.local.yml` and `docs/superpowers/` into each new worktree,** so a writer or `--worktree` session skips the index rebuild. It never lists `.env`.
+- **`.worktreeinclude` copies `.archguard/`, `.serena/project.local.yml` and `docs/superpowers/` into each new worktree,** so a writer or `--worktree` session skips the index rebuild; `docs/superpowers/` is gitignored, so a worktree lacks the spec and plan without it. It never lists `.env`.
 - **Coding standards are in `docs/standards/`** (start at its `README.md`). Read the page for what you're writing, and see `docs/arch/0029-coding-standards.md` for why they're binding.
 
 ## Ticket & PR Conventions
