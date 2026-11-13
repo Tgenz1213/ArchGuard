@@ -47,7 +47,6 @@ Run in this order before every commit, and never commit before the person's appr
 
 A subagent that shares the session's checkout can commit on the wrong branch, overwrite another subagent's files, or stash and reset the work it reviews. The agents in `.claude/agents/` prevent that (`docs/arch/0058-probers-run-code-without-committing.md`), so never dispatch a general-purpose subagent for any of these jobs:
 - **Code-writing work goes to `writer`.** It gets its own worktree and branch, started from the session's last commit, so commit first what it needs. Merge or cherry-pick the branch it reports.
-- **Review that only reads goes to `reviewer`.**
 - **Runs of code that review needs (differential, mutation, tests) go to `prober`.** It works in its own worktree, runs only an allowlist of `go`, `golangci-lint`, `git` and `gh` commands, and commits nothing.
 - **Review goes to `reviewer`.** It can read files and run only `git diff`, `log`, `show`, `status`, `grep` and `ls-files`.
 
