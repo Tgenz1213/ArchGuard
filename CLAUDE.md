@@ -42,6 +42,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | Baseline: `archguard-baseline.json` | `internal/baseline/` | none; see its `doc.go` |
 | Wide-API check: the `pre-push` warning about a branch that changes a package many others import | `internal/wideapi/`, `cmd/wideapi/`, `.githooks/pre-push`; `.claude/rules/wide-packages.md` loads for the packages it protects | none for the checker; see its `doc.go` |
 | Git plumbing | `internal/git/` | none; see its `doc.go` |
+| Review pipeline: `/review-local`, `/review-pr`, the reviewer and verifier roles, the `prober` agent | `.claude/review/`, `.claude/skills/review-*`, `.claude/agents/prober.md` | none; see `.claude/review/pipeline.md` |
 | CI workflows and the GitHub Action | `.github/`, `action.yml` | `.claude/rules/ci.md` |
 | ADR docs | `docs/arch/` | `.claude/rules/adr-docs.md` |
 | Tests | `*_test.go`, `test/`, `internal/testutil/`, `cmd/archguard-e2e/` | `.claude/rules/tests.md` |
@@ -55,8 +56,8 @@ Each package's `doc.go` says what the package is for, what it does not own and i
 - Standard Go layout: `cmd/` for thin entrypoints, `internal/` for everything else.
 - Architectural Decision Records for this codebase's own design live in `docs/arch/` — check there before making a design decision that might already be settled.
 - Conventional Commits for commit messages (`feat: ...`, `fix: ...`, `docs: ...`, `refactor: ...`, `build(deps): ...`).
-- **Dispatch subagents as `writer` (edits or commits), `reviewer` (reads only) or `triager` (reads GitHub too)** from `.claude/agents/`. A general-purpose subagent shares the session's checkout and can commit on the wrong branch or reset the work it reviews (`docs/arch/0040-isolated-subagents.md`).
-- **`.worktreeinclude` copies `.archguard/` and `.serena/project.local.yml` into each new worktree,** so a writer or `--worktree` session skips the index rebuild. It never lists `.env`.
+- **Dispatch subagents as `writer` (edits or commits), `reviewer` (reads only), `triager` (reads GitHub too) or `prober` (runs code, commits nothing)** from `.claude/agents/`. A general-purpose subagent shares the session's checkout and can commit on the wrong branch or reset the work it reviews (`docs/arch/0058-probers-run-code-without-committing.md`).
+- **`.worktreeinclude` copies `.archguard/`, `.serena/project.local.yml` and `docs/superpowers/` into each new worktree,** so a writer or `--worktree` session skips the index rebuild. It never lists `.env`.
 - **Coding standards are in `docs/standards/`** (start at its `README.md`). Read the page for what you're writing, and see `docs/arch/0029-coding-standards.md` for why they're binding.
 
 ## Ticket & PR Conventions
