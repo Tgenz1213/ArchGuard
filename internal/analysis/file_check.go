@@ -140,7 +140,7 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 		content:        fc.content,
 		provider:       fc.engine.Content,
 		updateBaseline: fc.engine.UpdateBaseline,
-		readSides:      func() []string { return fc.askSides(ctx) },
+		readSides:      fc.askSides,
 	}
 
 	for i, pipelineNode := range fc.run.nodes {
@@ -173,28 +173,9 @@ func (fc *fileCheck) score(ctx context.Context, hits []node.Candidate) ([]node.C
 	return hits, true
 }
 
-// Jev never reads past llm.max_tokens, and no sides makes an ask node pass every candidate on rather than screen half a file.
-func (fc *fileCheck) askSides(ctx context.Context) []string {
-	e := fc.engine
-	limit := tokenLimit(e.Config.LLM)
-
-	if fc.mode == "diff" || limit >= tokenLimit(e.judgeLLM()) {
-		return sidesOf(fc.content, e.JudgeChange || fc.mode == "diff")
-	}
-
-	content, mode, err := e.sizeContent(ctx, fc.file, fc.fullContent, limit)
-
-	switch {
-	case ctx.Err() != nil:
-	case err != nil:
-		fc.out.Warn("ask nodes pass every candidate on: %v", err)
-	case mode == "truncated":
-		fc.out.Warn("ask nodes pass every candidate on: the file is over llm.max_tokens (%d)", limit)
-	default:
-		return sidesOf(content, e.JudgeChange || mode == "diff")
-	}
-
-	return nil
+// An ask node reads what the judge reads; a file over the model's own limit fails the node, so on_error decides.
+func (fc *fileCheck) askSides() []string {
+	return sidesOf(fc.content, fc.engine.JudgeChange || fc.mode == "diff")
 }
 
 func (fc *fileCheck) failNode(pipelineNode node.Node, err error) {

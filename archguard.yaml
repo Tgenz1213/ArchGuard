@@ -35,6 +35,12 @@ analysis:
     - name: shortlist
       job: rank
       with: cosine
+      top_k: 10 # A wide shortlist for governs to rerank
+
+    - name: governs # Asks Jev whether each ADR governs the file and keeps the top 3 (README: Screening with Jev)
+      job: ask
+      with: jev
+      preset: governs
 
     - name: breaks-a-rule # Screens with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY (README: Screening with Jev)
       job: ask
