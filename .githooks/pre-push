@@ -34,6 +34,7 @@ stacked_on() {
 status=0
 while read -r local_ref local_sha remote_ref _; do
   case $remote_ref in refs/heads/*) ;; *) continue ;; esac
+  [ "$local_sha" = "$zero" ] || ! command -v go >/dev/null || go run ./cmd/wideapi origin/main "$local_sha" </dev/null >&2 || true
   if [ "$local_sha" = "$zero" ] || git merge-base --is-ancestor origin/main "$local_sha"; then
     continue
   fi

@@ -117,8 +117,8 @@ func checkOrder(nodes []Node) error {
 		return fmt.Errorf("analysis.pipeline: needs exactly one judge node, found %d", judges)
 	}
 
-	if first := nodes[0]; first.Job != JobRank {
-		return fmt.Errorf("analysis.pipeline: the first node, %q, must be a rank node so the candidates are narrowed before anything asks about them", first.Name)
+	if first := nodes[0]; !narrowsFirst(first) {
+		return fmt.Errorf("analysis.pipeline: the first node, %q, must be a rank node, or an ask node with for_each: adr and a keep.top_k, so the candidates are narrowed before anything else asks about them", first.Name)
 	}
 
 	if suggests := countJob(nodes, JobSuggest); suggests > 1 {
@@ -136,6 +136,10 @@ func checkOrder(nodes []Node) error {
 	}
 
 	return nil
+}
+
+func narrowsFirst(n Node) bool {
+	return n.Job == JobRank || (n.Job == JobAsk && n.Question.ForEach == ForEachADR && n.TopK > 0)
 }
 
 func JudgeNode(nodes []Node) Node {

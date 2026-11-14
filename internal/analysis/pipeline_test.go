@@ -498,6 +498,7 @@ type askRun struct {
 	judgeLLM    config.LLMConfig
 	llmTokens   int
 	noDiff      bool
+	forEachADR  bool
 }
 
 func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, string) {
@@ -531,6 +532,10 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
 
+	if run.forEachADR {
+		nodes[1] = config.Node{Name: "governs", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.5, TopK: 3, OnError: onError, Question: config.Question{ForEach: config.ForEachADR, Instructions: config.GovernsInstructions}}
+	}
+
 	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})
 	if err := h.engine.Run(t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -539,22 +544,12 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 	return h, logged.String()
 }
 
-func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
+func TestPipeline_AskReadsWhatTheJudgeReads(t *testing.T) {
 	content := "package svc\n" + strings.Repeat("// padding\n", 100)
 	strongJudge := config.LLMConfig{Provider: "claude", Model: "big", MaxTokens: 100000}
 
-	tests := []struct {
-		name       string
-		llmTokens  int
-		wantStates int
-		wantJudged int
-		wantLog    string
-	}{
-		{"a file within llm.max_tokens is asked about whole", 1000, 1, 0, ""},
-		{"a file over llm.max_tokens passes every candidate on", 20, 0, 3, "ask nodes pass every candidate on: the file is over llm.max_tokens (20)"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, forEachADR := range []bool{false, true} {
+		t.Run(fmt.Sprintf("for_each adr %v", forEachADR), func(t *testing.T) {
 			var states []string
 			asker := askerFunc(func(state string, questions map[string]string) (map[string]float64, error) {
 				states = append(states, state)
@@ -566,18 +561,40 @@ func TestPipeline_AskIsSizedToTheLLMBlockNotTheJudge(t *testing.T) {
 				return answers, nil
 			})
 
-			h, logged := runAsk(t, askRun{content: content, noDiff: true, llmTokens: tt.llmTokens, judgeLLM: strongJudge}, asker)
+			runAsk(t, askRun{content: content, noDiff: true, llmTokens: 20, judgeLLM: strongJudge, forEachADR: forEachADR}, asker)
 
-			if len(states) != tt.wantStates || (tt.wantStates == 1 && states[0] != content) {
-				t.Errorf("asked about %d states, want %d of the whole file", len(states), tt.wantStates)
+			if len(states) != 1 || states[0] != content {
+				t.Errorf("asked about %d states, want 1 of the whole file the judge reads, though it is over llm.max_tokens", len(states))
+			}
+		})
+	}
+}
+
+func TestPipeline_AnADRAskFollowsOnErrorForAFileTooLargeForJev(t *testing.T) {
+	tests := []struct {
+		name        string
+		onError     string
+		wantJudged  int
+		wantFailure bool
+	}{
+		{"skip passes the shortlist on", config.OnErrorSkip, 3, false},
+		{"fail fails the file", config.OnErrorFail, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			asker := askerFunc(func(string, map[string]string) (map[string]float64, error) {
+				return nil, &inference.JevError{Status: 400, ErrorType: "max_tokens_exceeded"}
+			})
+
+			h, _ := runAsk(t, askRun{content: "package svc\n", noDiff: true, forEachADR: true, onError: tt.onError}, asker)
+
+			if len(h.judged) != tt.wantJudged {
+				t.Errorf("judged %v, want %d", h.judged, tt.wantJudged)
 			}
 
-			if tt.wantJudged > 0 && len(h.judged) != tt.wantJudged {
-				t.Errorf("judged %v, want all %d candidates passed on unscreened", h.judged, tt.wantJudged)
-			}
-
-			if !strings.Contains(logged, tt.wantLog) {
-				t.Errorf("output %q, want %q", logged, tt.wantLog)
+			failures := h.engine.NodeFailures
+			if gotFailure := len(failures) == 1 && failures[0].Kind == node.KindPreconditionNotMet; gotFailure != tt.wantFailure {
+				t.Errorf("node failures %+v, want a precondition_not_met failure: %v", failures, tt.wantFailure)
 			}
 		})
 	}

@@ -1,6 +1,6 @@
 ---
 title: Writer subagents get a worktree, reviewer subagents are read-only by hook
-status: Accepted
+status: Superseded
 scope:
   - ".claude/agents/**"
   - ".claude/hooks/read-only-git.sh"

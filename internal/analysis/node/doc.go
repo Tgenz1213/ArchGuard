@@ -16,12 +16,15 @@ Terms:
 
   - Rank node: run by cosine. It scores each candidate by how similar its
     embedding is to the file's.
-  - Ask node: run by Jev. It screens candidates by asking Jev a question
-    about each of their rules, scoring an ADR by its likeliest-broken rule.
+  - Ask node: run by Jev. Asking per rule, it screens candidates by asking a
+    question about each of their rules and scores an ADR by its
+    likeliest-broken rule. Asking per ADR, it asks one question about each
+    candidate, with the candidate's text in the question, and scores the ADR
+    by the answer.
   - Sides: what a scorer that answers without a quote reads, the whole file or
     each side of a diff, so a rule broken by removing code is still seen.
   - Pass-through: a candidate a scorer does not judge, such as an ADR with no
-    rules in an ask node. The node keeps it whatever its threshold or limit.
+    rules in a node that asks per rule. The node keeps it whatever its threshold or limit.
   - Skipped: a node that failed under on_error: skip and passed its
     candidates on unchanged, rather than the file being skipped.
   - Unavailable: a node failed while running, such as a provider error.
