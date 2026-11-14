@@ -40,7 +40,7 @@ Execution flow, in order: `cmd/archguard/main.go` → `internal/cli.Execute` →
 | Inference: chat and embedding providers | `internal/inference/` | `.claude/rules/inference.md` |
 | Output: the `Printer`, reports, color | `internal/output/` | none; see its `doc.go` |
 | Baseline: `archguard-baseline.json` | `internal/baseline/` | none; see its `doc.go` |
-| Wide-API check: the `pre-push` warning about a branch that changes a package many others import | `internal/wideapi/`, `cmd/wideapi/`, `.githooks/pre-push`; `.claude/rules/wide-packages.md` loads for the packages it protects | none for the checker; see its `doc.go` |
+| Wide-API check: the `Wide API` job in `pr.yml`, a warning about a PR that changes a package many others import | `internal/wideapi/`, `cmd/wideapi/`; `.claude/rules/wide-packages.md` loads for the packages it protects | none for the checker; see its `doc.go` |
 | Git plumbing | `internal/git/` | none; see its `doc.go` |
 | Review pipeline: `/review-local`, `/review-pr`, the reviewer and verifier roles, the `prober` agent | `.claude/review/`, `.claude/skills/review-*`, `.claude/agents/prober.md` | none; see `.claude/review/pipeline.md` |
 | CI workflows and the GitHub Action | `.github/`, `action.yml` | `.claude/rules/ci.md` |

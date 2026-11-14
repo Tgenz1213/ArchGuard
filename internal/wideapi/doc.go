@@ -3,8 +3,8 @@ Package wideapi finds the exported API a branch changes in the packages that
 many others import.
 
 A change to an exported identifier of such a package reaches every package
-that imports it, so the pre-push hook warns about one instead of leaving it to
-a reviewer to notice. The warning never blocks a push.
+that imports it, so the Wide API job of a pull request warns about one instead
+of leaving it to a reviewer to notice. The warning never blocks a merge.
 
 It does not decide whether a change is justified: .claude/rules/wide-packages.md
 says what to ask, and the reviewer agent asks it.

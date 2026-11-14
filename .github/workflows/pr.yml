@@ -34,3 +34,34 @@ jobs:
   vulnerabilities:
     name: Vulnerabilities
     uses: ./.github/workflows/vulncheck.yml
+
+  wide-api:
+    name: Wide API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+
+      # Warns, never blocks; only a failure of the check itself fails the job.
+      - name: Check the exported API of the packages many others import
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          status=0
+          report=$(go run ./cmd/wideapi "$BASE" HEAD 2>&1) || status=$?
+          if [ -n "$report" ]; then
+            echo "::warning title=Wide API::A package many others import changed its exported API; see the job summary."
+            printf '### Wide API
+
+```
+%s
+```
+' "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
