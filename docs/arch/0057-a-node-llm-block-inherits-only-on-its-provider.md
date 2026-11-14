@@ -1,6 +1,6 @@
 ---
 title: A node's llm block inherits from llm only on llm's provider
-status: Accepted
+status: Archived
 scope:
   - "internal/config/**"
 ---

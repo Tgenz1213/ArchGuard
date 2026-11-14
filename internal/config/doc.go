@@ -21,6 +21,6 @@ Terms:
     of writing its own.
   - Node llm block: the keys of the llm block a judge or suggest node sets
     for itself. On llm.provider the keys it leaves out come from the llm
-    block; on another provider they take that provider's defaults.
+    block; on another provider they keep their defaults.
 */
 package config
