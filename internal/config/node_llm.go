@@ -45,7 +45,6 @@ func llmKeys(job string) []string {
 	return keys
 }
 
-// docs/arch/0057 decides what a node's llm block inherits.
 func (n *Node) decodeLLM(prefix string, fields map[string]yaml.Node, cfg *Config) error {
 	n.LLM = cfg.LLM
 

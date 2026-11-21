@@ -274,10 +274,10 @@ analysis:
 
 #### A second LLM
 
-A `judge` or `suggest` node can take its own `llm` block. A node without one uses the top-level `llm` block. What a node's block takes from `llm` depends on its provider ([ADR 0057](docs/arch/0057-a-node-llm-block-inherits-only-on-its-provider.md)):
+A `judge` or `suggest` node can take its own `llm` block. A node without one uses the top-level `llm` block. What a node's block takes from `llm` depends on its provider, because `llm`'s model, `base_url`, token limit and prices fit only `llm`'s provider:
 
 - **On `llm.provider`,** or with no `provider`, the block sets only the keys that differ, and takes every key it leaves out from `llm`.
-- **On another provider,** the block starts fresh. It must set `model`, and every key it leaves out takes that provider's default, except that a judge still takes `llm.system_prompt`.
+- **On another provider,** the block starts fresh. It must set `model`, and a key it leaves out keeps its default: the provider's own host and temperature, a `max_tokens` of 8000, and no prices. A judge still takes `llm.system_prompt`.
 
 ```yaml
 llm:

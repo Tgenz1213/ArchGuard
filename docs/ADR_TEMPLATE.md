@@ -1,6 +1,6 @@
 ---
 title: "[Short, Descriptive Title]"
-status: "[Accepted | Proposed | Superseded]"
+status: "[Accepted | Proposed | Superseded | Archived]"
 scope: "[Glob pattern, e.g., **/*.go -- or a YAML list of globs, matched with OR semantics]"
 # similarity_threshold: 0.65   # Optional: overrides vector_store.similarity_threshold for this ADR only
 # rules:                       # Optional: used instead of the ## Rules section below when set
