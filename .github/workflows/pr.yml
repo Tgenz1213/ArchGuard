@@ -57,11 +57,6 @@ jobs:
           report=$(go run ./cmd/wideapi "$BASE" HEAD 2>&1) || status=$?
           if [ -n "$report" ]; then
             echo "::warning title=Wide API::A package many others import changed its exported API; see the job summary."
-            printf '### Wide API
-
-```
-%s
-```
-' "$report" >> "$GITHUB_STEP_SUMMARY"
+            printf '### Wide API\n\n```\n%s\n```\n' "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
