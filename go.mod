@@ -4,12 +4,12 @@ go 1.27.0
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/alecthomas/kong v1.17.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/joho/godotenv v1.5.1
 	github.com/muesli/termenv v0.16.0
 	github.com/openai/openai-go v1.12.0
@@ -23,7 +23,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.45.0
 	github.com/yuin/goldmark v1.8.7
 	golang.org/x/sync v0.25.0
-	google.golang.org/genai v1.77.0
+	google.golang.org/genai v1.79.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -34,7 +34,7 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20261006220739-8c912ac31dd4 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/andybalholm/cascadia v1.3.4 // indirect
+	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
