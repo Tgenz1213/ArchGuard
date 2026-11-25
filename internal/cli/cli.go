@@ -44,7 +44,6 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Asker    func(config.Node) inference.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -73,6 +72,8 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 		return ExitError, err
 	}
 
+	systemOneKeyOrigin := os.Getenv(config.SystemOneKeyOriginEnv)
+
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		colors.stderrPrinter(false).Warn("failed to load .env: %v", err)
 	}
@@ -94,6 +95,8 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	if err != nil {
 		return ExitConfig, err
 	}
+
+	setup.systemOneKeyOrigin = systemOneKeyOrigin
 
 	if inv.command == "check" {
 		return runCheck(ctx, setup, inv.check, colors)
@@ -193,7 +196,6 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		chat:                chat,
 		chatFor:             chatFor,
 		embed:               embed,
-		asker:               factories.Asker,
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
@@ -209,7 +211,7 @@ type runSetup struct {
 	judgeLLM            config.LLMConfig
 	suggestLLM          config.LLMConfig
 	embed               inference.Embedder
-	asker               func(config.Node) inference.Asker
+	systemOneKeyOrigin  string
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

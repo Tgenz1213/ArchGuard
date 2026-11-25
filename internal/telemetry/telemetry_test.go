@@ -115,6 +115,22 @@ func TestAsker_RecordsEveryRequestAsAsking(t *testing.T) {
 	}
 }
 
+func TestAsker_RecordsEachRetryAsARequest(t *testing.T) {
+	usage := inference.Usage{InputTokens: 30, OutputTokens: 1, Reported: true}
+	tally := &telemetry.Tally{}
+	asker := telemetry.NewAsker(askerFunc(func() (inference.AskReply, error) {
+		return inference.AskReply{Usage: usage, Retries: 2}, nil
+	}), tally)
+
+	if _, err := asker.Ask(t.Context(), "code", nil); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+
+	if got := tally.Totals(telemetry.Asking); got.Calls != 3 || got.Retries != 2 || got.Usage != usage {
+		t.Errorf("asking totals = %+v, want 3 calls, 2 retries and the answer's usage", got)
+	}
+}
+
 func TestFanout_SendsEveryEventToEachRecorder(t *testing.T) {
 	first, second := &events{}, &events{}
 	event := telemetry.FileChecked{File: "a.go", Spent: time.Second}

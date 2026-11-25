@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,16 +20,15 @@ func askNodeAt(name, baseURL string) config.Node {
 	return config.Node{Name: name, Job: config.JobAsk, With: config.RunnerSystemOne, BaseURL: baseURL, Model: "jev-latest", Timeout: time.Minute}
 }
 
-func setKey(t *testing.T, key, origin string) {
+func setKey(t *testing.T, key string) {
 	t.Helper()
 	t.Setenv(config.SystemOneAPIKeyEnv, key)
-	t.Setenv(config.SystemOneKeyOriginEnv, origin)
 }
 
 func TestNewAskers_NoAskNodeReadsNoKeySetting(t *testing.T) {
-	setKey(t, "k", "not a url")
+	setKey(t, "k")
 
-	askers, err := newAskers([]config.Node{{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}}, nil)
+	askers, err := newAskers([]config.Node{{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine}}, "not a url")
 	if err != nil {
 		t.Fatalf("newAskers: %v", err)
 	}
@@ -57,9 +57,9 @@ func TestNewAskers_SendsTheKeyOnlyToItsOrigin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			setKey(t, "secret", tt.origin)
+			setKey(t, "secret")
 
-			askers, err := newAskers([]config.Node{askNodeAt("screen", tt.baseURL)}, nil)
+			askers, err := newAskers([]config.Node{askNodeAt("screen", tt.baseURL)}, tt.origin)
 			if err != nil {
 				t.Fatalf("newAskers: %v", err)
 			}
@@ -71,10 +71,19 @@ func TestNewAskers_SendsTheKeyOnlyToItsOrigin(t *testing.T) {
 	}
 }
 
-func TestNewAskers_SendsNoKeyWhenNoneIsSet(t *testing.T) {
-	setKey(t, "", "")
+func TestNewAskers_ANodeOnTheKeysOriginNeedsTheKey(t *testing.T) {
+	setKey(t, "")
 
-	askers, err := newAskers([]config.Node{askNodeAt("screen", config.DefaultSystemOneBaseURL)}, nil)
+	_, err := newAskers([]config.Node{askNodeAt("screen", config.DefaultSystemOneBaseURL)}, "")
+	if err == nil || !strings.Contains(err.Error(), `node "screen"`) || !strings.Contains(err.Error(), config.SystemOneAPIKeyEnv) {
+		t.Fatalf("err = %v, want one naming the node and %s", err, config.SystemOneAPIKeyEnv)
+	}
+}
+
+func TestNewAskers_ANodeOffTheKeysOriginRunsWithoutAKey(t *testing.T) {
+	setKey(t, "")
+
+	askers, err := newAskers([]config.Node{askNodeAt("screen", "http://127.0.0.1:8009")}, "")
 	if err != nil {
 		t.Fatalf("newAskers: %v", err)
 	}
@@ -99,9 +108,9 @@ func TestNewAskers_RealClientCarriesTheKeyDecision(t *testing.T) {
 	other := httptest.NewServer(server.Config.Handler)
 	t.Cleanup(other.Close)
 
-	setKey(t, "secret", server.URL)
+	setKey(t, "secret")
 
-	askers, err := newAskers([]config.Node{askNodeAt("keyed", server.URL), askNodeAt("open", other.URL)}, nil)
+	askers, err := newAskers([]config.Node{askNodeAt("keyed", server.URL), askNodeAt("open", other.URL)}, server.URL)
 	if err != nil {
 		t.Fatalf("newAskers: %v", err)
 	}
@@ -118,9 +127,9 @@ func TestNewAskers_RealClientCarriesTheKeyDecision(t *testing.T) {
 }
 
 func TestNewAskers_RejectsAKeyOverPlainHTTPToAnotherMachine(t *testing.T) {
-	setKey(t, "secret", "http://10.0.0.5:8009")
+	setKey(t, "secret")
 
-	_, err := newAskers([]config.Node{askNodeAt("screen", "http://10.0.0.5:8009")}, nil)
+	_, err := newAskers([]config.Node{askNodeAt("screen", "http://10.0.0.5:8009")}, "http://10.0.0.5:8009")
 	if err == nil || !strings.Contains(err.Error(), "plain http") || !strings.Contains(err.Error(), "10.0.0.5:8009") {
 		t.Fatalf("err = %v, want one naming the plain-http origin", err)
 	}
@@ -136,9 +145,9 @@ func TestNewAskers_AllowsPlainHTTPOnThisMachineOrWithoutAKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.origin, func(t *testing.T) {
-			setKey(t, tt.key, tt.origin)
+			setKey(t, tt.key)
 
-			if _, err := newAskers([]config.Node{askNodeAt("screen", tt.origin)}, nil); err != nil {
+			if _, err := newAskers([]config.Node{askNodeAt("screen", "http://127.0.0.1:9")}, tt.origin); err != nil {
 				t.Errorf("newAskers: %v", err)
 			}
 		})
@@ -148,31 +157,13 @@ func TestNewAskers_AllowsPlainHTTPOnThisMachineOrWithoutAKey(t *testing.T) {
 func TestNewAskers_RejectsAKeyOriginThatIsNotAnOrigin(t *testing.T) {
 	for _, origin := range []string{"ftp://x", "http://x/path", "https://u@x", "https://x?q", "https://x#f", "x:8009", "://"} {
 		t.Run(origin, func(t *testing.T) {
-			setKey(t, "", origin)
+			setKey(t, "")
 
-			_, err := newAskers([]config.Node{askNodeAt("screen", config.DefaultSystemOneBaseURL)}, nil)
+			_, err := newAskers([]config.Node{askNodeAt("screen", "http://127.0.0.1:9")}, origin)
 			if err == nil || !strings.Contains(err.Error(), config.SystemOneKeyOriginEnv) {
 				t.Errorf("err = %v, want one naming %s", err, config.SystemOneKeyOriginEnv)
 			}
 		})
-	}
-}
-
-func TestNewAskers_UsesTheInjectedAsker(t *testing.T) {
-	setKey(t, "", "")
-
-	var asked []string
-	injected := func(n config.Node) inference.Asker {
-		asked = append(asked, n.Name)
-		return nil
-	}
-
-	if _, err := newAskers([]config.Node{askNodeAt("a", "http://x"), askNodeAt("b", "http://y")}, injected); err != nil {
-		t.Fatalf("newAskers: %v", err)
-	}
-
-	if len(asked) != 2 {
-		t.Errorf("injected asker built for %v, want both nodes", asked)
 	}
 }
 
@@ -204,14 +195,14 @@ func TestSystemOneAskers_RejectedKeyError(t *testing.T) {
 			"open":  {baseURL: "http://127.0.0.1:8009"},
 		},
 	}
-	cause := &analysis.KeyRejectedError{Err: errors.New("401")}
+	cause := &analysis.KeyRejectedError{Err: fmt.Errorf("asking: %w", errors.New("system one api error: 401 Unauthorized: quota"))}
 
 	tests := []struct {
 		node, want string
 	}{
 		{"keyed", config.SystemOneAPIKeyEnv + " was rejected by https://api.typesafe.ai (node keyed)"},
-		{"open", "http://127.0.0.1:8009 (node open) needs a key; " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443, so set " + config.SystemOneKeyOriginEnv},
-		{"unknown", "the unknown node's server rejected its key"},
+		{"open", "http://127.0.0.1:8009 (node open) needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443; set " + config.SystemOneKeyOriginEnv},
+		{"unknown", "the unknown node's server rejected its key: system one api error: 401 Unauthorized: quota"},
 	}
 
 	for _, tt := range tests {
@@ -219,8 +210,14 @@ func TestSystemOneAskers_RejectedKeyError(t *testing.T) {
 			rejected := *cause
 			rejected.Node = tt.node
 
-			if got := askers.rejectedKeyError(&rejected).Error(); !strings.Contains(got, tt.want) {
-				t.Errorf("message = %q, want it to contain %q", got, tt.want)
+			err := askers.rejectedKeyError(&rejected)
+			if got := err.Error(); !strings.Contains(got, tt.want) || !strings.HasSuffix(got, "401 Unauthorized: quota") {
+				t.Errorf("message = %q, want it to contain %q and end with the server's answer", got, tt.want)
+			}
+
+			var wrapped *analysis.KeyRejectedError
+			if !errors.As(err, &wrapped) {
+				t.Error("the message no longer wraps the KeyRejectedError")
 			}
 		})
 	}

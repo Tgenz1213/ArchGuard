@@ -1,11 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/analysis"
@@ -74,33 +74,28 @@ func (a *systemOneAskers) metered(recorder telemetry.Recorder) *systemOneAskers 
 func (a *systemOneAskers) rejectedKeyError(rejected *analysis.KeyRejectedError) error {
 	n, ok := a.nodes[rejected.Node]
 	if !ok {
-		return rejected
+		return fmt.Errorf("the %s node's server rejected its key: %w", rejected.Node, rejected)
 	}
 
 	if n.keySent {
-		return fmt.Errorf("%s was rejected by %s (node %s); set a valid key and run the check again", config.SystemOneAPIKeyEnv, n.baseURL, rejected.Node)
+		return fmt.Errorf("%s was rejected by %s (node %s); set a valid key and run the check again: %w", config.SystemOneAPIKeyEnv, n.baseURL, rejected.Node, rejected)
 	}
 
-	return fmt.Errorf("%s (node %s) needs a key; %s is sent only to %s, so set %s to that server's origin", n.baseURL, rejected.Node, config.SystemOneAPIKeyEnv, a.keyOrigin, config.SystemOneKeyOriginEnv)
+	return fmt.Errorf("%s (node %s) needs a key, and %s is sent only to %s; set %s to that server's origin, with the key set: %w",
+		n.baseURL, rejected.Node, config.SystemOneAPIKeyEnv, a.keyOrigin, config.SystemOneKeyOriginEnv, rejected)
 }
 
-func newAskers(nodes []config.Node, injected func(config.Node) inference.Asker) (*systemOneAskers, error) {
+// keyOriginEnv is read before .env is loaded, so a .env committed in a pull request can't name where the CI's key goes.
+func newAskers(nodes []config.Node, keyOriginEnv string) (*systemOneAskers, error) {
 	askers := &systemOneAskers{nodes: map[string]askingNode{}}
 
-	asks := 0
-	for _, n := range nodes {
-		if n.Job == config.JobAsk {
-			asks++
-		}
-	}
-
-	if asks == 0 {
+	if !slices.ContainsFunc(nodes, func(n config.Node) bool { return n.Job == config.JobAsk }) {
 		return askers, nil
 	}
 
 	apiKey := os.Getenv(config.SystemOneAPIKeyEnv)
 
-	keyOrigin, err := systemOneKeyOrigin(apiKey != "")
+	keyOrigin, err := systemOneKeyOrigin(keyOriginEnv, apiKey != "")
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +107,7 @@ func newAskers(nodes []config.Node, injected func(config.Node) inference.Asker) 
 			continue
 		}
 
-		built, err := buildAskingNode(n, apiKey, keyOrigin, injected)
+		built, err := buildAskingNode(n, apiKey, keyOrigin)
 		if err != nil {
 			return nil, err
 		}
@@ -123,21 +118,19 @@ func newAskers(nodes []config.Node, injected func(config.Node) inference.Asker) 
 	return askers, nil
 }
 
-func buildAskingNode(n config.Node, apiKey string, keyOrigin origin, injected func(config.Node) inference.Asker) (askingNode, error) {
+func buildAskingNode(n config.Node, apiKey string, keyOrigin origin) (askingNode, error) {
 	parsed, err := url.Parse(n.BaseURL)
 	if err != nil {
 		return askingNode{}, fmt.Errorf("analysis.pipeline node %q.base_url: %w", n.Name, err)
 	}
 
-	built := askingNode{baseURL: n.BaseURL, keySent: apiKey != "" && originOf(parsed) == keyOrigin}
-
-	if injected != nil {
-		built.asker = injected(n)
-		return built, nil
+	toKeyOrigin := originOf(parsed) == keyOrigin
+	if toKeyOrigin && apiKey == "" {
+		return askingNode{}, fmt.Errorf("analysis.pipeline node %q asks %s, which needs the %s environment variable", n.Name, n.BaseURL, config.SystemOneAPIKeyEnv)
 	}
 
 	key := ""
-	if built.keySent {
+	if toKeyOrigin {
 		key = apiKey
 	}
 
@@ -146,14 +139,11 @@ func buildAskingNode(n config.Node, apiKey string, keyOrigin origin, injected fu
 		return askingNode{}, fmt.Errorf("analysis.pipeline node %q: %w", n.Name, err)
 	}
 
-	built.asker = provider
-
-	return built, nil
+	return askingNode{asker: provider, baseURL: n.BaseURL, keySent: toKeyOrigin}, nil
 }
 
-// systemOneKeyOrigin comes from the environment, never archguard.yaml, so a change to the config can't send a CI secret to another server.
-func systemOneKeyOrigin(keySet bool) (origin, error) {
-	raw := os.Getenv(config.SystemOneKeyOriginEnv)
+// The key's origin never comes from archguard.yaml, so a change to the config can't send a CI secret to another server.
+func systemOneKeyOrigin(raw string, keySet bool) (origin, error) {
 	if raw == "" {
 		raw = config.DefaultSystemOneBaseURL
 	}
@@ -170,11 +160,4 @@ func systemOneKeyOrigin(keySet bool) (origin, error) {
 	}
 
 	return keyOrigin, nil
-}
-
-func asKeyRejected(err error) (*analysis.KeyRejectedError, bool) {
-	var rejected *analysis.KeyRejectedError
-	ok := errors.As(err, &rejected)
-
-	return rejected, ok
 }

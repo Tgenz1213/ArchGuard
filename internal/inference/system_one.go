@@ -65,7 +65,12 @@ type SystemOneProvider struct {
 }
 
 func NewSystemOneProvider(baseURL, apiKey, model string, timeout time.Duration) (*SystemOneProvider, error) {
-	return newSystemOneProvider(baseURL, apiKey, model, &http.Client{Timeout: timeout})
+	return newSystemOneProvider(baseURL, apiKey, model, &http.Client{Timeout: timeout, CheckRedirect: refuseRedirect})
+}
+
+// A redirect could carry the key to another scheme, port or subdomain, so the redirect response is returned as it is.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func newSystemOneProvider(baseURL, apiKey, model string, httpClient *http.Client) (*SystemOneProvider, error) {
@@ -86,6 +91,7 @@ func (p *SystemOneProvider) Ask(ctx context.Context, state string, questions map
 
 	for attempt := 0; ; attempt++ {
 		reply, err := p.post(ctx, payload)
+		reply.Retries = attempt
 
 		var apiErr *SystemOneError
 		if err == nil || !errors.As(err, &apiErr) || !apiErr.retryable() || attempt == systemOneMaxRetries {
@@ -97,9 +103,13 @@ func (p *SystemOneProvider) Ask(ctx context.Context, state string, questions map
 			wait = p.retryWait << attempt
 		}
 
+		if p.client.Timeout > 0 && wait > p.client.Timeout {
+			return reply, fmt.Errorf("the server asked to wait %v before retrying, longer than the %v timeout: %w", wait, p.client.Timeout, err)
+		}
+
 		select {
 		case <-ctx.Done():
-			return AskReply{}, ctx.Err()
+			return AskReply{Retries: attempt}, ctx.Err()
 		case <-time.After(wait):
 		}
 	}

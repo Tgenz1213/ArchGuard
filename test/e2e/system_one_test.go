@@ -207,7 +207,9 @@ func TestE2E_SystemOneRefusedConnectionFollowsOnError(t *testing.T) {
 			writeRuledADRs(t, tempDir)
 			writeFixture(t, tempDir, fixtureFilename, violationFixtureContent())
 
-			_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, nil, "--format", "json", fixtureFilename)
+			env := []string{config.SystemOneAPIKeyEnv + "=", config.SystemOneKeyOriginEnv + "="}
+
+			_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, env, "--format", "json", fixtureFilename)
 			if exitCode != int(tt.wantExit) {
 				t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, tt.wantExit, stderr)
 			}
@@ -250,6 +252,49 @@ func TestE2E_SystemOneKeyGoesOnlyToItsOrigin(t *testing.T) {
 
 	if mock.sawKey.Load() {
 		t.Error("the key reached a server whose origin isn't the key's")
+	}
+}
+
+func TestE2E_SystemOneKeyOriginInDotEnvIsIgnored(t *testing.T) {
+	mock := startMockSystemOne(t)
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, mock.configYAML(askPipeline("")))
+	writeRuledADRs(t, tempDir)
+	writeFixture(t, tempDir, fixtureFilename, violationFixtureContent())
+	writeFixture(t, tempDir, ".env", config.SystemOneKeyOriginEnv+"="+mock.URL+"\n")
+
+	t.Setenv(config.SystemOneKeyOriginEnv, "")
+
+	if err := os.Unsetenv(config.SystemOneKeyOriginEnv); err != nil {
+		t.Fatal(err)
+	}
+
+	env := []string{config.SystemOneAPIKeyEnv + "=" + mockAskKey}
+
+	_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, env, "--format", "json", fixtureFilename)
+	if exitCode != int(cli.ExitDriftDetected) {
+		t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitDriftDetected, stderr)
+	}
+
+	if mock.sawKey.Load() {
+		t.Error("a .env in the repository sent the key to the server it named")
+	}
+}
+
+func TestE2E_SystemOneHostedJevWithoutAKeyIsAConfigError(t *testing.T) {
+	tempDir, binaryPath := buildE2EBinary(t)
+	writeE2EConfig(t, tempDir, pipelineConfigYAML(askPipeline("")))
+	writeRuledADRs(t, tempDir)
+
+	env := []string{config.SystemOneAPIKeyEnv + "=", config.SystemOneKeyOriginEnv + "="}
+
+	_, stderr, exitCode := runCheckWithEnv(t, tempDir, binaryPath, env, "--all")
+	if exitCode != int(cli.ExitConfig) {
+		t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitConfig, stderr)
+	}
+
+	if !strings.Contains(stderr, `node "breaks-a-rule"`) || !strings.Contains(stderr, config.SystemOneAPIKeyEnv) {
+		t.Errorf("stderr should name the node and %s, got: %s", config.SystemOneAPIKeyEnv, stderr)
 	}
 }
 
@@ -315,7 +360,7 @@ func TestE2E_SystemOneServerThatNeedsAKeyItNeverGets(t *testing.T) {
 		t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitConfig, stderr)
 	}
 
-	want := mock.URL + " (node breaks-a-rule) needs a key; " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443"
+	want := mock.URL + " (node breaks-a-rule) needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443"
 	if !strings.Contains(stderr, want) {
 		t.Errorf("stderr missing %q, got: %s", want, stderr)
 	}

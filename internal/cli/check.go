@@ -106,7 +106,7 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, *systemOne
 		return nil, nil, err
 	}
 
-	askers, err := newAskers(nodes, setup.asker)
+	askers, err := newAskers(nodes, setup.systemOneKeyOrigin)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -283,7 +283,7 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 }
 
 func (r *checkRun) analysisFailure(runErr error) error {
-	if rejected, ok := asKeyRejected(runErr); ok {
+	if rejected, ok := errors.AsType[*analysis.KeyRejectedError](runErr); ok {
 		return r.askers.rejectedKeyError(rejected)
 	}
 

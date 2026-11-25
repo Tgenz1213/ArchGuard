@@ -319,3 +319,80 @@ func TestNewSystemOneProvider_RejectsAnUnparsableBaseURL(t *testing.T) {
 		t.Fatal("expected an error for an unparsable base url")
 	}
 }
+
+func TestSystemOneProvider_AskReportsItsRetries(t *testing.T) {
+	var calls atomic.Int32
+
+	provider := systemOneServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+
+		if _, err := w.Write([]byte(`{"answers":{"a":{"type":"noul","noul":0.5}}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
+	})
+
+	reply, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
+	if err != nil || reply.Retries != 2 {
+		t.Fatalf("Ask = %+v, %v; want an answer after 2 retries", reply, err)
+	}
+}
+
+func TestSystemOneProvider_AskGivesUpWhenRetryAfterOutlastsTheTimeout(t *testing.T) {
+	var calls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(server.Close)
+
+	provider, err := NewSystemOneProvider(server.URL, "", "kev-latest", time.Minute)
+	if err != nil {
+		t.Fatalf("NewSystemOneProvider: %v", err)
+	}
+
+	_, err = provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
+
+	var apiErr *SystemOneError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTooManyRequests {
+		t.Fatalf("err = %v, want the 429 without waiting an hour", err)
+	}
+
+	if calls.Load() != 1 {
+		t.Errorf("calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestSystemOneProvider_AskDoesNotFollowARedirect(t *testing.T) {
+	var redirectedAuth atomic.Value
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectedAuth.Store(r.Header.Get("Authorization"))
+	}))
+	t.Cleanup(target.Close)
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(origin.Close)
+
+	provider, err := NewSystemOneProvider(origin.URL, "secret", "jev-latest", time.Minute)
+	if err != nil {
+		t.Fatalf("NewSystemOneProvider: %v", err)
+	}
+
+	_, err = provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
+
+	var apiErr *SystemOneError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTemporaryRedirect {
+		t.Fatalf("err = %v, want the 307 itself as a failure", err)
+	}
+
+	if got := redirectedAuth.Load(); got != nil {
+		t.Errorf("the redirect target was asked, with Authorization %q", got)
+	}
+}
