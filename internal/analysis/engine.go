@@ -97,11 +97,7 @@ func newKeyRejectedError(nodeName string, err error) *KeyRejectedError {
 }
 
 func (e *KeyRejectedError) Error() string {
-	if cause := errors.Unwrap(e.Err); cause != nil {
-		return cause.Error()
-	}
-
-	return e.Err.Error()
+	return fmt.Sprintf("the %s node's server rejected its key: %v", e.Node, errors.Unwrap(e.Err))
 }
 
 func (e *KeyRejectedError) Unwrap() error { return e.Err }

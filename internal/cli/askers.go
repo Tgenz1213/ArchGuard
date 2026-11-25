@@ -74,15 +74,15 @@ func (a *systemOneAskers) metered(recorder telemetry.Recorder) *systemOneAskers 
 func (a *systemOneAskers) rejectedKeyError(rejected *analysis.KeyRejectedError) error {
 	n, ok := a.nodes[rejected.Node]
 	if !ok {
-		return fmt.Errorf("the %s node's server rejected its key: %w", rejected.Node, rejected)
+		return rejected
 	}
 
 	if n.keySent {
-		return fmt.Errorf("%s was rejected by %s (node %s); set a valid key and run the check again: %w", config.SystemOneAPIKeyEnv, n.baseURL, rejected.Node, rejected)
+		return fmt.Errorf("%s was rejected by %s; set a valid key and run the check again: %w", config.SystemOneAPIKeyEnv, n.baseURL, rejected)
 	}
 
-	return fmt.Errorf("%s (node %s) needs a key, and %s is sent only to %s; set %s to that server's origin, with the key set: %w",
-		n.baseURL, rejected.Node, config.SystemOneAPIKeyEnv, a.keyOrigin, config.SystemOneKeyOriginEnv, rejected)
+	return fmt.Errorf("%s needs a key, and %s is sent only to %s; set %s to that server's origin, with the key set: %w",
+		n.baseURL, config.SystemOneAPIKeyEnv, a.keyOrigin, config.SystemOneKeyOriginEnv, rejected)
 }
 
 // keyOriginEnv is read before .env is loaded, so a .env committed in a pull request can't name where the CI's key goes.

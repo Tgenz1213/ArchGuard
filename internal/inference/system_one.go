@@ -103,7 +103,7 @@ func (p *SystemOneProvider) Ask(ctx context.Context, state string, questions map
 			wait = p.retryWait << attempt
 		}
 
-		if p.client.Timeout > 0 && wait > p.client.Timeout {
+		if p.client.Timeout > 0 && apiErr.retryAfter > p.client.Timeout {
 			return reply, fmt.Errorf("the server asked to wait %v before retrying, longer than the %v timeout: %w", wait, p.client.Timeout, err)
 		}
 
@@ -207,6 +207,12 @@ func systemOneResponseError(resp *http.Response) *SystemOneError {
 	}
 
 	apiErr.Body = strings.TrimSpace(string(raw))
+
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		apiErr.Body = fmt.Sprintf("a redirect to %q was refused; set base_url to the server's own URL", resp.Header.Get("Location"))
+
+		return apiErr
+	}
 
 	// Jev's detail is an object, a list or a string depending on the error; only the object carries error_type.
 	var object struct {

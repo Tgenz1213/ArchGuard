@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -367,6 +368,27 @@ func TestSystemOneProvider_AskGivesUpWhenRetryAfterOutlastsTheTimeout(t *testing
 	}
 }
 
+func TestSystemOneProvider_AskBacksOffBeyondTheTimeoutWithoutRetryAfter(t *testing.T) {
+	var calls atomic.Int32
+
+	provider := systemOneServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			w.WriteHeader(statusOverloaded)
+			return
+		}
+
+		if _, err := w.Write([]byte(`{"answers":{"a":{"type":"noul","noul":0.5}}}`)); err != nil {
+			t.Errorf("writing response: %v", err)
+		}
+	})
+	provider.client.Timeout = time.Second
+	provider.retryWait = 2 * time.Second
+
+	if _, err := provider.Ask(t.Context(), "code", map[string]string{"a": "q"}); err != nil {
+		t.Fatalf("Ask: %v; want its own backoff to keep retrying however long it waits", err)
+	}
+}
+
 func TestSystemOneProvider_AskDoesNotFollowARedirect(t *testing.T) {
 	var redirectedAuth atomic.Value
 
@@ -388,8 +410,8 @@ func TestSystemOneProvider_AskDoesNotFollowARedirect(t *testing.T) {
 	_, err = provider.Ask(t.Context(), "code", map[string]string{"a": "q"})
 
 	var apiErr *SystemOneError
-	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTemporaryRedirect {
-		t.Fatalf("err = %v, want the 307 itself as a failure", err)
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTemporaryRedirect || !strings.Contains(err.Error(), target.URL) || !strings.Contains(err.Error(), "base_url") {
+		t.Fatalf("err = %v, want the 307 as a failure that names where it pointed and base_url", err)
 	}
 
 	if got := redirectedAuth.Load(); got != nil {

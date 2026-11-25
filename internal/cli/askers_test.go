@@ -135,22 +135,28 @@ func TestNewAskers_RejectsAKeyOverPlainHTTPToAnotherMachine(t *testing.T) {
 	}
 }
 
-func TestNewAskers_AllowsPlainHTTPOnThisMachineOrWithoutAKey(t *testing.T) {
-	tests := []struct{ key, origin string }{
-		{"secret", "http://localhost:8009"},
-		{"secret", "http://127.0.0.2:8009"},
-		{"secret", "http://[::1]:8009"},
-		{"", "http://10.0.0.5:8009"},
-	}
+func TestNewAskers_SendsTheKeyOverPlainHTTPOnThisMachine(t *testing.T) {
+	for _, keyOrigin := range []string{"http://localhost:8009", "http://127.0.0.2:8009", "http://[::1]:8009"} {
+		t.Run(keyOrigin, func(t *testing.T) {
+			setKey(t, "secret")
 
-	for _, tt := range tests {
-		t.Run(tt.origin, func(t *testing.T) {
-			setKey(t, tt.key)
+			askers, err := newAskers([]config.Node{askNodeAt("screen", keyOrigin)}, keyOrigin)
+			if err != nil {
+				t.Fatalf("newAskers: %v", err)
+			}
 
-			if _, err := newAskers([]config.Node{askNodeAt("screen", "http://127.0.0.1:9")}, tt.origin); err != nil {
-				t.Errorf("newAskers: %v", err)
+			if !askers.nodes["screen"].keySent {
+				t.Error("keySent = false, want the key sent to its own loopback origin")
 			}
 		})
+	}
+}
+
+func TestNewAskers_APlainHTTPOriginElsewhereIsFineWithoutAKey(t *testing.T) {
+	setKey(t, "")
+
+	if _, err := newAskers([]config.Node{askNodeAt("screen", "http://127.0.0.1:9")}, "http://10.0.0.5:8009"); err != nil {
+		t.Errorf("newAskers: %v", err)
 	}
 }
 
@@ -200,8 +206,8 @@ func TestSystemOneAskers_RejectedKeyError(t *testing.T) {
 	tests := []struct {
 		node, want string
 	}{
-		{"keyed", config.SystemOneAPIKeyEnv + " was rejected by https://api.typesafe.ai (node keyed)"},
-		{"open", "http://127.0.0.1:8009 (node open) needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443; set " + config.SystemOneKeyOriginEnv},
+		{"keyed", config.SystemOneAPIKeyEnv + " was rejected by https://api.typesafe.ai; set a valid key and run the check again: the keyed node's server rejected its key"},
+		{"open", "http://127.0.0.1:8009 needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443; set " + config.SystemOneKeyOriginEnv + " to that server's origin, with the key set: the open node's server"},
 		{"unknown", "the unknown node's server rejected its key: system one api error: 401 Unauthorized: quota"},
 	}
 

@@ -78,6 +78,10 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 		colors.stderrPrinter(false).Warn("failed to load .env: %v", err)
 	}
 
+	if os.Getenv(config.SystemOneKeyOriginEnv) != systemOneKeyOrigin {
+		colors.stderrPrinter(false).Warn("%s in .env is ignored, so a .env can't send the key elsewhere; set it in the environment", config.SystemOneKeyOriginEnv)
+	}
+
 	if inv.command == "init" {
 		if err := runInit(inv.configPath()); err != nil {
 			return ExitError, err

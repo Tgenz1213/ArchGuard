@@ -279,6 +279,10 @@ func TestE2E_SystemOneKeyOriginInDotEnvIsIgnored(t *testing.T) {
 	if mock.sawKey.Load() {
 		t.Error("a .env in the repository sent the key to the server it named")
 	}
+
+	if !strings.Contains(stderr, config.SystemOneKeyOriginEnv+" in .env is ignored") {
+		t.Errorf("stderr should say the .env origin is ignored, got: %s", stderr)
+	}
 }
 
 func TestE2E_SystemOneHostedJevWithoutAKeyIsAConfigError(t *testing.T) {
@@ -334,7 +338,7 @@ func TestE2E_SystemOneRejectedKeyFailsTheCheckAsAConfigError(t *testing.T) {
 				t.Fatalf("expected config exit code %d, got %d. stderr: %s", cli.ExitConfig, exitCode, stderr)
 			}
 
-			want := config.SystemOneAPIKeyEnv + " was rejected by " + mock.URL + " (node breaks-a-rule)"
+			want := config.SystemOneAPIKeyEnv + " was rejected by " + mock.URL + "; set a valid key and run the check again: the breaks-a-rule node's server rejected its key"
 			if got := strings.Count(stderr, want); got != 1 {
 				t.Errorf("stderr has %q %d times, want once: %s", want, got, stderr)
 			}
@@ -360,7 +364,7 @@ func TestE2E_SystemOneServerThatNeedsAKeyItNeverGets(t *testing.T) {
 		t.Fatalf("exit code %d, want %d. stderr: %s", exitCode, cli.ExitConfig, stderr)
 	}
 
-	want := mock.URL + " (node breaks-a-rule) needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443"
+	want := mock.URL + " needs a key, and " + config.SystemOneAPIKeyEnv + " is sent only to https://api.typesafe.ai:443"
 	if !strings.Contains(stderr, want) {
 		t.Errorf("stderr missing %q, got: %s", want, stderr)
 	}
