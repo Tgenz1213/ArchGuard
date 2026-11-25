@@ -5,7 +5,7 @@ import "testing"
 const governsNode = `
     - name: governs
       job: ask
-      with: jev
+      with: system-one
       preset: governs
 `
 
@@ -16,7 +16,8 @@ func TestParsePipeline_GovernsPreset(t *testing.T) {
 	}
 
 	want := Node{
-		Name: "governs", Job: JobAsk, With: RunnerJev, Threshold: 0.5, TopK: 3, OnError: OnErrorSkip,
+		Name: "governs", Job: JobAsk, With: RunnerSystemOne, Threshold: 0.5, TopK: 3, OnError: OnErrorSkip,
+		BaseURL: DefaultSystemOneBaseURL, Model: DefaultSystemOneModel, Timeout: DefaultSystemOneTimeout,
 		Question: Question{Type: QuestionNoul, ForEach: ForEachADR, Instructions: GovernsInstructions},
 	}
 	if nodes[1] != want {
@@ -39,7 +40,7 @@ func TestParsePipeline_AskPerADRWithItsOwnQuestion(t *testing.T) {
 	nodes, err := parseFromYAML(t, "", pipelineWith(`
     - name: own
       job: ask
-      with: jev
+      with: system-one
       type: noul
       for_each: adr
       instructions: "Does this decision apply to this code? {adr}"

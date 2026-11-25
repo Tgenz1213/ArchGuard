@@ -44,7 +44,6 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(model string) inference.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -73,8 +72,14 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 		return ExitError, err
 	}
 
+	systemOneKeyOrigin := os.Getenv(config.SystemOneKeyOriginEnv)
+
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		colors.stderrPrinter(false).Warn("failed to load .env: %v", err)
+	}
+
+	if os.Getenv(config.SystemOneKeyOriginEnv) != systemOneKeyOrigin {
+		colors.stderrPrinter(false).Warn("%s in .env is ignored, so a .env can't send the key elsewhere; set it in the environment", config.SystemOneKeyOriginEnv)
 	}
 
 	if inv.command == "init" {
@@ -94,6 +99,8 @@ func execute(ctx context.Context, version string, factories ProviderFactories) (
 	if err != nil {
 		return ExitConfig, err
 	}
+
+	setup.systemOneKeyOrigin = systemOneKeyOrigin
 
 	if inv.command == "check" {
 		return runCheck(ctx, setup, inv.check, colors)
@@ -193,7 +200,6 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		chat:                chat,
 		chatFor:             chatFor,
 		embed:               embed,
-		jev:                 factories.Jev,
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
@@ -209,7 +215,7 @@ type runSetup struct {
 	judgeLLM            config.LLMConfig
 	suggestLLM          config.LLMConfig
 	embed               inference.Embedder
-	jev                 func(model string) inference.Asker
+	systemOneKeyOrigin  string
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

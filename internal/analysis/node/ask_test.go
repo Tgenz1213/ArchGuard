@@ -21,12 +21,12 @@ type fakeAsker struct {
 	states []string
 }
 
-func (f *fakeAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (f *fakeAsker) Ask(_ context.Context, state string, questions map[string]string) (inference.AskReply, error) {
 	f.calls = append(f.calls, questions)
 	f.states = append(f.states, state)
 
 	if f.err != nil {
-		return nil, f.err
+		return inference.AskReply{}, f.err
 	}
 
 	answers := make(map[string]float64, len(questions))
@@ -34,7 +34,7 @@ func (f *fakeAsker) Ask(_ context.Context, state string, questions map[string]st
 		answers[name] = f.answer(instructions)
 	}
 
-	return answers, nil
+	return inference.AskReply{Answers: answers}, nil
 }
 
 // Answers 0.9 to a question naming any of the given rule statements, 0.1 to the rest.
@@ -216,8 +216,8 @@ func TestAskNode_MissingAnswerIsAnError(t *testing.T) {
 
 type askerFunc func(questions map[string]string) map[string]float64
 
-func (f askerFunc) Ask(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
-	return f(questions), nil
+func (f askerFunc) Ask(_ context.Context, _ string, questions map[string]string) (inference.AskReply, error) {
+	return inference.AskReply{Answers: f(questions)}, nil
 }
 
 func TestAskNode_TopKLeavesPassedThroughCandidates(t *testing.T) {
@@ -288,8 +288,10 @@ func TestRuleAsk_StopsBetweenSidesWhenCancelled(t *testing.T) {
 
 type sideAsker func(state string, questions map[string]string) (map[string]float64, error)
 
-func (f sideAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
-	return f(state, questions)
+func (f sideAsker) Ask(_ context.Context, state string, questions map[string]string) (inference.AskReply, error) {
+	answers, err := f(state, questions)
+
+	return inference.AskReply{Answers: answers}, err
 }
 
 func TestRuleAsk_ASideMissingAnAnswerFails(t *testing.T) {

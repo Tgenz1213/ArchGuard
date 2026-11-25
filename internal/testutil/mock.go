@@ -13,14 +13,6 @@ const (
 	// MockUnverifiedTrigger makes the mock chat provider report a violation quoting code that is not in the file.
 	MockUnverifiedTrigger = "TRIGGER_UNVERIFIED_QUOTE"
 
-	// archguard-e2e's mock Jev answers yes to a rule naming MockJevBreaksTrigger and fails on content holding MockJevFailureTrigger.
-	MockJevBreaksTrigger  = "TRIGGER_JEV_BREAKS"
-	MockJevFailureTrigger = "TRIGGER_JEV_FAILURE"
-	// MockJevStateTrigger makes the mock Jev answer yes to every question about a side of the code holding it.
-	MockJevStateTrigger = "TRIGGER_JEV_STATE"
-	// MockJevRejectedKeyTrigger makes the mock Jev answer as Jev does to a rejected API key (401).
-	MockJevRejectedKeyTrigger = "TRIGGER_JEV_REJECTED_KEY"
-
 	// MockInterruptTrigger makes the mock providers cancel the run's context, as SIGINT would.
 	MockInterruptTrigger = "TRIGGER_INTERRUPT"
 

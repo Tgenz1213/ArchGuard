@@ -132,10 +132,13 @@ analysis:
       top_k: 3 # Optional: maximum ADRs kept; defaults to max_relevant_adrs (3 when unset)
       on_error: skip # Optional: "skip" (default) skips the file when the node fails; "fail" fails the check
 
-    # - name: breaks-a-rule # Optional: screen with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY
+    # - name: breaks-a-rule # Optional: screen with a System One model before the LLM; see Asking System One models
     #   job: ask
-    #   with: jev
+    #   with: system-one
     #   preset: breaks-a-rule
+    #   base_url: "https://api.typesafe.ai" # Optional: overrides system_one.base_url for this node
+    #   model: "jev-latest" # Optional: overrides system_one.model
+    #   timeout: 60s # Optional: overrides system_one.timeout
 
     - name: judge
       job: judge
@@ -213,7 +216,7 @@ Each node has a `name`, a `job` and a runner in `with`. The name is what `--debu
 | `job` | `with` | What it does | Settings |
 |---|---|---|---|
 | `rank` | `cosine` | Keeps the ADRs whose embedding similarity is at or above `threshold`, best first, at most `top_k`. | `threshold`, `top_k`, `on_error` |
-| `ask` | `jev` | Asks Jev a question about each rule of each ADR, or about each ADR, and keeps the ADRs that pass (see [Screening with Jev](#screening-with-jev)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `model`, `on_error` |
+| `ask` | `system-one` | Asks a System One model, such as hosted Jev or a local Kev, a question about each rule of each ADR, or about each ADR, and keeps the ADRs that pass (see [Asking System One models](#asking-system-one-models)). | `preset`, or `type`, `for_each` and `instructions`; `keep`, `base_url`, `model`, `timeout`, `on_error` |
 | `judge` | `llm` | Judges each ADR that is left and reports the violations, with the `llm` block or the node's own (see [A second LLM](#a-second-llm)). | `llm` |
 | `suggest` | `llm` | Under `--suggest-fixes`, writes the fix suggestions, with the `llm` block or the node's own (see [A second LLM](#a-second-llm)). | `llm` |
 
@@ -225,19 +228,21 @@ The first node is a `rank` node, or an `ask` node with `for_each: adr` and a `ke
 
 A second `rank` node takes the same settings and fallbacks. Every `rank` node re-scores the same candidates, so a second one can only tighten `threshold` or `top_k`, and costs one extra embedding call per file.
 
-`check` needs the pipeline. A config without one, a node with a setting its job doesn't take, an unknown `job`, runner or preset, an out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, a missing Jev API key, or a pipeline in the wrong order stops `archguard check` at startup with exit code 3 and a message naming the node and the setting. Other commands, such as `index`, don't read the pipeline.
+`check` needs the pipeline. A config without one, a node with a setting its job doesn't take, an unknown `job`, runner or preset, an out-of-range `threshold`, a non-positive `top_k`, an `on_error` other than `skip` or `fail`, a bad `system_one` setting, a missing System One key for a node on the key's server, a System One key that would go over plain `http` to another machine, or a pipeline in the wrong order stops `archguard check` at startup with exit code 3 and a message naming the node and the setting. Other commands, such as `index`, don't read the pipeline.
 
 #### Upgrading from the `rank`, `rerank` and `pre_judge` mapping
 
-A config written for an older release has `analysis.pipeline` as a mapping of `rank`, `rerank` and `pre_judge` keys. `check` rejects that shape with exit code 3 and shows the default pipeline to paste. Run `archguard init` (or `archguard init --config <path>` for another config file) to fix it: it asks once, then replaces `analysis.pipeline` with the default list and leaves every other line of the file as it was. It prints the lines it removed, so a tuned `threshold`, `top_k` or `on_error` can be set again on the new `shortlist` node, and a `pre_judge` screen added back as an `ask` node (see [Screening with Jev](#screening-with-jev)). If it can't make the edit safely, for example because `analysis` is written in flow style or uses anchors, it changes nothing and says so. The GitHub Action reads the same config, so update it before the Action's next run.
+A config written for an older release has `analysis.pipeline` as a mapping of `rank`, `rerank` and `pre_judge` keys. `check` rejects that shape with exit code 3 and shows the default pipeline to paste. Run `archguard init` (or `archguard init --config <path>` for another config file) to fix it: it asks once, then replaces `analysis.pipeline` with the default list and leaves every other line of the file as it was. It prints the lines it removed, so a tuned `threshold`, `top_k` or `on_error` can be set again on the new `shortlist` node, and a `pre_judge` screen added back as an `ask` node (see [Asking System One models](#asking-system-one-models)). If it can't make the edit safely, for example because `analysis` is written in flow style or uses anchors, it changes nothing and says so. The GitHub Action reads the same config, so update it before the Action's next run.
 
-#### Screening with Jev
+#### Asking System One models
 
-An `ask` node with `with: jev` sends each file to [TypeSafe's Jev](https://docs.typesafe.ai/api), a hosted model that answers yes/no questions with a probability, before any LLM judgment. For each file, Jev is asked one question per [screening rule](#screening-rules) of every candidate ADR that has rules: does this code break the rule? An ADR whose likeliest-broken rule scores at or above `keep.threshold` goes on to LLM judgment; the rest are dropped without an LLM call. Jev gives no reasoning, so every reported violation still comes from the LLM, with its reasoning and quoted code.
+An `ask` node with `with: system-one` sends each file to a server that speaks [TypeSafe's System One API](https://api.typesafe.ai/openapi.json) before any LLM judgment. That is [TypeSafe's hosted Jev](https://docs.typesafe.ai/api) by default, or a server you run yourself, such as [Kev](https://github.com/jaredpalmer/kev). The model answers yes/no questions with a probability. For each file, it is asked one question per [screening rule](#screening-rules) of every candidate ADR that has rules: does this code break the rule? An ADR whose likeliest-broken rule scores at or above `keep.threshold` goes on to LLM judgment; the rest are dropped without an LLM call. The model gives no reasoning, so every reported violation still comes from the LLM, with its reasoning and quoted code.
 
 ```yaml
-jev:
-  model: jev-latest # Optional; this is the default. A node's own model overrides it
+system_one: # Optional; these are the defaults. A node's own base_url, model or timeout overrides each one
+  base_url: https://api.typesafe.ai # Hosted Jev
+  model: jev-latest
+  timeout: 60s # For each call
 
 analysis:
   pipeline:
@@ -247,7 +252,7 @@ analysis:
 
     - name: breaks-a-rule
       job: ask
-      with: jev
+      with: system-one
       preset: breaks-a-rule
 
     - name: judge
@@ -255,22 +260,47 @@ analysis:
       with: llm
 ```
 
+- **`base_url`** is an `http` or `https` URL with no user, query or fragment. It may have a path, for a server behind a prefix; a trailing slash is dropped, and requests go to `<base_url>/v1/systemone`. A bad `base_url` or `timeout` stops `archguard check` at startup with exit code 3 and names the node or the block.
+- **`with: jev` or a `jev:` block** stops `archguard check` with exit code 3 and names `with: system-one` or `system_one:`, the names to use.
+
+**Running Kev locally.** Kev is a family of open-weight decision models whose server speaks the same API, so the check needs no network:
+
+```bash
+git clone --branch kev-1.0 https://github.com/jaredpalmer/kev.git && cd kev
+uv sync --extra serve
+uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009
+```
+
+Kev needs Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/); its README has the details.
+
+```yaml
+system_one:
+  base_url: http://127.0.0.1:8009
+  timeout: 5m # A laptop answers much more slowly than hosted Jev
+```
+
+- **Kev ignores `model`** and answers with the checkpoint it was started with.
+- **Kev's 0.8B, 4B and 9B models are validated only up to 8,192 tokens,** the 27B up to 65,536. Kev refuses a longer file, and that refusal is handled like any file over the model's limit (see below). A Kev started with `KEV_TRUNCATE_STATES=1` reads only the start of a long file instead; ArchGuard never keeps an answer about half a file, so it handles that answer the same way.
+- **Kev needs no key** unless it was started with `KEV_API_KEY` (see the key below).
+
 - **The question.** `preset: breaks-a-rule` asks `Does this code break the following rule? {rule}` with a `keep.threshold` of `0.3`. Without a preset, set all of `type: noul` (a yes/no question), `for_each: rule` and `instructions`, which must contain `{rule}`; `{rule}` is replaced by the rule and its examples. Setting `type`, `for_each` or `instructions` beside a preset is an error. Other question types aren't supported yet.
-- **Asking about each ADR.** With `for_each: adr`, Jev is asked one question per candidate ADR instead of per rule, in one call per file (two under `--since`, one per side). Jev reads the file, as it does per rule, and each question carries one candidate ADR's text. `instructions` must contain `{adr}`, which is replaced by that text, and can't contain `{rule}`; with `for_each: rule`, `{rule}` is required and `{adr}` isn't allowed. Neither allows `{code}`: the file is what every question is about, so write "this code". An ADR scores its answer, the higher of the two sides under `--since`, and the node keeps the ADRs at or above `keep.threshold`, best first, at most `keep.top_k`, so it can rerank as well as filter. ADRs without rules are asked about too.
-- **`preset: governs`** asks `Is this code governed by the following decision? {adr}` per ADR, with a `keep.threshold` of `0.5` and a `keep.top_k` of `3`. `keep`, `model` and `on_error` can be set beside it. Put it after a wide shortlist, for example a `rank` node with `top_k: 10`, so Jev reranks what cosine similarity found.
+- **Asking about each ADR.** With `for_each: adr`, the model is asked one question per candidate ADR instead of per rule, in one call per file (two under `--since`, one per side). The model reads the file, as it does per rule, and each question carries one candidate ADR's text. `instructions` must contain `{adr}`, which is replaced by that text, and can't contain `{rule}`; with `for_each: rule`, `{rule}` is required and `{adr}` isn't allowed. Neither allows `{code}`: the file is what every question is about, so write "this code". An ADR scores its answer, the higher of the two sides under `--since`, and the node keeps the ADRs at or above `keep.threshold`, best first, at most `keep.top_k`, so it can rerank as well as filter. ADRs without rules are asked about too.
+- **`preset: governs`** asks `Is this code governed by the following decision? {adr}` per ADR, with a `keep.threshold` of `0.5` and a `keep.top_k` of `3`. `keep`, `base_url`, `model`, `timeout` and `on_error` can be set beside it. Put it after a wide shortlist, for example a `rank` node with `top_k: 10`, so the model reranks what cosine similarity found.
 - **A first `ask` node defaults to `on_error: fail`,** and `on_error: skip` on it is an error, since passing every candidate on would send every ADR whose scope matches to the LLM. A later `ask` node defaults to `skip`.
-- **Every candidate ADR is asked about in one call.** The ADRs count against Jev's question budget (see below), not the file's, so a shortlist of about ten ADRs fits easily. As the first node, it gets every ADR whose scope matches the file, so use it first only when few ADRs match each file.
+- **Every candidate ADR is asked about in one call.** The ADRs count against the model's question budget (see below), not the file's, so a shortlist of about ten ADRs fits easily. As the first node, it gets every ADR whose scope matches the file, so use it first only when few ADRs match each file.
 - **A file with no text** is governed by no ADR, so a `for_each: adr` node keeps none of its candidates.
 - **A yes must mean the ADR is worth judging.** With `for_each: rule`, an ADR scores its highest answer across its rules, and the node keeps it when that score is at or above `keep.threshold`. Nothing checks which way your question points. A question like `Does this code follow the rule? {rule}` turns the node around: it keeps an ADR whenever the code follows any one of its rules, and drops it, with no error, when the code breaks every rule it has. Ask whether the code breaks or may break the rule.
 - **`keep`** takes `threshold`, the lowest probability of yes that keeps an ADR, and an optional `top_k`. `keep.threshold` is required without a preset. Start low: on this repository's ADRs, a broken rule scored as low as 0.63 in a large file while compliant code scored about 0.13, so `0.3` keeps recall high; tune from there with `--debug`. Unset, `top_k` keeps every ADR that clears the threshold.
-- **File content goes to TypeSafe.** Jev receives what the LLM would judge. When that is a diff, under `--since` or for an oversized file, Jev is asked about the code before the change (its unchanged and removed lines) and after it (its unchanged and added lines), each as plain text without `+`/`-` markers, in two calls. An ADR that clears the threshold on either side is kept, so removing code a rule requires is still caught. A side that doesn't exist, such as the before side of a new file, isn't sent.
-- **The API key** is read from the `ARCHGUARD_JEV_API_KEY` environment variable, never from `archguard.yaml`; the `jev` block takes only `model`. It is required only when a node uses Jev, and a missing key stops `archguard check` at startup with exit code 3. `archguard index` doesn't need it.
+- **File content goes to the server.** With hosted Jev, that is TypeSafe. The model receives what the LLM would judge. When that is a diff, under `--since` or for an oversized file, it is asked about the code before the change (its unchanged and removed lines) and after it (its unchanged and added lines), each as plain text without `+`/`-` markers, in two calls. An ADR that clears the threshold on either side is kept, so removing code a rule requires is still caught. A side that doesn't exist, such as the before side of a new file, isn't sent.
+- **The API key** is read from the `ARCHGUARD_SYSTEM_ONE_API_KEY` environment variable, never from `archguard.yaml`. A node whose server is the key's origin (below) needs it, so with hosted Jev a missing key stops `archguard check` at startup with exit code 3; any other server, such as a local Kev with no key, runs without it. `archguard index` doesn't read it.
+- **The key goes to one server only:** hosted Jev's origin, `https://api.typesafe.ai`, unless `ARCHGUARD_SYSTEM_ONE_KEY_ORIGIN` names another origin, such as `http://127.0.0.1:8009` for a Kev started with `KEV_API_KEY`. An origin is a scheme, host and port together, so a node whose `base_url` has a different one sends no key. The origin comes from the environment, never from `archguard.yaml` or a `.env` file, so a pull request that edits the config or adds a `.env` can't send a CI secret somewhere else. A `.env` that sets it gets a warning and is ignored for that variable. `ARCHGUARD_SYSTEM_ONE_KEY_ORIGIN` must be an `http` or `https` origin with no path, and a key set for a plain-`http` origin that isn't this machine (`localhost`, `127.0.0.0/8` or `::1`) stops `archguard check` at startup with exit code 3.
 - **ADRs without rules pass through a `for_each: rule` node unchanged,** and never count against its `top_k`. `--debug` lists them as `Kept: <title> (not scored by this node)`.
-- **A rejected API key** (`401` or `403`) is not treated as an outage. Whatever `on_error` says (unset, `skip` or `fail`), the first rejection stops the whole check with exit code 3 and one message naming `ARCHGUARD_JEV_API_KEY`, so a revoked key shows up in the exit code instead of as silent LLM-for-all spend.
-- **`--dry-run` still calls Jev.** The node runs before the judgments it screens, so file content is sent to Jev and billed (about $0.0003 per call, so two calls per file under `--since`); only the LLM judgments are counted instead of sent.
-- **When Jev fails** (an error response, a timeout, or a file over Jev's size limit), `on_error: skip`, the default after a `rank` node, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure.
-- **Jev's size limits,** measured on 2026-11-05 with `jev-latest`, may change with the model: the file text (each side, for a diff) can be about 32k tokens, and the questions (every rule of every candidate ADR, with its examples) have a separate budget that took 200k characters but not 600k. 1280 questions in one call passed. Every question is sent in one call per side, so a large rule set isn't split across calls. Over a limit, the warning or failure is printed under the file's name and says the file or its rules (or, with `for_each: adr`, its candidate ADRs) are over the model's input limit, because Jev's error doesn't say which. A skipped `ask` node isn't listed in the report or `--format json`; only the printed warning names the file.
-- **Write rules Jev can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
+- **A redirect is a failure** that names where it pointed. The server's answer must come from its own `base_url`, so the key never follows a redirect to another server; set `base_url` to the URL it redirects to.
+- **A rejected API key** (`401` or `403`) is not treated as an outage. Whatever `on_error` says (unset, `skip` or `fail`), the first rejection stops the whole check with exit code 3 and one message naming the node and its `base_url`, so a revoked key shows up in the exit code instead of as silent LLM-for-all spend. When the key went to that server, the message says `ARCHGUARD_SYSTEM_ONE_API_KEY` was rejected; when it didn't, it says the server needs a key and which origin the key is sent to.
+- **`--dry-run` still asks.** The node runs before the judgments it screens, so file content is sent to the server, and hosted Jev bills it (about $0.0003 per call, so two calls per file under `--since`); only the LLM judgments are counted instead of sent.
+- **When the server fails** (an error response, a refused connection, a timeout, or a file over the model's size limit), `on_error: skip`, the default after a `rank` node, prints a warning and passes every candidate on to the LLM, so the check costs more but misses nothing. `on_error: fail` fails the check (see below); a file over the size limit is `precondition_not_met`, any other failure `unavailable`. A rate-limited (`429`) or overloaded (`529`) response is retried with backoff before it counts as a failure, unless the server asks to wait longer than `timeout`.
+- **Hosted Jev's size limits,** measured on 2026-11-05 with `jev-latest`, may change with the model: the file text (each side, for a diff) can be about 32k tokens, and the questions (every rule of every candidate ADR, with its examples) have a separate budget that took 200k characters but not 600k. 1280 questions in one call passed. Every question is sent in one call per side, so a large rule set isn't split across calls. Over a limit, the warning or failure is printed under the file's name and says the file or its rules (or, with `for_each: adr`, its candidate ADRs) are over the model's input limit, because the server's error doesn't say which. A skipped `ask` node isn't listed in the report or `--format json`; only the printed warning names the file.
+- **Write rules the model can check literally.** A rule naming one concrete condition (`Code MUST NOT print to stdout`) screens well; one that names files or packages that later move, or bundles several conditions, scores poorly on compliant and violating code alike.
 
 #### A second LLM
 
@@ -309,7 +339,7 @@ Here the judge runs on Claude with Claude's default temperature, since a node on
 - **The keys** are those of the `llm` block, except that a `suggest` node can't set `system_prompt`: suggestions are written with ArchGuard's own prompt. An empty `provider`, another provider without a `model`, one price without the other, an unknown key, or an `llm` that isn't a mapping, stops `archguard check` at startup with exit code 3 and a message naming the node. A `rank` or `ask` node can't take one. `archguard index` doesn't read node `llm` blocks.
 - **The `suggest` node** writes the suggestions under `--suggest-fixes` and does nothing without it, though its provider is still checked at startup. With no `suggest` node, the judge's LLM writes them. It comes right after the judge, and a pipeline has at most one.
 - **The API key.** A node on the same provider as `llm.provider` uses `ARCHGUARD_API_KEY`. A node on another provider reads `ARCHGUARD_<PROVIDER>_API_KEY`, such as `ARCHGUARD_CLAUDE_API_KEY`, and never falls back to `ARCHGUARD_API_KEY`, so one provider's key is never sent to another. A missing key prints a warning, as it does for `llm`.
-- **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt. An `ask` node reads what the judge reads, so a file over Jev's own limit is a Jev failure, and the node's `on_error` decides what follows: under `skip`, the default after a `rank` node, it passes its candidates on with a warning; under `fail`, always the case for a first node, it fails the file.
+- **The judge's LLM sets the sizing.** Its `max_tokens` and tokenizer decide whether a file is judged whole, as a diff or truncated, and `--dry-run` counts with them. Its `system_prompt` is the judge's system prompt. An `ask` node reads what the judge reads, so a file over the System One model's own limit is a failure of that node, and the node's `on_error` decides what follows: under `skip`, the default after a `rank` node, it passes its candidates on with a warning; under `fail`, always the case for a first node, it fails the file.
 - **A suggestion that is too big.** When the judged content is over the suggest step's `max_tokens`, the suggestion gets the file's diff if it has one that fits. Otherwise there is no suggestion for that violation, and a warning names the file.
 - **Prices.** Judgments are priced with the judge's `cost_per_1k_input_tokens` and `cost_per_1k_output_tokens`, and suggestions with the suggest step's (see [Token Usage and Cost](#token-usage-and-cost)). A node's block sets both prices or neither. One that sets neither takes `llm`'s on `llm.provider` and has none on another provider.
 - **Embeddings** still use `llm` and `vector_store`; a node's `llm` block never changes them.
@@ -339,7 +369,7 @@ Under `fail`, a failed node stops that file's remaining nodes, other files still
 | `unavailable` | A dependency did not respond, such as the embedding provider | `6` |
 | `precondition_not_met` | The node could not run at all, such as no embedding provider being configured | `7` |
 
-A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. An `ask` node under `skip` passes the file's candidates on instead of skipping the file, and a first `ask` node defaults to `fail` (see [Screening with Jev](#screening-with-jev)). The `judge` and `suggest` nodes take no `on_error`. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
+A run with both kinds exits `7`. `on_error: skip` behaves exactly like leaving it unset. An `ask` node under `skip` passes the file's candidates on instead of skipping the file, and a first `ask` node defaults to `fail` (see [Asking System One models](#asking-system-one-models)). The `judge` and `suggest` nodes take no `on_error`. With `--update-baseline`, a `fail` failure exits `6` or `7`, and a run left with no ADR check exits `8`, without writing the baseline. Under `--format json` the failures are listed in a `failures` array (see [Machine-Readable Output](#machine-readable-output)).
 
 ### ADR Format
 
@@ -394,7 +424,7 @@ scope:
 
 #### Screening Rules
 
-An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers, which an [`ask` node](#screening-with-jev) uses to decide which ADRs reach the LLM; without one, rules don't change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
+An ADR can state, as short rules, exactly what violating code looks like. ArchGuard loads and indexes these rules for violation-screening scorers, which an [`ask` node](#asking-system-one-models) uses to decide which ADRs reach the LLM; without one, rules don't change which ADRs `check` judges or what it reports. The usual place is a `## Rules` section in the body, where each bullet is one rule:
 
 ```markdown
 ## Rules
@@ -542,7 +572,7 @@ Anything the run could not check in full is listed with its reason, and counted 
 - **Failed ADR checks**: the file was checked against its other ADRs, but this ADR's verdict is missing, usually because the LLM request failed.
 - **Failed nodes**: a node with `on_error: fail` failed (see [When a node fails](#when-a-node-fails)).
 
-The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Files whose candidates an [`ask` node](#screening-with-jev) dropped are counted apart, as `1 because the breaks-a-rule node dropped every candidate`, since that is not an embedding threshold problem. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold, or which node dropped every candidate, when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
+The coverage line tells a clean run from one that checked nothing. A file is **judged** when at least one ADR check returned a verdict for it, and **ADR checks** counts those verdicts, cached ones included. A file has **no relevant ADR** when it was read in full and no ADR was left for it: none matched its `scope`, or every match scored below the threshold. When some of those files had candidates that all scored below the threshold, the line says how many, for example `5 file(s) had no relevant ADR, 4 of them because every candidate scored below the threshold.` That usually means the threshold is too high for your embedding model (see [Choosing `similarity_threshold`](#choosing-similarity_threshold)). Files whose candidates an [`ask` node](#asking-system-one-models) dropped are counted apart, as `1 because the breaks-a-rule node dropped every candidate`, since that is not an embedding threshold problem. Skipped and partly checked files are in the lists above and are not counted as judged; a partly checked file's verdicts still count as ADR checks, so a run can show more ADR checks than judged files. When no file was judged, a run with no violations says `No new architectural violations found, but no file was checked against an ADR.`, and adds that every candidate scored below the threshold, or which node dropped every candidate, when that is why. The exit code is the same either way, unless errors left the run with no ADR check, which exits `8`.
 
 The log on stderr names each violation on one line, with or without `--debug`:
 
@@ -588,6 +618,7 @@ Tokens: judgment 48210 input, 1630 output (estimated cost 0.169080); embeddings 
 
 - **judgment** is the chat calls that judged a file against an ADR, retries included. A cached verdict makes no call and adds nothing.
 - **suggestions** appears with `--suggest-fixes` and counts the remediation calls separately. A cached suggestion adds nothing.
+- **asking** appears when the pipeline has an `ask` node and counts the tokens the System One server reported, under `--dry-run` too, since the node still asks. System One models have no price setting, so it has no estimated cost.
 - **embeddings** counts the embedding calls: one per file scored, plus any index rebuild the run triggered. `vector_store.provider` can differ from `llm.provider`, so it is reported on its own.
 
 Calls that only count tokens to fit a large file into `llm.max_tokens` are not included. A figure is `unavailable`, never `0`, when the provider did not report it: Gemini's and Ollama's embedding endpoints never do, and an OpenAI-compatible server may leave it out. One unreported call makes its whole figure unavailable.
@@ -645,7 +676,7 @@ With `--suggest-fixes` too, the cost of suggestions is not projected, since a dr
 
 When a node with `on_error: fail` fails, the document also carries a `failures` array, each entry with the `node`, the `file`, the `kind` (`unavailable` or `precondition_not_met`) and the underlying `error`; the array is omitted when nothing failed. The error text itself goes to stderr. The document has no field for skipped files or failed ADR checks, so a run that had any prints a one-line warning to stderr.
 
-`usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`, and never under `--dry-run`. Under `--dry-run`, `judgment.output_tokens` is `null`, `judgment.estimated_cost` prices the input alone, and the document also carries `"dry_run": { "judgment_calls": 12, "cached": 3 }`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
+`usage` holds the same figures as the text report's token line (see [Token Usage and Cost](#token-usage-and-cost)). `suggestion` is present only with `--suggest-fixes`, and never under `--dry-run`. `asking` is present only when the pipeline has an `ask` node, and its `estimated_cost` is always `null`. Under `--dry-run`, `judgment.output_tokens` is `null`, `judgment.estimated_cost` prices the input alone, and the document also carries `"dry_run": { "judgment_calls": 12, "cached": 3 }`. A count the provider did not report is `null`, and so is `estimated_cost` when no price is set or there is no count to price.
 
 `usage` also says where the calls and time went, which the text report does not show:
 

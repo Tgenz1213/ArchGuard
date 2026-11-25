@@ -40,13 +40,13 @@ var (
 	onErrorModes  = []string{OnErrorSkip, OnErrorFail}
 	runnersForJob = map[string][]string{
 		JobRank:    {RunnerCosine},
-		JobAsk:     {RunnerJev},
+		JobAsk:     {RunnerSystemOne},
 		JobJudge:   {RunnerLLM},
 		JobSuggest: {RunnerLLM},
 	}
 	keysForJob = map[string][]string{
 		JobRank:    {"name", "job", "with", "threshold", "top_k", "on_error"},
-		JobAsk:     {"name", "job", "with", "model", "preset", "type", "for_each", "instructions", "keep", "on_error"},
+		JobAsk:     {"name", "job", "with", "base_url", "model", "timeout", "preset", "type", "for_each", "instructions", "keep", "on_error"},
 		JobJudge:   {"name", "job", "with", "llm"},
 		JobSuggest: {"name", "job", "with", "llm"},
 	}
@@ -55,10 +55,10 @@ var (
 )
 
 type nodeSource struct {
-	cfg      *Config
-	jev      jevSettings
-	position int
-	raw      *yaml.Node
+	cfg       *Config
+	systemOne systemOneSettings
+	position  int
+	raw       *yaml.Node
 }
 
 func parseNode(src nodeSource) (Node, error) {
@@ -84,6 +84,10 @@ func parseNode(src nodeSource) (Node, error) {
 		return Node{}, err
 	}
 
+	if err := checkRetiredRunner(prefix, node.Job, fields); err != nil {
+		return Node{}, err
+	}
+
 	if node.With, err = decodeChoice(prefix, "with", fields, runnersForJob[node.Job]); err != nil {
 		return Node{}, err
 	}
@@ -96,7 +100,7 @@ func parseNode(src nodeSource) (Node, error) {
 	case JobRank:
 		err = node.decodeRank(prefix, fields, src.cfg)
 	case JobAsk:
-		err = node.decodeAsk(prefix, fields, src.jev, src.position == 1)
+		err = node.decodeAsk(prefix, fields, src.systemOne, src.position == 1)
 	case JobJudge, JobSuggest:
 		err = node.decodeLLM(prefix, fields, src.cfg)
 	}
@@ -120,6 +124,19 @@ func decodeName(prefix string, fields map[string]yaml.Node) (string, error) {
 	}
 
 	return name, nil
+}
+
+func checkRetiredRunner(prefix, job string, fields map[string]yaml.Node) error {
+	value, ok := fields["with"]
+	if !ok || job != JobAsk {
+		return nil
+	}
+
+	if with, err := decodeString(prefix, "with", &value); err == nil && with == retiredRunnerJev {
+		return fmt.Errorf("%s.with: jev is now system-one; write with: %s (%s)", prefix, RunnerSystemOne, systemOneReadme)
+	}
+
+	return nil
 }
 
 func decodeChoice(prefix, key string, fields map[string]yaml.Node, allowed []string) (string, error) {
@@ -189,15 +206,13 @@ func (n *Node) decodeOnErrorField(prefix string, fields map[string]yaml.Node) er
 	return err
 }
 
-func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, jev jevSettings, first bool) error {
-	n.Model = jev.model
-
-	if value, ok := fields["model"]; ok {
-		var err error
-		if n.Model, err = decodeString(prefix, "model", &value); err != nil {
-			return err
-		}
+func (n *Node) decodeAsk(prefix string, fields map[string]yaml.Node, systemOne systemOneSettings, first bool) error {
+	settings, err := systemOne.override(prefix, fields)
+	if err != nil {
+		return err
 	}
+
+	n.BaseURL, n.Model, n.Timeout = settings.baseURL, settings.model, settings.timeout
 
 	if err := n.decodeQuestion(prefix, fields); err != nil {
 		return err

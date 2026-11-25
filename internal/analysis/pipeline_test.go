@@ -481,8 +481,10 @@ func TestPipeline_CandidateLoadFailureSkipsTheFileInsteadOfPassingIt(t *testing.
 
 type askerFunc func(state string, questions map[string]string) (map[string]float64, error)
 
-func (f askerFunc) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
-	return f(state, questions)
+func (f askerFunc) Ask(_ context.Context, state string, questions map[string]string) (inference.AskReply, error) {
+	answers, err := f(state, questions)
+
+	return inference.AskReply{Answers: answers}, err
 }
 
 func ruledADR(id, statement string) index.ADR {
@@ -529,11 +531,11 @@ func runAsk(t *testing.T, run askRun, asker inference.Asker) (*scorerHarness, st
 
 	nodes := []config.Node{
 		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
-		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
+		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerSystemOne, Threshold: 0.3, OnError: onError, Question: config.Question{Instructions: config.BreaksARuleInstructions}},
 	}
 
 	if run.forEachADR {
-		nodes[1] = config.Node{Name: "governs", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.5, TopK: 3, OnError: onError, Question: config.Question{ForEach: config.ForEachADR, Instructions: config.GovernsInstructions}}
+		nodes[1] = config.Node{Name: "governs", Job: config.JobAsk, With: config.RunnerSystemOne, Threshold: 0.5, TopK: 3, OnError: onError, Question: config.Question{ForEach: config.ForEachADR, Instructions: config.GovernsInstructions}}
 	}
 
 	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})
@@ -583,7 +585,7 @@ func TestPipeline_AnADRAskFollowsOnErrorForAFileTooLargeForJev(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			asker := askerFunc(func(string, map[string]string) (map[string]float64, error) {
-				return nil, &inference.JevError{Status: 400, ErrorType: "max_tokens_exceeded"}
+				return nil, &inference.SystemOneError{Status: 400, ErrorType: "max_tokens_exceeded"}
 			})
 
 			h, _ := runAsk(t, askRun{content: "package svc\n", noDiff: true, forEachADR: true, onError: tt.onError}, asker)
@@ -778,7 +780,7 @@ func TestPipeline_AskReadsBothSidesOfALargeFilesDiff(t *testing.T) {
 
 	nodes := []config.Node{
 		{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 3, OnError: config.OnErrorSkip},
-		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.3, OnError: config.OnErrorSkip},
+		{Name: "breaks-a-rule", Job: config.JobAsk, With: config.RunnerSystemOne, Threshold: 0.3, OnError: config.OnErrorSkip},
 	}
 	asker := askerBreaking("fmt.Println", &states)
 	h.engine.Nodes = analysis.BuildPipeline(nodes, h.engine.Store, h.engine.Embed, fixedAskers{asker: asker})

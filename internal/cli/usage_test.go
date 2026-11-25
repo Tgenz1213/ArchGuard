@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"math"
 	"slices"
 	"testing"
@@ -41,7 +42,7 @@ func TestUsageReport_Report(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage := usageReport(tt.cfg, roleLLMs{judge: tt.cfg.LLM, suggest: tt.cfg.LLM}, false, tallyOf(tt.chat, tt.chat))
+			usage := usageReport(tt.cfg, roleLLMs{judge: tt.cfg.LLM, suggest: tt.cfg.LLM}, false, false, tallyOf(tt.chat, tt.chat))
 
 			assertChatUsage(t, usage.Judgment, tt.wantTokens, tt.chat)
 			assertCost(t, "judgment", usage.Judgment.Cost, tt.wantChatCost)
@@ -96,7 +97,7 @@ func TestUsageReport_Counts(t *testing.T) {
 	tally.Record(telemetry.FileChecked{File: "fast.go", Spent: 10 * time.Millisecond})
 	tally.Record(telemetry.FileChecked{File: "slow.go", Spent: 900 * time.Millisecond})
 
-	usage := usageReport(&config.Config{}, roleLLMs{}, true, tally)
+	usage := usageReport(&config.Config{}, roleLLMs{}, true, false, tally)
 
 	wantJudgment := output.ChatCounts{CacheHits: 1, CacheMisses: 1, Retries: 3}
 	if usage.Judgment.Calls != 1 || usage.Judgment.ChatCounts != wantJudgment {
@@ -118,8 +119,28 @@ func TestUsageReport_Counts(t *testing.T) {
 	}
 }
 
+func TestUsageReport_AskingAppearsOnlyWithAnAskNode(t *testing.T) {
+	tally := &telemetry.Tally{}
+	tally.Record(telemetry.RequestSent{Role: telemetry.Asking, Usage: inference.Usage{InputTokens: 40, OutputTokens: 2, Reported: true}})
+	tally.Record(telemetry.RequestSent{Role: telemetry.Asking, Err: errors.New("down")})
+
+	for _, usage := range []*output.Usage{
+		usageReport(&config.Config{}, roleLLMs{}, false, true, tally),
+		dryRunUsage(&config.Config{}, config.LLMConfig{}, true, tally, inference.Usage{}),
+	} {
+		asking := usage.Asking
+		if asking == nil || asking.Calls != 2 || *asking.InputTokens != 40 || *asking.OutputTokens != 2 || asking.Cost != nil {
+			t.Errorf("asking = %+v, want two calls, one call's tokens and no cost", asking)
+		}
+	}
+
+	if usage := usageReport(&config.Config{}, roleLLMs{}, false, false, tally); usage.Asking != nil {
+		t.Errorf("asking = %+v, want none without an ask node", usage.Asking)
+	}
+}
+
 func TestUsageReport_ListsNoFilesAsEmpty(t *testing.T) {
-	usage := usageReport(&config.Config{}, roleLLMs{}, false, &telemetry.Tally{})
+	usage := usageReport(&config.Config{}, roleLLMs{}, false, false, &telemetry.Tally{})
 
 	if usage.Files == nil {
 		t.Error("files is nil, want an empty list so the JSON has [] and not null")

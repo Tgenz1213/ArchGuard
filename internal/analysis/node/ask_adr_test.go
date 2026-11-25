@@ -20,12 +20,12 @@ type stateAsker struct {
 	asked  []map[string]string
 }
 
-func (s *stateAsker) Ask(_ context.Context, state string, questions map[string]string) (map[string]float64, error) {
+func (s *stateAsker) Ask(_ context.Context, state string, questions map[string]string) (inference.AskReply, error) {
 	s.states = append(s.states, state)
 	s.asked = append(s.asked, questions)
 
 	if s.err != nil {
-		return nil, s.err
+		return inference.AskReply{}, s.err
 	}
 
 	answers := make(map[string]float64, len(questions))
@@ -33,7 +33,7 @@ func (s *stateAsker) Ask(_ context.Context, state string, questions map[string]s
 		answers[name] = s.answer(state, question)
 	}
 
-	return answers, nil
+	return inference.AskReply{Answers: answers}, nil
 }
 
 func contentCandidate(id, content string) node.Candidate {
@@ -148,7 +148,7 @@ func TestADRAsk_AMissingAnswerIsAnError(t *testing.T) {
 
 type askerWithout string
 
-func (a askerWithout) Ask(_ context.Context, _ string, questions map[string]string) (map[string]float64, error) {
+func (a askerWithout) Ask(_ context.Context, _ string, questions map[string]string) (inference.AskReply, error) {
 	answers := make(map[string]float64, len(questions))
 	for name := range questions {
 		if name != string(a) {
@@ -156,12 +156,12 @@ func (a askerWithout) Ask(_ context.Context, _ string, questions map[string]stri
 		}
 	}
 
-	return answers, nil
+	return inference.AskReply{Answers: answers}, nil
 }
 
 func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
-	tooLarge := &inference.JevError{Status: 400, ErrorType: "max_tokens_exceeded"}
-	rejected := &inference.JevError{Status: 401}
+	tooLarge := &inference.SystemOneError{Status: 400, ErrorType: "max_tokens_exceeded"}
+	rejected := &inference.SystemOneError{Status: 401}
 
 	_, err := (&node.ADRAsk{Asker: &stateAsker{err: tooLarge}, Instructions: config.GovernsInstructions}).Score(t.Context(), fakeFile{text: "code"}, node.NoDebug, []node.Candidate{contentCandidate("a", "a")})
 
@@ -178,7 +178,7 @@ func TestADRAsk_ErrorsKeepTheirMeaning(t *testing.T) {
 }
 
 func TestAskNodes_AFileTooLargeForJevFollowsOnError(t *testing.T) {
-	tooLarge := &inference.JevError{Status: 400, ErrorType: "max_tokens_exceeded"}
+	tooLarge := &inference.SystemOneError{Status: 400, ErrorType: "max_tokens_exceeded"}
 	candidates := []node.Candidate{ruledCandidate("a", "no globals"), ruledCandidate("b", "no prints")}
 
 	for _, n := range []node.Node{node.NewAskNode(&stateAsker{err: tooLarge}, "", 0.3, 0), node.NewADRAskNode(&stateAsker{err: tooLarge}, "", 0.5, 1)} {

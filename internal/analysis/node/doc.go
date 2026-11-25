@@ -10,13 +10,13 @@ and each sees only what the one before it kept.
 It never finds violations; package analysis asks the model about the
 candidates that survive, and a screening node only decides which of them it
 asks about. Package config parses the pipeline settings, and package inference
-talks to Jev.
+talks to the System One server.
 
 Terms:
 
   - Rank node: run by cosine. It scores each candidate by how similar its
     embedding is to the file's.
-  - Ask node: run by Jev. Asking per rule, it screens candidates by asking a
+  - Ask node: run by a System One model, such as Jev or Kev. Asking per rule, it screens candidates by asking a
     question about each of their rules and scores an ADR by its
     likeliest-broken rule. Asking per ADR, it asks one question about each
     candidate, with the candidate's text in the question, and scores the ADR

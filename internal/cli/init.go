@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/tgenz1213/archguard/internal/atomicfile"
+	"github.com/tgenz1213/archguard/internal/config"
 )
 
 type prompter struct{ scanner *bufio.Scanner }
@@ -72,7 +74,7 @@ func (p prompter) addDefaultPipeline(configPath string, existing []byte) error {
 	printRemoved(splice.removed)
 
 	if splice.hadPreJudge {
-		fmt.Println("The pre_judge screen was removed. To screen with Jev again, add an ask node (see \"Screening with Jev\" in the README).")
+		fmt.Println("The pre_judge screen was removed. To screen with Jev again, add an ask node (see \"Asking System One models\" in the README).")
 	}
 
 	return nil
@@ -260,7 +262,24 @@ analysis:
     #   with: llm
     #   llm: # Optional, also on the judge: on llm.provider only the keys that differ; on another, provider and model at least (see README)
     #     model: "<model>"
-`, adrPath, strings.Join(defaultPipelineLines(defaultIndent, defaultIndent), "\n")+"\n")
+`, adrPath, strings.Join(withAskExample(defaultPipelineLines(defaultIndent, defaultIndent)), "\n")+"\n")
+}
+
+var askExample = []string{
+	"    # - name: breaks-a-rule # Asks a System One model which rules the file may break, so the LLM judges fewer (README: Asking System One models)",
+	"    #   job: ask",
+	"    #   with: system-one",
+	"    #   preset: breaks-a-rule",
+	"    #   base_url: \"" + config.DefaultSystemOneBaseURL + "\" # Optional: hosted Jev, which needs " + config.SystemOneAPIKeyEnv + "; a local Kev is http://127.0.0.1:8009",
+	"    #   model: \"" + config.DefaultSystemOneModel + "\" # Optional: Kev ignores it",
+	"    #   timeout: 60s # Optional: raise it for Kev on a laptop",
+	"",
+}
+
+func withAskExample(pipeline []string) []string {
+	judge := slices.IndexFunc(pipeline, func(line string) bool { return strings.HasSuffix(line, "- name: judge") })
+
+	return slices.Insert(slices.Clone(pipeline), judge, askExample...)
 }
 
 func ensureGitignore() (err error) {

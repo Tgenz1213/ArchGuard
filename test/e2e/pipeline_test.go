@@ -295,7 +295,7 @@ func TestE2E_PipelineConfig_InvalidExitsWithConfigError(t *testing.T) {
 		{"retired mapping", "  pipeline:\n    rank:\n      top_k: 2\n", "archguard init"},
 		{"unknown runner", pipelineOf("    - name: rank\n      job: rank\n      with: bm25\n"), `node "rank".with`},
 		{"no judge", "  pipeline:\n" + rankNodeYAML("rank", ""), "exactly one judge"},
-		{"ask first", "  pipeline:\n    - name: screen\n      job: ask\n      with: jev\n      preset: breaks-a-rule\n" + judgeNodeYAML, `"screen", must be a rank node`},
+		{"ask first", "  pipeline:\n    - name: screen\n      job: ask\n      with: system-one\n      preset: breaks-a-rule\n" + judgeNodeYAML, `"screen", must be a rank node`},
 		{"out-of-range threshold", pipelineOf(rankNodeYAML("rank", "      threshold: 2\n")), `node "rank".threshold`},
 		{"non-positive top_k", pipelineOf(rankNodeYAML("rank", "      top_k: 0\n")), `node "rank".top_k`},
 		{"unknown on_error", pipelineOf(rankNodeYAML("rank", "      on_error: warn\n")), `node "rank".on_error`},

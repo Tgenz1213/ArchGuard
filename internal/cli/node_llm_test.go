@@ -231,7 +231,7 @@ func TestUsageReport_PricesEachRoleWithItsLLM(t *testing.T) {
 		suggest: config.LLMConfig{CostPer1KInputTokens: new(0.001), CostPer1KOutputTokens: new(0.002)},
 	}
 
-	usage := usageReport(cfg, llms, true, tally)
+	usage := usageReport(cfg, llms, true, false, tally)
 
 	assertCost(t, "judgment", usage.Judgment.Cost, 0.0135)
 	assertCost(t, "suggestion", usage.Suggestion.Cost, 0.003)
@@ -241,7 +241,7 @@ func TestDryRunUsage_PricesWithTheJudgeLLM(t *testing.T) {
 	cfg := &config.Config{LLM: config.LLMConfig{CostPer1KInputTokens: new(1.0)}}
 	judge := config.LLMConfig{CostPer1KInputTokens: new(0.003)}
 
-	usage := dryRunUsage(cfg, judge, &telemetry.Tally{}, inference.Usage{InputTokens: 2000, Reported: true})
+	usage := dryRunUsage(cfg, judge, false, &telemetry.Tally{}, inference.Usage{InputTokens: 2000, Reported: true})
 
 	assertCost(t, "judgment", usage.Judgment.Cost, 0.006)
 }

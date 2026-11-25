@@ -1,10 +1,11 @@
 /*
 Package inference talks to the model providers: Ollama, OpenAI, Gemini, Claude
-and Voyage, and to Jev, which answers yes/no questions about a text.
+and Voyage, and to System One servers, such as hosted Jev or a local Kev,
+which answer yes/no questions about a text.
 
 Chat, embedding and asking are separate roles. A provider implements only the
-roles its vendor offers, so Claude only chats, Voyage only embeds and Jev only
-asks, and code depends on the role it uses rather than on a provider. It also holds the
+roles its vendor offers, so Claude only chats, Voyage only embeds and a System
+One server only asks, and code depends on the role it uses rather than on a provider. It also holds the
 prompts that ask whether a file breaks an ADR and how to fix a violation, and
 parses the model's answers.
 

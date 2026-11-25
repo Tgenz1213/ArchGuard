@@ -37,6 +37,15 @@ func TestReportUsageLine(t *testing.T) {
 			want:  "Tokens: judgment 1200 input, output not projected (estimated cost 0.001200); embeddings 300.\n",
 		},
 		{
+			name: "asking shows tokens without a cost",
+			usage: &output.Usage{
+				Judgment:  output.ChatUsage{InputTokens: &judged, OutputTokens: &generated},
+				Asking:    &output.ChatUsage{InputTokens: &embedded, OutputTokens: &generated},
+				Embedding: output.EmbeddingUsage{Tokens: &embedded},
+			},
+			want: "Tokens: judgment 1200 input, 80 output; asking 300 input, 80 output; embeddings 300.\n",
+		},
+		{
 			name:  "unreported chat",
 			usage: &output.Usage{Embedding: output.EmbeddingUsage{Tokens: &embedded}},
 			want:  "Tokens: judgment unavailable; embeddings 300.\n",
