@@ -26,7 +26,7 @@ var errNothingChecked = errors.New("nothing was checked against an ADR because o
 type checkRun struct {
 	setup        runSetup
 	nodes        []config.Node
-	askers       analysis.Askers
+	askers       *systemOneAskers
 	opts         checkCmd
 	log          *output.Printer
 	report       *output.Printer
@@ -53,7 +53,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 		return ExitError, err
 	}
 
-	run.nodes, run.askers = nodes, askers
+	run.nodes, run.askers = nodes, askers.metered(run.recorder)
 
 	defer func() {
 		if werr := run.report.Err(); werr != nil && !opts.jsonOutput() && code != ExitInterrupted {
@@ -96,7 +96,7 @@ func runCheck(ctx context.Context, setup runSetup, opts checkCmd, colors streamC
 }
 
 // parsePipeline runs before the store or index loads, so a bad pipeline costs no database connection or rebuild.
-func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.Askers, error) {
+func parsePipeline(setup runSetup, configFlag string) ([]config.Node, *systemOneAskers, error) {
 	nodes, err := config.ParsePipeline(setup.cfg)
 	if errors.Is(err, config.ErrNeedsInit) && configFlag != "" {
 		return nil, nil, fmt.Errorf("%w\n\nFor this config, run `archguard init --config %s`", err, configFlag)
@@ -106,7 +106,7 @@ func parsePipeline(setup runSetup, configFlag string) ([]config.Node, analysis.A
 		return nil, nil, err
 	}
 
-	askers, err := newAskers(nodes, setup.jev)
+	askers, err := newAskers(nodes, setup.asker)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -258,7 +258,7 @@ func (r *checkRun) newEngine(store index.VectorStore, contentProvider analysis.C
 
 func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (ExitCode, error) {
 	if runErr != nil {
-		return exitCodeForAnalysisError(runErr), fmt.Errorf("analysis failed: %w", runErr)
+		return exitCodeForAnalysisError(runErr), r.analysisFailure(runErr)
 	}
 
 	if nodeCode, nodeErr := nodeFailureExit(engine.NodeFailures); nodeErr != nil {
@@ -282,6 +282,14 @@ func (r *checkRun) finishUpdateBaseline(engine *analysis.Engine, runErr error) (
 	return ExitSuccess, nil
 }
 
+func (r *checkRun) analysisFailure(runErr error) error {
+	if rejected, ok := asKeyRejected(runErr); ok {
+		return r.askers.rejectedKeyError(rejected)
+	}
+
+	return fmt.Errorf("analysis failed: %w", runErr)
+}
+
 func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode, error) {
 	nodeCode, nodeErr := nodeFailureExit(engine.NodeFailures)
 
@@ -293,7 +301,7 @@ func (r *checkRun) finishCheck(engine *analysis.Engine, runErr error) (ExitCode,
 
 	var analysisErr error
 	if runErr != nil {
-		analysisErr = fmt.Errorf("analysis failed: %w", runErr)
+		analysisErr = r.analysisFailure(runErr)
 	}
 
 	if err := r.writeReport(engine, runErr); err != nil {
@@ -372,10 +380,10 @@ func (r *checkRun) warnJSONGaps(engine *analysis.Engine) {
 
 func (r *checkRun) usage(engine *analysis.Engine) *output.Usage {
 	if r.opts.DryRun {
-		return dryRunUsage(r.setup.cfg, r.setup.judgeLLM, r.tally, engine.Projection.Usage)
+		return dryRunUsage(r.setup.cfg, r.setup.judgeLLM, r.askers.asks(), r.tally, engine.Projection.Usage)
 	}
 
-	return usageReport(r.setup.cfg, roleLLMs{judge: r.setup.judgeLLM, suggest: r.setup.suggestLLM}, r.opts.SuggestFixes, r.tally)
+	return usageReport(r.setup.cfg, roleLLMs{judge: r.setup.judgeLLM, suggest: r.setup.suggestLLM}, r.opts.SuggestFixes, r.askers.asks(), r.tally)
 }
 
 func (r *checkRun) saveReportFile() error {

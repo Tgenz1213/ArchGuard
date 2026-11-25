@@ -76,13 +76,13 @@ func askEachSide(ctx context.Context, asker inference.Asker, sides []string, que
 			return nil, err
 		}
 
-		answers, err := asker.Ask(ctx, side, questions)
+		reply, err := asker.Ask(ctx, side, questions)
 		if err != nil {
 			return nil, askError(err, alongside)
 		}
 
 		for name := range questions {
-			probability, ok := answers[name]
+			probability, ok := reply.Answers[name]
 			if !ok {
 				return nil, &Error{Action: askAction, Err: fmt.Errorf("no answer for question %s", name)}
 			}

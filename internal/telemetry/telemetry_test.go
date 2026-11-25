@@ -75,6 +75,46 @@ func TestEmbedder_RecordsEveryRequestAsAnEmbedding(t *testing.T) {
 	}
 }
 
+type askerFunc func() (inference.AskReply, error)
+
+func (f askerFunc) Ask(context.Context, string, map[string]string) (inference.AskReply, error) {
+	return f()
+}
+
+func TestAsker_RecordsEveryRequestAsAsking(t *testing.T) {
+	down := errors.New("down")
+	usage := inference.Usage{InputTokens: 30, OutputTokens: 1, Reported: true}
+	replies := []error{nil, down}
+	recorded := &events{}
+	asker := telemetry.NewAsker(askerFunc(func() (inference.AskReply, error) {
+		err := replies[0]
+		replies = replies[1:]
+
+		if err != nil {
+			return inference.AskReply{}, err
+		}
+
+		return inference.AskReply{Answers: map[string]float64{"a": 0.5}, Usage: usage}, nil
+	}), recorded)
+
+	reply, err := asker.Ask(t.Context(), "code", map[string]string{"a": "q"})
+	if err != nil || reply.Answers["a"] != 0.5 {
+		t.Fatalf("Ask = %+v, %v; want the asker's reply", reply, err)
+	}
+
+	if _, err := asker.Ask(t.Context(), "code", map[string]string{"a": "q"}); !errors.Is(err, down) {
+		t.Fatalf("Ask() error = %v, want the asker's", err)
+	}
+
+	want := []telemetry.Event{
+		telemetry.RequestSent{Role: telemetry.Asking, Usage: usage},
+		telemetry.RequestSent{Role: telemetry.Asking, Err: down},
+	}
+	if !slices.Equal(recorded.log, want) {
+		t.Errorf("events = %+v, want %+v", recorded.log, want)
+	}
+}
+
 func TestFanout_SendsEveryEventToEachRecorder(t *testing.T) {
 	first, second := &events{}, &events{}
 	event := telemetry.FileChecked{File: "a.go", Spent: time.Second}

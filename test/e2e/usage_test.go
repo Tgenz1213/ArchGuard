@@ -27,6 +27,7 @@ type usageReport struct {
 	Usage struct {
 		Judgment   chatUsage  `json:"judgment"`
 		Suggestion *chatUsage `json:"suggestion"`
+		Asking     *chatUsage `json:"asking"`
 		Embedding  struct {
 			Tokens *int     `json:"tokens"`
 			Cost   *float64 `json:"estimated_cost"`

@@ -29,10 +29,11 @@ type EmbeddingUsage struct {
 	Calls  int      `json:"calls"`
 }
 
-// Suggestion is nil when suggestions were off. Files is ordered slowest first.
+// Suggestion is nil when suggestions were off, and Asking when the pipeline has no ask node. Files is ordered slowest first.
 type Usage struct {
 	Judgment   ChatUsage      `json:"judgment"`
 	Suggestion *ChatUsage     `json:"suggestion,omitempty"`
+	Asking     *ChatUsage     `json:"asking,omitempty"`
 	Embedding  EmbeddingUsage `json:"embedding"`
 	Files      []FileDuration `json:"files"`
 }
@@ -46,6 +47,10 @@ func (u Usage) line() string {
 	parts := []string{"judgment " + u.Judgment.describe()}
 	if u.Suggestion != nil {
 		parts = append(parts, "suggestions "+u.Suggestion.describe())
+	}
+
+	if u.Asking != nil {
+		parts = append(parts, "asking "+u.Asking.describe())
 	}
 
 	parts = append(parts, "embeddings "+u.Embedding.describe())

@@ -15,11 +15,11 @@ func ptr[T any](v T) *T { return &v }
 func buildPipeline(t *testing.T, settings ...config.Node) []node.Node {
 	t.Helper()
 
-	var models []string
+	var asked []string
 
-	nodes := analysis.BuildPipeline(settings, index.NewLocalStore(1), &inference.MockProvider{}, fixedAskers{models: &models})
-	if len(models) != countJob(settings, config.JobAsk) {
-		t.Errorf("built %d askers, want one per ask node", len(models))
+	nodes := analysis.BuildPipeline(settings, index.NewLocalStore(1), &inference.MockProvider{}, fixedAskers{nodes: &asked})
+	if len(asked) != countJob(settings, config.JobAsk) {
+		t.Errorf("built %d askers, want one per ask node", len(asked))
 	}
 
 	return nodes
@@ -83,7 +83,7 @@ func TestBuildPipeline_OneNodePerChoosingNodeInOrder(t *testing.T) {
 
 func TestBuildPipeline_AskNodeScreensWithItsInstructions(t *testing.T) {
 	ask := config.Node{
-		Name: "screen", Job: config.JobAsk, With: config.RunnerJev, Threshold: 0.4, TopK: 2, OnError: config.OnErrorFail, Model: "jev-2",
+		Name: "screen", Job: config.JobAsk, With: config.RunnerSystemOne, Threshold: 0.4, TopK: 2, OnError: config.OnErrorFail, Model: "jev-2",
 		Question: config.Question{Type: config.QuestionNoul, ForEach: config.ForEachRule, Instructions: "Broken? {rule}"},
 	}
 	nodes := buildPipeline(t, config.Node{Name: "shortlist", Job: config.JobRank, With: config.RunnerCosine, TopK: 5}, ask, judgeNode)

@@ -12,6 +12,7 @@ const (
 	Judgment   Role = "judgment"
 	Suggestion Role = "suggestion"
 	Embedding  Role = "embedding"
+	Asking     Role = "asking"
 )
 
 type Recorder interface {

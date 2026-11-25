@@ -4,30 +4,25 @@ package e2e
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tgenz1213/archguard/internal/cli"
 	"github.com/tgenz1213/archguard/internal/config"
-	"github.com/tgenz1213/archguard/internal/testutil"
 )
 
-const governsNodeYAML = "    - name: governs\n      job: ask\n      with: jev\n      preset: governs\n"
+const governsNodeYAML = "    - name: governs\n      job: ask\n      with: system-one\n      preset: governs\n"
 
 func runGoverns(t *testing.T, pipeline, fixture string) (stdout, stderr string, exitCode int) {
 	t.Helper()
 
+	mock := startMockSystemOne(t)
 	tempDir, binaryPath := buildE2EBinary(t)
-	writeE2EConfig(t, tempDir, pipelineConfigYAML(pipeline))
+	writeE2EConfig(t, tempDir, mock.configYAML(pipeline))
 	writeRuledADRs(t, tempDir)
+	writeFixture(t, tempDir, fixtureFilename, fixture)
 
-	if err := os.WriteFile(filepath.Join(tempDir, fixtureFilename), []byte(fixture), 0644); err != nil {
-		t.Fatalf("Failed to create fixture: %v", err)
-	}
-
-	return runCheckWithEnv(t, tempDir, binaryPath, []string{config.JevAPIKeyEnv + "=mock_key"}, "--format", "json", fixtureFilename)
+	return runCheckWithEnv(t, tempDir, binaryPath, mock.env(), "--format", "json", fixtureFilename)
 }
 
 func TestE2E_GovernsAsTheFirstNode(t *testing.T) {
@@ -51,7 +46,7 @@ func TestE2E_GovernsAsTheFirstNode(t *testing.T) {
 }
 
 func TestE2E_GovernsFailureOnTheFirstNodeFailsByDefault(t *testing.T) {
-	_, stderr, exitCode := runGoverns(t, "  pipeline:\n"+governsNodeYAML+judgeNodeYAML, violationFixtureContent()+"// "+testutil.MockJevFailureTrigger+"\n")
+	_, stderr, exitCode := runGoverns(t, "  pipeline:\n"+governsNodeYAML+judgeNodeYAML, violationFixtureContent()+"// "+mockAskFailureTrigger+"\n")
 	if exitCode != int(cli.ExitNodeUnavailable) {
 		t.Fatalf("exit code = %d, want %d: a first ask node can't pass every ADR on. stderr: %s", exitCode, cli.ExitNodeUnavailable, stderr)
 	}
@@ -65,12 +60,12 @@ func TestE2E_GovernsRejectedKeyIsAConfigError(t *testing.T) {
 
 	for name, pipeline := range pipelines {
 		t.Run(name, func(t *testing.T) {
-			_, stderr, exitCode := runGoverns(t, pipeline, violationFixtureContent()+"// "+testutil.MockJevRejectedKeyTrigger+"\n")
+			_, stderr, exitCode := runGoverns(t, pipeline, violationFixtureContent()+"// "+mockAskRejectedKeyTrigger+"\n")
 			if exitCode != int(cli.ExitConfig) {
 				t.Fatalf("exit code = %d, want %d. stderr: %s", exitCode, cli.ExitConfig, stderr)
 			}
 
-			if !strings.Contains(stderr, config.JevAPIKeyEnv+" was rejected") {
+			if !strings.Contains(stderr, config.SystemOneAPIKeyEnv+" was rejected") {
 				t.Errorf("stderr = %q, want the rejected key named", stderr)
 			}
 		})

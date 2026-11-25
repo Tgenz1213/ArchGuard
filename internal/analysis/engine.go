@@ -97,7 +97,7 @@ func newKeyRejectedError(nodeName string, err error) *KeyRejectedError {
 }
 
 func (e *KeyRejectedError) Error() string {
-	return fmt.Sprintf("%s was rejected by the %s node (%v); set a valid key and run the check again", config.JevAPIKeyEnv, e.Node, errors.Unwrap(e.Err))
+	return fmt.Sprintf("the %s node's server rejected its key (%v)", e.Node, errors.Unwrap(e.Err))
 }
 
 func (e *KeyRejectedError) Unwrap() error { return e.Err }

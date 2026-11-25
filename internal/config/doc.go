@@ -2,7 +2,7 @@
 Package config loads and validates archguard.yaml.
 
 It fills in defaults and rejects a malformed value with an error naming the
-key. LoadConfig keeps analysis.pipeline and the jev block raw, and
+key. LoadConfig keeps analysis.pipeline and the system_one block raw, and
 ParsePipeline validates them, so only check rejects a bad pipeline. Settings
 whose zero value means something are pointers, so an unset setting can take
 its default.

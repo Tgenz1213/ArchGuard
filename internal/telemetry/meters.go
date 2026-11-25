@@ -38,3 +38,19 @@ func (e *Embedder) CreateEmbedding(ctx context.Context, text string, task infere
 
 	return embedding, err
 }
+
+type Asker struct {
+	asker    inference.Asker
+	recorder Recorder
+}
+
+func NewAsker(asker inference.Asker, recorder Recorder) *Asker {
+	return &Asker{asker: asker, recorder: recorder}
+}
+
+func (a *Asker) Ask(ctx context.Context, state string, questions map[string]string) (inference.AskReply, error) {
+	reply, err := a.asker.Ask(ctx, state, questions)
+	a.recorder.Record(RequestSent{Role: Asking, Usage: reply.Usage, Err: err})
+
+	return reply, err
+}

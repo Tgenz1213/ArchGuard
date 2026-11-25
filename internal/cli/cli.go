@@ -44,7 +44,7 @@ const (
 type ProviderFactories struct {
 	Chat     func(*config.Config) inference.Provider
 	Embed    func(*config.Config) inference.Embedder
-	Jev      func(model string) inference.Asker
+	Asker    func(config.Node) inference.Asker
 	Recorder telemetry.Recorder
 }
 
@@ -193,7 +193,7 @@ func loadSetup(repoRoot, configPath string, warnings *output.Printer, factories 
 		chat:                chat,
 		chatFor:             chatFor,
 		embed:               embed,
-		jev:                 factories.Jev,
+		asker:               factories.Asker,
 		indexFile:           indexFile,
 		adrIDPattern:        adrIDPattern,
 		frontmatterMappings: frontmatterMappings,
@@ -209,7 +209,7 @@ type runSetup struct {
 	judgeLLM            config.LLMConfig
 	suggestLLM          config.LLMConfig
 	embed               inference.Embedder
-	jev                 func(model string) inference.Asker
+	asker               func(config.Node) inference.Asker
 	recorder            telemetry.Recorder
 	indexFile           string
 	adrIDPattern        *regexp.Regexp

@@ -15,6 +15,8 @@ type Config struct {
 	Analysis    Analysis    `yaml:"analysis"`
 	IndexFile   string      `yaml:"index_file"`
 	// Kept raw, like Analysis.Pipeline, so only ParsePipeline can reject it.
+	SystemOne yaml.Node `yaml:"system_one"`
+	// Read only so ParsePipeline can say the block was renamed to system_one.
 	Jev yaml.Node `yaml:"jev"`
 }
 

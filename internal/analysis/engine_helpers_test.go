@@ -47,24 +47,24 @@ func newEngine(t *testing.T, cfg *config.Config, store index.VectorStore, p prov
 	return engine
 }
 
-// unexpectedAsker fails a test whose pipeline asks Jev without giving the engine an asker.
+// unexpectedAsker fails a test whose pipeline asks a System One server without giving the engine an asker.
 type unexpectedAsker struct{ t *testing.T }
 
-func (u unexpectedAsker) Ask(context.Context, string, map[string]string) (map[string]float64, error) {
+func (u unexpectedAsker) Ask(context.Context, string, map[string]string) (inference.AskReply, error) {
 	u.t.Error("an ask node ran with no asker; build the nodes with one")
 
-	return nil, errors.New("no asker in this test")
+	return inference.AskReply{}, errors.New("no asker in this test")
 }
 
-// fixedAskers gives every ask node the same asker and records the models asked for.
+// fixedAskers gives every ask node the same asker and records the nodes asked for.
 type fixedAskers struct {
-	asker  inference.Asker
-	models *[]string
+	asker inference.Asker
+	nodes *[]string
 }
 
-func (f fixedAskers) ForModel(model string) inference.Asker {
-	if f.models != nil {
-		*f.models = append(*f.models, model)
+func (f fixedAskers) ForNode(n config.Node) inference.Asker {
+	if f.nodes != nil {
+		*f.nodes = append(*f.nodes, n.Name)
 	}
 
 	return f.asker

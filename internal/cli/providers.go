@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tgenz1213/archguard/internal/analysis"
 	"github.com/tgenz1213/archguard/internal/config"
 	"github.com/tgenz1213/archguard/internal/inference"
 	"github.com/tgenz1213/archguard/internal/output"
@@ -167,33 +166,4 @@ func nodeKeyEnv(cfg *config.Config, llm config.LLMConfig) string {
 	}
 
 	return "ARCHGUARD_" + strings.ToUpper(llm.Provider) + "_API_KEY"
-}
-
-// jevAskers builds a Jev client per model, or hands out the asker a test injected.
-type jevAskers struct {
-	apiKey   string
-	injected func(model string) inference.Asker
-}
-
-func (j jevAskers) ForModel(model string) inference.Asker {
-	if j.injected != nil {
-		return j.injected(model)
-	}
-
-	return inference.NewJevProvider(j.apiKey, model)
-}
-
-// newAskers returns nil unless a node asks Jev, which needs JevAPIKeyEnv set even when a test injects the asker.
-func newAskers(nodes []config.Node, injected func(model string) inference.Asker) (analysis.Askers, error) {
-	jevNode := slices.IndexFunc(nodes, func(n config.Node) bool { return n.With == config.RunnerJev })
-	if jevNode < 0 {
-		return nil, nil
-	}
-
-	apiKey := os.Getenv(config.JevAPIKeyEnv)
-	if apiKey == "" {
-		return nil, fmt.Errorf("analysis.pipeline node %q: runner jev needs the %s environment variable", nodes[jevNode].Name, config.JevAPIKeyEnv)
-	}
-
-	return jevAskers{apiKey: apiKey, injected: injected}, nil
 }

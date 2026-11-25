@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func loadFromYAML(t *testing.T, body string) (*Config, error) {
@@ -57,6 +58,7 @@ func TestLoadConfig_AcceptsAnyPipelineAndJevBlock(t *testing.T) {
 		{"scalar", "analysis:\n  pipeline: cosine\n"},
 		{"invalid node", "analysis:\n  pipeline:\n    - job: bake\n"},
 		{"invalid jev block", "jev: [1]\n"},
+		{"invalid system_one block", "system_one: [1]\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,10 +120,10 @@ func TestParsePipeline_RankSettings(t *testing.T) {
 }
 
 func TestParsePipeline_AskWithPreset(t *testing.T) {
-	nodes, err := parseFromYAML(t, "jev:\n  model: jev-1\n", pipelineWith(`
+	nodes, err := parseFromYAML(t, "system_one:\n  model: jev-1\n", pipelineWith(`
     - name: breaks-a-rule
       job: ask
-      with: jev
+      with: system-one
       preset: breaks-a-rule
 `))
 	if err != nil {
@@ -129,7 +131,7 @@ func TestParsePipeline_AskWithPreset(t *testing.T) {
 	}
 
 	want := Node{
-		Name: "breaks-a-rule", Job: JobAsk, With: RunnerJev, Threshold: 0.3, OnError: OnErrorSkip, Model: "jev-1",
+		Name: "breaks-a-rule", Job: JobAsk, With: RunnerSystemOne, Threshold: 0.3, OnError: OnErrorSkip, BaseURL: DefaultSystemOneBaseURL, Model: "jev-1", Timeout: DefaultSystemOneTimeout,
 		Question: Question{Type: QuestionNoul, ForEach: ForEachRule, Instructions: BreaksARuleInstructions},
 	}
 	if nodes[1] != want {
@@ -138,10 +140,10 @@ func TestParsePipeline_AskWithPreset(t *testing.T) {
 }
 
 func TestParsePipeline_AskWithItsOwnQuestion(t *testing.T) {
-	nodes, err := parseFromYAML(t, "jev:\n  model: jev-1\n", pipelineWith(`
+	nodes, err := parseFromYAML(t, "system_one:\n  model: jev-1\n", pipelineWith(`
     - name: own
       job: ask
-      with: jev
+      with: system-one
       model: jev-2
       type: noul
       for_each: rule
@@ -156,7 +158,7 @@ func TestParsePipeline_AskWithItsOwnQuestion(t *testing.T) {
 	}
 
 	want := Node{
-		Name: "own", Job: JobAsk, With: RunnerJev, Threshold: 0.6, TopK: 2, OnError: OnErrorFail, Model: "jev-2",
+		Name: "own", Job: JobAsk, With: RunnerSystemOne, Threshold: 0.6, TopK: 2, OnError: OnErrorFail, BaseURL: DefaultSystemOneBaseURL, Model: "jev-2", Timeout: DefaultSystemOneTimeout,
 		Question: Question{Type: QuestionNoul, ForEach: ForEachRule, Instructions: "Is {rule} broken? {rule} {not a placeholder}"},
 	}
 	if nodes[1] != want {
@@ -164,11 +166,41 @@ func TestParsePipeline_AskWithItsOwnQuestion(t *testing.T) {
 	}
 }
 
+func TestParsePipeline_SystemOneSettings(t *testing.T) {
+	block := "system_one:\n  base_url: http://127.0.0.1:8009/\n  model: kev-latest\n  timeout: 5m\n"
+
+	nodes, err := parseFromYAML(t, block, pipelineWith(`
+    - name: inherits
+      job: ask
+      with: system-one
+      preset: breaks-a-rule
+    - name: overrides
+      job: ask
+      with: system-one
+      preset: breaks-a-rule
+      base_url: https://kev.example.com/prefix/
+      model: kev-4b
+      timeout: 90s
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inherits, overrides := nodes[1], nodes[2]
+	if inherits.BaseURL != "http://127.0.0.1:8009" || inherits.Model != "kev-latest" || inherits.Timeout != 5*time.Minute {
+		t.Errorf("inherits = %+v, want the block's settings with the trailing slash dropped", inherits)
+	}
+
+	if overrides.BaseURL != "https://kev.example.com/prefix" || overrides.Model != "kev-4b" || overrides.Timeout != 90*time.Second {
+		t.Errorf("overrides = %+v, want the node's own settings with the trailing slash dropped", overrides)
+	}
+}
+
 func TestParsePipeline_PresetKeepOverridesItsDefaults(t *testing.T) {
 	nodes, err := parseFromYAML(t, "", pipelineWith(`
     - name: screen
       job: ask
-      with: jev
+      with: system-one
       preset: breaks-a-rule
       keep:
         threshold: 0.5
@@ -178,8 +210,8 @@ func TestParsePipeline_PresetKeepOverridesItsDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if nodes[1].Threshold != 0.5 || nodes[1].TopK != 1 || nodes[1].Model != "" {
-		t.Errorf("ask = %+v, want threshold 0.5, top_k 1 and no model", nodes[1])
+	if nodes[1].Threshold != 0.5 || nodes[1].TopK != 1 || nodes[1].Model != DefaultSystemOneModel {
+		t.Errorf("ask = %+v, want threshold 0.5, top_k 1 and the default model", nodes[1])
 	}
 }
 
@@ -233,7 +265,7 @@ func TestParsePipeline_NeedsInit(t *testing.T) {
 }
 
 func TestParsePipeline_Invalid(t *testing.T) {
-	ask := "\n    - name: screen\n      job: ask\n      with: jev\n"
+	ask := "\n    - name: screen\n      job: ask\n      with: system-one\n"
 	tests := []struct {
 		name string
 		yaml string
@@ -293,9 +325,22 @@ func TestParsePipeline_Invalid(t *testing.T) {
 		{"keep not a mapping", pipelineWith(ask + "      preset: breaks-a-rule\n      keep: 0.3\n"), []string{`node "screen".keep`, "mapping"}},
 		{"unknown keep key", pipelineWith(ask + "      preset: breaks-a-rule\n      keep:\n        options: [a]\n"), []string{`node "screen".keep`, `"options"`, "not allowed"}},
 		{"empty model", pipelineWith(ask + "      preset: breaks-a-rule\n      model: \"\"\n"), []string{`node "screen".model`, "non-empty string"}},
-		{"jev not a mapping", pipelineWith("") + "jev: jev-1\n", []string{"jev", "mapping"}},
-		{"api key in the jev block", pipelineWith("") + "jev:\n  api_key: secret\n", []string{"jev", `"api_key"`}},
-		{"non-string jev model", pipelineWith("") + "jev:\n  model: [a]\n", []string{"jev.model", "non-empty string"}},
+		{"system_one not a mapping", pipelineWith("") + "system_one: jev-1\n", []string{"system_one", "mapping"}},
+		{"api key in the system_one block", pipelineWith("") + "system_one:\n  api_key: secret\n", []string{"system_one", `"api_key"`}},
+		{"non-string system_one model", pipelineWith("") + "system_one:\n  model: [a]\n", []string{"system_one.model", "non-empty string"}},
+		{"the jev block", pipelineWith("") + "jev:\n  model: jev-1\n", []string{"jev", "now system_one"}},
+		{"with: jev on an ask node", pipelineWith("\n    - name: screen\n      job: ask\n      with: jev\n      preset: breaks-a-rule\n"), []string{`node "screen".with`, "jev is now system-one"}},
+		{"base_url not http", pipelineWith("") + "system_one:\n  base_url: ftp://example.com\n", []string{"system_one.base_url", "http or https"}},
+		{"base_url with no host", pipelineWith("") + "system_one:\n  base_url: \"http://\"\n", []string{"system_one.base_url", "host"}},
+		{"base_url relative", pipelineWith("") + "system_one:\n  base_url: localhost:8009\n", []string{"system_one.base_url", "http or https"}},
+		{"base_url with a user", pipelineWith("") + "system_one:\n  base_url: https://u:p@example.com\n", []string{"system_one.base_url", "user, query or fragment"}},
+		{"base_url with a query", pipelineWith("") + "system_one:\n  base_url: https://example.com?a=1\n", []string{"system_one.base_url", "user, query or fragment"}},
+		{"base_url with an empty query", pipelineWith("") + "system_one:\n  base_url: https://example.com?\n", []string{"system_one.base_url", "user, query or fragment"}},
+		{"base_url with a fragment", pipelineWith("") + "system_one:\n  base_url: \"https://example.com/#\"\n", []string{"system_one.base_url", "user, query or fragment"}},
+		{"node base_url not a URL", pipelineWith(ask + "      preset: breaks-a-rule\n      base_url: \"http://[::1\"\n"), []string{`node "screen".base_url`, "http or https"}},
+		{"timeout not a duration", pipelineWith("") + "system_one:\n  timeout: soon\n", []string{"system_one.timeout", "positive duration"}},
+		{"timeout a bare number", pipelineWith("") + "system_one:\n  timeout: 60\n", []string{"system_one.timeout", "positive duration"}},
+		{"timeout zero", pipelineWith(ask + "      preset: breaks-a-rule\n      timeout: 0s\n"), []string{`node "screen".timeout`, "positive duration"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

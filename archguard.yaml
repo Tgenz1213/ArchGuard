@@ -37,14 +37,14 @@ analysis:
       with: cosine
       top_k: 10 # A wide shortlist for governs to rerank
 
-    - name: governs # Asks Jev whether each ADR governs the file and keeps the top 3 (README: Screening with Jev)
+    - name: governs # Asks hosted Jev whether each ADR governs the file and keeps the top 3 (README: Asking System One models)
       job: ask
-      with: jev
+      with: system-one
       preset: governs
 
-    - name: breaks-a-rule # Screens with Jev before the LLM; needs ARCHGUARD_JEV_API_KEY (README: Screening with Jev)
+    - name: breaks-a-rule # Screens with hosted Jev before the LLM; needs ARCHGUARD_SYSTEM_ONE_API_KEY (README: Asking System One models)
       job: ask
-      with: jev
+      with: system-one
       preset: breaks-a-rule
 
     - name: judge

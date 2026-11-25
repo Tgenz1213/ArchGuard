@@ -3,9 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"maps"
+	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,12 +19,25 @@ const (
 )
 
 const (
-	RunnerCosine = "cosine"
-	RunnerJev    = "jev"
-	RunnerLLM    = "llm"
+	RunnerCosine    = "cosine"
+	RunnerSystemOne = "system-one"
+	RunnerLLM       = "llm"
 )
 
-const JevAPIKeyEnv = "ARCHGUARD_JEV_API_KEY"
+const retiredRunnerJev = "jev"
+
+const (
+	SystemOneAPIKeyEnv    = "ARCHGUARD_SYSTEM_ONE_API_KEY"
+	SystemOneKeyOriginEnv = "ARCHGUARD_SYSTEM_ONE_KEY_ORIGIN"
+)
+
+const (
+	DefaultSystemOneBaseURL = "https://api.typesafe.ai"
+	DefaultSystemOneModel   = "jev-latest"
+	DefaultSystemOneTimeout = 60 * time.Second
+)
+
+const systemOneReadme = `see "Asking System One models" in the README`
 
 const (
 	OnErrorSkip = "skip"
@@ -50,7 +64,9 @@ type Node struct {
 	Threshold float64
 	TopK      int
 	OnError   string
+	BaseURL   string
 	Model     string
+	Timeout   time.Duration
 	Question  Question
 	LLM       LLMConfig
 }
@@ -61,9 +77,13 @@ type Question struct {
 	Instructions string
 }
 
-// ParsePipeline validates analysis.pipeline and the jev block. LoadConfig never does, so commands other than check run on any pipeline.
+// ParsePipeline validates analysis.pipeline and the system_one block. LoadConfig never does, so commands other than check run on any pipeline.
 func ParsePipeline(cfg *Config) ([]Node, error) {
-	jev, err := parseJev(&cfg.Jev)
+	if isSet(&cfg.Jev) {
+		return nil, fmt.Errorf("jev: the jev block is now system_one; rename it (%s)", systemOneReadme)
+	}
+
+	systemOne, err := parseSystemOne(&cfg.SystemOne)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +99,7 @@ func ParsePipeline(cfg *Config) ([]Node, error) {
 
 	nodes := make([]Node, 0, len(pipeline.Content))
 	for i, item := range pipeline.Content {
-		node, err := parseNode(nodeSource{cfg: cfg, jev: jev, position: i + 1, raw: resolveAlias(item)})
+		node, err := parseNode(nodeSource{cfg: cfg, systemOne: systemOne, position: i + 1, raw: resolveAlias(item)})
 		if err != nil {
 			return nil, err
 		}
@@ -166,37 +186,92 @@ func countJob(nodes []Node, job string) int {
 	return count
 }
 
-type jevSettings struct {
-	model string
+type systemOneSettings struct {
+	baseURL string
+	model   string
+	timeout time.Duration
 }
 
-func parseJev(raw *yaml.Node) (jevSettings, error) {
+var systemOneKeys = []string{"base_url", "model", "timeout"}
+
+func isSet(raw *yaml.Node) bool {
 	raw = resolveAlias(raw)
-	if raw.Kind == 0 || raw.Tag == "!!null" {
-		return jevSettings{}, nil
+
+	return raw.Kind != 0 && raw.Tag != "!!null"
+}
+
+func parseSystemOne(raw *yaml.Node) (systemOneSettings, error) {
+	settings := systemOneSettings{baseURL: DefaultSystemOneBaseURL, model: DefaultSystemOneModel, timeout: DefaultSystemOneTimeout}
+	if !isSet(raw) {
+		return settings, nil
 	}
 
+	raw = resolveAlias(raw)
 	if raw.Kind != yaml.MappingNode {
-		return jevSettings{}, errors.New("jev: must be a mapping with a model key")
+		return systemOneSettings{}, fmt.Errorf("system_one: must be a mapping with %s keys", strings.Join(systemOneKeys, ", "))
 	}
 
-	fields, err := decodeFields("jev", raw)
+	fields, err := decodeFields("system_one", raw)
 	if err != nil {
-		return jevSettings{}, err
+		return systemOneSettings{}, err
 	}
 
-	var settings jevSettings
-	for _, key := range slices.Sorted(maps.Keys(fields)) {
-		value := fields[key]
-		if key != "model" {
-			return jevSettings{}, fmt.Errorf("jev: unrecognized key %q (expected model)", key)
-		}
+	if err := checkKeys("system_one", fields, systemOneKeys); err != nil {
+		return systemOneSettings{}, err
+	}
 
-		settings.model, err = decodeString("jev", key, &value)
-		if err != nil {
-			return jevSettings{}, err
+	return settings.override("system_one", fields)
+}
+
+func (s systemOneSettings) override(prefix string, fields map[string]yaml.Node) (systemOneSettings, error) {
+	var err error
+
+	if value, ok := fields["base_url"]; ok {
+		if s.baseURL, err = decodeBaseURL(prefix, &value); err != nil {
+			return systemOneSettings{}, err
 		}
 	}
 
-	return settings, nil
+	if value, ok := fields["model"]; ok {
+		if s.model, err = decodeString(prefix, "model", &value); err != nil {
+			return systemOneSettings{}, err
+		}
+	}
+
+	if value, ok := fields["timeout"]; ok {
+		if s.timeout, err = decodeTimeout(prefix, &value); err != nil {
+			return systemOneSettings{}, err
+		}
+	}
+
+	return s, nil
+}
+
+func decodeBaseURL(prefix string, node *yaml.Node) (string, error) {
+	raw, err := decodeString(prefix, "base_url", node)
+	if err != nil {
+		return "", err
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Opaque != "" {
+		return "", fmt.Errorf("%s.base_url: %q must be an http or https URL with a host", prefix, raw)
+	}
+
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(raw, "#") {
+		return "", fmt.Errorf("%s.base_url: %q can't have a user, query or fragment", prefix, raw)
+	}
+
+	return strings.TrimRight(raw, "/"), nil
+}
+
+func decodeTimeout(prefix string, node *yaml.Node) (time.Duration, error) {
+	node = resolveAlias(node)
+
+	timeout, err := time.ParseDuration(node.Value)
+	if node.Tag != "!!str" || err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("%s.timeout: %q must be a positive duration such as 60s or 2m", prefix, node.Value)
+	}
+
+	return timeout, nil
 }

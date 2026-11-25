@@ -165,6 +165,32 @@ func TestGenerateConfig_HasAValidPipeline(t *testing.T) {
 	assertPipelineParses(t, []byte(generateConfig("./docs/arch")))
 }
 
+func TestGenerateConfig_AskExampleParsesWhenUncommented(t *testing.T) {
+	generated := generateConfig("./docs/arch")
+	uncommented := generated
+	for _, line := range askExample {
+		uncommented = strings.Replace(uncommented, line, strings.Replace(line, "# ", "", 1), 1)
+	}
+
+	if uncommented == generated {
+		t.Fatal("the ask example is missing from the generated config")
+	}
+
+	var cfg config.Config
+	if err := yaml.Unmarshal([]byte(uncommented), &cfg); err != nil {
+		t.Fatalf("uncommented config doesn't parse: %v", err)
+	}
+
+	nodes, err := config.ParsePipeline(&cfg)
+	if err != nil {
+		t.Fatalf("uncommented pipeline is invalid: %v", err)
+	}
+
+	if len(nodes) != 3 || nodes[1].Name != "breaks-a-rule" || nodes[1].With != config.RunnerSystemOne || nodes[2].Job != config.JobJudge {
+		t.Errorf("nodes = %+v, want the ask example between the shortlist and the judge", nodes)
+	}
+}
+
 func TestSpliceDefaultPipeline_ReturnsTheRemovedLines(t *testing.T) {
 	splice, err := spliceDefaultPipeline([]byte("analysis:\n  pipeline:\n    rank:\n      threshold: 0.7\n  adr_path: docs\n"))
 	if err != nil {
@@ -184,13 +210,13 @@ func TestSpliceDefaultPipeline_ReportsAListCheckRejects(t *testing.T) {
 	}
 }
 
-func TestSpliceDefaultPipeline_IgnoresABadJevBlock(t *testing.T) {
-	const jev = "jev:\n  model: [a]\n"
+func TestSpliceDefaultPipeline_IgnoresABadSystemOneOrJevBlock(t *testing.T) {
+	for _, block := range []string{"jev:\n  model: [a]\n", "system_one:\n  base_url: ftp://x\n"} {
+		splice, err := spliceDefaultPipeline([]byte(block + "analysis:\n  pipeline:\n    rank:\n      threshold: 0.7\n"))
+		if err != nil {
+			t.Fatalf("splice failed: %v, want the splice, since check reports %q", err, block)
+		}
 
-	splice, err := spliceDefaultPipeline([]byte(jev + "analysis:\n  pipeline:\n    rank:\n      threshold: 0.7\n"))
-	if err != nil {
-		t.Fatalf("splice failed: %v, want the splice, since check reports the jev block", err)
+		assertPipelineParses(t, []byte(strings.Replace(string(splice.result), block, "", 1)))
 	}
-
-	assertPipelineParses(t, []byte(strings.Replace(string(splice.result), jev, "", 1)))
 }
