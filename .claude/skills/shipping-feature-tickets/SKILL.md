@@ -22,8 +22,9 @@ Not for vague or exploratory asks; this starts once there is a concrete ticket. 
 7. **Stop:** ask whether to push and open the PR.
 8. **Open the PR** with `.github/PULL_REQUEST_TEMPLATE.md`. Include accepted deviations, departures from the plan and why, and what only CI can verify.
 9. **Watch CI to the end.** Then give automated review about 5 minutes; if nothing arrives, report and stop. In a cloud session, subscribe to the PR's activity instead of polling.
-10. **Handle review feedback:** verify each claim against the code, then fix it or reply why not, on its thread.
-11. **Leave the branch and worktree** until the person chooses merge or discard.
+10. **Put the review on the PR.** Run `review-pr <N> --comment`, so each confirmed finding is a thread the ruleset requires resolved. A finding in the terminal alone blocks nothing.
+11. **Handle review feedback:** verify each claim against the code, then fix it or reply why not, on its thread. A pre-existing finding is fixed too, in its own commit.
+12. **Leave the branch and worktree** until the person chooses merge or discard.
 
 ## Commit gate
 
